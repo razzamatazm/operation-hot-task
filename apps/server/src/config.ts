@@ -15,6 +15,7 @@ export const config = {
   port: parseNumber(process.env.PORT, 4100),
   host: process.env.HOST ?? "127.0.0.1",
   dataFile: process.env.DATA_FILE ?? "apps/server/data/tasks.json",
+  frontendDist: process.env.FRONTEND_DIST ?? "apps/web/dist",
   businessTimezone: process.env.BUSINESS_TIMEZONE ?? DEFAULT_CONFIG.businessTimezone,
   businessStartHour: parseNumber(process.env.BUSINESS_START_HOUR, DEFAULT_CONFIG.businessStartHour),
   businessStartMinute: parseNumber(process.env.BUSINESS_START_MINUTE, DEFAULT_CONFIG.businessStartMinute),

@@ -1,6 +1,8 @@
 import { config as appConfig } from "./config.js";
 import cors from "cors";
 import express from "express";
+import fs from "node:fs";
+import path from "node:path";
 import { buildRouter } from "./routes.js";
 import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
@@ -37,6 +39,18 @@ const bootstrap = async (): Promise<void> => {
 
   app.use("/api", buildRouter(service, sse));
   botClient.register(app);
+
+  const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);
+  const indexFile = path.join(resolvedFrontendDist, "index.html");
+  if (fs.existsSync(indexFile)) {
+    app.use(express.static(resolvedFrontendDist));
+    app.get(/^\/(?!api).*/, (_req, res) => {
+      res.sendFile(indexFile);
+    });
+    console.log(`serving_frontend=true path=${resolvedFrontendDist}`);
+  } else {
+    console.log(`serving_frontend=false missing=${indexFile}`);
+  }
 
   const scheduler = startScheduler(service);
 

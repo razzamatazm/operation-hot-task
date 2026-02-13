@@ -120,6 +120,19 @@ Bot endpoint:
 4. Replace placeholder `teams-app/color.png` and `teams-app/outline.png` with production icon assets.
 5. Zip `teams-app/*` and sideload into Teams for testing.
 
+For a full Azure + Teams production runbook with copy/paste commands, use:
+
+- `docs/AZURE_DEPLOYMENT.md`
+- `scripts/azure/provision-webapp.sh`
+- `scripts/azure/create-identity-and-bot.sh`
+- `scripts/azure/build-teams-package.sh`
+
+NPM shortcuts:
+
+- `npm run azure:provision`
+- `npm run azure:identity`
+- `npm run azure:teams-package`
+
 ## Channel posts
 
 Two channel posting mechanisms are supported:

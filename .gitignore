@@ -10,3 +10,5 @@ apps/server/data/*.db
 npm-debug.log*
 yarn-error.log*
 pnpm-lock.yaml
+teams-app/manifest.generated.json
+teams-app/*.zip
