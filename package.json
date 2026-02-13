@@ -1,0 +1,25 @@
+{
+  "name": "loan-tasks-teams-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Microsoft Teams app for loan task coordination",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @loan-tasks/shared & npm run dev --workspace @loan-tasks/server & npm run dev --workspace @loan-tasks/web",
+    "dev:shared": "npm run dev --workspace @loan-tasks/shared",
+    "dev:server": "npm run dev --workspace @loan-tasks/server",
+    "dev:web": "npm run dev --workspace @loan-tasks/web",
+    "test:scheduler": "node scripts/scheduler-sim-test.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "test:all": "npm run test:scheduler && npm run test:smoke",
+    "build": "npm run build --workspace @loan-tasks/shared && npm run build --workspace @loan-tasks/server && npm run build --workspace @loan-tasks/web",
+    "lint": "npm run lint --workspace @loan-tasks/server && npm run lint --workspace @loan-tasks/web && npm run lint --workspace @loan-tasks/shared",
+    "format": "npm run format --workspace @loan-tasks/server && npm run format --workspace @loan-tasks/web && npm run format --workspace @loan-tasks/shared"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

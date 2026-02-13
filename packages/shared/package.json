@@ -1,0 +1,17 @@
+{
+  "name": "@loan-tasks/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsc -w -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "format": "echo 'No formatter configured'"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

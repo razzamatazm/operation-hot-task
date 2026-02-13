@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.*
+dist
+build
+coverage
+.DS_Store
+apps/server/data/*.json
+apps/server/data/*.db
+npm-debug.log*
+yarn-error.log*
+pnpm-lock.yaml

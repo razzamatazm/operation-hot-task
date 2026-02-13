@@ -1,0 +1,64 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "YOUR-APP-ID",
+  "packageName": "com.yourcompany.loantasks",
+  "name": {
+    "short": "Loan Tasks",
+    "full": "Loan Tasks Internal Teams App"
+  },
+  "developer": {
+    "name": "Your Company",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "description": {
+    "short": "Loan officer task board",
+    "full": "Create, claim, review, complete, and archive loan check tasks with bot notifications."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#0b5fff",
+  "bots": [
+    {
+      "botId": "YOUR-BOT-APP-ID",
+      "scopes": ["personal", "team"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            {
+              "title": "help",
+              "description": "Shows bot help"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "composeExtensions": [],
+  "staticTabs": [
+    {
+      "entityId": "loan-tasks-home",
+      "name": "Loan Tasks",
+      "contentUrl": "https://YOUR-APP-DOMAIN/",
+      "websiteUrl": "https://YOUR-APP-DOMAIN/",
+      "scopes": ["personal"]
+    }
+  ],
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://YOUR-APP-DOMAIN/",
+      "canUpdateConfiguration": true,
+      "scopes": ["team", "groupchat"]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["YOUR-APP-DOMAIN"]
+}

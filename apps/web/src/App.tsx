@@ -1,0 +1,423 @@
+import { app as teamsApp } from "@microsoft/teams-js";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, USER_ROLES, nextFlowStatuses } from "@loan-tasks/shared";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { mockUsers } from "./mockUsers";
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+const INITIAL_USER = mockUsers[0]!;
+
+const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      "x-user-id": user.id,
+      "x-user-name": user.displayName,
+      "x-user-roles": user.roles.join(","),
+      ...(init.headers ?? {})
+    }
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error ?? "Request failed");
+  }
+
+  return data as T;
+};
+
+const asDateTimeLocal = (date: Date): string => {
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+};
+
+const defaultDueByTaskType = (taskType: TaskType): string => {
+  const now = new Date();
+
+  if (taskType === "LOI" || taskType === "LOAN_DOCS") {
+    return asDateTimeLocal(new Date(now.getTime() + 60 * 60 * 1000));
+  }
+
+  const nextBusiness = new Date(now);
+  const setEnd = (): void => {
+    nextBusiness.setHours(17, 30, 0, 0);
+  };
+
+  if (taskType === "FRAUD") {
+    setEnd();
+    if (nextBusiness < now) {
+      nextBusiness.setDate(nextBusiness.getDate() + 1);
+    }
+  } else {
+    nextBusiness.setDate(nextBusiness.getDate() + 1);
+    setEnd();
+  }
+
+  while (nextBusiness.getDay() === 0 || nextBusiness.getDay() === 6) {
+    nextBusiness.setDate(nextBusiness.getDate() + 1);
+  }
+
+  return asDateTimeLocal(nextBusiness);
+};
+
+const urgencyClass = (urgency: UrgencyLevel): string => {
+  if (urgency === "RED") {
+    return "urgency urgency-red";
+  }
+  if (urgency === "YELLOW") {
+    return "urgency urgency-yellow";
+  }
+  return "urgency urgency-green";
+};
+
+const statusLabel = (status: TaskStatus): string => status.replaceAll("_", " ");
+
+const canUnclaim = (task: LoanTask, user: UserIdentity): boolean => task.status === "CLAIMED" && (task.assignee?.id === user.id || user.roles.includes("ADMIN"));
+
+const TaskCard = ({
+  task,
+  user,
+  onClaim,
+  onUnclaim,
+  onTransition
+}: {
+  task: LoanTask;
+  user: UserIdentity;
+  onClaim: (taskId: string) => Promise<void>;
+  onUnclaim: (taskId: string) => Promise<void>;
+  onTransition: (taskId: string, status: TaskStatus) => Promise<void>;
+}) => {
+  const transitions = nextFlowStatuses(task).filter((status) => status !== "OPEN");
+  const [nextStatus, setNextStatus] = useState<TaskStatus | "">(transitions[0] ?? "");
+
+  useEffect(() => {
+    setNextStatus(transitions[0] ?? "");
+  }, [task.status]);
+
+  return (
+    <article className="task-card">
+      <header className="task-card-head">
+        <h4>{task.loanName}</h4>
+        <span className={urgencyClass(task.urgency)}>{task.urgency}</span>
+      </header>
+
+      <p className="task-meta">
+        <strong>Type:</strong> {task.taskType}
+      </p>
+      <p className="task-meta">
+        <strong>Status:</strong> {statusLabel(task.status)}
+      </p>
+      <p className="task-meta">
+        <strong>Due:</strong> {new Date(task.dueAt).toLocaleString()}
+      </p>
+      <p className="task-notes">{task.notes}</p>
+
+      <p className="task-meta small">
+        <strong>Creator:</strong> {task.createdBy.displayName}
+      </p>
+      <p className="task-meta small">
+        <strong>Assignee:</strong> {task.assignee?.displayName ?? "Unassigned"}
+      </p>
+
+      {task.humperdinkLink && (
+        <p className="task-meta small">
+          <strong>Humperdink:</strong> <a href={task.humperdinkLink}>{task.humperdinkLink}</a>
+        </p>
+      )}
+
+      {task.serverLocation && (
+        <p className="task-meta small">
+          <strong>Server:</strong> {task.serverLocation}
+        </p>
+      )}
+
+      <div className="task-actions">
+        {task.status === "OPEN" && (
+          <button type="button" onClick={() => onClaim(task.id)}>
+            Claim
+          </button>
+        )}
+
+        {canUnclaim(task, user) && (
+          <button type="button" className="secondary" onClick={() => onUnclaim(task.id)}>
+            Unclaim
+          </button>
+        )}
+
+        {transitions.length > 0 && (
+          <>
+            <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value as TaskStatus)}>
+              {transitions.map((status) => (
+                <option key={status} value={status}>
+                  {statusLabel(status)}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={() => (nextStatus ? onTransition(task.id, nextStatus) : Promise.resolve())}>
+              Update
+            </button>
+          </>
+        )}
+      </div>
+    </article>
+  );
+};
+
+export const App = () => {
+  const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
+  const [tasks, setTasks] = useState<LoanTask[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<string[]>([]);
+
+  const [form, setForm] = useState({
+    loanName: "",
+    taskType: "LOI" as TaskType,
+    dueAt: defaultDueByTaskType("LOI"),
+    urgency: "GREEN" as UrgencyLevel,
+    notes: "",
+    humperdinkLink: "",
+    serverLocation: ""
+  });
+
+  const refresh = async (): Promise<void> => {
+    try {
+      const data = await apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user);
+      setTasks(data.tasks);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tasks");
+    }
+  };
+
+  useEffect(() => {
+    teamsApp
+      .initialize()
+      .catch(() => {
+        // Running outside Teams in local dev is expected.
+      });
+  }, []);
+
+  useEffect(() => {
+    refresh().catch(() => {
+      // handled in refresh
+    });
+  }, [user.id]);
+
+  useEffect(() => {
+    const source = new EventSource(`${API_BASE}/stream`);
+    source.addEventListener("task.changed", (event) => {
+      const incoming = JSON.parse((event as MessageEvent<string>).data) as LoanTask;
+      setTasks((current) => {
+        const idx = current.findIndex((task) => task.id === incoming.id);
+        if (idx === -1) {
+          return [incoming, ...current];
+        }
+        const copy = [...current];
+        copy[idx] = incoming;
+        return copy.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      });
+      setNotifications((current) => [`Task updated: ${incoming.loanName} (${statusLabel(incoming.status)})`, ...current].slice(0, 6));
+    });
+    return () => source.close();
+  }, []);
+
+  const onCreateTask = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    const payload: CreateTaskInput = {
+      loanName: form.loanName,
+      taskType: form.taskType,
+      dueAt: new Date(form.dueAt).toISOString(),
+      urgency: form.urgency,
+      notes: form.notes,
+      ...(form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {}),
+      ...(form.serverLocation ? { serverLocation: form.serverLocation } : {})
+    };
+
+    try {
+      await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
+      setForm((current) => ({
+        ...current,
+        loanName: "",
+        notes: "",
+        humperdinkLink: "",
+        serverLocation: ""
+      }));
+      setError(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create task");
+    }
+  };
+
+  const onClaim = async (taskId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/claim`, { method: "POST" }, user);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to claim task");
+    }
+  };
+
+  const onUnclaim = async (taskId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/unclaim`, { method: "POST" }, user);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unclaim task");
+    }
+  };
+
+  const onTransition = async (taskId: string, status: TaskStatus): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status }) }, user);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update task");
+    }
+  };
+
+  const columns = useMemo(
+    () => ({
+      open: tasks.filter((task) => task.status === "OPEN"),
+      active: tasks.filter((task) => ["CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED"].includes(task.status)),
+      completed: tasks.filter((task) => task.status === "COMPLETED"),
+      archived: tasks.filter((task) => ["ARCHIVED", "CANCELLED"].includes(task.status))
+    }),
+    [tasks]
+  );
+
+  return (
+    <main className="app-shell">
+      <header className="top-bar">
+        <div>
+          <h1>Loan Tasks</h1>
+          <p>Teams coordination app for loan checks and docs</p>
+        </div>
+
+        <label className="user-picker">
+          Acting user
+          <select value={user.id} onChange={(event) => setUser(mockUsers.find((entry) => entry.id === event.target.value) ?? INITIAL_USER)}>
+            {mockUsers.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.displayName} ({entry.roles.join("/")})
+              </option>
+            ))}
+          </select>
+        </label>
+      </header>
+
+      {error && <p className="error">{error}</p>}
+
+      <section className="panel">
+        <h2>Create Task</h2>
+        <form className="task-form" onSubmit={onCreateTask}>
+          <label>
+            Loan Name
+            <input value={form.loanName} onChange={(event) => setForm((current) => ({ ...current, loanName: event.target.value }))} required />
+          </label>
+
+          <label>
+            Task Type
+            <select
+              value={form.taskType}
+              onChange={(event) => {
+                const taskType = event.target.value as TaskType;
+                setForm((current) => ({ ...current, taskType, dueAt: defaultDueByTaskType(taskType) }));
+              }}
+            >
+              <option value="LOI">LOI</option>
+              <option value="VALUE">Value</option>
+              <option value="FRAUD">Fraud</option>
+              <option value="LOAN_DOCS">Loan Docs</option>
+            </select>
+          </label>
+
+          <label>
+            Due Date
+            <input type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} required />
+          </label>
+
+          <label>
+            Urgency
+            <select value={form.urgency} onChange={(event) => setForm((current) => ({ ...current, urgency: event.target.value as UrgencyLevel }))}>
+              <option value="GREEN">Green</option>
+              <option value="YELLOW">Yellow</option>
+              <option value="RED">Red</option>
+            </select>
+          </label>
+
+          <label className="full-width">
+            Notes
+            <textarea rows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} required />
+          </label>
+
+          <details className="full-width optional-panel">
+            <summary>Optional Fields</summary>
+
+            <label>
+              Humperdink Link
+              <input type="url" value={form.humperdinkLink} onChange={(event) => setForm((current) => ({ ...current, humperdinkLink: event.target.value }))} />
+            </label>
+
+            <label>
+              Server Location
+              <input value={form.serverLocation} onChange={(event) => setForm((current) => ({ ...current, serverLocation: event.target.value }))} />
+            </label>
+          </details>
+
+          <button type="submit">Create Task</button>
+        </form>
+      </section>
+
+      <section className="board-grid">
+        <section className="panel">
+          <h3>Open Tasks ({columns.open.length})</h3>
+          <div className="task-list">
+            {columns.open.map((task) => (
+              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <h3>In Progress ({columns.active.length})</h3>
+          <div className="task-list">
+            {columns.active.map((task) => (
+              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <h3>Completed ({columns.completed.length})</h3>
+          <div className="task-list">
+            {columns.completed.map((task) => (
+              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <h3>Archive ({columns.archived.length})</h3>
+          <div className="task-list">
+            {columns.archived.map((task) => (
+              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
+            ))}
+          </div>
+        </section>
+      </section>
+
+      <section className="panel">
+        <h3>Live Notifications</h3>
+        {notifications.length === 0 ? <p className="small">No events yet.</p> : <ul className="notice-list">{notifications.map((item) => <li key={item}>{item}</li>)}</ul>}
+      </section>
+
+      <footer className="footer-note">
+        <p>
+          Roles available: {USER_ROLES.join(", ")} | Reminders: hourly, business hours 8:30 AM-5:30 PM America/Los_Angeles
+        </p>
+      </footer>
+    </main>
+  );
+};
