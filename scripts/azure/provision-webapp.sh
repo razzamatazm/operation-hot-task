@@ -80,7 +80,8 @@ az webapp config set \
   --output table
 
 echo "==> creating deployment package from current HEAD"
-DEPLOY_ZIP="$(mktemp /tmp/operation-hot-task-XXXXXX.zip)"
+TMP_BASE="$(mktemp /tmp/operation-hot-task-XXXXXX)"
+DEPLOY_ZIP="${TMP_BASE}.zip"
 git archive --format=zip --output "$DEPLOY_ZIP" HEAD
 
 echo "==> deploying package"
@@ -92,7 +93,7 @@ az webapp deploy \
   --clean true \
   --output table
 
-rm -f "$DEPLOY_ZIP"
+rm -f "$DEPLOY_ZIP" "$TMP_BASE"
 
 APP_URL="https://${WEBAPP_NAME}.azurewebsites.net"
 echo
