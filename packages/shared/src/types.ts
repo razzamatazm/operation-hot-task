@@ -1,7 +1,7 @@
 export const TASK_TYPES = ["LOI", "VALUE", "FRAUD", "LOAN_DOCS"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
-export const URGENCY_LEVELS = ["GREEN", "YELLOW", "RED"] as const;
+export const URGENCY_LEVELS = ["GREEN", "YELLOW", "ORANGE", "RED"] as const;
 export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
 
 export const USER_ROLES = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] as const;

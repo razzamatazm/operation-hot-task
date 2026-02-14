@@ -1,4 +1,4 @@
-import { AppConfig, LoanTask, TaskStatus, TaskType, UserIdentity } from "./types.js";
+import { AppConfig, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -30,32 +30,153 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 export const toUtcISOString = (date: Date): string => date.toISOString();
 
-export const computeDefaultDueAt = (taskType: TaskType, now: Date): string => {
-  if (taskType === "LOI" || taskType === "LOAN_DOCS") {
-    const due = new Date(now.getTime() + 60 * 60 * 1000);
-    return toUtcISOString(due);
+const parseOffsetMinutes = (value: string): number => {
+  const match = value.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!match) {
+    return 0;
   }
 
-  if (taskType === "FRAUD") {
-    const local = new Date(now);
-    local.setHours(DEFAULT_CONFIG.businessEndHour, DEFAULT_CONFIG.businessEndMinute, 0, 0);
-    if (local.getTime() <= now.getTime()) {
-      local.setDate(local.getDate() + 1);
-      while (local.getDay() === 0 || local.getDay() === 6) {
-        local.setDate(local.getDate() + 1);
-      }
-      local.setHours(DEFAULT_CONFIG.businessEndHour, DEFAULT_CONFIG.businessEndMinute, 0, 0);
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number.parseInt(match[2] ?? "0", 10);
+  const minutes = Number.parseInt(match[3] ?? "0", 10);
+  return sign * (hours * 60 + minutes);
+};
+
+const zonedOffsetMinutes = (date: Date, timezone: string): number => {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "shortOffset",
+    hour: "2-digit"
+  })
+    .formatToParts(date)
+    .find((entry) => entry.type === "timeZoneName");
+  return parseOffsetMinutes(part?.value ?? "GMT");
+};
+
+const zonedParts = (
+  date: Date,
+  timezone: string
+): { year: number; month: number; day: number; weekday: string; hour: number; minute: number } => {
+  const partMap = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  })
+    .formatToParts(date)
+    .reduce<Record<string, string>>((acc, part) => {
+      acc[part.type] = part.value;
+      return acc;
+    }, {});
+
+  return {
+    year: Number.parseInt(partMap.year ?? "1970", 10),
+    month: Number.parseInt(partMap.month ?? "1", 10),
+    day: Number.parseInt(partMap.day ?? "1", 10),
+    weekday: partMap.weekday ?? "Mon",
+    hour: Number.parseInt(partMap.hour ?? "0", 10),
+    minute: Number.parseInt(partMap.minute ?? "0", 10)
+  };
+};
+
+const isWeekend = (dayName: string): boolean => dayName === "Sat" || dayName === "Sun";
+
+const isBusinessDate = (year: number, month: number, day: number): boolean => {
+  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, day)));
+  return !isWeekend(weekday);
+};
+
+const nextBusinessDate = (
+  year: number,
+  month: number,
+  day: number,
+  count: number
+): { year: number; month: number; day: number } => {
+  let cursor = new Date(Date.UTC(year, month - 1, day));
+  let remaining = count;
+
+  while (remaining > 0) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const y = cursor.getUTCFullYear();
+    const m = cursor.getUTCMonth() + 1;
+    const d = cursor.getUTCDate();
+    if (isBusinessDate(y, m, d)) {
+      remaining -= 1;
     }
-    return toUtcISOString(local);
   }
 
-  const due = new Date(now);
-  due.setDate(due.getDate() + 1);
-  while (due.getDay() === 0 || due.getDay() === 6) {
-    due.setDate(due.getDate() + 1);
+  while (!isBusinessDate(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, cursor.getUTCDate())) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
-  due.setHours(DEFAULT_CONFIG.businessEndHour, DEFAULT_CONFIG.businessEndMinute, 0, 0);
-  return toUtcISOString(due);
+
+  return {
+    year: cursor.getUTCFullYear(),
+    month: cursor.getUTCMonth() + 1,
+    day: cursor.getUTCDate()
+  };
+};
+
+const zonedToUtcIso = (year: number, month: number, day: number, hour: number, minute: number, timezone: string): string => {
+  const guessUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  const offset = zonedOffsetMinutes(new Date(guessUtc), timezone);
+  return new Date(guessUtc - offset * 60 * 1000).toISOString();
+};
+
+export const computeDueAtFromUrgency = (
+  urgency: UrgencyLevel,
+  now: Date,
+  config: AppConfig = DEFAULT_CONFIG
+): string => {
+  if (urgency === "RED") {
+    return now.toISOString();
+  }
+
+  if (urgency === "ORANGE") {
+    return new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+  }
+
+  const localNow = zonedParts(now, config.businessTimezone);
+  const nowMinutes = localNow.hour * 60 + localNow.minute;
+  const endMinutes = config.businessEndHour * 60 + config.businessEndMinute;
+
+  // Yellow means end of current business day (or next business day if already past close/weekend).
+  if (urgency === "YELLOW") {
+    if (!isWeekend(localNow.weekday) && nowMinutes <= endMinutes) {
+      return zonedToUtcIso(localNow.year, localNow.month, localNow.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
+    }
+
+    const next = nextBusinessDate(localNow.year, localNow.month, localNow.day, 1);
+    return zonedToUtcIso(next.year, next.month, next.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
+  }
+
+  // Green is "anytime" but reminders begin after the next business day closes.
+  if (!isWeekend(localNow.weekday)) {
+    const next = nextBusinessDate(localNow.year, localNow.month, localNow.day, 1);
+    return zonedToUtcIso(next.year, next.month, next.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
+  }
+
+  const firstBusiness = nextBusinessDate(localNow.year, localNow.month, localNow.day, 0);
+  return zonedToUtcIso(
+    firstBusiness.year,
+    firstBusiness.month,
+    firstBusiness.day,
+    config.businessEndHour,
+    config.businessEndMinute,
+    config.businessTimezone
+  );
+};
+
+export const computeDefaultDueAt = (
+  _taskType: TaskType,
+  now: Date,
+  urgency: UrgencyLevel = "GREEN",
+  config: AppConfig = DEFAULT_CONFIG
+): string => {
+  return computeDueAtFromUrgency(urgency, now, config);
 };
 
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {

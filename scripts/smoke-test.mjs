@@ -165,9 +165,39 @@ const run = async () => {
     assert.equal(loiTask.urgency, "GREEN");
     pushPass("create LOI defaults applied");
 
-    const dueMs = new Date(loiTask.dueAt).getTime() - new Date(loiTask.createdAt).getTime();
-    assert.ok(dueMs >= 55 * 60 * 1000 && dueMs <= 65 * 60 * 1000, `LOI due delta expected ~1h, got ${dueMs}`);
-    pushPass("LOI due default is approximately 1 hour");
+    const greenDueMs = new Date(loiTask.dueAt).getTime() - new Date(loiTask.createdAt).getTime();
+    assert.ok(greenDueMs > 0, "GREEN dueAt should be in the future");
+    pushPass("default GREEN urgency computes a future backend due date");
+
+    const createOrange = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        loanName: "Smoke Orange",
+        taskType: "VALUE",
+        urgency: "ORANGE",
+        notes: "smoke-orange"
+      }
+    });
+    expectStatus(createOrange.status, 201, "create ORANGE task", createOrange.json);
+    const orangeTask = createOrange.json.task;
+    const orangeDueMs = new Date(orangeTask.dueAt).getTime() - new Date(orangeTask.createdAt).getTime();
+    assert.ok(orangeDueMs >= 55 * 60 * 1000 && orangeDueMs <= 65 * 60 * 1000, `ORANGE due delta expected ~1h, got ${orangeDueMs}`);
+    pushPass("ORANGE urgency default due is approximately 1 hour");
+
+    const createRed = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        loanName: "Smoke Red",
+        taskType: "LOI",
+        urgency: "RED",
+        notes: "smoke-red"
+      }
+    });
+    expectStatus(createRed.status, 201, "create RED task", createRed.json);
+    const redTask = createRed.json.task;
+    const redDueMs = new Date(redTask.dueAt).getTime() - new Date(redTask.createdAt).getTime();
+    assert.ok(redDueMs >= -60 * 1000 && redDueMs <= 60 * 1000, `RED due delta expected immediate, got ${redDueMs}`);
+    pushPass("RED urgency default due is immediate");
 
     const claimByOther = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/claim`, {
       user: users.otherOfficer

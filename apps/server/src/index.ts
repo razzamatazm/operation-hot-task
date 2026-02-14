@@ -33,6 +33,7 @@ const bootstrap = async (): Promise<void> => {
 
   const notifier = new TeamsNotificationProvider(botClient);
   const service = new TaskService(store, notifier, sse, rules);
+  botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
 
   app.use(cors());
   app.use(express.json());

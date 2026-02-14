@@ -4,7 +4,7 @@ export const createTaskSchema = z.object({
   loanName: z.string().min(1),
   taskType: z.enum(["LOI", "VALUE", "FRAUD", "LOAN_DOCS"]),
   dueAt: z.string().datetime().optional(),
-  urgency: z.enum(["GREEN", "YELLOW", "RED"]).optional(),
+  urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"]).optional(),
   notes: z.string().min(1),
   humperdinkLink: z.string().url().optional().or(z.literal("")),
   serverLocation: z.string().optional()

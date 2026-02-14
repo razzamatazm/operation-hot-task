@@ -43,12 +43,13 @@ export class TaskService {
 
   async createTask(input: CreateTaskInput, user: UserIdentity): Promise<LoanTask> {
     const now = new Date();
+    const urgency = input.urgency ?? "GREEN";
     const task: LoanTask = {
       id: uuid(),
       loanName: input.loanName.trim(),
       taskType: input.taskType,
-      dueAt: input.dueAt ?? computeDefaultDueAt(input.taskType, now),
-      urgency: input.urgency ?? "GREEN",
+      dueAt: input.dueAt ?? computeDefaultDueAt(input.taskType, now, urgency, this.appConfig),
+      urgency,
       notes: input.notes.trim(),
       status: "OPEN",
       createdAt: now.toISOString(),

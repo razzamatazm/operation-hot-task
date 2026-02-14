@@ -7,6 +7,19 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const INITIAL_USER = mockUsers[0]!;
 
 const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
+const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  LOI: "LOI Check",
+  VALUE: "Value Check",
+  FRAUD: "Fraud Check",
+  LOAN_DOCS: "Loan Docs"
+};
+
+const URGENCY_LABELS: Record<UrgencyLevel, string> = {
+  GREEN: "Green - Anytime",
+  YELLOW: "Yellow - End of Day",
+  ORANGE: "Orange - Within 1 Hour",
+  RED: "Red - Urgent Now"
+};
 
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -28,44 +41,12 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
   return data as T;
 };
 
-const asDateTimeLocal = (date: Date): string => {
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60 * 1000);
-  return local.toISOString().slice(0, 16);
-};
-
-const defaultDueByTaskType = (taskType: TaskType): string => {
-  const now = new Date();
-
-  if (taskType === "LOI" || taskType === "LOAN_DOCS") {
-    return asDateTimeLocal(new Date(now.getTime() + 60 * 60 * 1000));
-  }
-
-  const nextBusiness = new Date(now);
-  const setEnd = (): void => {
-    nextBusiness.setHours(17, 30, 0, 0);
-  };
-
-  if (taskType === "FRAUD") {
-    setEnd();
-    if (nextBusiness < now) {
-      nextBusiness.setDate(nextBusiness.getDate() + 1);
-    }
-  } else {
-    nextBusiness.setDate(nextBusiness.getDate() + 1);
-    setEnd();
-  }
-
-  while (nextBusiness.getDay() === 0 || nextBusiness.getDay() === 6) {
-    nextBusiness.setDate(nextBusiness.getDate() + 1);
-  }
-
-  return asDateTimeLocal(nextBusiness);
-};
-
 const urgencyClass = (urgency: UrgencyLevel): string => {
   if (urgency === "RED") {
     return "urgency urgency-red";
+  }
+  if (urgency === "ORANGE") {
+    return "urgency urgency-orange";
   }
   if (urgency === "YELLOW") {
     return "urgency urgency-yellow";
@@ -111,17 +92,13 @@ const TaskCard = ({
         <div>
           <h4>{task.loanName}</h4>
           <div className="task-pill-row">
-            <span className="pill">{task.taskType}</span>
+            <span className="pill">{TASK_TYPE_LABELS[task.taskType]}</span>
             <span className="pill">{statusLabel(task.status)}</span>
             {overdue && <span className="pill pill-overdue">Overdue</span>}
           </div>
         </div>
-        <span className={urgencyClass(task.urgency)}>{task.urgency}</span>
+        <span className={urgencyClass(task.urgency)}>{URGENCY_LABELS[task.urgency]}</span>
       </header>
-
-      <p className={`task-meta ${overdue ? "task-meta-overdue" : ""}`}>
-        <strong>Due:</strong> {new Date(task.dueAt).toLocaleString()}
-      </p>
       <p className="task-notes">{task.notes}</p>
 
       <div className="task-mini-grid">
@@ -189,7 +166,6 @@ export const App = () => {
   const [form, setForm] = useState({
     loanName: "",
     taskType: "LOI" as TaskType,
-    dueAt: defaultDueByTaskType("LOI"),
     urgency: "GREEN" as UrgencyLevel,
     notes: "",
     humperdinkLink: "",
@@ -251,7 +227,6 @@ export const App = () => {
     const payload: CreateTaskInput = {
       loanName: form.loanName,
       taskType: form.taskType,
-      dueAt: new Date(form.dueAt).toISOString(),
       urgency: form.urgency,
       notes: form.notes,
       ...(form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {}),
@@ -366,31 +341,21 @@ export const App = () => {
 
           <label>
             Task Type
-            <select
-              value={form.taskType}
-              onChange={(event) => {
-                const taskType = event.target.value as TaskType;
-                setForm((current) => ({ ...current, taskType, dueAt: defaultDueByTaskType(taskType) }));
-              }}
-            >
-              <option value="LOI">LOI</option>
-              <option value="VALUE">Value</option>
-              <option value="FRAUD">Fraud</option>
+            <select value={form.taskType} onChange={(event) => setForm((current) => ({ ...current, taskType: event.target.value as TaskType }))}>
+              <option value="LOI">LOI Check</option>
+              <option value="VALUE">Value Check</option>
+              <option value="FRAUD">Fraud Check</option>
               <option value="LOAN_DOCS">Loan Docs</option>
             </select>
           </label>
 
           <label>
-            Due Date
-            <input type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} required />
-          </label>
-
-          <label>
             Urgency
             <select value={form.urgency} onChange={(event) => setForm((current) => ({ ...current, urgency: event.target.value as UrgencyLevel }))}>
-              <option value="GREEN">Green</option>
-              <option value="YELLOW">Yellow</option>
-              <option value="RED">Red</option>
+              <option value="GREEN">Green - Anytime</option>
+              <option value="YELLOW">Yellow - End of Day</option>
+              <option value="ORANGE">Orange - Within 1 Hour</option>
+              <option value="RED">Red - Urgent Now</option>
             </select>
           </label>
 
@@ -399,19 +364,15 @@ export const App = () => {
             <textarea rows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} required />
           </label>
 
-          <details className="full-width optional-panel">
-            <summary>Optional Fields</summary>
+          <label>
+            Humperdink Link (optional)
+            <input type="url" value={form.humperdinkLink} onChange={(event) => setForm((current) => ({ ...current, humperdinkLink: event.target.value }))} />
+          </label>
 
-            <label>
-              Humperdink Link
-              <input type="url" value={form.humperdinkLink} onChange={(event) => setForm((current) => ({ ...current, humperdinkLink: event.target.value }))} />
-            </label>
-
-            <label>
-              Server Location
-              <input value={form.serverLocation} onChange={(event) => setForm((current) => ({ ...current, serverLocation: event.target.value }))} />
-            </label>
-          </details>
+          <label>
+            Server Location (optional)
+            <input value={form.serverLocation} onChange={(event) => setForm((current) => ({ ...current, serverLocation: event.target.value }))} />
+          </label>
 
           <button type="submit">Create Task</button>
         </form>

@@ -6,6 +6,7 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
 
 - Teams **Tab app** (`apps/web`) with task board UI
 - Teams **Bot endpoint** (`apps/server`) for notification delivery (DM + channel posts)
+- Teams **Bot quick add** flow via `/bot new`
 - Task lifecycle and rules for:
   - LOI
   - Value
@@ -18,6 +19,12 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
   - `OPEN`, `CLAIMED`, `NEEDS_REVIEW`, `MERGE_DONE`, `MERGE_APPROVED`, `COMPLETED`, `CANCELLED`, `ARCHIVED`
 - Real-time in-app updates via SSE
 - Hourly overdue reminders during business hours (8:30 AM-5:30 PM America/Los_Angeles)
+- Urgency model:
+  - `GREEN` anytime (reminders begin after next business day)
+  - `YELLOW` end of business day
+  - `ORANGE` within 1 hour
+  - `RED` immediate
+- Due timestamps are backend-tracked; due date/time is not user-entered in UI
 - Auto-purge archived tasks after 90 days (3 months)
 
 ## Repo layout
@@ -107,6 +114,10 @@ Base URL: `/api`
 Bot endpoint:
 
 - `POST /api/bot/messages`
+- Bot chat commands:
+  - `/bot new` quick add wizard (task type -> urgency -> humperdink link -> server file/path -> loan name confirm/override)
+  - `/bot cancel`
+  - `help`
 
 ## Teams setup (Azure-ready)
 

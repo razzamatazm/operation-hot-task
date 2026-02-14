@@ -34,6 +34,10 @@
           "scopes": ["personal"],
           "commands": [
             {
+              "title": "new",
+              "description": "Start quick add task flow"
+            },
+            {
               "title": "help",
               "description": "Shows bot help"
             }

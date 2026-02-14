@@ -23,12 +23,13 @@ export class TeamsNotificationProvider implements NotificationProvider {
 
   async notify(event: NotificationEvent): Promise<void> {
     const prefix = `[${event.task.taskType}] [${event.task.urgency}]`;
+    const detail = `Loan: ${event.task.loanName}\nStatus: ${event.task.status}\nUrgency: ${event.task.urgency}`;
 
     if (event.target === "CHANNEL") {
-      await this.botClient.sendToChannels(`${prefix} ${event.message}`, `Loan: ${event.task.loanName}\nStatus: ${event.task.status}\nDue: ${event.task.dueAt}`);
+      await this.botClient.sendToChannels(`${prefix} ${event.message}`, detail);
       await sendWebhook({
         title: `${prefix} ${event.message}`,
-        text: `Loan: ${event.task.loanName}\nStatus: ${event.task.status}\nDue: ${event.task.dueAt}`
+        text: detail
       });
       return;
     }

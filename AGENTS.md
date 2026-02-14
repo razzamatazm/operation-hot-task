@@ -51,21 +51,23 @@ Primary goals:
 - Required create-task fields:
   - Loan Name
   - Task Type (`LOI`, `Value`, `Fraud`, `Loan Docs`)
-  - Due Date
-  - Urgency (`Green`, `Yellow`, `Red`)
+  - Urgency (`Green`, `Yellow`, `Orange`, `Red`)
   - Notes
 - Optional create-task fields:
   - Humperdink Link (URL)
   - Server Location (free-text file server path; no validation required)
+  - Optional fields should always be visible in UI (not hidden behind expandable section)
+  - Server file name defaults to Loan Name, with option to override Loan Name
 - Due Date/Urgency behavior:
-  - Auto defaults by task type, editable by user
-- Default due date by task type:
-  - `LOI`: 1 hour from creation
-  - `Value`: next business day
-  - `Fraud`: end of current business day
-  - `Loan Docs`: 1 hour from creation
+  - Due date is tracked backend-only (not shown in user-facing UI)
+  - Auto due date is derived from urgency level
 - Default urgency:
   - All task types default to `Green` (editable)
+- Urgency definitions:
+  - `Green`: anytime (reminders begin after next business day)
+  - `Yellow`: needed by end of business day
+  - `Orange`: needed within 1 hour
+  - `Red`: urgent (drop-everything / immediate)
 - Workflow statuses:
   - Added `Needs Review` and `Cancelled`
 - Loan Docs workflow:
@@ -82,6 +84,13 @@ Primary goals:
   - Teams bot direct messages
   - Teams bot channel posts
   - Channel post target: dedicated Tasks channel (to be configured per Team)
+  - v1 bot scope: notifications/reminders + quick add (`/bot new`)
+  - Bot quick add flow:
+    - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`)
+    - Ask urgency (`Green`, `Yellow`, `Orange`, `Red`)
+    - Ask Humperdink Link
+    - Ask Server file name/path
+    - Loan Name defaults to Server file name, with option to override
 - Overdue reminders:
   - Every 1 hour
   - Only during business hours

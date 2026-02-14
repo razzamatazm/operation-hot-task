@@ -11,6 +11,7 @@
   --brand-weak: #d8e8ff;
   --good: #157a39;
   --warn: #b17400;
+  --hot: #d96a00;
   --bad: #bf2b31;
   --shadow: 0 10px 28px rgba(15, 32, 65, 0.08);
 }
@@ -26,6 +27,7 @@
   --brand-weak: #1f3b61;
   --good: #5dd380;
   --warn: #ffcb70;
+  --hot: #ffb264;
   --bad: #ff8a8a;
   --shadow: 0 10px 28px rgba(3, 7, 14, 0.4);
 }
@@ -41,6 +43,7 @@
   --brand-weak: #002424;
   --good: #90ee90;
   --warn: #ffe45a;
+  --hot: #ffbe6b;
   --bad: #ff9e9e;
   --shadow: none;
 }
@@ -197,18 +200,6 @@ button:hover {
   grid-column: 1 / -1;
 }
 
-.optional-panel {
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-  padding: 8px;
-}
-
-.optional-panel summary {
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--brand);
-}
-
 .board-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -332,6 +323,11 @@ button:hover {
 .urgency-yellow {
   background: color-mix(in srgb, var(--warn) 20%, transparent);
   color: var(--warn);
+}
+
+.urgency-orange {
+  background: color-mix(in srgb, var(--hot) 20%, transparent);
+  color: var(--hot);
 }
 
 .urgency-red {
