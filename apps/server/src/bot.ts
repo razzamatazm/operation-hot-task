@@ -13,12 +13,13 @@ interface StoredReference {
 type BotTaskCreateInput = Pick<CreateTaskInput, "loanName" | "taskType" | "urgency" | "notes" | "humperdinkLink" | "serverLocation">;
 type BotTaskCreator = (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>;
 
-type QuickAddStep = "TASK_TYPE" | "URGENCY" | "HUMPERDINK" | "SERVER_LOCATION" | "LOAN_NAME_CONFIRM" | "LOAN_NAME_CUSTOM";
+type QuickAddStep = "TASK_TYPE" | "URGENCY" | "NOTES" | "HUMPERDINK" | "SERVER_LOCATION" | "LOAN_NAME_CONFIRM" | "LOAN_NAME_CUSTOM";
 
 interface QuickAddDraft {
   step: QuickAddStep;
   taskType?: TaskType;
   urgency?: UrgencyLevel;
+  notes?: string;
   humperdinkLink?: string;
   serverLocation?: string;
 }
@@ -91,6 +92,8 @@ const isSkip = (text: string): boolean => {
   const normalized = normalizeText(text);
   return normalized === "skip" || normalized === "none" || normalized === "n/a";
 };
+
+const isNoAdditionalNotes = (text: string): boolean => normalizeText(text) === "no additional notes";
 
 const toBotUserIdentity = (context: TurnContext): UserIdentity => {
   const from = context.activity.from;
@@ -228,7 +231,17 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
 
-      this.drafts.set(key, { ...draft, urgency: parsed, step: "HUMPERDINK" });
+      this.drafts.set(key, { ...draft, urgency: parsed, step: "NOTES" });
+      await context.sendActivity(
+        MessageFactory.suggestedActions(["No additional notes"], "Notes (type your notes, or choose No additional notes):")
+      );
+      return;
+    }
+
+    if (draft.step === "NOTES") {
+      const noteText = text.trim();
+      const notes = noteText.length > 0 && !isNoAdditionalNotes(noteText) ? noteText : "No additional notes";
+      this.drafts.set(key, { ...draft, notes, step: "HUMPERDINK" });
       await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Humperdink Link (paste URL or choose Skip):"));
       return;
     }
@@ -294,7 +307,7 @@ class LoanTasksBot extends ActivityHandler {
 
   private async completeQuickAdd(context: TurnContext, key: string, loanName: string): Promise<void> {
     const draft = this.drafts.get(key);
-    if (!draft?.taskType || !draft.urgency) {
+    if (!draft?.taskType || !draft.urgency || !draft.notes) {
       this.drafts.delete(key);
       await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
       return;
@@ -305,7 +318,7 @@ class LoanTasksBot extends ActivityHandler {
       loanName,
       taskType: draft.taskType,
       urgency: draft.urgency,
-      notes: "Quick add created via Teams bot",
+      notes: draft.notes,
       ...(draft.humperdinkLink ? { humperdinkLink: draft.humperdinkLink } : {}),
       ...(draft.serverLocation ? { serverLocation: draft.serverLocation } : {})
     };

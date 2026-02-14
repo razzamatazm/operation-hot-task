@@ -115,7 +115,7 @@ Bot endpoint:
 
 - `POST /api/bot/messages`
 - Bot chat commands:
-  - `/bot new` quick add wizard (task type -> urgency -> humperdink link -> server file/path -> loan name confirm/override)
+  - `/bot new` quick add wizard (task type -> urgency -> notes -> humperdink link -> server file/path -> loan name confirm/override)
   - `/bot cancel`
   - `help`
 

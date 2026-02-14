@@ -88,6 +88,7 @@ Primary goals:
   - Bot quick add flow:
     - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`)
     - Ask urgency (`Green`, `Yellow`, `Orange`, `Red`)
+    - Ask notes (with quick option for no additional notes)
     - Ask Humperdink Link
     - Ask Server file name/path
     - Loan Name defaults to Server file name, with option to override
