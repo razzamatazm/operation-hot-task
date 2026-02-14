@@ -14,6 +14,7 @@ need() {
 need az
 
 SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
+TENANT_ID="$(az account show --query tenantId -o tsv)"
 RESOURCE_GROUP="${AZ_RESOURCE_GROUP:-rg-operation-hot-task-prod}"
 WEBAPP_NAME="${AZ_WEBAPP_NAME:-operation-hot-task-app}"
 APP_PREFIX="${AZ_APP_PREFIX:-operation-hot-task}"
@@ -57,9 +58,6 @@ az ad sp create --id "$BOT_APP_ID" >/dev/null 2>&1 || true
 echo "==> creating bot client secret (store this securely)"
 BOT_APP_SECRET="$(az ad app credential reset --id "$BOT_APP_ID" --append --display-name "$BOT_SECRET_DISPLAY_NAME" --years 2 --query password -o tsv)"
 
-echo "==> ensuring botservice extension"
-az extension add --name botservice --upgrade >/dev/null
-
 BOT_ENDPOINT="https://${WEBAPP_NAME}.azurewebsites.net/api/bot/messages"
 
 echo "==> creating/updating Azure Bot resource: $BOT_RESOURCE_NAME"
@@ -67,9 +65,10 @@ if ! az bot show --resource-group "$RESOURCE_GROUP" --name "$BOT_RESOURCE_NAME" 
   az bot create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$BOT_RESOURCE_NAME" \
-    --kind registration \
+    --app-type SingleTenant \
     --sku F0 \
     --appid "$BOT_APP_ID" \
+    --tenant-id "$TENANT_ID" \
     --endpoint "$BOT_ENDPOINT" \
     --output table
 else
