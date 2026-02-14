@@ -21,6 +21,8 @@ DOMAIN="${TEAMS_DOMAIN:-${WEBAPP_NAME}.azurewebsites.net}"
 MANIFEST_TEMPLATE="teams-app/manifest.json"
 MANIFEST_OUT="teams-app/manifest.generated.json"
 PACKAGE_OUT="teams-app/operation-hot-task-teams.zip"
+TMP_DIR="$(mktemp -d /tmp/operation-hot-task-teams-XXXXXX)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 if [[ -z "$TEAMS_APP_ID" || -z "$BOT_APP_ID" ]]; then
   echo "TEAMS_APP_ID and BOT_APP_ID must be set" >&2
@@ -42,7 +44,10 @@ jq \
   "$MANIFEST_TEMPLATE" > "$MANIFEST_OUT"
 
 rm -f "$PACKAGE_OUT"
-zip -j "$PACKAGE_OUT" "$MANIFEST_OUT" teams-app/color.png teams-app/outline.png >/dev/null
+cp "$MANIFEST_OUT" "$TMP_DIR/manifest.json"
+cp teams-app/color.png "$TMP_DIR/color.png"
+cp teams-app/outline.png "$TMP_DIR/outline.png"
+(cd "$TMP_DIR" && zip -r "$ROOT_DIR/$PACKAGE_OUT" manifest.json color.png outline.png >/dev/null)
 
 cat <<OUT
 teams_package_ready
