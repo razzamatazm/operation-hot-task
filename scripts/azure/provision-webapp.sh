@@ -73,7 +73,7 @@ az webapp config appsettings set \
   --output table
 
 echo "==> setting startup command"
-STARTUP_CMD="bash -lc 'mkdir -p /home/site/wwwroot/node_modules/@loan-tasks && ln -sfn /home/site/wwwroot/packages/shared /home/site/wwwroot/node_modules/@loan-tasks/shared && npm run start:prod'"
+STARTUP_CMD="mkdir -p /home/site/wwwroot/node_modules/@loan-tasks && ln -sfn /home/site/wwwroot/packages/shared /home/site/wwwroot/node_modules/@loan-tasks/shared && npm run start:prod"
 az webapp config set \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
