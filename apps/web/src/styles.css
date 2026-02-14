@@ -1,15 +1,48 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=DM+Sans:wght@400;500;700&display=swap");
+
 :root {
-  color-scheme: light;
-  --bg: #f5f7fb;
+  --bg: #f2f6ff;
+  --bg-soft: #e8efff;
   --panel: #ffffff;
-  --ink: #1f2937;
-  --muted: #64748b;
-  --line: #dbe2ee;
-  --brand: #0b5fff;
-  --brand-weak: #deebff;
-  --good: #1f8f43;
-  --warn: #d19a00;
-  --bad: #cf2e2e;
+  --ink: #10233f;
+  --muted: #516582;
+  --line: #d5e1f3;
+  --brand: #0453c4;
+  --brand-weak: #d8e8ff;
+  --good: #157a39;
+  --warn: #b17400;
+  --bad: #bf2b31;
+  --shadow: 0 10px 28px rgba(15, 32, 65, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1c2f;
+  --bg-soft: #152742;
+  --panel: #14263f;
+  --ink: #ebf4ff;
+  --muted: #b8c7db;
+  --line: #274165;
+  --brand: #72a8ff;
+  --brand-weak: #1f3b61;
+  --good: #5dd380;
+  --warn: #ffcb70;
+  --bad: #ff8a8a;
+  --shadow: 0 10px 28px rgba(3, 7, 14, 0.4);
+}
+
+:root[data-theme="contrast"] {
+  --bg: #000;
+  --bg-soft: #111;
+  --panel: #000;
+  --ink: #fff;
+  --muted: #fff;
+  --line: #fff;
+  --brand: #18ffff;
+  --brand-weak: #002424;
+  --good: #90ee90;
+  --warn: #ffe45a;
+  --bad: #ff9e9e;
+  --shadow: none;
 }
 
 * {
@@ -18,9 +51,12 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at 20% 0%, #e9f2ff, var(--bg) 48%), var(--bg);
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--bg-soft) 90%, transparent), transparent 40%),
+    radial-gradient(circle at 90% 15%, color-mix(in srgb, var(--brand-weak) 60%, transparent), transparent 44%),
+    var(--bg);
 }
 
 a {
@@ -35,28 +71,62 @@ p {
   margin: 0;
 }
 
+h1,
+h2,
+h3,
+h4,
+button,
+summary,
+.urgency,
+.pill,
+.summary-chip {
+  font-family: "Sora", "DM Sans", sans-serif;
+}
+
 .app-shell {
-  max-width: 1360px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  padding: 22px 18px 38px;
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .top-bar {
-  background: linear-gradient(130deg, #072f68, #0b5fff 52%, #2f76ff);
-  color: white;
-  border-radius: 14px;
-  padding: 20px;
+  background: linear-gradient(140deg, #0a2e6e 0%, #0453c4 58%, #31a1ff 100%);
+  color: #fff;
+  border-radius: 18px;
+  padding: 22px;
   display: flex;
   justify-content: space-between;
-  align-items: end;
-  gap: 16px;
+  align-items: flex-end;
+  gap: 14px;
+  box-shadow: var(--shadow);
 }
 
 .top-bar p {
-  color: #dbe7ff;
-  margin-top: 6px;
+  color: #e2eeff;
+  margin-top: 7px;
+}
+
+.summary-strip {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summary-chip {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.summary-chip-warning {
+  background: rgba(255, 214, 131, 0.28);
+  border-color: rgba(255, 214, 131, 0.55);
 }
 
 .user-picker {
@@ -66,15 +136,15 @@ p {
 }
 
 .user-picker select {
-  min-width: 280px;
+  min-width: 290px;
 }
 
 .panel {
   border: 1px solid var(--line);
   background: var(--panel);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 14px;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow);
 }
 
 .panel h2,
@@ -85,39 +155,42 @@ p {
 .task-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .task-form label {
   display: grid;
   gap: 6px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  color: var(--muted);
 }
 
 input,
 select,
 textarea,
 button {
-  border: 1px solid #c8d5ea;
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, #b7cae7);
+  border-radius: 9px;
   padding: 10px;
   font: inherit;
+  background: color-mix(in srgb, var(--panel) 94%, white);
+  color: var(--ink);
 }
 
 button {
   cursor: pointer;
   border: none;
-  background: var(--brand);
+  background: linear-gradient(120deg, #0d5edf, #2f8fff);
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 button.secondary {
-  background: #475569;
+  background: linear-gradient(120deg, #53698b, #7387a6);
 }
 
 button:hover {
-  filter: brightness(0.95);
+  filter: brightness(0.96);
 }
 
 .full-width {
@@ -125,35 +198,44 @@ button:hover {
 }
 
 .optional-panel {
-  border: 1px dashed #bbcae4;
-  border-radius: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
   padding: 8px;
 }
 
 .optional-panel summary {
   cursor: pointer;
   font-weight: 600;
-  color: #305792;
+  color: var(--brand);
 }
 
 .board-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .task-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   max-height: 540px;
   overflow: auto;
+  padding-right: 3px;
+}
+
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .task-card {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px;
-  background: #fbfcff;
+  background: color-mix(in srgb, var(--panel) 92%, var(--bg-soft));
   display: grid;
   gap: 8px;
 }
@@ -161,31 +243,66 @@ button:hover {
 .task-card-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .task-card h4 {
   font-size: 1rem;
+  line-height: 1.25;
+}
+
+.task-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.pill {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pill-overdue {
+  border-color: color-mix(in srgb, var(--bad) 50%, var(--line));
+  color: var(--bad);
 }
 
 .task-meta {
-  color: #38475f;
-  font-size: 0.88rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.task-meta-overdue {
+  color: var(--bad);
+  font-weight: 700;
 }
 
 .task-meta.small {
-  color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 .task-notes {
-  background: #f2f6ff;
-  border: 1px solid #dde8fc;
+  background: color-mix(in srgb, var(--panel) 85%, var(--bg-soft));
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px;
-  color: #23314b;
-  font-size: 0.86rem;
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.task-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .task-actions {
@@ -196,58 +313,54 @@ button:hover {
 }
 
 .task-actions select {
-  min-width: 180px;
+  min-width: 170px;
 }
 
 .urgency {
   border-radius: 999px;
   padding: 4px 10px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .urgency-green {
-  background: #d7f5df;
+  background: color-mix(in srgb, var(--good) 20%, transparent);
   color: var(--good);
 }
 
 .urgency-yellow {
-  background: #fff2ca;
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
   color: var(--warn);
 }
 
 .urgency-red {
-  background: #ffd9d9;
+  background: color-mix(in srgb, var(--bad) 20%, transparent);
   color: var(--bad);
 }
 
 .error {
-  border: 1px solid #f3b0b0;
-  background: #ffe6e6;
-  color: #9e2525;
+  border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--line));
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: var(--bad);
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .notice-list {
   margin: 0;
   padding-left: 20px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
 }
 
-.small {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
+.small,
 .footer-note {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 980px) {
   .top-bar {
     flex-direction: column;
     align-items: flex-start;
@@ -259,5 +372,9 @@ button:hover {
 
   .user-picker select {
     min-width: 220px;
+  }
+
+  .task-mini-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -6,6 +6,8 @@ import { mockUsers } from "./mockUsers";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const INITIAL_USER = mockUsers[0]!;
 
+const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
+
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -75,6 +77,13 @@ const statusLabel = (status: TaskStatus): string => status.replaceAll("_", " ");
 
 const canUnclaim = (task: LoanTask, user: UserIdentity): boolean => task.status === "CLAIMED" && (task.assignee?.id === user.id || user.roles.includes("ADMIN"));
 
+const isOverdue = (task: LoanTask): boolean => !CLOSED_STATUSES.includes(task.status) && new Date(task.dueAt).getTime() < Date.now();
+
+const applyTheme = (theme?: string): void => {
+  const normalized = theme === "dark" || theme === "contrast" ? theme : "light";
+  document.documentElement.setAttribute("data-theme", normalized);
+};
+
 const TaskCard = ({
   task,
   user,
@@ -90,6 +99,7 @@ const TaskCard = ({
 }) => {
   const transitions = nextFlowStatuses(task).filter((status) => status !== "OPEN");
   const [nextStatus, setNextStatus] = useState<TaskStatus | "">(transitions[0] ?? "");
+  const overdue = isOverdue(task);
 
   useEffect(() => {
     setNextStatus(transitions[0] ?? "");
@@ -98,31 +108,37 @@ const TaskCard = ({
   return (
     <article className="task-card">
       <header className="task-card-head">
-        <h4>{task.loanName}</h4>
+        <div>
+          <h4>{task.loanName}</h4>
+          <div className="task-pill-row">
+            <span className="pill">{task.taskType}</span>
+            <span className="pill">{statusLabel(task.status)}</span>
+            {overdue && <span className="pill pill-overdue">Overdue</span>}
+          </div>
+        </div>
         <span className={urgencyClass(task.urgency)}>{task.urgency}</span>
       </header>
 
-      <p className="task-meta">
-        <strong>Type:</strong> {task.taskType}
-      </p>
-      <p className="task-meta">
-        <strong>Status:</strong> {statusLabel(task.status)}
-      </p>
-      <p className="task-meta">
+      <p className={`task-meta ${overdue ? "task-meta-overdue" : ""}`}>
         <strong>Due:</strong> {new Date(task.dueAt).toLocaleString()}
       </p>
       <p className="task-notes">{task.notes}</p>
 
-      <p className="task-meta small">
-        <strong>Creator:</strong> {task.createdBy.displayName}
-      </p>
-      <p className="task-meta small">
-        <strong>Assignee:</strong> {task.assignee?.displayName ?? "Unassigned"}
-      </p>
+      <div className="task-mini-grid">
+        <p className="task-meta small">
+          <strong>Creator:</strong> {task.createdBy.displayName}
+        </p>
+        <p className="task-meta small">
+          <strong>Assignee:</strong> {task.assignee?.displayName ?? "Unassigned"}
+        </p>
+      </div>
 
       {task.humperdinkLink && (
         <p className="task-meta small">
-          <strong>Humperdink:</strong> <a href={task.humperdinkLink}>{task.humperdinkLink}</a>
+          <strong>Humperdink:</strong>{" "}
+          <a href={task.humperdinkLink} target="_blank" rel="noreferrer">
+            Open Link
+          </a>
         </p>
       )}
 
@@ -193,8 +209,16 @@ export const App = () => {
   useEffect(() => {
     teamsApp
       .initialize()
+      .then(async () => {
+        const context = (await teamsApp.getContext()) as {
+          app?: { theme?: string };
+          theme?: string;
+        };
+        applyTheme(context.app?.theme ?? context.theme);
+        teamsApp.registerOnThemeChangeHandler?.((theme) => applyTheme(theme));
+      })
       .catch(() => {
-        // Running outside Teams in local dev is expected.
+        applyTheme("light");
       });
   }, []);
 
@@ -287,12 +311,35 @@ export const App = () => {
     [tasks]
   );
 
+  const stats = useMemo(() => {
+    const overdue = tasks.filter((task) => isOverdue(task)).length;
+    return {
+      total: tasks.length,
+      open: columns.open.length,
+      active: columns.active.length,
+      overdue
+    };
+  }, [tasks, columns]);
+
+  const boardSections = [
+    { key: "open", title: "Open Tasks", items: columns.open },
+    { key: "active", title: "In Progress", items: columns.active },
+    { key: "completed", title: "Completed", items: columns.completed },
+    { key: "archived", title: "Archive", items: columns.archived }
+  ] as const;
+
   return (
     <main className="app-shell">
       <header className="top-bar">
         <div>
           <h1>Loan Tasks</h1>
-          <p>Teams coordination app for loan checks and docs</p>
+          <p>Fast coordination for LOI, Value, Fraud, and Loan Docs checks.</p>
+          <div className="summary-strip">
+            <span className="summary-chip">Total {stats.total}</span>
+            <span className="summary-chip">Open {stats.open}</span>
+            <span className="summary-chip">In Progress {stats.active}</span>
+            <span className="summary-chip summary-chip-warning">Overdue {stats.overdue}</span>
+          </div>
         </div>
 
         <label className="user-picker">
@@ -371,41 +418,20 @@ export const App = () => {
       </section>
 
       <section className="board-grid">
-        <section className="panel">
-          <h3>Open Tasks ({columns.open.length})</h3>
-          <div className="task-list">
-            {columns.open.map((task) => (
-              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <h3>In Progress ({columns.active.length})</h3>
-          <div className="task-list">
-            {columns.active.map((task) => (
-              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <h3>Completed ({columns.completed.length})</h3>
-          <div className="task-list">
-            {columns.completed.map((task) => (
-              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <h3>Archive ({columns.archived.length})</h3>
-          <div className="task-list">
-            {columns.archived.map((task) => (
-              <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />
-            ))}
-          </div>
-        </section>
+        {boardSections.map((section) => (
+          <section className="panel" key={section.key}>
+            <h3>
+              {section.title} ({section.items.length})
+            </h3>
+            <div className="task-list">
+              {section.items.length === 0 ? (
+                <p className="empty-state">No tasks in this queue.</p>
+              ) : (
+                section.items.map((task) => <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />)
+              )}
+            </div>
+          </section>
+        ))}
       </section>
 
       <section className="panel">
@@ -415,7 +441,7 @@ export const App = () => {
 
       <footer className="footer-note">
         <p>
-          Roles available: {USER_ROLES.join(", ")} | Reminders: hourly, business hours 8:30 AM-5:30 PM America/Los_Angeles
+          Roles: {USER_ROLES.join(", ")} | Reminders: hourly, business hours 8:30 AM-5:30 PM America/Los_Angeles
         </p>
       </footer>
     </main>
