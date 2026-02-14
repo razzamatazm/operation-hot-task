@@ -21,7 +21,7 @@
     "build": "npm run build --workspace @loan-tasks/shared && npm run build --workspace @loan-tasks/server && npm run build --workspace @loan-tasks/web",
     "start": "node apps/server/dist/index.js",
     "start:prod": "npm run build && npm run start",
-    "lint": "npm run lint --workspace @loan-tasks/server && npm run lint --workspace @loan-tasks/web && npm run lint --workspace @loan-tasks/shared",
+    "lint": "npm run build --workspace @loan-tasks/shared && npm run lint --workspace @loan-tasks/server && npm run lint --workspace @loan-tasks/web && npm run lint --workspace @loan-tasks/shared",
     "format": "npm run format --workspace @loan-tasks/server && npm run format --workspace @loan-tasks/web && npm run format --workspace @loan-tasks/shared"
   },
   "engines": {
