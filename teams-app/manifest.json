@@ -3,7 +3,6 @@
   "manifestVersion": "1.19",
   "version": "1.0.0",
   "id": "YOUR-APP-ID",
-  "packageName": "com.yourcompany.loantasks",
   "name": {
     "short": "Loan Tasks",
     "full": "Loan Tasks Internal Teams App"
@@ -46,7 +45,6 @@
       ]
     }
   ],
-  "composeExtensions": [],
   "staticTabs": [
     {
       "entityId": "loan-tasks-home",
@@ -60,7 +58,7 @@
     {
       "configurationUrl": "https://YOUR-APP-DOMAIN/",
       "canUpdateConfiguration": true,
-      "scopes": ["team", "groupchat"]
+      "scopes": ["team", "groupChat"]
     }
   ],
   "permissions": ["identity", "messageTeamMembers"],
