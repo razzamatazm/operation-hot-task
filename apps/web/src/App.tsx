@@ -8,17 +8,24 @@ const INITIAL_USER = mockUsers[0]!;
 
 const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  LOI: "LOI Check",
-  VALUE: "Value Check",
-  FRAUD: "Fraud Check",
-  LOAN_DOCS: "Loan Docs"
+  LOI: "LOI",
+  VALUE: "Value",
+  FRAUD: "Fraud",
+  LOAN_DOCS: "Docs"
 };
 
 const URGENCY_LABELS: Record<UrgencyLevel, string> = {
-  GREEN: "Green - Anytime",
-  YELLOW: "Yellow - End of Day",
-  ORANGE: "Orange - Within 1 Hour",
-  RED: "Red - Urgent Now"
+  GREEN: "Anytime",
+  YELLOW: "End of Day",
+  ORANGE: "1 Hour",
+  RED: "Urgent"
+};
+
+const URGENCY_TAG_CLASS: Record<UrgencyLevel, string> = {
+  GREEN: "tag tag-green",
+  YELLOW: "tag tag-yellow",
+  ORANGE: "tag tag-orange",
+  RED: "tag tag-red"
 };
 
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
@@ -41,19 +48,6 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
   return data as T;
 };
 
-const urgencyClass = (urgency: UrgencyLevel): string => {
-  if (urgency === "RED") {
-    return "urgency urgency-red";
-  }
-  if (urgency === "ORANGE") {
-    return "urgency urgency-orange";
-  }
-  if (urgency === "YELLOW") {
-    return "urgency urgency-yellow";
-  }
-  return "urgency urgency-green";
-};
-
 const statusLabel = (status: TaskStatus): string => status.replaceAll("_", " ");
 
 const canUnclaim = (task: LoanTask, user: UserIdentity): boolean => task.status === "CLAIMED" && (task.assignee?.id === user.id || user.roles.includes("ADMIN"));
@@ -65,103 +59,204 @@ const applyTheme = (theme?: string): void => {
   document.documentElement.setAttribute("data-theme", normalized);
 };
 
+/* ── Urgency Tag ──────────────────────────────────────────── */
+const UrgencyTag = ({ urgency }: { urgency: UrgencyLevel }) => (
+  <span className={URGENCY_TAG_CLASS[urgency]}>
+    <span className="tag-dot" />
+    {URGENCY_LABELS[urgency]}
+  </span>
+);
+
+/* ── Task Card ────────────────────────────────────────────── */
 const TaskCard = ({
   task,
   user,
   onClaim,
   onUnclaim,
-  onTransition
+  onTransition,
+  showActions
 }: {
   task: LoanTask;
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
-  onTransition: (taskId: string, status: TaskStatus) => Promise<void>;
+  onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
+  showActions: boolean;
 }) => {
-  const transitions = nextFlowStatuses(task).filter((status) => status !== "OPEN");
-  const [nextStatus, setNextStatus] = useState<TaskStatus | "">(transitions[0] ?? "");
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewText, setReviewText] = useState("");
   const overdue = isOverdue(task);
+  const transitions = nextFlowStatuses(task).filter((s) => s !== "OPEN");
 
-  useEffect(() => {
-    setNextStatus(transitions[0] ?? "");
-  }, [task.status]);
+  const handleFlagReview = () => {
+    setReviewOpen(true);
+    setReviewText("");
+  };
+
+  const handleSubmitReview = async () => {
+    if (!reviewText.trim()) return;
+    await onTransition(task.id, "NEEDS_REVIEW", reviewText.trim());
+    setReviewOpen(false);
+    setReviewText("");
+  };
+
+  const handleCancelReview = () => {
+    setReviewOpen(false);
+    setReviewText("");
+  };
 
   return (
-    <article className="task-card">
-      <header className="task-card-head">
-        <div>
-          <h4>{task.loanName}</h4>
-          <div className="task-pill-row">
-            <span className="pill">{TASK_TYPE_LABELS[task.taskType]}</span>
-            <span className="pill">{statusLabel(task.status)}</span>
-            {overdue && <span className="pill pill-overdue">Overdue</span>}
-          </div>
+    <div className="task-card">
+      <div className="task-card-left">
+        <div className="task-card-title">
+          {task.humperdinkLink ? (
+            <a href={task.humperdinkLink} target="_blank" rel="noreferrer">{task.loanName}</a>
+          ) : (
+            task.loanName
+          )}
         </div>
-        <span className={urgencyClass(task.urgency)}>{URGENCY_LABELS[task.urgency]}</span>
-      </header>
-      <p className="task-notes">{task.notes}</p>
-
-      <div className="task-mini-grid">
-        <p className="task-meta small">
-          <strong>Creator:</strong> {task.createdBy.displayName}
-        </p>
-        <p className="task-meta small">
-          <strong>Assignee:</strong> {task.assignee?.displayName ?? "Unassigned"}
-        </p>
+        <div className="task-card-tags">
+          <span className="tag tag-type">{TASK_TYPE_LABELS[task.taskType]}</span>
+          <UrgencyTag urgency={task.urgency} />
+          <span className={overdue ? "tag tag-overdue" : "tag tag-status"}>
+            {statusLabel(task.status)}
+            {overdue && " !"}
+          </span>
+        </div>
+        <div className="task-card-meta">
+          {task.serverLocation && <div>Folder: {task.serverLocation}</div>}
+          <div>Creator: {task.createdBy.displayName}</div>
+          {task.assignee && <div>Assignee: {task.assignee.displayName}</div>}
+        </div>
+        {showActions && (
+          <div className="task-card-actions">
+            {task.status === "OPEN" && (
+              <button type="button" className="btn-sm btn-good" onClick={() => onClaim(task.id)}>
+                Claim
+              </button>
+            )}
+            {canUnclaim(task, user) && (
+              <button type="button" className="btn-sm btn-ghost" onClick={() => onUnclaim(task.id)}>
+                Unclaim
+              </button>
+            )}
+            {task.status === "CLAIMED" && (
+              <>
+                <button type="button" className="btn-sm btn-warn" onClick={handleFlagReview}>
+                  Flag for Review
+                </button>
+                {task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE") ? (
+                  <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "MERGE_DONE")}>
+                    Mark Merge Done
+                  </button>
+                ) : transitions.includes("COMPLETED") ? (
+                  <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "COMPLETED")}>
+                    Complete
+                  </button>
+                ) : null}
+              </>
+            )}
+            {task.status === "NEEDS_REVIEW" && (
+              <>
+                <button type="button" className="btn-sm" onClick={() => onTransition(task.id, "CLAIMED")}>
+                  Return to Work
+                </button>
+                <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "COMPLETED")}>
+                  Complete
+                </button>
+                <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  Cancel
+                </button>
+              </>
+            )}
+            {task.status === "MERGE_DONE" && (
+              <>
+                <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "MERGE_APPROVED")}>
+                  Approve Merge
+                </button>
+                <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  Cancel
+                </button>
+              </>
+            )}
+            {task.status === "MERGE_APPROVED" && (
+              <>
+                <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "COMPLETED")}>
+                  Complete
+                </button>
+                <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
-
-      {task.humperdinkLink && (
-        <p className="task-meta small">
-          <strong>Humperdink:</strong>{" "}
-          <a href={task.humperdinkLink} target="_blank" rel="noreferrer">
-            Open Link
-          </a>
-        </p>
-      )}
-
-      {task.serverLocation && (
-        <p className="task-meta small">
-          <strong>Server:</strong> {task.serverLocation}
-        </p>
-      )}
-
-      <div className="task-actions">
-        {task.status === "OPEN" && (
-          <button type="button" onClick={() => onClaim(task.id)}>
-            Claim
-          </button>
+      <div className="task-card-right">
+        <div className="task-card-notes">{task.notes}</div>
+        {task.reviewNotes && (
+          <div className="task-card-review">
+            <strong>Review Notes</strong>
+            <p>{task.reviewNotes}</p>
+          </div>
         )}
-
-        {canUnclaim(task, user) && (
-          <button type="button" className="secondary" onClick={() => onUnclaim(task.id)}>
-            Unclaim
-          </button>
-        )}
-
-        {transitions.length > 0 && (
-          <>
-            <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value as TaskStatus)}>
-              {transitions.map((status) => (
-                <option key={status} value={status}>
-                  {statusLabel(status)}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={() => (nextStatus ? onTransition(task.id, nextStatus) : Promise.resolve())}>
-              Update
-            </button>
-          </>
+        {reviewOpen && (
+          <div className="review-note-input">
+            <textarea
+              rows={3}
+              placeholder="Describe what needs review..."
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              autoFocus
+            />
+            <div className="review-note-actions">
+              <button type="button" className="btn-sm btn-ghost" onClick={handleCancelReview}>Cancel</button>
+              <button type="button" className="btn-sm btn-warn" onClick={handleSubmitReview} disabled={!reviewText.trim()}>Submit</button>
+            </div>
+          </div>
         )}
       </div>
-    </article>
+    </div>
   );
 };
 
+/* ── Card List ────────────────────────────────────────────── */
+const CardList = ({
+  tasks,
+  user,
+  onClaim,
+  onUnclaim,
+  onTransition,
+  showActions,
+  emptyMessage
+}: {
+  tasks: LoanTask[];
+  user: UserIdentity;
+  onClaim: (taskId: string) => Promise<void>;
+  onUnclaim: (taskId: string) => Promise<void>;
+  onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
+  showActions: boolean;
+  emptyMessage: string;
+}) => (
+  <div className="card-list">
+    {tasks.length === 0 ? (
+      <div className="empty-card">{emptyMessage}</div>
+    ) : (
+      tasks.map((task) => (
+        <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} showActions={showActions} />
+      ))
+    )}
+  </div>
+);
+
+/* ── Main app ─────────────────────────────────────────────── */
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
+  const [formOpen, setFormOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"active" | "completed">("active");
 
   const [form, setForm] = useState({
     loanName: "",
@@ -199,9 +294,7 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
-    refresh().catch(() => {
-      // handled in refresh
-    });
+    refresh().catch(() => {});
   }, [user.id]);
 
   useEffect(() => {
@@ -209,15 +302,13 @@ export const App = () => {
     source.addEventListener("task.changed", (event) => {
       const incoming = JSON.parse((event as MessageEvent<string>).data) as LoanTask;
       setTasks((current) => {
-        const idx = current.findIndex((task) => task.id === incoming.id);
-        if (idx === -1) {
-          return [incoming, ...current];
-        }
+        const idx = current.findIndex((t) => t.id === incoming.id);
+        if (idx === -1) return [incoming, ...current];
         const copy = [...current];
         copy[idx] = incoming;
         return copy.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       });
-      setNotifications((current) => [`Task updated: ${incoming.loanName} (${statusLabel(incoming.status)})`, ...current].slice(0, 6));
+      setNotifications((current) => [`${incoming.loanName} \u2192 ${statusLabel(incoming.status)}`, ...current].slice(0, 5));
     });
     return () => source.close();
   }, []);
@@ -235,14 +326,9 @@ export const App = () => {
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((current) => ({
-        ...current,
-        loanName: "",
-        notes: "",
-        humperdinkLink: "",
-        serverLocation: ""
-      }));
+      setForm((c) => ({ ...c, loanName: "", notes: "", humperdinkLink: "", serverLocation: "" }));
       setError(null);
+      setFormOpen(false);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create task");
@@ -267,143 +353,201 @@ export const App = () => {
     }
   };
 
-  const onTransition = async (taskId: string, status: TaskStatus): Promise<void> => {
+  const onTransition = async (taskId: string, status: TaskStatus, reviewNotes?: string): Promise<void> => {
     try {
-      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status }) }, user);
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status, ...(reviewNotes ? { reviewNotes } : {}) }) }, user);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update task");
     }
   };
 
-  const columns = useMemo(
-    () => ({
-      open: tasks.filter((task) => task.status === "OPEN"),
-      active: tasks.filter((task) => ["CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED"].includes(task.status)),
-      completed: tasks.filter((task) => task.status === "COMPLETED"),
-      archived: tasks.filter((task) => ["ARCHIVED", "CANCELLED"].includes(task.status))
+  /* My Tasks: tasks assigned to me (active), or tasks I created that are NEEDS_REVIEW or COMPLETED */
+  const myTasks = useMemo(
+    () => tasks.filter((t) => {
+      if (CLOSED_STATUSES.includes(t.status)) return false;
+      if (t.assignee?.id === user.id) return true;
+      if (t.createdBy.id === user.id && (t.status === "NEEDS_REVIEW" || t.status === "COMPLETED")) return true;
+      return false;
     }),
+    [tasks, user.id]
+  );
+
+  /* Available Tasks: OPEN status */
+  const availableTasks = useMemo(
+    () => tasks.filter((t) => t.status === "OPEN"),
     [tasks]
   );
 
-  const stats = useMemo(() => {
-    const overdue = tasks.filter((task) => isOverdue(task)).length;
-    return {
-      total: tasks.length,
-      open: columns.open.length,
-      active: columns.active.length,
-      overdue
-    };
-  }, [tasks, columns]);
+  const completedTasks = useMemo(
+    () => tasks.filter((t) => CLOSED_STATUSES.includes(t.status)),
+    [tasks]
+  );
 
-  const boardSections = [
-    { key: "open", title: "Open Tasks", items: columns.open },
-    { key: "active", title: "In Progress", items: columns.active },
-    { key: "completed", title: "Completed", items: columns.completed },
-    { key: "archived", title: "Archive", items: columns.archived }
-  ] as const;
+  const activeTasks = useMemo(
+    () => tasks.filter((t) => !CLOSED_STATUSES.includes(t.status)),
+    [tasks]
+  );
+
+  const stats = useMemo(() => ({
+    total: tasks.length,
+    active: activeTasks.length,
+    completed: completedTasks.length,
+    overdue: tasks.filter(isOverdue).length
+  }), [tasks, activeTasks, completedTasks]);
 
   return (
     <main className="app-shell">
+      {/* ── Header ──────────────────────────────────── */}
       <header className="top-bar">
-        <div>
+        <div className="top-bar-left">
           <h1>Loan Tasks</h1>
-          <p>Fast coordination for LOI, Value, Fraud, and Loan Docs checks.</p>
-          <div className="summary-strip">
-            <span className="summary-chip">Total {stats.total}</span>
-            <span className="summary-chip">Open {stats.open}</span>
-            <span className="summary-chip">In Progress {stats.active}</span>
-            <span className="summary-chip summary-chip-warning">Overdue {stats.overdue}</span>
+          <div className="top-bar-stats">
+            <span><span className="stat-label">Active</span>{stats.active}</span>
+            <span><span className="stat-label">Done</span>{stats.completed}</span>
+            {stats.overdue > 0 && (
+              <span className="stat-warn"><span className="stat-label">Overdue</span>{stats.overdue}</span>
+            )}
           </div>
         </div>
-
         <label className="user-picker">
-          Acting user
-          <select value={user.id} onChange={(event) => setUser(mockUsers.find((entry) => entry.id === event.target.value) ?? INITIAL_USER)}>
-            {mockUsers.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.displayName} ({entry.roles.join("/")})
+          <span>User:</span>
+          <select value={user.id} onChange={(e) => setUser(mockUsers.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
+            {mockUsers.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.displayName} ({u.roles.join("/")})
               </option>
             ))}
           </select>
         </label>
       </header>
 
-      {error && <p className="error">{error}</p>}
+      {/* ── Notifications (inline chips) ────────────── */}
+      {notifications.length > 0 && (
+        <div className="notif-bar">
+          {notifications.map((msg, i) => (
+            <span className="notif-chip" key={`${msg}-${i}`}>
+              <span className="notif-dot" />
+              {msg}
+            </span>
+          ))}
+        </div>
+      )}
 
-      <section className="panel">
-        <h2>Create Task</h2>
-        <form className="task-form" onSubmit={onCreateTask}>
-          <label>
-            Loan Name
-            <input value={form.loanName} onChange={(event) => setForm((current) => ({ ...current, loanName: event.target.value }))} required />
-          </label>
+      {error && <p className="error-bar">{error}</p>}
 
-          <label>
-            Task Type
-            <select value={form.taskType} onChange={(event) => setForm((current) => ({ ...current, taskType: event.target.value as TaskType }))}>
-              <option value="LOI">LOI Check</option>
-              <option value="VALUE">Value Check</option>
-              <option value="FRAUD">Fraud Check</option>
-              <option value="LOAN_DOCS">Loan Docs</option>
-            </select>
-          </label>
+      {/* ── Create form toggle ──────────────────────── */}
+      <div>
+        <button
+          type="button"
+          className="form-toggle"
+          aria-expanded={formOpen}
+          onClick={() => setFormOpen((o) => !o)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          New Task
+        </button>
+      </div>
 
-          <label>
-            Urgency
-            <select value={form.urgency} onChange={(event) => setForm((current) => ({ ...current, urgency: event.target.value as UrgencyLevel }))}>
-              <option value="GREEN">Green - Anytime</option>
-              <option value="YELLOW">Yellow - End of Day</option>
-              <option value="ORANGE">Orange - Within 1 Hour</option>
-              <option value="RED">Red - Urgent Now</option>
-            </select>
-          </label>
-
-          <label className="full-width">
-            Notes
-            <textarea rows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} required />
-          </label>
-
-          <label>
-            Humperdink Link (optional)
-            <input type="url" value={form.humperdinkLink} onChange={(event) => setForm((current) => ({ ...current, humperdinkLink: event.target.value }))} />
-          </label>
-
-          <label>
-            Server Location (optional)
-            <input value={form.serverLocation} onChange={(event) => setForm((current) => ({ ...current, serverLocation: event.target.value }))} />
-          </label>
-
-          <button type="submit">Create Task</button>
-        </form>
-      </section>
-
-      <section className="board-grid">
-        {boardSections.map((section) => (
-          <section className="panel" key={section.key}>
-            <h3>
-              {section.title} ({section.items.length})
-            </h3>
-            <div className="task-list">
-              {section.items.length === 0 ? (
-                <p className="empty-state">No tasks in this queue.</p>
-              ) : (
-                section.items.map((task) => <TaskCard key={task.id} task={task} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} />)
-              )}
+      {formOpen && (
+        <div className="form-panel">
+          <form className="task-form" onSubmit={onCreateTask}>
+            <label>
+              Loan Name
+              <input value={form.loanName} onChange={(e) => setForm((c) => ({ ...c, loanName: e.target.value }))} required />
+            </label>
+            <label>
+              Type
+              <select value={form.taskType} onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}>
+                <option value="LOI">LOI Check</option>
+                <option value="VALUE">Value Check</option>
+                <option value="FRAUD">Fraud Check</option>
+                <option value="LOAN_DOCS">Loan Docs</option>
+              </select>
+            </label>
+            <label>
+              Urgency
+              <select value={form.urgency} onChange={(e) => setForm((c) => ({ ...c, urgency: e.target.value as UrgencyLevel }))}>
+                <option value="GREEN">Anytime</option>
+                <option value="YELLOW">End of Day</option>
+                <option value="ORANGE">Within 1 Hour</option>
+                <option value="RED">Urgent Now</option>
+              </select>
+            </label>
+            <label className="span-full">
+              Notes
+              <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
+            </label>
+            <label>
+              Humperdink Link
+              <input type="url" placeholder="Optional" value={form.humperdinkLink} onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))} />
+            </label>
+            <label>
+              Folder Name
+              <input placeholder="Optional" value={form.serverLocation} onChange={(e) => setForm((c) => ({ ...c, serverLocation: e.target.value }))} />
+            </label>
+            <div className="form-actions">
+              <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)}>Cancel</button>
+              <button type="submit">Create Task</button>
             </div>
-          </section>
-        ))}
-      </section>
+          </form>
+        </div>
+      )}
 
-      <section className="panel">
-        <h3>Live Notifications</h3>
-        {notifications.length === 0 ? <p className="small">No events yet.</p> : <ul className="notice-list">{notifications.map((item) => <li key={item}>{item}</li>)}</ul>}
-      </section>
+      {/* ── Tab bar ─────────────────────────────────── */}
+      <div className="tab-bar">
+        <button
+          type="button"
+          className={`tab-btn${activeTab === "active" ? " tab-active" : ""}`}
+          onClick={() => setActiveTab("active")}
+        >
+          Active
+          <span className="section-count">{activeTasks.length}</span>
+        </button>
+        <button
+          type="button"
+          className={`tab-btn${activeTab === "completed" ? " tab-active" : ""}`}
+          onClick={() => setActiveTab("completed")}
+        >
+          Completed
+          <span className="section-count">{completedTasks.length}</span>
+        </button>
+      </div>
 
+      {/* ── Active tab content ──────────────────────── */}
+      {activeTab === "active" && (
+        <>
+          <div className="section-head">
+            <h2>My Tasks</h2>
+            <span className="section-count">{myTasks.length}</span>
+          </div>
+          <CardList tasks={myTasks} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} showActions={true} emptyMessage="No tasks assigned to you." />
+
+          <div className="section-head">
+            <h2>Available Tasks</h2>
+            <span className="section-count">{availableTasks.length}</span>
+          </div>
+          <CardList tasks={availableTasks} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} showActions={true} emptyMessage="No open tasks available." />
+        </>
+      )}
+
+      {/* ── Completed tab content ───────────────────── */}
+      {activeTab === "completed" && (
+        <>
+          <div className="section-head">
+            <h2>Completed / Archived / Cancelled</h2>
+            <span className="section-count">{completedTasks.length}</span>
+          </div>
+          <CardList tasks={completedTasks} user={user} onClaim={onClaim} onUnclaim={onUnclaim} onTransition={onTransition} showActions={false} emptyMessage="No completed tasks yet." />
+        </>
+      )}
+
+      {/* ── Footer ──────────────────────────────────── */}
       <footer className="footer-note">
-        <p>
-          Roles: {USER_ROLES.join(", ")} | Reminders: hourly, business hours 8:30 AM-5:30 PM America/Los_Angeles
-        </p>
+        Roles: {USER_ROLES.join(", ")} &middot; Reminders: hourly, business hours 8:30a&ndash;5:30p PT
       </footer>
     </main>
   );

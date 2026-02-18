@@ -43,6 +43,7 @@ export interface LoanTask {
   completedAt?: string;
   cancelledAt?: string;
   lastReminderAt?: string;
+  reviewNotes?: string;
 }
 
 export interface TaskHistoryEvent {
@@ -66,6 +67,7 @@ export interface CreateTaskInput {
 
 export interface UpdateTaskStatusInput {
   status: TaskStatus;
+  reviewNotes?: string;
 }
 
 export interface NotificationEvent {

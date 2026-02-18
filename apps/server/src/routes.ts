@@ -111,9 +111,9 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
 
   router.post("/tasks/:taskId/transition", async (req, res) => {
     try {
-      const { status } = transitionSchema.parse(req.body);
+      const { status, reviewNotes } = transitionSchema.parse(req.body);
       const user = getUserFromRequest(req);
-      const task = await service.transitionStatus(req.params.taskId, status, user);
+      const task = await service.transitionStatus(req.params.taskId, status, user, reviewNotes);
       res.json({ task });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to transition task" });

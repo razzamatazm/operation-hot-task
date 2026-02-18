@@ -131,7 +131,7 @@ export class TaskService {
     return updated;
   }
 
-  async transitionStatus(taskId: string, next: TaskStatus, user: UserIdentity): Promise<LoanTask> {
+  async transitionStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes?: string): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
     const access = canTransitionStatus(task, next, user);
 
@@ -154,8 +154,14 @@ export class TaskService {
     if (next === "ARCHIVED") {
       updated.archivedAt = now;
     }
+    if (next === "NEEDS_REVIEW" && reviewNotes) {
+      updated.reviewNotes = reviewNotes;
+    }
 
-    const event = this.makeHistory(task.id, user, "TASK_STATUS_CHANGED", `${task.status} -> ${next}`);
+    const detail = reviewNotes
+      ? `${task.status} -> ${next} | Review: ${reviewNotes}`
+      : `${task.status} -> ${next}`;
+    const event = this.makeHistory(task.id, user, "TASK_STATUS_CHANGED", detail);
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
