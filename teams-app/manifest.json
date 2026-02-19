@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "id": "YOUR-APP-ID",
   "name": {
-    "short": "Loan Tasks",
-    "full": "Loan Tasks Internal Teams App"
+    "short": "Operation Hot Task",
+    "full": "Operation Hot Task"
   },
   "developer": {
     "name": "Your Company",
@@ -48,7 +48,7 @@
   "staticTabs": [
     {
       "entityId": "loan-tasks-home",
-      "name": "Loan Tasks",
+      "name": "Operation Hot Task",
       "contentUrl": "https://YOUR-APP-DOMAIN/",
       "websiteUrl": "https://YOUR-APP-DOMAIN/",
       "scopes": ["personal"]

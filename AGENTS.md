@@ -106,6 +106,9 @@ Primary goals:
 - Hosting:
   - Local-first implementation
   - Azure-ready deployment target
+- Teams branding:
+  - App display name in Teams: `Operation Hot Task`
+  - App icons: paper-on-fire concept (color + outline variants)
 
 ### Open Questions Queue
 - None currently.
