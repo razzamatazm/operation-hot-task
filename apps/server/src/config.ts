@@ -27,6 +27,7 @@ export const config = {
   enableDmNotifications: (process.env.ENABLE_DM_NOTIFICATIONS ?? "true") === "true",
   botAppId: process.env.BOT_APP_ID,
   botAppPassword: process.env.BOT_APP_PASSWORD,
+  botTenantId: process.env.BOT_TENANT_ID,
   botReferencesFile: process.env.BOT_REFERENCES_FILE ?? "apps/server/data/bot-references.json",
   inboundApiKey: process.env.INBOUND_API_KEY
 };

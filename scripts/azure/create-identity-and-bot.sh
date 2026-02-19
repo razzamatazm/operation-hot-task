@@ -86,6 +86,7 @@ az webapp config appsettings set \
   --settings \
     BOT_APP_ID="$BOT_APP_ID" \
     BOT_APP_PASSWORD="$BOT_APP_SECRET" \
+    BOT_TENANT_ID="$TENANT_ID" \
   --output table >/dev/null
 
 cat <<OUT

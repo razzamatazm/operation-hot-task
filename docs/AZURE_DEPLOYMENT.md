@@ -51,7 +51,7 @@ curl -s "https://${AZ_WEBAPP_NAME}.azurewebsites.net/api/health"
 What this does:
 - Creates/reuses Entra app registration for Teams Tab app ID
 - Creates/reuses Entra app registration for Bot ID
-- Creates a bot secret and writes bot creds into web app app settings
+- Creates a bot secret and writes bot creds into web app app settings (`BOT_APP_ID`, `BOT_APP_PASSWORD`, `BOT_TENANT_ID`)
 - Creates/updates Azure Bot resource (F0) with endpoint:
   - `https://${AZ_WEBAPP_NAME}.azurewebsites.net/api/bot/messages`
 

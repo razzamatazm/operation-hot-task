@@ -361,11 +361,20 @@ export class TeamsBotClient {
   private readonly store: ReferenceStore;
   private taskCreator?: BotTaskCreator;
 
-  constructor(private readonly appId: string | undefined, private readonly appPassword: string | undefined, dataFile: string) {
+  constructor(
+    private readonly appId: string | undefined,
+    private readonly appPassword: string | undefined,
+    private readonly appTenantId: string | undefined,
+    dataFile: string
+  ) {
     this.store = new ReferenceStore(dataFile);
 
     if (appId && appPassword) {
-      this.adapter = new BotFrameworkAdapter({ appId, appPassword });
+      this.adapter = new BotFrameworkAdapter({
+        appId,
+        appPassword,
+        ...(this.appTenantId ? { channelAuthTenant: this.appTenantId } : {})
+      });
       this.bot = new LoanTasksBot(
         async (reference, scope) => {
           const key = scope === "CHANNEL" ? `channel:${reference.conversation?.id ?? "unknown"}` : `dm:${reference.user?.id ?? "unknown"}`;
@@ -400,9 +409,16 @@ export class TeamsBotClient {
         return;
       }
 
-      await this.adapter.processActivity(req, res, async (turnContext) => {
-        await this.bot?.run(turnContext);
-      });
+      try {
+        await this.adapter.processActivity(req, res, async (turnContext) => {
+          await this.bot?.run(turnContext);
+        });
+      } catch (error) {
+        console.error("bot_process_activity_failed", error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Bot activity handling failed" });
+        }
+      }
     });
   }
 

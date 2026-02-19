@@ -122,7 +122,7 @@ Bot endpoint:
 ## Teams setup (Azure-ready)
 
 1. Register an Azure Bot / Entra app.
-2. Set `BOT_APP_ID` and `BOT_APP_PASSWORD` in `apps/server/.env`.
+2. Set `BOT_APP_ID`, `BOT_APP_PASSWORD`, and `BOT_TENANT_ID` in `apps/server/.env`.
 3. Update `teams-app/manifest.json` placeholders:
    - `id`
    - `bots[0].botId`

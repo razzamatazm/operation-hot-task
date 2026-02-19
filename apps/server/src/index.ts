@@ -12,12 +12,25 @@ import { startScheduler } from "./scheduler.js";
 import { AppConfig } from "@loan-tasks/shared";
 import { TeamsBotClient } from "./bot.js";
 
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandled_rejection", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("uncaught_exception", error);
+});
+
 const bootstrap = async (): Promise<void> => {
   const app = express();
   const store = new TaskStore(appConfig.dataFile);
   await store.init();
 
-  const botClient = new TeamsBotClient(appConfig.botAppId, appConfig.botAppPassword, appConfig.botReferencesFile);
+  const botClient = new TeamsBotClient(
+    appConfig.botAppId,
+    appConfig.botAppPassword,
+    appConfig.botTenantId,
+    appConfig.botReferencesFile
+  );
   await botClient.init();
 
   const sse = new SseHub();
