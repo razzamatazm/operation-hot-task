@@ -1,0 +1,1117 @@
+{
+  "tasks": [
+    {
+      "id": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "loanName": "test 2ube",
+      "taskType": "FRAUD",
+      "dueAt": "2026-02-18T20:56:43.364Z",
+      "urgency": "RED",
+      "notes": "needs to fund in 1 minute",
+      "status": "ARCHIVED",
+      "createdAt": "2026-02-18T20:56:43.364Z",
+      "updatedAt": "2026-02-18T21:47:13.462Z",
+      "createdBy": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "humperdinkLink": "https://www.facebook.com",
+      "serverLocation": "2026/Therese Loan",
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "reviewNotes": "Check this out, there is nothing there",
+      "lastReminderAt": "2026-02-18T20:58:23.047Z",
+      "completedAt": "2026-02-18T21:36:01.928Z",
+      "archivedAt": "2026-02-18T21:47:13.462Z"
+    },
+    {
+      "id": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
+      "loanName": "Test - Test",
+      "taskType": "FRAUD",
+      "dueAt": "2026-02-18T21:52:17.278Z",
+      "urgency": "ORANGE",
+      "notes": "easy repeat borrower",
+      "status": "ARCHIVED",
+      "createdAt": "2026-02-18T20:52:17.278Z",
+      "updatedAt": "2026-02-18T21:36:09.898Z",
+      "createdBy": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "humperdinkLink": "https://www.google.com",
+      "serverLocation": "New Loans 2026/Test - Test",
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "reviewNotes": "Why is the loan riddled with fraud?",
+      "completedAt": "2026-02-18T20:55:55.812Z",
+      "archivedAt": "2026-02-18T21:36:09.898Z"
+    },
+    {
+      "id": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "loanName": "Test - Test",
+      "taskType": "LOI",
+      "dueAt": "2026-02-18T07:35:44.156Z",
+      "urgency": "ORANGE",
+      "notes": "$1M, 7.90%, 1 pt 1 pt",
+      "status": "ARCHIVED",
+      "createdAt": "2026-02-18T06:35:44.156Z",
+      "updatedAt": "2026-02-18T21:35:52.130Z",
+      "createdBy": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "humperdinkLink": "http://google.com",
+      "serverLocation": "/hot/dogs",
+      "lastReminderAt": "2026-02-18T20:38:01.831Z",
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-18T21:32:06.917Z",
+      "reviewNotes": [
+        {
+          "text": "double check this",
+          "by": {
+            "id": "loan-officer-1",
+            "displayName": "Jamie Loan Officer"
+          },
+          "at": "2026-02-18T21:07:35.073Z"
+        },
+        {
+          "text": "Are you sure?",
+          "by": {
+            "id": "file-checker-1",
+            "displayName": "Taylor File Checker"
+          },
+          "at": "2026-02-18T21:07:54.869Z"
+        }
+      ],
+      "archivedAt": "2026-02-18T21:35:52.130Z"
+    },
+    {
+      "id": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "loanName": "hot dogs",
+      "taskType": "LOAN_DOCS",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "ez loan docs",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-18T21:08:37.702Z",
+      "updatedAt": "2026-02-18T21:25:46.928Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "humperdinkLink": "https://www.google.com",
+      "serverLocation": "new hot dogs",
+      "assignee": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "reviewNotes": [
+        {
+          "text": "Merge is good. just add the extension.",
+          "by": {
+            "id": "admin-1",
+            "displayName": "Morgan Admin"
+          },
+          "at": "2026-02-18T21:24:10.029Z"
+        }
+      ],
+      "completedAt": "2026-02-18T21:25:46.928Z"
+    },
+    {
+      "id": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "loanName": "tast",
+      "taskType": "LOAN_DOCS",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "nothing importatn",
+      "status": "ARCHIVED",
+      "createdAt": "2026-02-18T22:13:59.348Z",
+      "updatedAt": "2026-02-18T22:18:00.284Z",
+      "createdBy": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "humperdinkLink": "http://here.com",
+      "serverLocation": "other folder",
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-18T22:14:46.112Z",
+      "archivedAt": "2026-02-18T22:18:00.284Z"
+    },
+    {
+      "id": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "loanName": "test 2",
+      "taskType": "LOAN_DOCS",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "here",
+      "status": "ARCHIVED",
+      "createdAt": "2026-02-18T22:18:11.189Z",
+      "updatedAt": "2026-02-18T23:10:03.461Z",
+      "createdBy": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-18T22:33:17.700Z",
+      "archivedAt": "2026-02-18T23:10:03.461Z"
+    },
+    {
+      "id": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "loanName": "test123",
+      "taskType": "LOAN_DOCS",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "test",
+      "status": "ARCHIVED",
+      "createdAt": "2026-02-18T23:10:20.539Z",
+      "updatedAt": "2026-02-18T23:25:04.097Z",
+      "createdBy": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-18T23:20:01.922Z",
+      "archivedAt": "2026-02-18T23:25:04.097Z"
+    },
+    {
+      "id": "28a72738-09f8-4d55-90c3-69d1869451c8",
+      "loanName": "test",
+      "taskType": "LOI",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "test",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-19T00:17:31.012Z",
+      "updatedAt": "2026-02-19T00:18:23.833Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "assignee": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "completedAt": "2026-02-19T00:18:23.833Z"
+    },
+    {
+      "id": "4f402029-fa9f-4703-97da-f78e94a8d540",
+      "loanName": "etssd",
+      "taskType": "LOI",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "teset",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-19T00:17:39.425Z",
+      "updatedAt": "2026-02-19T00:18:23.143Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "assignee": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "completedAt": "2026-02-19T00:18:23.143Z"
+    },
+    {
+      "id": "66f0225d-2d64-4019-9bed-de63e59c519c",
+      "loanName": "setstes",
+      "taskType": "LOI",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "setetse",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-19T00:17:45.138Z",
+      "updatedAt": "2026-02-19T00:18:22.335Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "assignee": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      },
+      "completedAt": "2026-02-19T00:18:22.335Z"
+    },
+    {
+      "id": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
+      "loanName": "setesfvs",
+      "taskType": "LOI",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "vsdfse",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-19T00:17:50.819Z",
+      "updatedAt": "2026-02-19T00:18:15.541Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-19T00:18:15.541Z"
+    },
+    {
+      "id": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
+      "loanName": "searave",
+      "taskType": "LOI",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "vasdfe",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-19T00:17:56.423Z",
+      "updatedAt": "2026-02-19T00:18:14.604Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-19T00:18:14.604Z"
+    },
+    {
+      "id": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
+      "loanName": "weasdvwe",
+      "taskType": "LOI",
+      "dueAt": "2026-02-20T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "avaerdf",
+      "status": "COMPLETED",
+      "createdAt": "2026-02-19T00:18:03.801Z",
+      "updatedAt": "2026-02-19T00:18:13.923Z",
+      "createdBy": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      },
+      "assignee": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      },
+      "completedAt": "2026-02-19T00:18:13.923Z"
+    }
+  ],
+  "history": [
+    {
+      "id": "7e67ee97-158a-46ab-9011-8edd8f9b4952",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-18T06:35:44.156Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "7e41f6a3-87a4-4576-9b4a-e689330589e3",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Jamie Loan Officer",
+      "at": "2026-02-18T06:36:30.078Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "4ae1c9a7-0142-495c-b4fd-69baaf58eed1",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_UNCLAIMED",
+      "detail": "Returned to open queue by Jamie Loan Officer",
+      "at": "2026-02-18T06:36:47.481Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "5ff3f280-661c-4a27-a06e-49cb7566d353",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T19:16:04.653Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "6cab132c-b738-4b34-8dac-6b21da17b413",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> NEEDS_REVIEW",
+      "at": "2026-02-18T19:16:11.899Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "92438f2f-1788-49f0-9cce-8e8a8dae12f0",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "NEEDS_REVIEW -> CLAIMED",
+      "at": "2026-02-18T20:49:16.884Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "cbb6e55c-8e09-48ce-bcc8-993c56830ab8",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_UNCLAIMED",
+      "detail": "Returned to open queue by Taylor File Checker",
+      "at": "2026-02-18T20:49:30.196Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "5a58e4fa-dae8-46a6-8abd-bc982cdadddb",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T20:49:41.707Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "95dab2cc-5f47-419a-bfbd-90c31f4d740d",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-18T20:49:44.293Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "0c2446a1-5aa6-42b1-b7ce-235d3db5438f",
+      "taskId": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
+      "action": "TASK_CREATED",
+      "detail": "Created FRAUD task",
+      "at": "2026-02-18T20:52:17.279Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "0161dcda-20f7-4330-becc-c7eb023c2f46",
+      "taskId": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T20:54:42.124Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "eeb79e18-8ba2-4e79-9439-6f39fb456ed3",
+      "taskId": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> NEEDS_REVIEW | Review: Why is the loan riddled with fraud?",
+      "at": "2026-02-18T20:54:57.300Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "996d7dd6-927e-4801-a523-2ac138b949c5",
+      "taskId": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "NEEDS_REVIEW -> COMPLETED",
+      "at": "2026-02-18T20:55:55.812Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "8b4b2a21-c101-40ca-9c22-54f8fb41c2b0",
+      "taskId": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "action": "TASK_CREATED",
+      "detail": "Created FRAUD task",
+      "at": "2026-02-18T20:56:43.364Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "200ce092-3e0f-4591-a936-0b9f901c4504",
+      "taskId": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T20:56:49.036Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "6dd2f1db-bdcb-4eef-83bb-162743d3da6d",
+      "taskId": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> NEEDS_REVIEW | Review: Check this out, there is nothing there",
+      "at": "2026-02-18T20:56:59.929Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "a9877124-ea33-4e39-927d-100feafabc48",
+      "taskId": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "NEEDS_REVIEW -> CLAIMED",
+      "at": "2026-02-18T20:57:46.296Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "0975dcdd-5cdd-4034-b2e5-c01a63f8a6a0",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> NEEDS_REVIEW | Review: double check this",
+      "at": "2026-02-18T21:07:35.077Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "23649539-664d-443f-82dd-93674c86d6d3",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "REVIEW_NOTE_ADDED",
+      "detail": "Review note by Taylor File Checker",
+      "at": "2026-02-18T21:07:54.869Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "c7eee82a-c6f8-4812-8720-0dd9a615cfa2",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "TASK_CREATED",
+      "detail": "Created LOAN_DOCS task",
+      "at": "2026-02-18T21:08:37.720Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "f4b4cb94-107e-4471-af14-6fe85856c742",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Jamie Loan Officer",
+      "at": "2026-02-18T21:11:46.610Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "e6a00b5c-a639-4e51-8980-cf96c7d003eb",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> MERGE_DONE",
+      "at": "2026-02-18T21:11:50.041Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "5be95988-227d-45ba-ab9e-37f5310e1512",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "REVIEW_NOTE_ADDED",
+      "detail": "Review note by Morgan Admin",
+      "at": "2026-02-18T21:24:10.034Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "40dd3924-26ae-44cb-aa0a-8fdceff69926",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_DONE -> MERGE_APPROVED",
+      "at": "2026-02-18T21:24:13.079Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "be01924c-f7ee-4fcb-9d24-1fbb49c0a4e5",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_APPROVED -> COMPLETED",
+      "at": "2026-02-18T21:25:46.928Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "168ec9e4-675a-4d3c-84f5-75471d711002",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "NEEDS_REVIEW -> CLAIMED",
+      "at": "2026-02-18T21:31:59.699Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "e18cd7b8-173a-42c6-b428-4fda6639b281",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-18T21:32:06.917Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "13b5e365-a311-44e3-9444-e364fad515e6",
+      "taskId": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-18T21:35:52.130Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "9a722112-3ebd-4654-9894-3d70155caf16",
+      "taskId": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-18T21:36:01.928Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "5cc498c7-47e4-42f1-b3b7-6085ae909325",
+      "taskId": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-18T21:36:09.898Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "7dbf563f-1bbb-4a2f-b614-0db87050782f",
+      "taskId": "2a33ca15-c7bb-4fad-9b90-2c0e6ff10dec",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-18T21:47:13.466Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "e74a7194-b208-4c02-93e5-ebcc37aa941c",
+      "taskId": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "action": "TASK_CREATED",
+      "detail": "Created LOAN_DOCS task",
+      "at": "2026-02-18T22:13:59.388Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "2ec5fa25-2c33-4841-8d8e-a168a3c7bc2f",
+      "taskId": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T22:14:09.364Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "4e5fd162-13bf-480a-8109-50a63d3e2abb",
+      "taskId": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> MERGE_DONE",
+      "at": "2026-02-18T22:14:20.598Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "ed6ac0b5-0ce5-4058-a0aa-76fc645e9971",
+      "taskId": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_DONE -> MERGE_APPROVED",
+      "at": "2026-02-18T22:14:35.372Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "10b86220-0624-4d98-a004-bcc5c3643c55",
+      "taskId": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_APPROVED -> COMPLETED",
+      "at": "2026-02-18T22:14:46.112Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "296ef59b-cfac-40d4-a6a5-4e262000acea",
+      "taskId": "1862307c-dfe7-4672-a521-69b6c655b40c",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-18T22:18:00.286Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "6a94f546-6ed5-4277-a039-0f2ec4ac6532",
+      "taskId": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "action": "TASK_CREATED",
+      "detail": "Created LOAN_DOCS task",
+      "at": "2026-02-18T22:18:11.210Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "af62a3ae-eb58-404b-9b7a-44ab55e97c6c",
+      "taskId": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T22:18:18.084Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "b9a582e4-a506-4c12-87f8-6417a8778d7c",
+      "taskId": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> MERGE_DONE",
+      "at": "2026-02-18T22:18:23.556Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "510f106f-1767-4933-9994-8587df03aba1",
+      "taskId": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_DONE -> MERGE_APPROVED",
+      "at": "2026-02-18T22:18:37.892Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "a58052fc-f5d2-401e-8a1a-b1ef9cfbacaf",
+      "taskId": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_APPROVED -> COMPLETED",
+      "at": "2026-02-18T22:33:17.703Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "87b94df1-3971-420d-9a0e-abc6eed30a46",
+      "taskId": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-18T23:10:03.461Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "34e01c64-6ec3-481f-b2a5-5379cb9b8656",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_CREATED",
+      "detail": "Created LOAN_DOCS task",
+      "at": "2026-02-18T23:10:20.561Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "b8748aee-f706-46af-96d8-28784a6134cb",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T23:10:30.719Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "3604b42d-6892-43a4-ae58-54936c8dc196",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> MERGE_DONE",
+      "at": "2026-02-18T23:10:33.779Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "9d91e128-15cb-46f9-b961-c48c5e60152c",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_DONE -> MERGE_APPROVED",
+      "at": "2026-02-18T23:19:04.355Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "f44cacab-2faf-4b28-a4df-8bf165cb3690",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_APPROVED -> COMPLETED",
+      "at": "2026-02-18T23:19:19.607Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "1a4a387d-c266-42a2-8f61-ae7914f1e14f",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> OPEN",
+      "at": "2026-02-18T23:19:29.032Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "85c26c27-b147-41c4-a068-b95c17d112f0",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_UNCLAIMED",
+      "detail": "Returned to open queue by Taylor File Checker",
+      "at": "2026-02-18T23:19:40.806Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "ace335bf-32c4-4a48-8eca-1026a4d71362",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-18T23:19:43.219Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "269e3f01-149b-43ab-bf80-d1885ca993cd",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> MERGE_DONE",
+      "at": "2026-02-18T23:19:44.745Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "2c5649bc-e2f6-4cc6-9072-3a6a614ea69c",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_DONE -> MERGE_APPROVED",
+      "at": "2026-02-18T23:19:55.821Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "aaee78b6-6245-419d-8b17-10a93a6e4abc",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "MERGE_APPROVED -> COMPLETED",
+      "at": "2026-02-18T23:20:01.922Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "d7a707fb-8942-4f70-8a77-18e2b9f546e3",
+      "taskId": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-18T23:25:04.097Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "d8218e32-6640-4c44-ad57-f3cc7c99f090",
+      "taskId": "28a72738-09f8-4d55-90c3-69d1869451c8",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-19T00:17:31.036Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "9ab7e736-9d5b-4477-abfe-aa0cecd58fcc",
+      "taskId": "4f402029-fa9f-4703-97da-f78e94a8d540",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-19T00:17:39.427Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "1c477703-e47a-4cc3-896b-5441c36648dd",
+      "taskId": "66f0225d-2d64-4019-9bed-de63e59c519c",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-19T00:17:45.140Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "509cb03c-401a-448d-86f5-ddbaa1da6057",
+      "taskId": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-19T00:17:50.819Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "c8aebeea-ffbc-4b15-a1a1-f2da4b628841",
+      "taskId": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-19T00:17:56.424Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "1a24d7a7-cad5-496d-abc7-f3864d5dff9f",
+      "taskId": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-02-19T00:18:03.803Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Morgan Admin"
+      }
+    },
+    {
+      "id": "798b3b9b-6a24-44a1-b720-290d2b054b65",
+      "taskId": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-19T00:18:11.155Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "8fb0aab1-1f5b-43ef-a9e9-73c6e4b3104e",
+      "taskId": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-19T00:18:12.258Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "fe88f4cf-def9-4b62-b4b5-ae9a4a8e68e4",
+      "taskId": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Taylor File Checker",
+      "at": "2026-02-19T00:18:13.254Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "08df4c90-2110-451d-9b33-562d81384deb",
+      "taskId": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-19T00:18:13.923Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "68ad52f5-1589-4214-8cf9-82edc54592c4",
+      "taskId": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-19T00:18:14.604Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "a2e74d13-b7e3-47e1-9453-6d0c3136f69e",
+      "taskId": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-19T00:18:15.541Z",
+      "by": {
+        "id": "file-checker-1",
+        "displayName": "Taylor File Checker"
+      }
+    },
+    {
+      "id": "d4078dfc-d5a5-4e87-aa07-93daf10cf8ad",
+      "taskId": "66f0225d-2d64-4019-9bed-de63e59c519c",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Jamie Loan Officer",
+      "at": "2026-02-19T00:18:19.339Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "cff7cac1-034a-4f1c-a606-4a18d47603c4",
+      "taskId": "4f402029-fa9f-4703-97da-f78e94a8d540",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Jamie Loan Officer",
+      "at": "2026-02-19T00:18:20.339Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "2722dbcb-b8dd-4987-be34-53dd4c9f80b1",
+      "taskId": "28a72738-09f8-4d55-90c3-69d1869451c8",
+      "action": "TASK_CLAIMED",
+      "detail": "Claimed by Jamie Loan Officer",
+      "at": "2026-02-19T00:18:21.535Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "e6d9e9b2-ffac-4775-a81a-b3fea4e3e9ef",
+      "taskId": "66f0225d-2d64-4019-9bed-de63e59c519c",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-19T00:18:22.335Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "0f7373bf-70a7-45ff-8f06-0f69dd0875a5",
+      "taskId": "4f402029-fa9f-4703-97da-f78e94a8d540",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-19T00:18:23.143Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "9c5eb2c7-54fd-4967-8464-cb54eb4465d9",
+      "taskId": "28a72738-09f8-4d55-90c3-69d1869451c8",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "CLAIMED -> COMPLETED",
+      "at": "2026-02-19T00:18:23.833Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Jamie Loan Officer"
+      }
+    }
+  ]
+}

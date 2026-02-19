@@ -14,3 +14,7 @@ export const transitionSchema = z.object({
   status: z.enum(["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED", "CANCELLED", "ARCHIVED"]),
   reviewNotes: z.string().min(1).max(1000).optional()
 });
+
+export const reviewNoteSchema = z.object({
+  text: z.string().min(1).max(1000)
+});

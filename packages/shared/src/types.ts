@@ -25,6 +25,12 @@ export interface UserIdentity {
   roles: UserRole[];
 }
 
+export interface ReviewNote {
+  text: string;
+  by: Pick<UserIdentity, "id" | "displayName">;
+  at: string;
+}
+
 export interface LoanTask {
   id: string;
   loanName: string;
@@ -43,7 +49,7 @@ export interface LoanTask {
   completedAt?: string;
   cancelledAt?: string;
   lastReminderAt?: string;
-  reviewNotes?: string;
+  reviewNotes?: ReviewNote[];
 }
 
 export interface TaskHistoryEvent {

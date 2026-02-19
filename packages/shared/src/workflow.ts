@@ -15,6 +15,8 @@ const ALWAYS_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   OPEN: ["CANCELLED"],
   CLAIMED: ["NEEDS_REVIEW", "CANCELLED"],
   NEEDS_REVIEW: ["CLAIMED", "COMPLETED", "CANCELLED"],
+  COMPLETED: ["NEEDS_REVIEW", "OPEN"],
+  ARCHIVED: ["OPEN"],
   MERGE_DONE: ["CANCELLED"],
   MERGE_APPROVED: ["CANCELLED"]
 };
@@ -217,8 +219,8 @@ export const canCancelTask = (task: LoanTask, user: UserIdentity): boolean => {
   return isCreator || isAdmin;
 };
 
-export const canMoveClaimedToNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.status !== "CLAIMED") {
+export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.status !== "CLAIMED" && task.status !== "COMPLETED") {
     return false;
   }
 
@@ -262,7 +264,7 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
     return { ok: false, reason: "Only the task creator or admin can cancel a task" };
   }
 
-  if (next === "NEEDS_REVIEW" && !canMoveClaimedToNeedsReview(task, user)) {
+  if (next === "NEEDS_REVIEW" && !canMoveToNeedsReview(task, user)) {
     return { ok: false, reason: "Only assignee or creator can mark as needs review" };
   }
 

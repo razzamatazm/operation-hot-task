@@ -154,8 +154,18 @@ export class TaskService {
     if (next === "ARCHIVED") {
       updated.archivedAt = now;
     }
+    if (next === "OPEN") {
+      delete updated.completedAt;
+      delete updated.archivedAt;
+      if (task.assignee) {
+        updated.status = "CLAIMED";
+      }
+    }
     if (next === "NEEDS_REVIEW" && reviewNotes) {
-      updated.reviewNotes = reviewNotes;
+      updated.reviewNotes = [
+        ...(task.reviewNotes ?? []),
+        { text: reviewNotes, by: { id: user.id, displayName: user.displayName }, at: now }
+      ];
     }
 
     const detail = reviewNotes
@@ -171,6 +181,37 @@ export class TaskService {
       actor: { id: user.id, displayName: user.displayName },
       message: `${user.displayName} moved ${updated.loanName} to ${next}`
     });
+
+    return updated;
+  }
+
+  async addReviewNote(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    if (["COMPLETED", "ARCHIVED", "CANCELLED"].includes(task.status)) {
+      throw new Error("Notes cannot be added to closed tasks");
+    }
+
+    const isCreator = task.createdBy.id === user.id;
+    const isAssignee = task.assignee?.id === user.id;
+    const isAdmin = user.roles.includes("ADMIN");
+    if (!isCreator && !isAssignee && !isAdmin) {
+      throw new Error("Only the creator, assignee, or admin can add review notes");
+    }
+
+    const now = new Date().toISOString();
+    const updated: LoanTask = {
+      ...task,
+      reviewNotes: [
+        ...(task.reviewNotes ?? []),
+        { text, by: { id: user.id, displayName: user.displayName }, at: now }
+      ],
+      updatedAt: now
+    };
+
+    const event = this.makeHistory(task.id, user, "REVIEW_NOTE_ADDED", `Review note by ${user.displayName}`);
+    await this.store.upsertTask(updated, event);
+    this.events.broadcast({ type: "task.changed", payload: updated });
 
     return updated;
   }

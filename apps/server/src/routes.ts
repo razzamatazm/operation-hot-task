@@ -4,7 +4,7 @@ import { getUserFromRequest } from "./auth.js";
 import { config } from "./config.js";
 import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
-import { createTaskSchema, transitionSchema } from "./validation.js";
+import { createTaskSchema, reviewNoteSchema, transitionSchema } from "./validation.js";
 
 const toCreateInput = (body: unknown) => {
   const parsed = createTaskSchema.parse(body);
@@ -117,6 +117,17 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       res.json({ task });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to transition task" });
+    }
+  });
+
+  router.post("/tasks/:taskId/review-note", async (req, res) => {
+    try {
+      const { text } = reviewNoteSchema.parse(req.body);
+      const user = getUserFromRequest(req);
+      const task = await service.addReviewNote(req.params.taskId, text, user);
+      res.json({ task });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to add review note" });
     }
   });
 
