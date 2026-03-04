@@ -8,6 +8,7 @@ import { v4 as uuid } from "uuid";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import { SseHub } from "../apps/server/dist/sse.js";
+import { computeDueAtFromReturnDate } from "../packages/shared/dist/workflow.js";
 
 const appConfig = {
   businessTimezone: "America/Los_Angeles",
@@ -89,6 +90,12 @@ const run = async () => {
   const fail = (m) => results.push(`FAIL ${m}`);
 
   try {
+    const januaryDue = computeDueAtFromReturnDate("2026-01-15", appConfig);
+    assert.equal(januaryDue, "2026-01-15T16:30:00.000Z");
+    const julyDue = computeDueAtFromReturnDate("2026-07-15", appConfig);
+    assert.equal(julyDue, "2026-07-15T15:30:00.000Z");
+    pass("return date conversion respects PT DST offsets");
+
     await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
       const overdue = makeTask({
         dueAt: "2026-02-13T15:00:00.000Z",
@@ -171,6 +178,42 @@ const run = async () => {
       assert.equal(tasks.length, 1);
       assert.equal(tasks[0].id, recentArchived.id);
       pass("archive retention purge removes only records older than 90 days");
+    });
+
+    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
+      const ooo = makeTask({
+        taskType: "OOO",
+        dueAt: "2026-02-13T16:59:00.000Z",
+        status: "OPEN",
+        assignee: undefined
+      });
+
+      const { service, store, notifier } = await bootService([ooo]);
+      const output = await service.runMaintenance();
+
+      assert.equal(output.reminded, 0);
+      const tasks = await store.allTasks();
+      assert.equal(tasks[0].status, "COMPLETED");
+      assert.ok(tasks[0].completedAt, "completedAt should be set");
+      assert.equal(notifier.events.filter((e) => e.type === "TASK_STATUS_CHANGED").length, 2);
+      pass("ooo task auto-completes at return-date due time");
+    });
+
+    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
+      const alreadyCompletedOoo = makeTask({
+        taskType: "OOO",
+        dueAt: "2026-02-13T16:00:00.000Z",
+        status: "COMPLETED",
+        completedAt: "2026-02-13T16:00:00.000Z"
+      });
+
+      const { service, store } = await bootService([alreadyCompletedOoo]);
+      const output = await service.runMaintenance();
+
+      assert.equal(output.reminded, 0);
+      const tasks = await store.allTasks();
+      assert.equal(tasks[0].status, "COMPLETED");
+      pass("closed ooo tasks are not auto-completed again");
     });
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));

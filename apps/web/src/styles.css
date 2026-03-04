@@ -349,6 +349,108 @@ button.btn-good:hover {
   border-radius: 3px;
 }
 
+/* ── Recent Activity Table ───────────────────────────────── */
+.recent-activity-wrap {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.recent-activity-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.8rem;
+}
+
+.recent-activity-table th {
+  text-align: left;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.recent-activity-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.recent-activity-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.recent-row {
+  cursor: pointer;
+}
+
+.recent-row:hover td {
+  background: var(--row-hover);
+}
+
+.recent-row:focus-visible td {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.recent-row-active td {
+  color: var(--ink);
+}
+
+.recent-row-closed td {
+  color: var(--muted);
+}
+
+.recent-row-alt td {
+  background: var(--row-alt);
+}
+
+.recent-row-expanded td {
+  background: var(--brand-soft);
+}
+
+.recent-activity-table td.recent-cell-task,
+.recent-activity-table td:nth-child(4),
+.recent-activity-table td:nth-child(5) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-cell-task a {
+  color: var(--brand);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.recent-cell-task a:hover {
+  color: var(--brand-hover);
+  border-bottom-color: var(--brand-hover);
+}
+
+.recent-detail-row td {
+  padding: 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.recent-detail-row .task-card {
+  margin: 0;
+  border-radius: 8px;
+}
+
 /* ── Tab bar ──────────────────────────────────────────────── */
 .tab-bar {
   display: flex;
@@ -793,6 +895,10 @@ button.btn-good:hover {
 @media (max-width: 768px) {
   .task-card {
     grid-template-columns: 1fr;
+  }
+
+  .recent-activity-table {
+    min-width: 860px;
   }
 }
 

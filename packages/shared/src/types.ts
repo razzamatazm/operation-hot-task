@@ -1,5 +1,20 @@
-export const TASK_TYPES = ["LOI", "VALUE", "FRAUD", "LOAN_DOCS"] as const;
+export const TASK_TYPES = ["LOI", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
+
+export const NOTES_FIELD_LABELS: Readonly<Record<TaskType, string>> = {
+  LOI: "Loan Terms and Contacts",
+  VALUE: "Notes",
+  FRAUD: "Outstanding Items and Notes",
+  LOAN_DOCS: "Notes",
+  OOO: "Notes"
+};
+
+export const getNotesFieldLabel = (taskType?: TaskType): string => {
+  if (!taskType) {
+    return "Notes";
+  }
+  return NOTES_FIELD_LABELS[taskType] ?? "Notes";
+};
 
 export const URGENCY_LEVELS = ["GREEN", "YELLOW", "ORANGE", "RED"] as const;
 export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
@@ -70,6 +85,7 @@ export interface CreateTaskInput {
   loanName?: string;
   taskType: TaskType;
   dueAt?: string;
+  returnDate?: string;
   urgency?: UrgencyLevel;
   notes: string;
   humperdinkLink?: string;

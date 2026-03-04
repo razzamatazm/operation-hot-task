@@ -1,17 +1,19 @@
 import { app as teamsApp } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, nextFlowStatuses } from "@loan-tasks/shared";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const INITIAL_USER = mockUsers[0]!;
+const RECENT_TASK_CAP = 30;
 
 const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
   LOI: "LOI Check",
   VALUE: "Value Check",
   FRAUD: "Fraud Check",
-  LOAN_DOCS: "Loan Docs"
+  LOAN_DOCS: "Loan Docs",
+  OOO: "OOO - Out of Office"
 };
 
 const URGENCY_LABELS: Record<UrgencyLevel, string> = {
@@ -57,6 +59,22 @@ const isOverdue = (task: LoanTask): boolean => !CLOSED_STATUSES.includes(task.st
 const formatDate = (iso: string): string => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+};
+
+const formatCompactDate = (iso?: string): string => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+
+const formatPtDateOnly = (iso: string): string => {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "America/Los_Angeles"
+  });
 };
 
 const applyTheme = (theme?: string): void => {
@@ -140,7 +158,7 @@ const TaskCard = ({
       <div className="task-card-left">
         <div className={banner.className}>{banner.label}</div>
         <div className="task-card-title">
-          {task.humperdinkLink ? (
+          {task.taskType !== "OOO" && task.humperdinkLink ? (
             <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link">
               <span>{task.folderName}</span>
               <span className="external-link-icon" aria-hidden="true">↗</span>
@@ -151,11 +169,12 @@ const TaskCard = ({
         </div>
         <div className="task-card-tags">
           <span className="tag tag-type">{TASK_TYPE_LABELS[task.taskType]}</span>
-          <UrgencyTag urgency={task.urgency} />
+          {task.taskType !== "OOO" && <UrgencyTag urgency={task.urgency} />}
           {overdue && <span className="tag tag-overdue">Overdue</span>}
         </div>
         <div className="task-card-meta">
           <div>Created: {formatDate(task.createdAt)}</div>
+          {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
           <div>Creator: {task.createdBy.displayName}</div>
           {task.assignee && <div>Assignee: {task.assignee.displayName}</div>}
           {variant === "watching" && (
@@ -321,12 +340,125 @@ const CardList = ({
   </div>
 );
 
+const RecentActivityTable = ({
+  tasks,
+  expandedTaskId,
+  onToggleRow,
+  user,
+  onClaim,
+  onUnclaim,
+  onTransition,
+  onAddReviewNote,
+  onDismiss,
+  variantForTask
+}: {
+  tasks: LoanTask[];
+  expandedTaskId: string | null;
+  onToggleRow: (taskId: string) => void;
+  user: UserIdentity;
+  onClaim: (taskId: string) => Promise<void>;
+  onUnclaim: (taskId: string) => Promise<void>;
+  onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
+  onAddReviewNote: (taskId: string, text: string) => Promise<void>;
+  onDismiss: (taskId: string) => void;
+  variantForTask: (task: LoanTask) => "own" | "watching" | "available" | "completed";
+}) => {
+  if (tasks.length === 0) {
+    return <div className="empty-card">No recent tasks yet.</div>;
+  }
+
+  const onRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, taskId: string): void => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onToggleRow(taskId);
+  };
+
+  return (
+    <div className="recent-activity-wrap">
+      <table className="recent-activity-table">
+        <thead>
+          <tr>
+            <th scope="col">Task Name</th>
+            <th scope="col">Status</th>
+            <th scope="col">Type</th>
+            <th scope="col">Creator</th>
+            <th scope="col">Assignee</th>
+            <th scope="col">Date Created</th>
+            <th scope="col">Date Completed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((task, index) => {
+            const isExpanded = expandedTaskId === task.id;
+            const isClosed = CLOSED_STATUSES.includes(task.status);
+            const detailId = `recent-detail-${task.id}`;
+
+            return (
+              <Fragment key={task.id}>
+                <tr
+                  role="button"
+                  tabIndex={0}
+                  className={`recent-row ${index % 2 === 1 ? "recent-row-alt" : ""} ${isClosed ? "recent-row-closed" : "recent-row-active"}${isExpanded ? " recent-row-expanded" : ""}`}
+                  aria-expanded={isExpanded}
+                  aria-controls={detailId}
+                  onClick={() => onToggleRow(task.id)}
+                  onKeyDown={(event) => onRowKeyDown(event, task.id)}
+                >
+                  <td className="recent-cell-task" title={task.folderName}>
+                    {task.taskType !== "OOO" && task.humperdinkLink ? (
+                      <a
+                        href={task.humperdinkLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`Open Humperdink link for ${task.folderName}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {task.folderName}
+                      </a>
+                    ) : (
+                      task.folderName
+                    )}
+                  </td>
+                  <td>{statusLabel(task.status)}</td>
+                  <td>{TASK_TYPE_LABELS[task.taskType]}</td>
+                  <td title={task.createdBy.displayName}>{task.createdBy.displayName}</td>
+                  <td title={task.assignee?.displayName ?? "Unassigned"}>{task.assignee?.displayName ?? "Unassigned"}</td>
+                  <td>{formatCompactDate(task.createdAt)}</td>
+                  <td>{formatCompactDate(task.completedAt)}</td>
+                </tr>
+                {isExpanded && (
+                  <tr id={detailId} className="recent-detail-row">
+                    <td colSpan={7}>
+                      <TaskCard
+                        task={task}
+                        user={user}
+                        onClaim={onClaim}
+                        onUnclaim={onUnclaim}
+                        onTransition={onTransition}
+                        onAddReviewNote={onAddReviewNote}
+                        onDismiss={onDismiss}
+                        showActions={true}
+                        variant={variantForTask(task)}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 /* ── Metrics Panel ────────────────────────────────────────── */
 const TYPE_BAR_CLASS: Record<TaskType, string> = {
   LOI: "type-bar type-bar-brand",
   VALUE: "type-bar type-bar-good",
   FRAUD: "type-bar type-bar-bad",
-  LOAN_DOCS: "type-bar type-bar-hot"
+  LOAN_DOCS: "type-bar type-bar-hot",
+  OOO: "type-bar type-bar-brand"
 };
 
 const MetricsPanel = ({
@@ -448,12 +580,14 @@ export const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [expandedRecentTaskId, setExpandedRecentTaskId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "archived" | "metrics">("active");
 
   const [form, setForm] = useState({
     folderName: "",
     taskType: "LOI" as TaskType,
     urgency: "GREEN" as UrgencyLevel,
+    returnDate: "",
     notes: "",
     humperdinkLink: ""
   });
@@ -516,14 +650,14 @@ export const App = () => {
     const payload: CreateTaskInput = {
       folderName: form.folderName,
       taskType: form.taskType,
-      urgency: form.urgency,
       notes: form.notes,
-      ...(form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {})
+      ...(form.taskType === "OOO" ? { returnDate: form.returnDate } : { urgency: form.urgency }),
+      ...(form.taskType !== "OOO" && form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {})
     };
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", notes: "", humperdinkLink: "" }));
+      setForm((c) => ({ ...c, folderName: "", notes: "", returnDate: "", humperdinkLink: "" }));
       setError(null);
       setFormOpen(false);
       await refresh();
@@ -614,6 +748,23 @@ export const App = () => {
     [tasks]
   );
 
+  const recentTasks = useMemo(() => {
+    const active = tasks
+      .filter((t) => !CLOSED_STATUSES.includes(t.status))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const closed = tasks
+      .filter((t) => CLOSED_STATUSES.includes(t.status))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...active, ...closed].slice(0, RECENT_TASK_CAP);
+  }, [tasks]);
+
+  useEffect(() => {
+    if (!expandedRecentTaskId) return;
+    if (!recentTasks.some((task) => task.id === expandedRecentTaskId)) {
+      setExpandedRecentTaskId(null);
+    }
+  }, [recentTasks, expandedRecentTaskId]);
+
   /* ── Metrics computations (admin only) ──────────────────── */
   const claimsLeaderboard = useMemo(() => {
     if (!isAdmin) return [];
@@ -662,6 +813,17 @@ export const App = () => {
     return "own";
   };
 
+  const recentTaskVariant = (task: LoanTask): "own" | "watching" | "available" | "completed" => {
+    if (task.assignee?.id === user.id) return "own";
+    if (task.createdBy.id === user.id) return "watching";
+    if (CLOSED_STATUSES.includes(task.status)) return "completed";
+    return "available";
+  };
+
+  const onToggleRecentTask = (taskId: string): void => {
+    setExpandedRecentTaskId((current) => (current === taskId ? null : taskId));
+  };
+
   return (
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────── */}
@@ -699,7 +861,7 @@ export const App = () => {
         <div className="form-panel">
           <form className="task-form" onSubmit={onCreateTask}>
             <label>
-              Folder Name
+              {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
               <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
             </label>
             <label>
@@ -709,25 +871,40 @@ export const App = () => {
                 <option value="VALUE">Value Check</option>
                 <option value="FRAUD">Fraud Check</option>
                 <option value="LOAN_DOCS">Loan Docs</option>
+                <option value="OOO">OOO - Out of Office</option>
               </select>
             </label>
-            <label>
-              Urgency
-              <select value={form.urgency} onChange={(e) => setForm((c) => ({ ...c, urgency: e.target.value as UrgencyLevel }))}>
-                <option value="GREEN">Anytime</option>
-                <option value="YELLOW">End of Day</option>
-                <option value="ORANGE">Within 1 Hour</option>
-                <option value="RED">Urgent Now</option>
-              </select>
-            </label>
+            {form.taskType === "OOO" ? (
+              <label>
+                Return Date
+                <input
+                  type="date"
+                  value={form.returnDate}
+                  onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
+                  required
+                />
+              </label>
+            ) : (
+              <label>
+                Urgency
+                <select value={form.urgency} onChange={(e) => setForm((c) => ({ ...c, urgency: e.target.value as UrgencyLevel }))}>
+                  <option value="GREEN">Anytime</option>
+                  <option value="YELLOW">End of Day</option>
+                  <option value="ORANGE">Within 1 Hour</option>
+                  <option value="RED">Urgent Now</option>
+                </select>
+              </label>
+            )}
             <label className="span-full">
-              Notes
+              {getNotesFieldLabel(form.taskType)}
               <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
             </label>
-            <label>
-              Humperdink Link
-              <input type="url" placeholder="Optional" value={form.humperdinkLink} onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))} />
-            </label>
+            {form.taskType !== "OOO" && (
+              <label>
+                Humperdink Link
+                <input type="url" placeholder="Optional" value={form.humperdinkLink} onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))} />
+              </label>
+            )}
             <div className="form-actions">
               <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)}>Cancel</button>
               <button type="submit">Create Task</button>
@@ -785,21 +962,42 @@ export const App = () => {
             variant={myTaskVariant}
           />
 
+          {availableTasks.length > 0 && (
+            <>
+              <div className="section-head">
+                <h2>Available Tasks</h2>
+                <span className="section-count">{availableTasks.length}</span>
+              </div>
+              <CardList
+                tasks={availableTasks}
+                user={user}
+                onClaim={onClaim}
+                onUnclaim={onUnclaim}
+                onTransition={onTransition}
+                onAddReviewNote={onAddReviewNote}
+                onDismiss={onDismiss}
+                showActions={true}
+                emptyMessage="No open tasks available."
+                variant={() => "available"}
+              />
+            </>
+          )}
+
           <div className="section-head">
-            <h2>Available Tasks</h2>
-            <span className="section-count">{availableTasks.length}</span>
+            <h2>Recent Task Activity</h2>
+            <span className="section-count">{recentTasks.length}</span>
           </div>
-          <CardList
-            tasks={availableTasks}
+          <RecentActivityTable
+            tasks={recentTasks}
+            expandedTaskId={expandedRecentTaskId}
+            onToggleRow={onToggleRecentTask}
             user={user}
             onClaim={onClaim}
             onUnclaim={onUnclaim}
             onTransition={onTransition}
             onAddReviewNote={onAddReviewNote}
             onDismiss={onDismiss}
-            showActions={true}
-            emptyMessage="No open tasks available."
-            variant={() => "available"}
+            variantForTask={recentTaskVariant}
           />
         </>
       )}
