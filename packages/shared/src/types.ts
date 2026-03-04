@@ -33,12 +33,15 @@ export interface ReviewNote {
 
 export interface LoanTask {
   id: string;
-  loanName: string;
+  folderName: string;
+  /** @deprecated Compatibility alias for one release window. */
+  loanName?: string;
   taskType: TaskType;
   dueAt: string;
   urgency: UrgencyLevel;
   notes: string;
   humperdinkLink?: string;
+  /** @deprecated Compatibility alias for one release window. */
   serverLocation?: string;
   status: TaskStatus;
   createdAt: string;
@@ -62,12 +65,15 @@ export interface TaskHistoryEvent {
 }
 
 export interface CreateTaskInput {
-  loanName: string;
+  folderName: string;
+  /** @deprecated Compatibility alias for one release window. */
+  loanName?: string;
   taskType: TaskType;
   dueAt?: string;
   urgency?: UrgencyLevel;
   notes: string;
   humperdinkLink?: string;
+  /** @deprecated Compatibility alias for one release window. */
   serverLocation?: string;
 }
 

@@ -163,7 +163,10 @@ const run = async () => {
     const loiTask = createLoi.json.task;
     assert.equal(loiTask.status, "OPEN");
     assert.equal(loiTask.urgency, "GREEN");
+    assert.equal(loiTask.folderName, "Smoke LOI");
+    assert.equal(loiTask.loanName, "Smoke LOI");
     pushPass("create LOI defaults applied");
+    pushPass("legacy loanName payload maps to canonical folderName");
 
     const greenDueMs = new Date(loiTask.dueAt).getTime() - new Date(loiTask.createdAt).getTime();
     assert.ok(greenDueMs > 0, "GREEN dueAt should be in the future");
@@ -172,7 +175,7 @@ const run = async () => {
     const createOrange = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
-        loanName: "Smoke Orange",
+        folderName: "Smoke Orange",
         taskType: "VALUE",
         urgency: "ORANGE",
         notes: "smoke-orange"
@@ -187,7 +190,7 @@ const run = async () => {
     const createRed = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
-        loanName: "Smoke Red",
+        folderName: "Smoke Red",
         taskType: "LOI",
         urgency: "RED",
         notes: "smoke-red"
@@ -266,7 +269,7 @@ const run = async () => {
     const cancelTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
-        loanName: "Cancel Me",
+        folderName: "Cancel Me",
         taskType: "VALUE",
         notes: "cancel test"
       }
@@ -289,7 +292,7 @@ const run = async () => {
     const cancelByAdminTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
-        loanName: "Cancel By Admin",
+        folderName: "Cancel By Admin",
         taskType: "VALUE",
         notes: "admin cancel test"
       }
@@ -304,7 +307,7 @@ const run = async () => {
     const creatorReviewTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
-        loanName: "Creator Review Permission",
+        folderName: "Creator Review Permission",
         taskType: "LOI",
         notes: "creator review permission"
       }
@@ -324,7 +327,7 @@ const run = async () => {
     const fraudTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.admin,
       body: {
-        loanName: "Fraud Restricted",
+        folderName: "Fraud Restricted",
         taskType: "FRAUD",
         notes: "fraud permission"
       }
@@ -351,7 +354,7 @@ const run = async () => {
     const loanDocsTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
-        loanName: "Loan Docs Path",
+        folderName: "Loan Docs Path",
         taskType: "LOAN_DOCS",
         notes: "loan docs flow"
       }
@@ -393,7 +396,7 @@ const run = async () => {
 
     const integrationDisabled = await request(server.baseUrl, "POST", "/integrations/tasks", {
       body: {
-        loanName: "Inbound disabled",
+        folderName: "Inbound disabled",
         taskType: "LOI",
         notes: "integration"
       }
@@ -415,7 +418,7 @@ const run = async () => {
     const unauthorized = await request(integrationServer.baseUrl, "POST", "/integrations/tasks", {
       headers: { "x-api-key": "wrong-key" },
       body: {
-        loanName: "Integration Unauthorized",
+        folderName: "Integration Unauthorized",
         taskType: "LOI",
         notes: "bad key"
       }
@@ -425,7 +428,7 @@ const run = async () => {
     const authorized = await request(integrationServer.baseUrl, "POST", "/integrations/tasks", {
       headers: { "x-api-key": "smoke-key" },
       body: {
-        loanName: "Integration Authorized",
+        folderName: "Integration Authorized",
         taskType: "VALUE",
         notes: "good key"
       }

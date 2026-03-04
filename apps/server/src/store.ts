@@ -33,15 +33,20 @@ export class TaskStore {
 
   private async read(): Promise<DataShape> {
     const raw = await fs.readFile(this.filePath, "utf8");
-    const parsed = JSON.parse(raw) as DataShape;
+    const parsed = JSON.parse(raw) as Partial<DataShape>;
+    const tasks = Array.isArray(parsed.tasks) ? parsed.tasks.map((task) => this.normalizeTask(task)) : [];
     return {
-      tasks: parsed.tasks ?? [],
+      tasks,
       history: parsed.history ?? []
     };
   }
 
   private async write(data: DataShape): Promise<void> {
-    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
+    const normalized: DataShape = {
+      tasks: data.tasks.map((task) => this.normalizeTask(task)),
+      history: data.history
+    };
+    await fs.writeFile(this.filePath, JSON.stringify(normalized, null, 2), "utf8");
   }
 
   async allTasks(): Promise<LoanTask[]> {
@@ -110,5 +115,15 @@ export class TaskStore {
   private async enqueue(operation: () => Promise<void>): Promise<void> {
     this.chain = this.chain.then(operation, operation);
     return this.chain;
+  }
+
+  private normalizeTask(task: LoanTask): LoanTask {
+    const raw = task as LoanTask & { folderName?: string; loanName?: string; serverLocation?: string };
+    const folderName = raw.folderName?.trim() || raw.loanName?.trim() || raw.serverLocation?.trim() || "Untitled Task";
+    return {
+      ...raw,
+      folderName,
+      loanName: folderName
+    };
   }
 }

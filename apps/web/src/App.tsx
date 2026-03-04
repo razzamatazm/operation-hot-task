@@ -141,9 +141,12 @@ const TaskCard = ({
         <div className={banner.className}>{banner.label}</div>
         <div className="task-card-title">
           {task.humperdinkLink ? (
-            <a href={task.humperdinkLink} target="_blank" rel="noreferrer">{task.loanName}</a>
+            <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link">
+              <span>{task.folderName}</span>
+              <span className="external-link-icon" aria-hidden="true">↗</span>
+            </a>
           ) : (
-            task.loanName
+            task.folderName
           )}
         </div>
         <div className="task-card-tags">
@@ -153,7 +156,6 @@ const TaskCard = ({
         </div>
         <div className="task-card-meta">
           <div>Created: {formatDate(task.createdAt)}</div>
-          {task.serverLocation && <div>Folder: {task.serverLocation}</div>}
           <div>Creator: {task.createdBy.displayName}</div>
           {task.assignee && <div>Assignee: {task.assignee.displayName}</div>}
           {variant === "watching" && (
@@ -449,12 +451,11 @@ export const App = () => {
   const [activeTab, setActiveTab] = useState<"active" | "archived" | "metrics">("active");
 
   const [form, setForm] = useState({
-    loanName: "",
+    folderName: "",
     taskType: "LOI" as TaskType,
     urgency: "GREEN" as UrgencyLevel,
     notes: "",
-    humperdinkLink: "",
-    serverLocation: ""
+    humperdinkLink: ""
   });
 
   const isAdmin = user.roles.includes("ADMIN");
@@ -513,17 +514,16 @@ export const App = () => {
   const onCreateTask = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     const payload: CreateTaskInput = {
-      loanName: form.loanName,
+      folderName: form.folderName,
       taskType: form.taskType,
       urgency: form.urgency,
       notes: form.notes,
-      ...(form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {}),
-      ...(form.serverLocation ? { serverLocation: form.serverLocation } : {})
+      ...(form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {})
     };
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, loanName: "", notes: "", humperdinkLink: "", serverLocation: "" }));
+      setForm((c) => ({ ...c, folderName: "", notes: "", humperdinkLink: "" }));
       setError(null);
       setFormOpen(false);
       await refresh();
@@ -699,8 +699,8 @@ export const App = () => {
         <div className="form-panel">
           <form className="task-form" onSubmit={onCreateTask}>
             <label>
-              Loan Name
-              <input value={form.loanName} onChange={(e) => setForm((c) => ({ ...c, loanName: e.target.value }))} required />
+              Folder Name
+              <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
             </label>
             <label>
               Type
@@ -727,10 +727,6 @@ export const App = () => {
             <label>
               Humperdink Link
               <input type="url" placeholder="Optional" value={form.humperdinkLink} onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))} />
-            </label>
-            <label>
-              Folder Name
-              <input placeholder="Optional" value={form.serverLocation} onChange={(e) => setForm((c) => ({ ...c, serverLocation: e.target.value }))} />
             </label>
             <div className="form-actions">
               <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)}>Cancel</button>

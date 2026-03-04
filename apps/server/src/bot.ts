@@ -12,30 +12,27 @@ interface StoredReference {
   userAadObjectId?: string;
 }
 
-type BotTaskCreateInput = Pick<CreateTaskInput, "loanName" | "taskType" | "urgency" | "notes" | "humperdinkLink" | "serverLocation">;
+type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "notes" | "humperdinkLink">;
 type BotTaskCreator = (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>;
 
 type QuickAddStep =
-  | "LOAN_NAME"
+  | "FOLDER_NAME"
   | "TASK_TYPE"
   | "URGENCY"
   | "NOTES"
   | "HUMPERDINK"
-  | "SERVER_LOCATION"
-  | "LOAN_NAME_REPLACE_CONFIRM"
   | "REVIEW"
   | "CONFIRM_CREATE";
-type EditableField = "LOAN_NAME" | "TASK_TYPE" | "URGENCY" | "NOTES" | "HUMPERDINK" | "SERVER_LOCATION";
+type EditableField = "FOLDER_NAME" | "TASK_TYPE" | "URGENCY" | "NOTES" | "HUMPERDINK";
 
 interface QuickAddDraft {
   step: QuickAddStep;
   history: QuickAddStep[];
-  loanName?: string;
+  folderName?: string;
   taskType?: TaskType;
   urgency?: UrgencyLevel;
   notes?: string;
   humperdinkLink?: string;
-  serverLocation?: string;
   editField?: EditableField;
 }
 
@@ -54,12 +51,11 @@ const URGENCY_CHOICES: ReadonlyArray<{ label: string; value: UrgencyLevel }> = [
 ];
 const REVIEW_ACTIONS = [
   "Create task",
-  "Edit Loan Name",
+  "Edit Folder Name",
   "Edit Task Type",
   "Edit Urgency",
   "Edit Notes",
   "Edit Humperdink Link",
-  "Edit Server file/path",
   "Cancel"
 ] as const;
 const CONFIRM_CREATE_ACTIONS = ["Confirm create", "Back to review", "Cancel"] as const;
@@ -152,7 +148,7 @@ const parseConfirmCreateAction = (text: string): string | undefined => {
   return CONFIRM_CREATE_ACTIONS.find((action) => normalizeReviewAction(action) === normalized);
 };
 const isEditableStep = (step: QuickAddStep): step is EditableField =>
-  step === "LOAN_NAME" || step === "TASK_TYPE" || step === "URGENCY" || step === "NOTES" || step === "HUMPERDINK" || step === "SERVER_LOCATION";
+  step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "URGENCY" || step === "NOTES" || step === "HUMPERDINK";
 
 const toBotUserIdentity = (context: TurnContext): UserIdentity => {
   const from = context.activity.from;
@@ -240,8 +236,8 @@ class LoanTasksBot extends ActivityHandler {
     }
 
     if (command === "new" || command === "/bot new" || command === "bot new") {
-      this.drafts.set(key, { step: "LOAN_NAME", history: [] });
-      await context.sendActivity("New task started. Enter Loan Name:");
+      this.drafts.set(key, { step: "FOLDER_NAME", history: [] });
+      await context.sendActivity("New task started. Enter Folder Name:");
       return;
     }
 
@@ -261,14 +257,14 @@ class LoanTasksBot extends ActivityHandler {
       return;
     }
 
-    if (draft.step === "LOAN_NAME") {
-      const loanName = text.trim();
-      if (!loanName) {
-        await context.sendActivity("Loan Name cannot be blank. Enter Loan Name:");
+    if (draft.step === "FOLDER_NAME") {
+      const folderName = text.trim();
+      if (!folderName) {
+        await context.sendActivity("Folder Name cannot be blank. Enter Folder Name:");
         return;
       }
 
-      const nextDraft = this.updateDraft(draft, { loanName, step: "TASK_TYPE" });
+      const nextDraft = this.updateDraft(draft, { folderName, step: "TASK_TYPE" });
       this.drafts.set(key, nextDraft);
       if (nextDraft.step === "REVIEW") {
         await this.sendReview(context, nextDraft);
@@ -355,65 +351,14 @@ class LoanTasksBot extends ActivityHandler {
       }
 
       const humperdinkLink = isSkip(trimmed) || trimmed.length === 0 ? undefined : trimmed;
-      const nextDraft = this.updateDraft(draft, { step: "SERVER_LOCATION" });
+      const nextDraft = this.updateDraft(draft, { step: "REVIEW" });
       if (humperdinkLink) {
         nextDraft.humperdinkLink = humperdinkLink;
       } else {
         delete nextDraft.humperdinkLink;
       }
       this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Server file name/path (or choose Skip):"));
-      return;
-    }
-
-    if (draft.step === "SERVER_LOCATION") {
-      const serverLocation = isSkip(text) || text.trim().length === 0 ? undefined : text.trim();
-      if (serverLocation) {
-        this.drafts.set(key, this.updateDraft(draft, { serverLocation, step: "LOAN_NAME_REPLACE_CONFIRM" }));
-        await context.sendActivity(
-          MessageFactory.suggestedActions(
-            ["Keep current loan name", "Replace loan name"],
-            `Replace Loan Name "${draft.loanName ?? "Untitled Task"}" with "${serverLocation}"?`
-          )
-        );
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { step: "REVIEW" });
-      delete nextDraft.serverLocation;
-      this.drafts.set(key, nextDraft);
       await this.sendReview(context, nextDraft);
-      return;
-    }
-
-    if (draft.step === "LOAN_NAME_REPLACE_CONFIRM") {
-      const normalized = normalizeText(text);
-      if (normalized === "keep current loan name") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "REVIEW" }));
-        await this.sendReview(context, this.drafts.get(key)!);
-        return;
-      }
-
-      if (normalized === "replace loan name") {
-        const nextLoanName = draft.serverLocation ?? draft.loanName;
-        if (!nextLoanName) {
-          this.drafts.delete(key);
-          await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
-          return;
-        }
-        const nextDraft = this.updateDraft(draft, { loanName: nextLoanName, step: "REVIEW" });
-        this.drafts.set(key, nextDraft);
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-
-      await context.sendActivity(
-        MessageFactory.suggestedActions(["Keep current loan name", "Replace loan name"], "Choose one option:")
-      );
       return;
     }
 
@@ -437,9 +382,9 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
 
-      if (action === "Edit Loan Name") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "LOAN_NAME", editField: "LOAN_NAME" }));
-        await context.sendActivity("Enter Loan Name:");
+      if (action === "Edit Folder Name") {
+        this.drafts.set(key, this.updateDraft(draft, { step: "FOLDER_NAME", editField: "FOLDER_NAME" }));
+        await context.sendActivity("Enter Folder Name:");
         return;
       }
 
@@ -467,10 +412,6 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
 
-      if (action === "Edit Server file/path") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "SERVER_LOCATION", editField: "SERVER_LOCATION" }));
-        await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Server file name/path (or choose Skip):"));
-      }
       return;
     }
 
@@ -526,7 +467,7 @@ class LoanTasksBot extends ActivityHandler {
   private async goBack(context: TurnContext, key: string, draft: QuickAddDraft): Promise<void> {
     const previousStep = draft.history.at(-1);
     if (!previousStep) {
-      await context.sendActivity("You are already at the first step. Enter Loan Name:");
+      await context.sendActivity("You are already at the first step. Enter Folder Name:");
       return;
     }
 
@@ -545,8 +486,8 @@ class LoanTasksBot extends ActivityHandler {
   }
 
   private async promptForStep(context: TurnContext, draft: QuickAddDraft): Promise<void> {
-    if (draft.step === "LOAN_NAME") {
-      await context.sendActivity("Enter Loan Name:");
+    if (draft.step === "FOLDER_NAME") {
+      await context.sendActivity("Enter Folder Name:");
       return;
     }
     if (draft.step === "TASK_TYPE") {
@@ -565,19 +506,6 @@ class LoanTasksBot extends ActivityHandler {
       await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Humperdink Link (paste URL or choose Skip):"));
       return;
     }
-    if (draft.step === "SERVER_LOCATION") {
-      await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Server file name/path (or choose Skip):"));
-      return;
-    }
-    if (draft.step === "LOAN_NAME_REPLACE_CONFIRM") {
-      await context.sendActivity(
-        MessageFactory.suggestedActions(
-          ["Keep current loan name", "Replace loan name"],
-          `Replace Loan Name "${draft.loanName ?? "Untitled Task"}" with "${draft.serverLocation ?? "server file/path"}"?`
-        )
-      );
-      return;
-    }
     if (draft.step === "REVIEW") {
       await this.sendReview(context, draft);
       return;
@@ -589,11 +517,9 @@ class LoanTasksBot extends ActivityHandler {
     await context.sendActivity(
       MessageFactory.suggestedActions(
         [...REVIEW_ACTIONS],
-        `Review task details:\nLoan Name: ${formatField(draft.loanName)}\nTask Type: ${draft.taskType ?? "Not provided"}\nUrgency: ${
+        `Review task details:\nFolder Name: ${formatField(draft.folderName)}\nTask Type: ${draft.taskType ?? "Not provided"}\nUrgency: ${
           draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"
-        }\nNotes: ${formatField(draft.notes)}\nHumperdink Link: ${formatField(draft.humperdinkLink)}\nServer file/path: ${formatField(
-          draft.serverLocation
-        )}\nChoose an action:`
+        }\nNotes: ${formatField(draft.notes)}\nHumperdink Link: ${formatField(draft.humperdinkLink)}\nChoose an action:`
       )
     );
   }
@@ -602,7 +528,7 @@ class LoanTasksBot extends ActivityHandler {
     await context.sendActivity(
       MessageFactory.suggestedActions(
         [...CONFIRM_CREATE_ACTIONS],
-        `Confirm task creation:\nLoan Name: ${formatField(draft.loanName)}\nTask Type: ${draft.taskType ?? "Not provided"}\nUrgency: ${
+        `Confirm task creation:\nFolder Name: ${formatField(draft.folderName)}\nTask Type: ${draft.taskType ?? "Not provided"}\nUrgency: ${
           draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"
         }\nType "Back" to revisit earlier steps, or choose an action:`
       )
@@ -611,7 +537,7 @@ class LoanTasksBot extends ActivityHandler {
 
   private async completeQuickAdd(context: TurnContext, key: string): Promise<void> {
     const draft = this.drafts.get(key);
-    if (!draft?.loanName || !draft.taskType || !draft.urgency || !draft.notes) {
+    if (!draft?.folderName || !draft.taskType || !draft.urgency || !draft.notes) {
       this.drafts.delete(key);
       await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
       return;
@@ -619,19 +545,18 @@ class LoanTasksBot extends ActivityHandler {
 
     const user = toBotUserIdentity(context);
     const payload: BotTaskCreateInput = {
-      loanName: draft.loanName,
+      folderName: draft.folderName,
       taskType: draft.taskType,
       urgency: draft.urgency,
       notes: draft.notes,
-      ...(draft.humperdinkLink ? { humperdinkLink: draft.humperdinkLink } : {}),
-      ...(draft.serverLocation ? { serverLocation: draft.serverLocation } : {})
+      ...(draft.humperdinkLink ? { humperdinkLink: draft.humperdinkLink } : {})
     };
 
     try {
       const task = await this.onQuickAddTask(payload, user);
       this.drafts.delete(key);
       await context.sendActivity(
-        `Task created: ${task.loanName}\nType: ${task.taskType}\nUrgency: ${urgencyLabel(task.urgency)}\nStatus: ${task.status}`
+        `Task created: ${task.folderName}\nType: ${task.taskType}\nUrgency: ${urgencyLabel(task.urgency)}\nStatus: ${task.status}`
       );
     } catch (error) {
       this.drafts.delete(key);

@@ -23,7 +23,8 @@
       "reviewNotes": "Check this out, there is nothing there",
       "lastReminderAt": "2026-02-18T20:58:23.047Z",
       "completedAt": "2026-02-18T21:36:01.928Z",
-      "archivedAt": "2026-02-18T21:47:13.462Z"
+      "archivedAt": "2026-02-18T21:47:13.462Z",
+      "folderName": "test 2ube"
     },
     {
       "id": "1283f297-b415-4cb8-9501-1a1bdd8fe3ab",
@@ -47,7 +48,8 @@
       },
       "reviewNotes": "Why is the loan riddled with fraud?",
       "completedAt": "2026-02-18T20:55:55.812Z",
-      "archivedAt": "2026-02-18T21:36:09.898Z"
+      "archivedAt": "2026-02-18T21:36:09.898Z",
+      "folderName": "Test - Test"
     },
     {
       "id": "2d65be02-85e2-4ae1-829c-1417a2c1aa08",
@@ -89,7 +91,8 @@
           "at": "2026-02-18T21:07:54.869Z"
         }
       ],
-      "archivedAt": "2026-02-18T21:35:52.130Z"
+      "archivedAt": "2026-02-18T21:35:52.130Z",
+      "folderName": "Test - Test"
     },
     {
       "id": "8392d28a-534d-4fea-bebc-78c294d67101",
@@ -122,7 +125,8 @@
         }
       ],
       "completedAt": "2026-02-18T21:25:46.928Z",
-      "archivedAt": "2026-02-19T01:21:47.034Z"
+      "archivedAt": "2026-02-19T01:21:47.034Z",
+      "folderName": "hot dogs"
     },
     {
       "id": "1862307c-dfe7-4672-a521-69b6c655b40c",
@@ -145,7 +149,8 @@
         "displayName": "Taylor File Checker"
       },
       "completedAt": "2026-02-18T22:14:46.112Z",
-      "archivedAt": "2026-02-18T22:18:00.284Z"
+      "archivedAt": "2026-02-18T22:18:00.284Z",
+      "folderName": "tast"
     },
     {
       "id": "613a1702-d8f1-4987-bd10-d5774e70fd9b",
@@ -166,7 +171,8 @@
         "displayName": "Taylor File Checker"
       },
       "completedAt": "2026-02-18T22:33:17.700Z",
-      "archivedAt": "2026-02-18T23:10:03.461Z"
+      "archivedAt": "2026-02-18T23:10:03.461Z",
+      "folderName": "test 2"
     },
     {
       "id": "55c4c829-69ae-44fc-8dbd-2bb264bba179",
@@ -187,7 +193,8 @@
         "displayName": "Taylor File Checker"
       },
       "completedAt": "2026-02-18T23:20:01.922Z",
-      "archivedAt": "2026-02-18T23:25:04.097Z"
+      "archivedAt": "2026-02-18T23:25:04.097Z",
+      "folderName": "test123"
     },
     {
       "id": "28a72738-09f8-4d55-90c3-69d1869451c8",
@@ -208,7 +215,8 @@
         "displayName": "Jamie Loan Officer"
       },
       "completedAt": "2026-02-19T00:18:23.833Z",
-      "archivedAt": "2026-02-19T01:21:43.753Z"
+      "archivedAt": "2026-02-19T01:21:43.753Z",
+      "folderName": "test"
     },
     {
       "id": "4f402029-fa9f-4703-97da-f78e94a8d540",
@@ -229,7 +237,8 @@
         "displayName": "Jamie Loan Officer"
       },
       "completedAt": "2026-02-19T00:18:23.143Z",
-      "archivedAt": "2026-02-19T01:21:44.281Z"
+      "archivedAt": "2026-02-19T01:21:44.281Z",
+      "folderName": "etssd"
     },
     {
       "id": "66f0225d-2d64-4019-9bed-de63e59c519c",
@@ -250,7 +259,8 @@
         "displayName": "Jamie Loan Officer"
       },
       "completedAt": "2026-02-19T00:18:22.335Z",
-      "archivedAt": "2026-02-19T01:21:44.660Z"
+      "archivedAt": "2026-02-19T01:21:44.660Z",
+      "folderName": "setstes"
     },
     {
       "id": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
@@ -271,7 +281,8 @@
         "displayName": "Taylor File Checker"
       },
       "completedAt": "2026-02-19T00:18:15.541Z",
-      "archivedAt": "2026-02-19T01:21:44.925Z"
+      "archivedAt": "2026-02-19T01:21:44.925Z",
+      "folderName": "setesfvs"
     },
     {
       "id": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
@@ -292,7 +303,8 @@
         "displayName": "Taylor File Checker"
       },
       "completedAt": "2026-02-19T00:18:14.604Z",
-      "archivedAt": "2026-02-19T01:21:45.327Z"
+      "archivedAt": "2026-02-19T01:21:45.327Z",
+      "folderName": "searave"
     },
     {
       "id": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
@@ -313,7 +325,25 @@
         "displayName": "Taylor File Checker"
       },
       "completedAt": "2026-02-19T00:18:13.923Z",
-      "archivedAt": "2026-02-19T01:21:45.943Z"
+      "archivedAt": "2026-02-19T01:21:45.943Z",
+      "folderName": "weasdvwe"
+    },
+    {
+      "id": "150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "folderName": "Test - Test",
+      "loanName": "Test - Test",
+      "taskType": "LOI",
+      "dueAt": "2026-03-06T01:30:00.000Z",
+      "urgency": "GREEN",
+      "notes": "Here ya go!",
+      "status": "OPEN",
+      "createdAt": "2026-03-04T19:41:15.794Z",
+      "updatedAt": "2026-03-04T19:41:15.794Z",
+      "createdBy": {
+        "id": "loan-officer-1",
+        "displayName": "Suzie"
+      },
+      "humperdinkLink": "http://google.com"
     }
   ],
   "history": [
@@ -1195,6 +1225,17 @@
       "by": {
         "id": "admin-1",
         "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "748dc336-f05c-415c-9f39-89a596d046ff",
+      "taskId": "150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "action": "TASK_CREATED",
+      "detail": "Created LOI task",
+      "at": "2026-03-04T19:41:15.806Z",
+      "by": {
+        "id": "loan-officer-1",
+        "displayName": "Suzie"
       }
     }
   ]
