@@ -49,15 +49,15 @@ Primary goals:
 - Permission constraint:
   - Only file checkers can claim/complete Fraud Check tasks
 - Required create-task fields:
-  - Loan Name
+  - Folder Name
   - Task Type (`LOI`, `Value`, `Fraud`, `Loan Docs`)
   - Urgency (`Green`, `Yellow`, `Orange`, `Red`)
   - Notes
 - Optional create-task fields:
   - Humperdink Link (URL)
-  - Server Location (free-text file server path; no validation required)
   - Optional fields should always be visible in UI (not hidden behind expandable section)
-  - Server file name defaults to Loan Name, with option to override Loan Name
+  - Folder Name is the canonical task name (no separate file name field)
+  - When Humperdink Link is present, Folder Name is rendered as a clear clickable link
 - Due Date/Urgency behavior:
   - Due date is tracked backend-only (not shown in user-facing UI)
   - Auto due date is derived from urgency level
@@ -95,13 +95,11 @@ Primary goals:
   - Reminders: DM assignee, except `Loan Docs` waiting on merge approval (`Merge Done`) where reminder DM goes to creator
   - v1 bot scope: notifications/reminders + quick add (`/bot new`)
   - Bot quick add flow:
-    - Ask Loan Name
+    - Ask Folder Name
     - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`)
     - Ask urgency (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
     - Ask notes (with quick option for no additional notes)
     - Ask Humperdink Link (must be valid URL or skipped)
-    - Ask Server file name/path
-    - If server file/path is provided, offer to replace Loan Name
     - Show final review step with field-level edits
     - Show explicit final create confirmation before task submission
     - Support `/bot back` to return to prior step during quick add

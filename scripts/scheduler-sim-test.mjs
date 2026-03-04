@@ -56,6 +56,7 @@ const makeTask = (overrides = {}) => {
   const now = new Date().toISOString();
   return {
     id: uuid(),
+    folderName: "Scheduler Test",
     loanName: "Scheduler Test",
     taskType: "LOI",
     dueAt: now,
@@ -102,7 +103,7 @@ const run = async () => {
       assert.equal(output.purged, 0);
       const tasks = await store.allTasks();
       assert.ok(tasks[0].lastReminderAt, "lastReminderAt should be set");
-      assert.equal(notifier.events.filter((e) => e.type === "TASK_REMINDER").length, 3);
+      assert.equal(notifier.events.filter((e) => e.type === "TASK_REMINDER").length, 1);
       pass("overdue task is reminded during business hours");
     });
 

@@ -8,14 +8,17 @@ import { createTaskSchema, reviewNoteSchema, transitionSchema } from "./validati
 
 const toCreateInput = (body: unknown) => {
   const parsed = createTaskSchema.parse(body);
+  const folderName = parsed.folderName?.trim() || parsed.loanName?.trim() || parsed.serverLocation?.trim();
+  if (!folderName) {
+    throw new Error("folderName is required");
+  }
   return {
-    loanName: parsed.loanName,
+    folderName,
     taskType: parsed.taskType,
     notes: parsed.notes,
     ...(parsed.dueAt ? { dueAt: parsed.dueAt } : {}),
     ...(parsed.urgency ? { urgency: parsed.urgency } : {}),
-    ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {}),
-    ...(parsed.serverLocation ? { serverLocation: parsed.serverLocation } : {})
+    ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {})
   };
 };
 

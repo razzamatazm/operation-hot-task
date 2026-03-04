@@ -111,11 +111,15 @@ Base URL: `/api`
 - `POST /tasks/:taskId/transition`
 - `GET /stream` (SSE)
 
+Create-task payload naming:
+- Preferred canonical field: `folderName`
+- Compatibility accepted for one release window: `loanName` or `serverLocation` (resolved to `folderName`)
+
 Bot endpoint:
 
 - `POST /api/bot/messages`
 - Bot chat commands:
-  - `/bot new` quick add wizard (loan name -> task type -> urgency -> notes -> humperdink link -> server file/path -> optional loan name replace -> review/edit -> confirm -> create)
+  - `/bot new` quick add wizard (folder name -> task type -> urgency -> notes -> humperdink link -> review/edit -> confirm -> create)
   - `/bot back` return to the previous step during quick add
   - `/bot cancel`
   - `help`

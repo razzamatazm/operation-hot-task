@@ -23,7 +23,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
 
   async notify(event: NotificationEvent): Promise<void> {
     const prefix = `[${event.task.taskType}] [${event.task.urgency}]`;
-    const detail = `Loan: ${event.task.loanName}\nStatus: ${event.task.status}\nUrgency: ${event.task.urgency}`;
+    const detail = `Folder: ${event.task.folderName}\nStatus: ${event.task.status}\nUrgency: ${event.task.urgency}`;
 
     if (event.target === "CHANNEL") {
       await this.botClient.sendToChannels(`${prefix} ${event.message}`, detail);
@@ -40,10 +40,10 @@ export class TeamsNotificationProvider implements NotificationProvider {
 
     if (event.target === "DM") {
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
-        await this.botClient.sendToDmUsers(event.recipientUserIds, `${prefix} ${event.message} (Loan: ${event.task.loanName})`);
+        await this.botClient.sendToDmUsers(event.recipientUserIds, `${prefix} ${event.message} (Folder: ${event.task.folderName})`);
         return;
       }
-      await this.botClient.sendToDms(`${prefix} ${event.message} (Loan: ${event.task.loanName})`);
+      await this.botClient.sendToDms(`${prefix} ${event.message} (Folder: ${event.task.folderName})`);
       return;
     }
 
