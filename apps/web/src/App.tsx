@@ -17,7 +17,7 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
 };
 
 const URGENCY_LABELS: Record<UrgencyLevel, string> = {
-  GREEN: "Anytime",
+  GREEN: "Within 24 Hours",
   YELLOW: "End of Day",
   ORANGE: "Within 1 Hour",
   RED: "Urgent Now"
@@ -888,7 +888,7 @@ export const App = () => {
               <label>
                 Urgency
                 <select value={form.urgency} onChange={(e) => setForm((c) => ({ ...c, urgency: e.target.value as UrgencyLevel }))}>
-                  <option value="GREEN">Anytime</option>
+                  <option value="GREEN">Within 24 Hours</option>
                   <option value="YELLOW">End of Day</option>
                   <option value="ORANGE">Within 1 Hour</option>
                   <option value="RED">Urgent Now</option>

@@ -71,12 +71,12 @@ Primary goals:
 - Default urgency:
   - All task types default to `Green` (editable)
 - Urgency definitions:
-  - `Green`: anytime (reminders begin after next business day)
+  - `Green`: due in 24 real hours from creation (if due time lands on weekend, roll to Monday)
   - `Yellow`: needed by end of business day
   - `Orange`: needed within 1 hour
   - `Red`: urgent (drop-everything / immediate)
 - Urgency display policy:
-  - User-facing labels use timeframe-only wording (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
+  - User-facing labels use timeframe-only wording (`Within 24 Hours`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
   - Color remains visual styling only (no color word in label text)
 - Workflow statuses:
   - Added `Needs Review` and `Cancelled`
@@ -112,7 +112,7 @@ Primary goals:
   - Bot quick add flow:
     - Ask Folder Name
     - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`, `OOO - Out of Office`)
-    - If task type is non-OOO, ask urgency (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
+    - If task type is non-OOO, ask urgency (`Within 24 Hours`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
     - If task type is OOO, ask return date (`YYYY-MM-DD`, PT)
     - Ask notes (with quick option for no additional notes)
     - If task type is non-OOO, ask Humperdink Link (must be valid URL or skipped)

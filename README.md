@@ -21,7 +21,7 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
 - Real-time in-app updates via SSE
 - Hourly overdue reminders during business hours (8:30 AM-5:30 PM America/Los_Angeles)
 - Urgency model:
-  - `GREEN` anytime (reminders begin after next business day)
+  - `GREEN` due in 24 real hours from creation; if that due time lands on Saturday/Sunday (America/Los_Angeles), it shifts to Monday at the same local time
   - `YELLOW` end of business day
   - `ORANGE` within 1 hour
   - `RED` immediate

@@ -155,19 +155,20 @@ export const computeDueAtFromUrgency = (
     return zonedToUtcIso(next.year, next.month, next.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
   }
 
-  // Green is "anytime" but reminders begin after the next business day closes.
-  if (!isWeekend(localNow.weekday)) {
-    const next = nextBusinessDate(localNow.year, localNow.month, localNow.day, 1);
-    return zonedToUtcIso(next.year, next.month, next.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
+  // Green is due 24 real hours from creation; if that local due time lands on a weekend, shift to Monday.
+  const greenCandidate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const localGreenCandidate = zonedParts(greenCandidate, config.businessTimezone);
+  if (!isWeekend(localGreenCandidate.weekday)) {
+    return greenCandidate.toISOString();
   }
 
-  const firstBusiness = nextBusinessDate(localNow.year, localNow.month, localNow.day, 0);
+  const nextBusiness = nextBusinessDate(localGreenCandidate.year, localGreenCandidate.month, localGreenCandidate.day, 0);
   return zonedToUtcIso(
-    firstBusiness.year,
-    firstBusiness.month,
-    firstBusiness.day,
-    config.businessEndHour,
-    config.businessEndMinute,
+    nextBusiness.year,
+    nextBusiness.month,
+    nextBusiness.day,
+    localGreenCandidate.hour,
+    localGreenCandidate.minute,
     config.businessTimezone
   );
 };
