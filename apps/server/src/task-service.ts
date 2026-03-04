@@ -63,11 +63,19 @@ export class TaskService {
     await this.store.upsertTask(task, event);
     this.events.broadcast({ type: "task.changed", payload: task });
 
-    await this.notifyAllTargets({
+    await this.notify({
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${user.displayName} created task ${task.loanName}`
+      message: `${user.displayName} created task ${task.loanName}`,
+      target: "IN_APP"
+    });
+    await this.notify({
+      type: "TASK_CREATED",
+      task,
+      actor: task.createdBy,
+      message: `${user.displayName} created task ${task.loanName}`,
+      target: "CHANNEL"
     });
 
     return task;
@@ -92,11 +100,20 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    await this.notifyAllTargets({
+    await this.notify({
       type: "TASK_CLAIMED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} claimed ${updated.loanName}`
+      message: `${user.displayName} claimed ${updated.loanName}`,
+      target: "CHANNEL"
+    });
+    await this.notify({
+      type: "TASK_CLAIMED",
+      task: updated,
+      actor: { id: user.id, displayName: user.displayName },
+      message: `You picked up ${updated.loanName}`,
+      target: "DM",
+      recipientUserIds: [user.id]
     });
 
     return updated;
@@ -121,11 +138,12 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    await this.notifyAllTargets({
+    await this.notify({
       type: "TASK_UNCLAIMED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} unclaimed ${updated.loanName}`
+      message: `${user.displayName} unclaimed ${updated.loanName}`,
+      target: "CHANNEL"
     });
 
     return updated;
@@ -175,12 +193,35 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    await this.notifyAllTargets({
+    await this.notify({
       type: next === "ARCHIVED" ? "TASK_ARCHIVED" : "TASK_STATUS_CHANGED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} moved ${updated.loanName} to ${next}`
+      message: `${user.displayName} moved ${updated.loanName} to ${next}`,
+      target: "IN_APP"
     });
+
+    if (next === "MERGE_DONE" || next === "COMPLETED") {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.loanName} is now ${next}`,
+        target: "DM",
+        recipientUserIds: [updated.createdBy.id]
+      });
+    }
+
+    if (next === "MERGE_APPROVED" && updated.assignee) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.loanName} is now ${next}`,
+        target: "DM",
+        recipientUserIds: [updated.assignee.id]
+      });
+    }
 
     return updated;
   }
@@ -212,6 +253,18 @@ export class TaskService {
     const event = this.makeHistory(task.id, user, "REVIEW_NOTE_ADDED", `Review note by ${user.displayName}`);
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
+
+    const recipients = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id) && id !== user.id);
+    if (recipients.length > 0) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${user.displayName} added a note on ${updated.loanName}`,
+        target: "DM",
+        recipientUserIds: recipients
+      });
+    }
 
     return updated;
   }
@@ -250,12 +303,17 @@ export class TaskService {
           updatedAt: now.toISOString()
         };
 
-        await this.notifyAllTargets({
-          type: "TASK_REMINDER",
-          task: next,
-          actor: { id: "system", displayName: "Task Scheduler" },
-          message: `Task ${next.loanName} is overdue`
-        });
+        const reminderRecipients = this.reminderRecipients(next);
+        if (reminderRecipients.length > 0) {
+          await this.notify({
+            type: "TASK_REMINDER",
+            task: next,
+            actor: { id: "system", displayName: "Task Scheduler" },
+            message: `Task ${next.loanName} is overdue`,
+            target: "DM",
+            recipientUserIds: reminderRecipients
+          });
+        }
       }
 
       updatedTasks.push(next);
@@ -278,15 +336,30 @@ export class TaskService {
     };
   }
 
-  private async notifyAllTargets(event: Omit<NotificationEvent, "target" | "createdAt">): Promise<void> {
-    const base = {
-      ...event,
-      createdAt: new Date().toISOString()
-    };
+  private reminderRecipients(task: LoanTask): string[] {
+    if (task.taskType === "LOAN_DOCS" && task.status === "MERGE_DONE") {
+      return [task.createdBy.id];
+    }
+    return task.assignee ? [task.assignee.id] : [];
+  }
 
-    await this.notifier.notify({ ...base, target: "IN_APP" });
-    await this.notifier.notify({ ...base, target: "DM" });
-    await this.notifier.notify({ ...base, target: "CHANNEL" });
+  private async notify(event: Omit<NotificationEvent, "createdAt">): Promise<void> {
+    try {
+      await this.notifier.notify({
+        ...event,
+        ...(event.recipientUserIds && event.recipientUserIds.length > 0
+          ? { recipientUserIds: Array.from(new Set(event.recipientUserIds)) }
+          : {}),
+        createdAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("notification_send_failed", {
+        type: event.type,
+        target: event.target,
+        taskId: event.task.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private makeHistory(taskId: string, user: UserIdentity, action: string, detail: string): TaskHistoryEvent {

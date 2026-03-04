@@ -17,8 +17,8 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
 const URGENCY_LABELS: Record<UrgencyLevel, string> = {
   GREEN: "Anytime",
   YELLOW: "End of Day",
-  ORANGE: "1 Hour",
-  RED: "Urgent"
+  ORANGE: "Within 1 Hour",
+  RED: "Urgent Now"
 };
 
 const URGENCY_TAG_CLASS: Record<UrgencyLevel, string> = {

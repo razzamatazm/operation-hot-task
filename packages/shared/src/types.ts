@@ -82,6 +82,7 @@ export interface NotificationEvent {
   actor: Pick<UserIdentity, "id" | "displayName">;
   message: string;
   target: "IN_APP" | "DM" | "CHANNEL";
+  recipientUserIds?: string[];
   createdAt: string;
 }
 

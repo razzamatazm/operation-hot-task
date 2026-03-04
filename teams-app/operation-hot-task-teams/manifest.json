@@ -1,0 +1,81 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "bca6db0b-b2b7-423f-8c22-f4348f3a0340",
+  "name": {
+    "short": "Operation Hot Task",
+    "full": "Operation Hot Task"
+  },
+  "developer": {
+    "name": "Your Company",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "description": {
+    "short": "Loan officer task board",
+    "full": "Create, claim, review, complete, and archive loan check tasks with bot notifications."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#0b5fff",
+  "bots": [
+    {
+      "botId": "c61a3d26-e9ab-4ca4-8a05-7347b4a3b16a",
+      "scopes": [
+        "personal",
+        "team"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": [
+            "personal"
+          ],
+          "commands": [
+            {
+              "title": "new",
+              "description": "Start quick add task flow"
+            },
+            {
+              "title": "help",
+              "description": "Shows bot help"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "staticTabs": [
+    {
+      "entityId": "loan-tasks-home",
+      "name": "Operation Hot Task",
+      "contentUrl": "https://operation-hot-task-app-lof.azurewebsites.net/",
+      "websiteUrl": "https://operation-hot-task-app-lof.azurewebsites.net/",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://operation-hot-task-app-lof.azurewebsites.net/",
+      "canUpdateConfiguration": true,
+      "scopes": [
+        "team",
+        "groupChat"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "operation-hot-task-app-lof.azurewebsites.net"
+  ]
+}

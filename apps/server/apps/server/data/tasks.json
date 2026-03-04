@@ -98,9 +98,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "ez loan docs",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-18T21:08:37.702Z",
-      "updatedAt": "2026-02-18T21:25:46.928Z",
+      "updatedAt": "2026-02-19T01:21:47.034Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -121,7 +121,8 @@
           "at": "2026-02-18T21:24:10.029Z"
         }
       ],
-      "completedAt": "2026-02-18T21:25:46.928Z"
+      "completedAt": "2026-02-18T21:25:46.928Z",
+      "archivedAt": "2026-02-19T01:21:47.034Z"
     },
     {
       "id": "1862307c-dfe7-4672-a521-69b6c655b40c",
@@ -195,9 +196,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "test",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-19T00:17:31.012Z",
-      "updatedAt": "2026-02-19T00:18:23.833Z",
+      "updatedAt": "2026-02-19T01:21:43.753Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -206,7 +207,8 @@
         "id": "loan-officer-1",
         "displayName": "Jamie Loan Officer"
       },
-      "completedAt": "2026-02-19T00:18:23.833Z"
+      "completedAt": "2026-02-19T00:18:23.833Z",
+      "archivedAt": "2026-02-19T01:21:43.753Z"
     },
     {
       "id": "4f402029-fa9f-4703-97da-f78e94a8d540",
@@ -215,9 +217,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "teset",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-19T00:17:39.425Z",
-      "updatedAt": "2026-02-19T00:18:23.143Z",
+      "updatedAt": "2026-02-19T01:21:44.281Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -226,7 +228,8 @@
         "id": "loan-officer-1",
         "displayName": "Jamie Loan Officer"
       },
-      "completedAt": "2026-02-19T00:18:23.143Z"
+      "completedAt": "2026-02-19T00:18:23.143Z",
+      "archivedAt": "2026-02-19T01:21:44.281Z"
     },
     {
       "id": "66f0225d-2d64-4019-9bed-de63e59c519c",
@@ -235,9 +238,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "setetse",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-19T00:17:45.138Z",
-      "updatedAt": "2026-02-19T00:18:22.335Z",
+      "updatedAt": "2026-02-19T01:21:44.660Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -246,7 +249,8 @@
         "id": "loan-officer-1",
         "displayName": "Jamie Loan Officer"
       },
-      "completedAt": "2026-02-19T00:18:22.335Z"
+      "completedAt": "2026-02-19T00:18:22.335Z",
+      "archivedAt": "2026-02-19T01:21:44.660Z"
     },
     {
       "id": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
@@ -255,9 +259,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "vsdfse",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-19T00:17:50.819Z",
-      "updatedAt": "2026-02-19T00:18:15.541Z",
+      "updatedAt": "2026-02-19T01:21:44.925Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -266,7 +270,8 @@
         "id": "file-checker-1",
         "displayName": "Taylor File Checker"
       },
-      "completedAt": "2026-02-19T00:18:15.541Z"
+      "completedAt": "2026-02-19T00:18:15.541Z",
+      "archivedAt": "2026-02-19T01:21:44.925Z"
     },
     {
       "id": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
@@ -275,9 +280,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "vasdfe",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-19T00:17:56.423Z",
-      "updatedAt": "2026-02-19T00:18:14.604Z",
+      "updatedAt": "2026-02-19T01:21:45.327Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -286,7 +291,8 @@
         "id": "file-checker-1",
         "displayName": "Taylor File Checker"
       },
-      "completedAt": "2026-02-19T00:18:14.604Z"
+      "completedAt": "2026-02-19T00:18:14.604Z",
+      "archivedAt": "2026-02-19T01:21:45.327Z"
     },
     {
       "id": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
@@ -295,9 +301,9 @@
       "dueAt": "2026-02-20T01:30:00.000Z",
       "urgency": "GREEN",
       "notes": "avaerdf",
-      "status": "COMPLETED",
+      "status": "ARCHIVED",
       "createdAt": "2026-02-19T00:18:03.801Z",
-      "updatedAt": "2026-02-19T00:18:13.923Z",
+      "updatedAt": "2026-02-19T01:21:45.943Z",
       "createdBy": {
         "id": "admin-1",
         "displayName": "Morgan Admin"
@@ -306,7 +312,8 @@
         "id": "file-checker-1",
         "displayName": "Taylor File Checker"
       },
-      "completedAt": "2026-02-19T00:18:13.923Z"
+      "completedAt": "2026-02-19T00:18:13.923Z",
+      "archivedAt": "2026-02-19T01:21:45.943Z"
     }
   ],
   "history": [
@@ -1111,6 +1118,83 @@
       "by": {
         "id": "loan-officer-1",
         "displayName": "Jamie Loan Officer"
+      }
+    },
+    {
+      "id": "b24c0f1a-99a9-4100-bfbb-f9efaebb9afb",
+      "taskId": "28a72738-09f8-4d55-90c3-69d1869451c8",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:43.755Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "43768f7e-9adc-409d-8386-83d44e2ca675",
+      "taskId": "4f402029-fa9f-4703-97da-f78e94a8d540",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:44.281Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "93315b71-c342-48ff-8e87-8fbdf3adb235",
+      "taskId": "66f0225d-2d64-4019-9bed-de63e59c519c",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:44.660Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "4ea52a88-6c30-443e-9010-aa3fa8eaef21",
+      "taskId": "a3200e91-2fbe-44d6-944d-86c67d27b2d5",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:44.925Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "a4a8c3f5-7eb6-4634-a511-283ee978f27b",
+      "taskId": "9cb337c7-c0e4-41db-bb51-051ed79ed3c4",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:45.327Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "f478a1a8-455b-43b4-be2b-92248a36fd03",
+      "taskId": "92da3ff2-ce6c-43df-ba32-5169a4fb7c9f",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:45.943Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
+      }
+    },
+    {
+      "id": "63f25110-2737-449c-b0b0-e382bf2cdb42",
+      "taskId": "8392d28a-534d-4fea-bebc-78c294d67101",
+      "action": "TASK_STATUS_CHANGED",
+      "detail": "COMPLETED -> ARCHIVED",
+      "at": "2026-02-19T01:21:47.034Z",
+      "by": {
+        "id": "admin-1",
+        "displayName": "Johanna"
       }
     }
   ]

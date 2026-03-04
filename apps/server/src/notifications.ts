@@ -39,6 +39,10 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "DM") {
+      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        await this.botClient.sendToDmUsers(event.recipientUserIds, `${prefix} ${event.message} (Loan: ${event.task.loanName})`);
+        return;
+      }
       await this.botClient.sendToDms(`${prefix} ${event.message} (Loan: ${event.task.loanName})`);
       return;
     }

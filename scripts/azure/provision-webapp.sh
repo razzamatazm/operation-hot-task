@@ -19,7 +19,7 @@ LOCATION="${AZ_LOCATION:-westus2}"
 RESOURCE_GROUP="${AZ_RESOURCE_GROUP:-rg-operation-hot-task-prod}"
 PLAN_NAME="${AZ_APP_SERVICE_PLAN:-asp-operation-hot-task-prod}"
 WEBAPP_NAME="${AZ_WEBAPP_NAME:-operation-hot-task-app}"
-RUNTIME="${AZ_RUNTIME:-NODE:20-lts}"
+RUNTIME="${AZ_RUNTIME:-NODE:24-lts}"
 SKU="${AZ_APP_SERVICE_SKU:-B1}"
 
 if [[ -z "$SUBSCRIPTION_ID" || -z "$WEBAPP_NAME" ]]; then

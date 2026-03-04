@@ -68,6 +68,9 @@ Primary goals:
   - `Yellow`: needed by end of business day
   - `Orange`: needed within 1 hour
   - `Red`: urgent (drop-everything / immediate)
+- Urgency display policy:
+  - User-facing labels use timeframe-only wording (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
+  - Color remains visual styling only (no color word in label text)
 - Workflow statuses:
   - Added `Needs Review` and `Cancelled`
 - Loan Docs workflow:
@@ -84,14 +87,24 @@ Primary goals:
   - Teams bot direct messages
   - Teams bot channel posts
   - Channel post target: dedicated Tasks channel (to be configured per Team)
+  - New task created: broadcast to channel (plus in-app event)
+  - Task claimed/unclaimed: post channel update; claimer also gets DM confirmation on claim
+  - `Merge Done` and `Completed`: DM task creator
+  - `Merge Approved`: DM task assignee
+  - Notes: DM counterpart user (assignee -> creator, creator -> assignee)
+  - Reminders: DM assignee, except `Loan Docs` waiting on merge approval (`Merge Done`) where reminder DM goes to creator
   - v1 bot scope: notifications/reminders + quick add (`/bot new`)
   - Bot quick add flow:
+    - Ask Loan Name
     - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`)
-    - Ask urgency (`Green`, `Yellow`, `Orange`, `Red`)
+    - Ask urgency (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
     - Ask notes (with quick option for no additional notes)
-    - Ask Humperdink Link
+    - Ask Humperdink Link (must be valid URL or skipped)
     - Ask Server file name/path
-    - Loan Name defaults to Server file name, with option to override
+    - If server file/path is provided, offer to replace Loan Name
+    - Show final review step with field-level edits
+    - Show explicit final create confirmation before task submission
+    - Support `/bot back` to return to prior step during quick add
 - Overdue reminders:
   - Every 1 hour
   - Only during business hours

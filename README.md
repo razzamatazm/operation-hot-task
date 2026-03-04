@@ -115,7 +115,8 @@ Bot endpoint:
 
 - `POST /api/bot/messages`
 - Bot chat commands:
-  - `/bot new` quick add wizard (task type -> urgency -> notes -> humperdink link -> server file/path -> loan name confirm/override)
+  - `/bot new` quick add wizard (loan name -> task type -> urgency -> notes -> humperdink link -> server file/path -> optional loan name replace -> review/edit -> confirm -> create)
+  - `/bot back` return to the previous step during quick add
   - `/bot cancel`
   - `help`
 
@@ -150,6 +151,14 @@ Two channel posting mechanisms are supported:
 
 - Incoming webhook (`TEAMS_CHANNEL_WEBHOOK_URL`)
 - Bot proactive channel posts (when bot credentials are configured and the bot has channel conversation references)
+
+Current notification routing:
+- New task created: channel + in-app
+- Task claimed/unclaimed: channel update; claimer gets DM confirmation on claim
+- `MERGE_DONE` and `COMPLETED`: DM to task creator
+- `MERGE_APPROVED`: DM to task assignee
+- Review note added: DM to counterpart user (creator/assignee)
+- Overdue reminder: DM to assignee, except `LOAN_DOCS` in `MERGE_DONE` where DM goes to creator
 
 ## In-house app task creation (phase 2 ready)
 
