@@ -47,7 +47,7 @@ const TASK_TYPE_CHOICES: ReadonlyArray<{ label: string; value: TaskType }> = [
 ];
 
 const URGENCY_CHOICES: ReadonlyArray<{ label: string; value: UrgencyLevel }> = [
-  { label: "Anytime", value: "GREEN" },
+  { label: "Within 24 Hours", value: "GREEN" },
   { label: "End of Day", value: "YELLOW" },
   { label: "Within 1 Hour", value: "ORANGE" },
   { label: "Urgent Now", value: "RED" }
@@ -115,6 +115,13 @@ const parseUrgency = (text: string): UrgencyLevel | undefined => {
     return "RED";
   }
   if (normalized.includes("anytime")) {
+    return "GREEN";
+  }
+  if (
+    normalized.includes("within 24 hours") ||
+    normalized.includes("24 hours") ||
+    normalized.includes("24 hour")
+  ) {
     return "GREEN";
   }
   if (normalized.includes("end of day")) {
