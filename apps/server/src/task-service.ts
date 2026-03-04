@@ -10,6 +10,7 @@ import {
   canTransitionStatus,
   canUnclaimTask,
   computeDefaultDueAt,
+  computeDueAtFromReturnDate,
   isOverdue,
   shouldPurgeArchived,
   shouldSendReminder
@@ -43,14 +44,22 @@ export class TaskService {
 
   async createTask(input: CreateTaskInput, user: UserIdentity): Promise<LoanTask> {
     const now = new Date();
-    const urgency = input.urgency ?? "GREEN";
+    const isOoo = input.taskType === "OOO";
+    const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
     const folderName = input.folderName.trim();
+    const dueAt = isOoo
+      ? computeDueAtFromReturnDate(input.returnDate ?? "", this.appConfig)
+      : input.dueAt ?? computeDefaultDueAt(input.taskType, now, urgency, this.appConfig);
+    if (isOoo && new Date(dueAt).getTime() <= now.getTime()) {
+      throw new Error("returnDate must result in a future due time");
+    }
+
     const task: LoanTask = {
       id: uuid(),
       folderName,
       loanName: folderName,
       taskType: input.taskType,
-      dueAt: input.dueAt ?? computeDefaultDueAt(input.taskType, now, urgency, this.appConfig),
+      dueAt,
       urgency,
       notes: input.notes.trim(),
       status: "OPEN",
@@ -276,21 +285,52 @@ export class TaskService {
 
     let reminded = 0;
     let autoArchived = 0;
+    const historyEvents: TaskHistoryEvent[] = [];
     const updatedTasks: LoanTask[] = [];
 
     for (const task of tasks) {
       let next = task;
+      const nowIso = now.toISOString();
+
+      if (
+        task.taskType === "OOO" &&
+        ACTIVE_STATUSES.includes(task.status) &&
+        new Date(task.dueAt).getTime() <= now.getTime()
+      ) {
+        next = {
+          ...next,
+          status: "COMPLETED",
+          completedAt: nowIso,
+          updatedAt: nowIso
+        };
+        historyEvents.push(this.makeHistory(task.id, { id: "system", displayName: "Task Scheduler", roles: ["ADMIN"] }, "TASK_STATUS_CHANGED", "AUTO_COMPLETED_RETURN_DATE"));
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: next,
+          actor: { id: "system", displayName: "Task Scheduler" },
+          message: `${next.folderName} auto-completed on return date`,
+          target: "IN_APP"
+        });
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: next,
+          actor: { id: "system", displayName: "Task Scheduler" },
+          message: `${next.folderName} is now COMPLETED`,
+          target: "DM",
+          recipientUserIds: [next.createdBy.id]
+        });
+      }
 
       // Auto-archive completed/cancelled tasks after 14 days to keep active queues clean.
-      if (["COMPLETED", "CANCELLED"].includes(task.status)) {
-        const reference = task.completedAt ?? task.cancelledAt ?? task.updatedAt;
+      if (["COMPLETED", "CANCELLED"].includes(next.status)) {
+        const reference = next.completedAt ?? next.cancelledAt ?? next.updatedAt;
         const ageMs = now.getTime() - new Date(reference).getTime();
         if (ageMs > 14 * 24 * 60 * 60 * 1000) {
           next = {
             ...next,
             status: "ARCHIVED",
-            archivedAt: now.toISOString(),
-            updatedAt: now.toISOString()
+            archivedAt: nowIso,
+            updatedAt: nowIso
           };
           autoArchived += 1;
         }
@@ -300,8 +340,8 @@ export class TaskService {
         reminded += 1;
         next = {
           ...next,
-          lastReminderAt: now.toISOString(),
-          updatedAt: now.toISOString()
+          lastReminderAt: nowIso,
+          updatedAt: nowIso
         };
 
         const reminderRecipients = this.reminderRecipients(next);
@@ -323,8 +363,11 @@ export class TaskService {
     const toPurge = updatedTasks.filter((task) => shouldPurgeArchived(task, now, this.appConfig.archiveRetentionDays));
     const retained = updatedTasks.filter((task) => !toPurge.some((purge) => purge.id === task.id));
 
-    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0) {
+    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0 || historyEvents.length > 0) {
       await this.store.replaceTasks(retained);
+      for (const event of historyEvents) {
+        await this.store.appendHistory(event);
+      }
       for (const task of retained) {
         this.events.broadcast({ type: "task.changed", payload: task });
       }

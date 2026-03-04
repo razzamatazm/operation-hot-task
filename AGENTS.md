@@ -8,6 +8,7 @@ Core task types:
 - Value checks
 - Fraud checks
 - Loan docs
+- OOO (out of office coverage)
 
 Primary goals:
 - Create, claim, complete, and archive tasks
@@ -50,14 +51,20 @@ Primary goals:
   - Only file checkers can claim/complete Fraud Check tasks
 - Required create-task fields:
   - Folder Name
-  - Task Type (`LOI`, `Value`, `Fraud`, `Loan Docs`)
-  - Urgency (`Green`, `Yellow`, `Orange`, `Red`)
+  - Task Type (`LOI`, `Value`, `Fraud`, `Loan Docs`, `OOO`)
+  - Timing:
+    - Non-OOO: Urgency (`Green`, `Yellow`, `Orange`, `Red`)
+    - OOO: Return Date (`YYYY-MM-DD`, PT)
+  - OOO description label:
+    - For OOO tasks, Folder Name is presented as `Vacation Description`
   - Notes
+  - Notes label by task type (UI wording only; stored field remains `notes`):
+    - LOI: `Loan Terms and Contacts`
+    - Fraud: `Outstanding Items and Notes`
+    - Value / Loan Docs / OOO: `Notes`
 - Optional create-task fields:
-  - Humperdink Link (URL)
-  - Optional fields should always be visible in UI (not hidden behind expandable section)
+  - Non-OOO only: Humperdink Link (URL)
   - Folder Name is the canonical task name (no separate file name field)
-  - When Humperdink Link is present, Folder Name is rendered as a clear clickable link
 - Due Date/Urgency behavior:
   - Due date is tracked backend-only (not shown in user-facing UI)
   - Auto due date is derived from urgency level
@@ -82,6 +89,14 @@ Primary goals:
 - Claiming:
   - First-come-first-serve
   - Unclaim is allowed
+  - Claim tasks section is hidden when there are no claimable tasks
+- Front page recent activity:
+  - Active tab includes a bottom section showing the most recent 30 tasks
+  - Ordering in that section: active statuses first (`Open`, `Claimed`, `Needs Review`, `Merge Done`, `Merge Approved`), then closed statuses (`Completed`, `Cancelled`, `Archived`)
+  - Within each group, tasks are sorted by newest created timestamp first
+  - Presented as a compact spreadsheet-style table (Task Name, Status, Type, Creator, Assignee, Date Created, Date Completed)
+  - Clicking a recent activity row expands inline detailed task view beneath that row
+  - `Date Completed` shows `—` unless `completedAt` exists
 - Notifications:
   - In-app notifications
   - Teams bot direct messages
@@ -96,10 +111,11 @@ Primary goals:
   - v1 bot scope: notifications/reminders + quick add (`/bot new`)
   - Bot quick add flow:
     - Ask Folder Name
-    - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`)
-    - Ask urgency (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
+    - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`, `OOO - Out of Office`)
+    - If task type is non-OOO, ask urgency (`Anytime`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
+    - If task type is OOO, ask return date (`YYYY-MM-DD`, PT)
     - Ask notes (with quick option for no additional notes)
-    - Ask Humperdink Link (must be valid URL or skipped)
+    - If task type is non-OOO, ask Humperdink Link (must be valid URL or skipped)
     - Show final review step with field-level edits
     - Show explicit final create confirmation before task submission
     - Support `/bot back` to return to prior step during quick add
@@ -120,6 +136,17 @@ Primary goals:
 - Teams branding:
   - App display name in Teams: `Operation Hot Task`
   - App icons: paper-on-fire concept (color + outline variants)
+- OOO task type:
+  - Added task type: `OOO` (Out of Office)
+  - OOO uses return-date model instead of urgency input
+  - Return date is user-entered date-only and interpreted in `America/Los_Angeles`
+  - OOO dueAt is computed at `8:30 AM PT` on the return date
+  - OOO return date must resolve to a future due time
+  - OOO auto-completes from active statuses when return due time is reached
+  - OOO uses existing people model:
+    - Creator = out-of-office person
+    - Assignee = covering person when claimed
+  - OOO keeps standard claim/unclaim flow (`Open`/`Claimed`)
 
 ### Open Questions Queue
 - None currently.

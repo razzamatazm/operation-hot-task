@@ -202,6 +202,80 @@ const run = async () => {
     assert.ok(redDueMs >= -60 * 1000 && redDueMs <= 60 * 1000, `RED due delta expected immediate, got ${redDueMs}`);
     pushPass("RED urgency default due is immediate");
 
+    const createOoo = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "OOO Coverage",
+        taskType: "OOO",
+        returnDate: "2099-01-02",
+        notes: "cover while away"
+      }
+    });
+    expectStatus(createOoo.status, 201, "create OOO task", createOoo.json);
+    const oooTask = createOoo.json.task;
+    assert.equal(oooTask.taskType, "OOO");
+    assert.equal(oooTask.urgency, "GREEN");
+    const oooDue = new Date(oooTask.dueAt);
+    const oooDuePt = oooDue.toLocaleString("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    assert.ok(oooDuePt.includes("01/02/2099, 08:30"), `OOO due should map to 8:30am PT, got ${oooDuePt}`);
+    pushPass("OOO task uses return date due at 8:30 AM PT and GREEN urgency");
+
+    const createOooMissingReturnDate = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "OOO Missing Return Date",
+        taskType: "OOO",
+        notes: "missing return date"
+      }
+    });
+    expectStatus(createOooMissingReturnDate.status, 400, "create OOO missing return date", createOooMissingReturnDate.json);
+    pushPass("OOO task requires returnDate");
+
+    const createOooWithUrgency = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "OOO With Urgency",
+        taskType: "OOO",
+        returnDate: "2099-01-03",
+        urgency: "YELLOW",
+        notes: "invalid urgency"
+      }
+    });
+    expectStatus(createOooWithUrgency.status, 400, "create OOO with urgency", createOooWithUrgency.json);
+    pushPass("OOO task rejects urgency");
+
+    const createOooPastDate = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "OOO Past Date",
+        taskType: "OOO",
+        returnDate: "2020-01-01",
+        notes: "past return date"
+      }
+    });
+    expectStatus(createOooPastDate.status, 400, "create OOO past date", createOooPastDate.json);
+    pushPass("OOO return date must be in the future");
+
+    const createNonOooWithReturnDate = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "LOI With Return Date",
+        taskType: "LOI",
+        returnDate: "2099-01-03",
+        notes: "invalid return date on non-OOO"
+      }
+    });
+    expectStatus(createNonOooWithReturnDate.status, 400, "create non-OOO with returnDate", createNonOooWithReturnDate.json);
+    pushPass("non-OOO task rejects returnDate");
+
     const claimByOther = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/claim`, {
       user: users.otherOfficer
     });

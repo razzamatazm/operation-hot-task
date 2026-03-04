@@ -17,6 +17,7 @@ const toCreateInput = (body: unknown) => {
     taskType: parsed.taskType,
     notes: parsed.notes,
     ...(parsed.dueAt ? { dueAt: parsed.dueAt } : {}),
+    ...(parsed.returnDate ? { returnDate: parsed.returnDate } : {}),
     ...(parsed.urgency ? { urgency: parsed.urgency } : {}),
     ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {})
   };

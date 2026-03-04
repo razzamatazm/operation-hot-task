@@ -172,6 +172,34 @@ export const computeDueAtFromUrgency = (
   );
 };
 
+const ISO_DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+export const computeDueAtFromReturnDate = (
+  returnDate: string,
+  config: AppConfig = DEFAULT_CONFIG
+): string => {
+  const trimmed = returnDate.trim();
+  if (!ISO_DATE_ONLY_PATTERN.test(trimmed)) {
+    throw new Error("returnDate must be in YYYY-MM-DD format");
+  }
+
+  const [yearRaw, monthRaw, dayRaw] = trimmed.split("-");
+  const year = Number.parseInt(yearRaw ?? "", 10);
+  const month = Number.parseInt(monthRaw ?? "", 10);
+  const day = Number.parseInt(dayRaw ?? "", 10);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    !Number.isFinite(candidate.getTime()) ||
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() + 1 !== month ||
+    candidate.getUTCDate() !== day
+  ) {
+    throw new Error("returnDate must be a valid calendar date");
+  }
+
+  return zonedToUtcIso(year, month, day, config.businessStartHour, config.businessStartMinute, config.businessTimezone);
+};
+
 export const computeDefaultDueAt = (
   _taskType: TaskType,
   now: Date,

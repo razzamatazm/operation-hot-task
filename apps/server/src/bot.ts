@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { CreateTaskInput, LoanTask, TaskType, UrgencyLevel, UserIdentity } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskType, UrgencyLevel, UserIdentity, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
 import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, MessageFactory, TurnContext } from "botbuilder";
 import { Express } from "express";
 
@@ -12,24 +12,26 @@ interface StoredReference {
   userAadObjectId?: string;
 }
 
-type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "notes" | "humperdinkLink">;
+type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "notes" | "returnDate" | "humperdinkLink">;
 type BotTaskCreator = (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>;
 
 type QuickAddStep =
   | "FOLDER_NAME"
   | "TASK_TYPE"
+  | "RETURN_DATE"
   | "URGENCY"
   | "NOTES"
   | "HUMPERDINK"
   | "REVIEW"
   | "CONFIRM_CREATE";
-type EditableField = "FOLDER_NAME" | "TASK_TYPE" | "URGENCY" | "NOTES" | "HUMPERDINK";
+type EditableField = "FOLDER_NAME" | "TASK_TYPE" | "RETURN_DATE" | "URGENCY" | "NOTES" | "HUMPERDINK";
 
 interface QuickAddDraft {
   step: QuickAddStep;
   history: QuickAddStep[];
   folderName?: string;
   taskType?: TaskType;
+  returnDate?: string;
   urgency?: UrgencyLevel;
   notes?: string;
   humperdinkLink?: string;
@@ -40,7 +42,8 @@ const TASK_TYPE_CHOICES: ReadonlyArray<{ label: string; value: TaskType }> = [
   { label: "LOI Check", value: "LOI" },
   { label: "Value Check", value: "VALUE" },
   { label: "Loan Docs", value: "LOAN_DOCS" },
-  { label: "Fraud Check", value: "FRAUD" }
+  { label: "Fraud Check", value: "FRAUD" },
+  { label: "OOO - Out of Office", value: "OOO" }
 ];
 
 const URGENCY_CHOICES: ReadonlyArray<{ label: string; value: UrgencyLevel }> = [
@@ -53,6 +56,7 @@ const REVIEW_ACTIONS = [
   "Create task",
   "Edit Folder Name",
   "Edit Task Type",
+  "Edit Return Date",
   "Edit Urgency",
   "Edit Notes",
   "Edit Humperdink Link",
@@ -84,6 +88,9 @@ const parseTaskType = (text: string): TaskType | undefined => {
   }
   if (normalized === "loan docs" || normalized === "loan_docs") {
     return "LOAN_DOCS";
+  }
+  if (normalized === "ooo" || normalized === "out of office" || normalized === "ooo - out of office") {
+    return "OOO";
   }
   return undefined;
 };
@@ -122,12 +129,27 @@ const parseUrgency = (text: string): UrgencyLevel | undefined => {
   return undefined;
 };
 
+const isNoAdditionalNotes = (text: string): boolean => normalizeText(text) === "no additional notes";
+const parseReturnDate = (text: string): string | undefined => {
+  const trimmed = text.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return undefined;
+  }
+  let dueAt: string;
+  try {
+    dueAt = computeDueAtFromReturnDate(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (new Date(dueAt).getTime() <= Date.now()) {
+    return undefined;
+  }
+  return trimmed;
+};
 const isSkip = (text: string): boolean => {
   const normalized = normalizeText(text);
   return normalized === "skip" || normalized === "none" || normalized === "n/a";
 };
-
-const isNoAdditionalNotes = (text: string): boolean => normalizeText(text) === "no additional notes";
 const isValidUrl = (text: string): boolean => {
   try {
     const parsed = new URL(text);
@@ -138,6 +160,8 @@ const isValidUrl = (text: string): boolean => {
 };
 const formatField = (value: string | undefined): string => (value && value.trim().length > 0 ? value : "Not provided");
 const urgencyLabel = (urgency: UrgencyLevel): string => URGENCY_CHOICES.find((choice) => choice.value === urgency)?.label ?? urgency;
+const taskTypeLabel = (taskType: TaskType): string => TASK_TYPE_CHOICES.find((choice) => choice.value === taskType)?.label ?? taskType;
+const notesPromptLabel = (taskType?: TaskType): string => `${getNotesFieldLabel(taskType)} (type your notes, or choose No additional notes):`;
 const normalizeReviewAction = (text: string): string => normalizeText(text).replace(/\s+/g, " ");
 const parseReviewAction = (text: string): string | undefined => {
   const normalized = normalizeReviewAction(text);
@@ -148,7 +172,14 @@ const parseConfirmCreateAction = (text: string): string | undefined => {
   return CONFIRM_CREATE_ACTIONS.find((action) => normalizeReviewAction(action) === normalized);
 };
 const isEditableStep = (step: QuickAddStep): step is EditableField =>
-  step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "URGENCY" || step === "NOTES" || step === "HUMPERDINK";
+  step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "RETURN_DATE" || step === "URGENCY" || step === "NOTES" || step === "HUMPERDINK";
+
+const reviewActionsForDraft = (draft: QuickAddDraft): string[] => {
+  if (draft.taskType === "OOO") {
+    return REVIEW_ACTIONS.filter((action) => action !== "Edit Urgency" && action !== "Edit Humperdink Link");
+  }
+  return REVIEW_ACTIONS.filter((action) => action !== "Edit Return Date");
+};
 
 const toBotUserIdentity = (context: TurnContext): UserIdentity => {
   const from = context.activity.from;
@@ -237,7 +268,7 @@ class LoanTasksBot extends ActivityHandler {
 
     if (command === "new" || command === "/bot new" || command === "bot new") {
       this.drafts.set(key, { step: "FOLDER_NAME", history: [] });
-      await context.sendActivity("New task started. Enter Folder Name:");
+      await context.sendActivity("New task started. Enter task description:");
       return;
     }
 
@@ -260,7 +291,7 @@ class LoanTasksBot extends ActivityHandler {
     if (draft.step === "FOLDER_NAME") {
       const folderName = text.trim();
       if (!folderName) {
-        await context.sendActivity("Folder Name cannot be blank. Enter Folder Name:");
+        await context.sendActivity("Description cannot be blank. Enter task description:");
         return;
       }
 
@@ -291,10 +322,20 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
 
-      const nextDraft = this.updateDraft(draft, { taskType: parsed, step: "URGENCY" });
+      const nextDraft = this.updateDraft(draft, { taskType: parsed, step: parsed === "OOO" ? "RETURN_DATE" : "URGENCY" });
+      if (parsed === "OOO") {
+        delete nextDraft.urgency;
+        delete nextDraft.humperdinkLink;
+      } else {
+        delete nextDraft.returnDate;
+      }
       this.drafts.set(key, nextDraft);
       if (nextDraft.step === "REVIEW") {
         await this.sendReview(context, nextDraft);
+        return;
+      }
+      if (nextDraft.step === "RETURN_DATE") {
+        await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
         return;
       }
       await context.sendActivity(
@@ -302,6 +343,25 @@ class LoanTasksBot extends ActivityHandler {
           URGENCY_CHOICES.map((choice) => choice.label),
           "Choose urgency:"
         )
+      );
+      return;
+    }
+
+    if (draft.step === "RETURN_DATE") {
+      const parsed = parseReturnDate(text);
+      if (!parsed) {
+        await context.sendActivity("Enter a future return date in YYYY-MM-DD (PT):");
+        return;
+      }
+
+      const nextDraft = this.updateDraft(draft, { returnDate: parsed, step: "NOTES" });
+      this.drafts.set(key, nextDraft);
+      if (nextDraft.step === "REVIEW") {
+        await this.sendReview(context, nextDraft);
+        return;
+      }
+      await context.sendActivity(
+        MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(nextDraft.taskType))
       );
       return;
     }
@@ -325,7 +385,7 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
       await context.sendActivity(
-        MessageFactory.suggestedActions(["No additional notes"], "Notes (type your notes, or choose No additional notes):")
+        MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(nextDraft.taskType))
       );
       return;
     }
@@ -333,7 +393,8 @@ class LoanTasksBot extends ActivityHandler {
     if (draft.step === "NOTES") {
       const noteText = text.trim();
       const notes = noteText.length > 0 && !isNoAdditionalNotes(noteText) ? noteText : "No additional notes";
-      const nextDraft = this.updateDraft(draft, { notes, step: "HUMPERDINK" });
+      const nextStep: QuickAddStep = draft.taskType === "OOO" ? "REVIEW" : "HUMPERDINK";
+      const nextDraft = this.updateDraft(draft, { notes, step: nextStep });
       this.drafts.set(key, nextDraft);
       if (nextDraft.step === "REVIEW") {
         await this.sendReview(context, nextDraft);
@@ -384,7 +445,7 @@ class LoanTasksBot extends ActivityHandler {
 
       if (action === "Edit Folder Name") {
         this.drafts.set(key, this.updateDraft(draft, { step: "FOLDER_NAME", editField: "FOLDER_NAME" }));
-        await context.sendActivity("Enter Folder Name:");
+        await context.sendActivity(draft.taskType === "OOO" ? "Enter OOO description:" : "Enter task description:");
         return;
       }
 
@@ -395,18 +456,36 @@ class LoanTasksBot extends ActivityHandler {
       }
 
       if (action === "Edit Urgency") {
+        if (draft.taskType === "OOO") {
+          await this.sendReview(context, draft);
+          return;
+        }
         this.drafts.set(key, this.updateDraft(draft, { step: "URGENCY", editField: "URGENCY" }));
         await context.sendActivity(MessageFactory.suggestedActions(URGENCY_CHOICES.map((choice) => choice.label), "Choose urgency:"));
         return;
       }
 
+      if (action === "Edit Return Date") {
+        if (draft.taskType !== "OOO") {
+          await this.sendReview(context, draft);
+          return;
+        }
+        this.drafts.set(key, this.updateDraft(draft, { step: "RETURN_DATE", editField: "RETURN_DATE" }));
+        await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
+        return;
+      }
+
       if (action === "Edit Notes") {
         this.drafts.set(key, this.updateDraft(draft, { step: "NOTES", editField: "NOTES" }));
-        await context.sendActivity(MessageFactory.suggestedActions(["No additional notes"], "Notes (type your notes, or choose No additional notes):"));
+        await context.sendActivity(MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(draft.taskType)));
         return;
       }
 
       if (action === "Edit Humperdink Link") {
+        if (draft.taskType === "OOO") {
+          await this.sendReview(context, draft);
+          return;
+        }
         this.drafts.set(key, this.updateDraft(draft, { step: "HUMPERDINK", editField: "HUMPERDINK" }));
         await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Humperdink Link (paste URL or choose Skip):"));
         return;
@@ -467,7 +546,7 @@ class LoanTasksBot extends ActivityHandler {
   private async goBack(context: TurnContext, key: string, draft: QuickAddDraft): Promise<void> {
     const previousStep = draft.history.at(-1);
     if (!previousStep) {
-      await context.sendActivity("You are already at the first step. Enter Folder Name:");
+      await context.sendActivity("You are already at the first step. Enter task description:");
       return;
     }
 
@@ -487,7 +566,7 @@ class LoanTasksBot extends ActivityHandler {
 
   private async promptForStep(context: TurnContext, draft: QuickAddDraft): Promise<void> {
     if (draft.step === "FOLDER_NAME") {
-      await context.sendActivity("Enter Folder Name:");
+      await context.sendActivity(draft.taskType === "OOO" ? "Enter OOO description:" : "Enter task description:");
       return;
     }
     if (draft.step === "TASK_TYPE") {
@@ -498,8 +577,12 @@ class LoanTasksBot extends ActivityHandler {
       await context.sendActivity(MessageFactory.suggestedActions(URGENCY_CHOICES.map((choice) => choice.label), "Choose urgency:"));
       return;
     }
+    if (draft.step === "RETURN_DATE") {
+      await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
+      return;
+    }
     if (draft.step === "NOTES") {
-      await context.sendActivity(MessageFactory.suggestedActions(["No additional notes"], "Notes (type your notes, or choose No additional notes):"));
+      await context.sendActivity(MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(draft.taskType)));
       return;
     }
     if (draft.step === "HUMPERDINK") {
@@ -514,30 +597,52 @@ class LoanTasksBot extends ActivityHandler {
   }
 
   private async sendReview(context: TurnContext, draft: QuickAddDraft): Promise<void> {
+    const lines = [
+      `${draft.taskType === "OOO" ? "Vacation Description" : "Folder Name"}: ${formatField(draft.folderName)}`,
+      `Task Type: ${draft.taskType ? taskTypeLabel(draft.taskType) : "Not provided"}`,
+      draft.taskType === "OOO"
+        ? `Return Date: ${formatField(draft.returnDate)}`
+        : `Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`,
+      `${getNotesFieldLabel(draft.taskType)}: ${formatField(draft.notes)}`,
+      ...(draft.taskType === "OOO" ? [] : [`Humperdink Link: ${formatField(draft.humperdinkLink)}`])
+    ];
     await context.sendActivity(
       MessageFactory.suggestedActions(
-        [...REVIEW_ACTIONS],
-        `Review task details:\nFolder Name: ${formatField(draft.folderName)}\nTask Type: ${draft.taskType ?? "Not provided"}\nUrgency: ${
-          draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"
-        }\nNotes: ${formatField(draft.notes)}\nHumperdink Link: ${formatField(draft.humperdinkLink)}\nChoose an action:`
+        reviewActionsForDraft(draft),
+        `Review task details:\n${lines.join("\n")}\nChoose an action:`
       )
     );
   }
 
   private async sendCreateConfirmation(context: TurnContext, draft: QuickAddDraft): Promise<void> {
+    const lines = [
+      `${draft.taskType === "OOO" ? "Vacation Description" : "Folder Name"}: ${formatField(draft.folderName)}`,
+      `Task Type: ${draft.taskType ? taskTypeLabel(draft.taskType) : "Not provided"}`,
+      draft.taskType === "OOO"
+        ? `Return Date: ${formatField(draft.returnDate)}`
+        : `Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`
+    ];
     await context.sendActivity(
       MessageFactory.suggestedActions(
         [...CONFIRM_CREATE_ACTIONS],
-        `Confirm task creation:\nFolder Name: ${formatField(draft.folderName)}\nTask Type: ${draft.taskType ?? "Not provided"}\nUrgency: ${
-          draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"
-        }\nType "Back" to revisit earlier steps, or choose an action:`
+        `Confirm task creation:\n${lines.join("\n")}\nType "Back" to revisit earlier steps, or choose an action:`
       )
     );
   }
 
   private async completeQuickAdd(context: TurnContext, key: string): Promise<void> {
     const draft = this.drafts.get(key);
-    if (!draft?.folderName || !draft.taskType || !draft.urgency || !draft.notes) {
+    if (!draft?.folderName || !draft.taskType || !draft.notes) {
+      this.drafts.delete(key);
+      await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
+      return;
+    }
+    if (draft.taskType === "OOO" && !draft.returnDate) {
+      this.drafts.delete(key);
+      await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
+      return;
+    }
+    if (draft.taskType !== "OOO" && !draft.urgency) {
       this.drafts.delete(key);
       await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
       return;
@@ -547,16 +652,19 @@ class LoanTasksBot extends ActivityHandler {
     const payload: BotTaskCreateInput = {
       folderName: draft.folderName,
       taskType: draft.taskType,
-      urgency: draft.urgency,
       notes: draft.notes,
-      ...(draft.humperdinkLink ? { humperdinkLink: draft.humperdinkLink } : {})
+      ...(draft.taskType === "OOO" && draft.returnDate ? { returnDate: draft.returnDate } : {}),
+      ...(draft.taskType !== "OOO" && draft.urgency ? { urgency: draft.urgency } : {}),
+      ...(draft.taskType !== "OOO" && draft.humperdinkLink ? { humperdinkLink: draft.humperdinkLink } : {})
     };
 
     try {
       const task = await this.onQuickAddTask(payload, user);
       this.drafts.delete(key);
       await context.sendActivity(
-        `Task created: ${task.folderName}\nType: ${task.taskType}\nUrgency: ${urgencyLabel(task.urgency)}\nStatus: ${task.status}`
+        `Task created: ${task.folderName}\nType: ${taskTypeLabel(task.taskType)}\n${
+          task.taskType === "OOO" ? `Return Date: ${draft.returnDate}` : `Urgency: ${urgencyLabel(task.urgency)}`
+        }\nStatus: ${task.status}`
       );
     } catch (error) {
       this.drafts.delete(key);

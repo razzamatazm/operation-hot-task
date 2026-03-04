@@ -12,6 +12,7 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
   - Value
   - Fraud
   - Loan Docs (with merge stages)
+  - OOO (Out of Office) with return-date auto-completion
 - Claim/unclaim flow
 - Role restrictions:
   - Fraud tasks can only be claimed/completed by file checkers
@@ -24,7 +25,7 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
   - `YELLOW` end of business day
   - `ORANGE` within 1 hour
   - `RED` immediate
-- Due timestamps are backend-tracked; due date/time is not user-entered in UI
+- Due timestamps are backend-tracked for standard task types; OOO tasks require user-entered `returnDate` (`YYYY-MM-DD`, PT) and auto-complete at 8:30 AM PT on that date
 - Auto-purge archived tasks after 90 days (3 months)
 
 ## Repo layout
@@ -114,12 +115,17 @@ Base URL: `/api`
 Create-task payload naming:
 - Preferred canonical field: `folderName`
 - Compatibility accepted for one release window: `loanName` or `serverLocation` (resolved to `folderName`)
+- OOO-specific rules:
+  - `taskType: "OOO"` requires `returnDate` (`YYYY-MM-DD`)
+  - `taskType: "OOO"` rejects `urgency`
+  - `taskType: "OOO"` rejects `humperdinkLink`
+  - non-OOO task types reject `returnDate`
 
 Bot endpoint:
 
 - `POST /api/bot/messages`
 - Bot chat commands:
-  - `/bot new` quick add wizard (folder name -> task type -> urgency -> notes -> humperdink link -> review/edit -> confirm -> create)
+  - `/bot new` quick add wizard (description -> task type -> [OOO: return date | non-OOO: urgency] -> notes -> [non-OOO: humperdink link] -> review/edit -> confirm -> create)
   - `/bot back` return to the previous step during quick add
   - `/bot cancel`
   - `help`
