@@ -6,6 +6,7 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
 
 - Teams **Tab app** (`apps/web`) with task board UI
 - Teams **Bot endpoint** (`apps/server`) for notification delivery (DM + channel posts)
+- Teams **Activity Feed** notifications via Microsoft Graph (optional, app-only auth)
 - Teams **Bot quick add** flow via `/bot new`
 - Task lifecycle and rules for:
   - LOI
@@ -169,6 +170,23 @@ Current notification routing:
 - `MERGE_APPROVED`: DM to task assignee
 - Review note added: DM to counterpart user (creator/assignee)
 - Overdue reminder: DM to assignee, except `LOAN_DOCS` in `MERGE_DONE` where DM goes to creator
+- Activity feed (if enabled): state-change + hourly reminders for claimable/open work, overdue work, and `NEEDS_REVIEW`; note events notify counterpart user
+
+### Activity feed setup (optional)
+
+Server env vars:
+
+- `ENABLE_ACTIVITY_FEED_NOTIFICATIONS=true`
+- `GRAPH_TENANT_ID=<tenant-guid>`
+- `GRAPH_CLIENT_ID=<app-registration-client-id>`
+- `GRAPH_CLIENT_SECRET=<app-registration-secret>`
+- `GRAPH_BASE_URL=https://graph.microsoft.com/v1.0` (optional override)
+- `TEAMS_APP_ID=<teams-app-id>`
+- `ACTIVITY_FEED_STATE_FILE=apps/server/data/activity-feed-state.json` (optional path override)
+
+Manifest requirement:
+
+- Add `webApplicationInfo` with your tab app AAD app ID/resource (already scaffolded in `teams-app/manifest.json`).
 
 ## In-house app task creation (phase 2 ready)
 
@@ -183,6 +201,7 @@ Local JSON persistence:
 
 - Tasks/history: `apps/server/data/tasks.json`
 - Bot conversation references: `apps/server/data/bot-references.json`
+- Activity feed signal state/users: `apps/server/data/activity-feed-state.json`
 
 For Azure, swap storage behind `TaskStore` with Azure SQL while preserving the `TaskService` contract.
 

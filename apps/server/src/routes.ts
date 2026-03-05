@@ -25,6 +25,11 @@ const toCreateInput = (body: unknown) => {
 
 export const buildRouter = (service: TaskService, sse: SseHub): Router => {
   const router = Router();
+  const getActor = async (req: Parameters<typeof getUserFromRequest>[0]) => {
+    const user = getUserFromRequest(req);
+    await service.registerUser(user);
+    return user;
+  };
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, clients: sse.count() });
@@ -38,7 +43,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
   router.post("/tasks", async (req, res) => {
     try {
       const input = toCreateInput(req.body);
-      const user = getUserFromRequest(req);
+      const user = await getActor(req);
       const task = await service.createTask(input, user);
       res.status(201).json({ task });
     } catch (error) {
@@ -65,6 +70,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
         displayName: "In-house Integration",
         roles: ["LOAN_OFFICER"]
       };
+      await service.registerUser(integrationUser);
       const task = await service.createTask(input, integrationUser);
       res.status(201).json({ task });
     } catch (error) {
@@ -95,7 +101,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
 
   router.post("/tasks/:taskId/claim", async (req, res) => {
     try {
-      const user = getUserFromRequest(req);
+      const user = await getActor(req);
       const task = await service.claimTask(req.params.taskId, user);
       res.json({ task });
     } catch (error) {
@@ -105,7 +111,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
 
   router.post("/tasks/:taskId/unclaim", async (req, res) => {
     try {
-      const user = getUserFromRequest(req);
+      const user = await getActor(req);
       const task = await service.unclaimTask(req.params.taskId, user);
       res.json({ task });
     } catch (error) {
@@ -116,7 +122,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
   router.post("/tasks/:taskId/transition", async (req, res) => {
     try {
       const { status, reviewNotes } = transitionSchema.parse(req.body);
-      const user = getUserFromRequest(req);
+      const user = await getActor(req);
       const task = await service.transitionStatus(req.params.taskId, status, user, reviewNotes);
       res.json({ task });
     } catch (error) {
@@ -127,7 +133,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
   router.post("/tasks/:taskId/review-note", async (req, res) => {
     try {
       const { text } = reviewNoteSchema.parse(req.body);
-      const user = getUserFromRequest(req);
+      const user = await getActor(req);
       const task = await service.addReviewNote(req.params.taskId, text, user);
       res.json({ task });
     } catch (error) {

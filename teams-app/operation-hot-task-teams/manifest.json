@@ -75,6 +75,10 @@
     "identity",
     "messageTeamMembers"
   ],
+  "webApplicationInfo": {
+    "id": "YOUR-TAB-AAD-APP-ID",
+    "resource": "api://YOUR-TAB-AAD-APP-ID"
+  },
   "validDomains": [
     "operation-hot-task-app-lof.azurewebsites.net"
   ]

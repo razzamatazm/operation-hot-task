@@ -1,4 +1,5 @@
 import { NotificationEvent } from "@loan-tasks/shared";
+import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
 
@@ -19,7 +20,10 @@ const sendWebhook = async (payload: { title: string; text: string }): Promise<vo
 };
 
 export class TeamsNotificationProvider implements NotificationProvider {
-  constructor(private readonly botClient: TeamsBotClient) {}
+  constructor(
+    private readonly botClient: TeamsBotClient,
+    private readonly activityFeedClient: ActivityFeedClient
+  ) {}
 
   async notify(event: NotificationEvent): Promise<void> {
     const prefix = `[${event.task.taskType}] [${event.task.urgency}]`;
@@ -44,6 +48,17 @@ export class TeamsNotificationProvider implements NotificationProvider {
         return;
       }
       await this.botClient.sendToDms(`${prefix} ${event.message} (Folder: ${event.task.folderName})`);
+      return;
+    }
+
+    if (event.target === "ACTIVITY_FEED") {
+      if (!Array.isArray(event.recipientUserIds) || event.recipientUserIds.length === 0) {
+        return;
+      }
+      if (!this.activityFeedClient.isEnabled()) {
+        return;
+      }
+      await this.activityFeedClient.sendToUsers(event.recipientUserIds, event.message, event.task.id);
       return;
     }
 

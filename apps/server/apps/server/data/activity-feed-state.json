@@ -1,0 +1,706 @@
+{
+  "signals": [
+    {
+      "key": "loan-officer-1:NEEDS_REVIEW:68a4eb4d-b715-4930-b99c-182940e31893",
+      "userId": "loan-officer-1",
+      "taskId": "68a4eb4d-b715-4930-b99c-182940e31893",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.543Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.543Z",
+      "lastReminderAt": "2026-03-05T00:45:32.543Z"
+    },
+    {
+      "key": "loan-officer-2:NEEDS_REVIEW:68a4eb4d-b715-4930-b99c-182940e31893",
+      "userId": "loan-officer-2",
+      "taskId": "68a4eb4d-b715-4930-b99c-182940e31893",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.543Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.543Z",
+      "lastReminderAt": "2026-03-05T00:45:32.543Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:47739ff8-2785-4b9a-a8e0-75d475ea5b18",
+      "userId": "admin-1",
+      "taskId": "47739ff8-2785-4b9a-a8e0-75d475ea5b18",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.461Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.461Z",
+      "lastReminderAt": "2026-03-05T00:45:32.461Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:47739ff8-2785-4b9a-a8e0-75d475ea5b18",
+      "userId": "file-checker-1",
+      "taskId": "47739ff8-2785-4b9a-a8e0-75d475ea5b18",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.461Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.461Z",
+      "lastReminderAt": "2026-03-05T00:45:32.461Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:47739ff8-2785-4b9a-a8e0-75d475ea5b18",
+      "userId": "loan-officer-2",
+      "taskId": "47739ff8-2785-4b9a-a8e0-75d475ea5b18",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.461Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.461Z",
+      "lastReminderAt": "2026-03-05T00:45:32.461Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "userId": "admin-1",
+      "taskId": "fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.458Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.458Z",
+      "lastReminderAt": "2026-03-05T00:45:32.458Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "userId": "file-checker-1",
+      "taskId": "fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.458Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.458Z",
+      "lastReminderAt": "2026-03-05T00:45:32.458Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "userId": "loan-officer-2",
+      "taskId": "fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.458Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.458Z",
+      "lastReminderAt": "2026-03-05T00:45:32.458Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "userId": "loan-officer-1",
+      "taskId": "fa6ac9e8-6d31-44fe-aaaf-ec957844c77a",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.461Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.461Z",
+      "lastReminderAt": "2026-03-05T00:45:32.461Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:931de597-ea96-461a-9994-aab2fc457514",
+      "userId": "admin-1",
+      "taskId": "931de597-ea96-461a-9994-aab2fc457514",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.453Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.453Z",
+      "lastReminderAt": "2026-03-05T00:45:32.453Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:931de597-ea96-461a-9994-aab2fc457514",
+      "userId": "file-checker-1",
+      "taskId": "931de597-ea96-461a-9994-aab2fc457514",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.453Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.453Z",
+      "lastReminderAt": "2026-03-05T00:45:32.453Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:931de597-ea96-461a-9994-aab2fc457514",
+      "userId": "loan-officer-2",
+      "taskId": "931de597-ea96-461a-9994-aab2fc457514",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.453Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.453Z",
+      "lastReminderAt": "2026-03-05T00:45:32.453Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "userId": "admin-1",
+      "taskId": "da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "userId": "file-checker-1",
+      "taskId": "da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "userId": "loan-officer-2",
+      "taskId": "da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "userId": "loan-officer-1",
+      "taskId": "da92f1f8-f066-41b2-9aa4-d8978655f3d7",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "userId": "admin-1",
+      "taskId": "b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "userId": "file-checker-1",
+      "taskId": "b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "userId": "loan-officer-2",
+      "taskId": "b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "userId": "loan-officer-1",
+      "taskId": "b3a298ea-891f-4f45-b582-b8777b8aebb8",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:64d79019-7127-4501-8f85-e35a88fd652b",
+      "userId": "admin-1",
+      "taskId": "64d79019-7127-4501-8f85-e35a88fd652b",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:64d79019-7127-4501-8f85-e35a88fd652b",
+      "userId": "file-checker-1",
+      "taskId": "64d79019-7127-4501-8f85-e35a88fd652b",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:64d79019-7127-4501-8f85-e35a88fd652b",
+      "userId": "loan-officer-2",
+      "taskId": "64d79019-7127-4501-8f85-e35a88fd652b",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:64d79019-7127-4501-8f85-e35a88fd652b",
+      "userId": "loan-officer-1",
+      "taskId": "64d79019-7127-4501-8f85-e35a88fd652b",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "userId": "admin-1",
+      "taskId": "f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "userId": "file-checker-1",
+      "taskId": "f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "userId": "loan-officer-2",
+      "taskId": "f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "userId": "loan-officer-1",
+      "taskId": "f54ec1f9-38ba-42b4-b43b-1f43d1192597",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "userId": "admin-1",
+      "taskId": "2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "userId": "file-checker-1",
+      "taskId": "2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "userId": "loan-officer-2",
+      "taskId": "2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "userId": "loan-officer-1",
+      "taskId": "2744cf65-6e70-4fa9-b44e-ec904e5a8fb8",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:e978e9de-00e1-46de-b120-71d9e2e90441",
+      "userId": "admin-1",
+      "taskId": "e978e9de-00e1-46de-b120-71d9e2e90441",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:e978e9de-00e1-46de-b120-71d9e2e90441",
+      "userId": "file-checker-1",
+      "taskId": "e978e9de-00e1-46de-b120-71d9e2e90441",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:e978e9de-00e1-46de-b120-71d9e2e90441",
+      "userId": "loan-officer-2",
+      "taskId": "e978e9de-00e1-46de-b120-71d9e2e90441",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:e978e9de-00e1-46de-b120-71d9e2e90441",
+      "userId": "loan-officer-1",
+      "taskId": "e978e9de-00e1-46de-b120-71d9e2e90441",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:93fc7123-27d5-4237-b80f-dae0541966fe",
+      "userId": "admin-1",
+      "taskId": "93fc7123-27d5-4237-b80f-dae0541966fe",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:93fc7123-27d5-4237-b80f-dae0541966fe",
+      "userId": "file-checker-1",
+      "taskId": "93fc7123-27d5-4237-b80f-dae0541966fe",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:93fc7123-27d5-4237-b80f-dae0541966fe",
+      "userId": "loan-officer-2",
+      "taskId": "93fc7123-27d5-4237-b80f-dae0541966fe",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:93fc7123-27d5-4237-b80f-dae0541966fe",
+      "userId": "loan-officer-1",
+      "taskId": "93fc7123-27d5-4237-b80f-dae0541966fe",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "userId": "admin-1",
+      "taskId": "0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "userId": "file-checker-1",
+      "taskId": "0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "userId": "loan-officer-2",
+      "taskId": "0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:OVERDUE:0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "userId": "loan-officer-1",
+      "taskId": "0c0bdce8-b3df-4a12-8b7f-12b02a42ba26",
+      "signalType": "OVERDUE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:NEEDS_REVIEW:4eb938c1-6e19-43ba-b04b-75f6eca409e5",
+      "userId": "loan-officer-1",
+      "taskId": "4eb938c1-6e19-43ba-b04b-75f6eca409e5",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:NEEDS_REVIEW:4eb938c1-6e19-43ba-b04b-75f6eca409e5",
+      "userId": "loan-officer-2",
+      "taskId": "4eb938c1-6e19-43ba-b04b-75f6eca409e5",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:cff6751a-ba23-4a5b-b2f9-78b3ed51f9b8",
+      "userId": "admin-1",
+      "taskId": "cff6751a-ba23-4a5b-b2f9-78b3ed51f9b8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:cff6751a-ba23-4a5b-b2f9-78b3ed51f9b8",
+      "userId": "file-checker-1",
+      "taskId": "cff6751a-ba23-4a5b-b2f9-78b3ed51f9b8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:cff6751a-ba23-4a5b-b2f9-78b3ed51f9b8",
+      "userId": "loan-officer-2",
+      "taskId": "cff6751a-ba23-4a5b-b2f9-78b3ed51f9b8",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:NEEDS_REVIEW:95fdbf3a-54b5-4656-93ef-57d88a2d40cb",
+      "userId": "loan-officer-1",
+      "taskId": "95fdbf3a-54b5-4656-93ef-57d88a2d40cb",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:NEEDS_REVIEW:95fdbf3a-54b5-4656-93ef-57d88a2d40cb",
+      "userId": "loan-officer-2",
+      "taskId": "95fdbf3a-54b5-4656-93ef-57d88a2d40cb",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:adc824b0-a229-49f0-87c2-b28815a2d091",
+      "userId": "admin-1",
+      "taskId": "adc824b0-a229-49f0-87c2-b28815a2d091",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:adc824b0-a229-49f0-87c2-b28815a2d091",
+      "userId": "file-checker-1",
+      "taskId": "adc824b0-a229-49f0-87c2-b28815a2d091",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:adc824b0-a229-49f0-87c2-b28815a2d091",
+      "userId": "loan-officer-2",
+      "taskId": "adc824b0-a229-49f0-87c2-b28815a2d091",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:NEEDS_REVIEW:7b517cc6-6a82-4a61-8d8b-8dedb1755c41",
+      "userId": "loan-officer-1",
+      "taskId": "7b517cc6-6a82-4a61-8d8b-8dedb1755c41",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:NEEDS_REVIEW:7b517cc6-6a82-4a61-8d8b-8dedb1755c41",
+      "userId": "loan-officer-2",
+      "taskId": "7b517cc6-6a82-4a61-8d8b-8dedb1755c41",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:679e0ef8-de7f-44e7-8b15-5c1b2890c12f",
+      "userId": "admin-1",
+      "taskId": "679e0ef8-de7f-44e7-8b15-5c1b2890c12f",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:679e0ef8-de7f-44e7-8b15-5c1b2890c12f",
+      "userId": "file-checker-1",
+      "taskId": "679e0ef8-de7f-44e7-8b15-5c1b2890c12f",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:679e0ef8-de7f-44e7-8b15-5c1b2890c12f",
+      "userId": "loan-officer-2",
+      "taskId": "679e0ef8-de7f-44e7-8b15-5c1b2890c12f",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-1:NEEDS_REVIEW:4504aba6-463b-45fe-8d7a-dfc2da70ab92",
+      "userId": "loan-officer-1",
+      "taskId": "4504aba6-463b-45fe-8d7a-dfc2da70ab92",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:NEEDS_REVIEW:4504aba6-463b-45fe-8d7a-dfc2da70ab92",
+      "userId": "loan-officer-2",
+      "taskId": "4504aba6-463b-45fe-8d7a-dfc2da70ab92",
+      "signalType": "NEEDS_REVIEW",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:10c808c4-2d9a-4ca8-ba52-3afd45f940ed",
+      "userId": "admin-1",
+      "taskId": "10c808c4-2d9a-4ca8-ba52-3afd45f940ed",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:10c808c4-2d9a-4ca8-ba52-3afd45f940ed",
+      "userId": "file-checker-1",
+      "taskId": "10c808c4-2d9a-4ca8-ba52-3afd45f940ed",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:10c808c4-2d9a-4ca8-ba52-3afd45f940ed",
+      "userId": "loan-officer-2",
+      "taskId": "10c808c4-2d9a-4ca8-ba52-3afd45f940ed",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "admin-1:CLAIMABLE:150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "userId": "admin-1",
+      "taskId": "150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "file-checker-1:CLAIMABLE:150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "userId": "file-checker-1",
+      "taskId": "150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    },
+    {
+      "key": "loan-officer-2:CLAIMABLE:150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "userId": "loan-officer-2",
+      "taskId": "150ea08b-8fb5-4caf-94b4-b8a449926c29",
+      "signalType": "CLAIMABLE",
+      "isActive": true,
+      "lastActivatedAt": "2026-03-05T00:45:32.437Z",
+      "lastNotifiedAt": "2026-03-05T00:45:32.437Z",
+      "lastReminderAt": "2026-03-05T00:45:32.437Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "loan-officer-1",
+      "displayName": "Jamie Loan Officer",
+      "roles": [
+        "LOAN_OFFICER"
+      ]
+    },
+    {
+      "id": "admin-1",
+      "displayName": "Morgan Admin",
+      "roles": [
+        "LOAN_OFFICER",
+        "ADMIN"
+      ]
+    },
+    {
+      "id": "file-checker-1",
+      "displayName": "Taylor File Checker",
+      "roles": [
+        "LOAN_OFFICER",
+        "FILE_CHECKER"
+      ]
+    },
+    {
+      "id": "loan-officer-2",
+      "displayName": "Alex Loan Officer",
+      "roles": [
+        "LOAN_OFFICER"
+      ]
+    }
+  ]
+}

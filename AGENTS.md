@@ -147,6 +147,14 @@ Primary goals:
     - Creator = out-of-office person
     - Assignee = covering person when claimed
   - OOO keeps standard claim/unclaim flow (`Open`/`Claimed`)
+- Teams app attention indicator:
+  - Left-rail icon dot is not used
+  - Teams activity feed notifications are used instead
+  - Activity feed uses `systemDefault` activity type for v1
+  - Activity feed state alerts trigger on state-change and hourly reminder cadence (business hours)
+  - Bounce-back condition for alerts is `Needs Review`
+  - Pickup scope for alerts is tasks claimable by the user
+  - Due condition for alerts is overdue-only (`dueAt` in the past)
 
 ### Open Questions Queue
 - None currently.

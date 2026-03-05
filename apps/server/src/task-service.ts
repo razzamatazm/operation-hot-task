@@ -11,24 +11,35 @@ import {
   canUnclaimTask,
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
+  isWithinBusinessHours,
   isOverdue,
   shouldPurgeArchived,
   shouldSendReminder
 } from "@loan-tasks/shared";
+import { ActivityFeedStateStore, ActivitySignalState, ActivitySignalType, KnownUserState } from "./activity-feed-state.js";
 import { v4 as uuid } from "uuid";
 import { NotificationProvider } from "./notifications.js";
 import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
 
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED"];
+const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 
 export class TaskService {
   constructor(
     private readonly store: TaskStore,
     private readonly notifier: NotificationProvider,
     private readonly events: SseHub,
-    private readonly appConfig: AppConfig
+    private readonly appConfig: AppConfig,
+    private readonly activityFeedState?: ActivityFeedStateStore
   ) {}
+
+  async registerUser(user: UserIdentity): Promise<void> {
+    if (!this.activityFeedState) {
+      return;
+    }
+    await this.activityFeedState.upsertUser(user);
+  }
 
   async listTasks(): Promise<LoanTask[]> {
     return this.store.allTasks();
@@ -87,6 +98,7 @@ export class TaskService {
       message: `${user.displayName} created task ${task.folderName}`,
       target: "CHANNEL"
     });
+    await this.evaluateActivitySignals({ now });
 
     return task;
   }
@@ -125,6 +137,7 @@ export class TaskService {
       target: "DM",
       recipientUserIds: [user.id]
     });
+    await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
   }
@@ -155,6 +168,7 @@ export class TaskService {
       message: `${user.displayName} unclaimed ${updated.folderName}`,
       target: "CHANNEL"
     });
+    await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
   }
@@ -211,6 +225,20 @@ export class TaskService {
       target: "IN_APP"
     });
 
+    if (next === "NEEDS_REVIEW") {
+      const recipients = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id) && id !== user.id);
+      if (recipients.length > 0) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          message: `Needs review: ${updated.folderName}`,
+          target: "ACTIVITY_FEED",
+          recipientUserIds: recipients
+        });
+      }
+    }
+
     if (next === "MERGE_DONE" || next === "COMPLETED") {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
@@ -232,6 +260,7 @@ export class TaskService {
         recipientUserIds: [updated.assignee.id]
       });
     }
+    await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
   }
@@ -274,7 +303,16 @@ export class TaskService {
         target: "DM",
         recipientUserIds: recipients
       });
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `New note on ${updated.folderName} from ${user.displayName}`,
+        target: "ACTIVITY_FEED",
+        recipientUserIds: recipients
+      });
     }
+    await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
   }
@@ -373,11 +411,179 @@ export class TaskService {
       }
     }
 
+    await this.evaluateActivitySignals({ now, allowReminders: true, tasks: retained });
+
     return {
       reminded,
       purged: toPurge.length,
       autoArchived
     };
+  }
+
+  private async evaluateActivitySignals({
+    now,
+    allowReminders = false,
+    tasks
+  }: {
+    now: Date;
+    allowReminders?: boolean;
+    tasks?: LoanTask[];
+  }): Promise<void> {
+    if (!this.activityFeedState) {
+      return;
+    }
+
+    const currentTasks = tasks ?? (await this.store.allTasks());
+    const snapshot = await this.activityFeedState.read();
+    const knownUsers = this.collectKnownUsers(snapshot.users, currentTasks);
+    snapshot.users = knownUsers;
+
+    const activeSignals = this.collectActiveSignals(currentTasks, knownUsers, now);
+    const existingByKey = new Map(snapshot.signals.map((signal) => [signal.key, signal]));
+    const notifications: Array<{ recipientUserIds: string[]; task: LoanTask; message: string }> = [];
+    const nextSignals: ActivitySignalState[] = [];
+    const nowIso = now.toISOString();
+
+    for (const signal of activeSignals) {
+      const previous = existingByKey.get(signal.key);
+      if (!previous) {
+        nextSignals.push({
+          key: signal.key,
+          userId: signal.userId,
+          taskId: signal.task.id,
+          signalType: signal.signalType,
+          isActive: true,
+          lastActivatedAt: nowIso,
+          lastNotifiedAt: nowIso,
+          lastReminderAt: nowIso
+        });
+        notifications.push({
+          recipientUserIds: [signal.userId],
+          task: signal.task,
+          message: signal.message
+        });
+        continue;
+      }
+
+      const nextState: ActivitySignalState = {
+        ...previous,
+        isActive: true
+      };
+
+      const canSendReminder =
+        allowReminders &&
+        isWithinBusinessHours(now, this.appConfig) &&
+        (!previous.lastReminderAt || now.getTime() - new Date(previous.lastReminderAt).getTime() >= REMINDER_INTERVAL_MS);
+
+      if (canSendReminder) {
+        notifications.push({
+          recipientUserIds: [signal.userId],
+          task: signal.task,
+          message: signal.message
+        });
+        nextState.lastReminderAt = nowIso;
+        nextState.lastNotifiedAt = nowIso;
+      }
+
+      nextSignals.push(nextState);
+    }
+
+    snapshot.signals = nextSignals;
+    await this.activityFeedState.replace(snapshot);
+
+    for (const note of notifications) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: note.task,
+        actor: { id: "system", displayName: "Task Scheduler" },
+        message: note.message,
+        target: "ACTIVITY_FEED",
+        recipientUserIds: note.recipientUserIds
+      });
+    }
+  }
+
+  private collectKnownUsers(seedUsers: KnownUserState[], tasks: LoanTask[]): KnownUserState[] {
+    const users = new Map<string, KnownUserState>();
+    for (const user of seedUsers) {
+      users.set(user.id, user);
+    }
+
+    for (const task of tasks) {
+      if (!users.has(task.createdBy.id)) {
+        users.set(task.createdBy.id, {
+          id: task.createdBy.id,
+          displayName: task.createdBy.displayName,
+          roles: ["LOAN_OFFICER"]
+        });
+      }
+      if (task.assignee && !users.has(task.assignee.id)) {
+        users.set(task.assignee.id, {
+          id: task.assignee.id,
+          displayName: task.assignee.displayName,
+          roles: ["LOAN_OFFICER"]
+        });
+      }
+    }
+
+    return [...users.values()];
+  }
+
+  private collectActiveSignals(
+    tasks: LoanTask[],
+    users: KnownUserState[],
+    now: Date
+  ): Array<{ key: string; userId: string; signalType: ActivitySignalType; message: string; task: LoanTask }> {
+    const signals = new Map<string, { key: string; userId: string; signalType: ActivitySignalType; message: string; task: LoanTask }>();
+
+    for (const task of tasks) {
+      if (task.status === "OPEN") {
+        for (const user of users) {
+          if (!canClaimTask(task, { id: user.id, displayName: user.displayName, roles: user.roles })) {
+            continue;
+          }
+          if (task.createdBy.id === user.id) {
+            continue;
+          }
+          const key = `${user.id}:CLAIMABLE:${task.id}`;
+          signals.set(key, {
+            key,
+            userId: user.id,
+            signalType: "CLAIMABLE",
+            message: `Task available to claim: ${task.folderName}`,
+            task
+          });
+        }
+      }
+
+      if (ACTIVE_STATUSES.includes(task.status) && isOverdue(task, now)) {
+        const overdueUserId = task.assignee?.id ?? task.createdBy.id;
+        const key = `${overdueUserId}:OVERDUE:${task.id}`;
+        signals.set(key, {
+          key,
+          userId: overdueUserId,
+          signalType: "OVERDUE",
+          message: `Task overdue: ${task.folderName}`,
+          task
+        });
+      }
+
+      if (task.status === "NEEDS_REVIEW") {
+        const reviewers = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id));
+        for (const userId of new Set(reviewers)) {
+          const key = `${userId}:NEEDS_REVIEW:${task.id}`;
+          signals.set(key, {
+            key,
+            userId,
+            signalType: "NEEDS_REVIEW",
+            message: `Needs review: ${task.folderName}`,
+            task
+          });
+        }
+      }
+    }
+
+    return [...signals.values()];
   }
 
   private reminderRecipients(task: LoanTask): string[] {
