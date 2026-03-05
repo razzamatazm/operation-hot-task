@@ -1,4 +1,6 @@
 import { config as appConfig } from "./config.js";
+import { ActivityFeedClient } from "./activity-feed.js";
+import { ActivityFeedStateStore } from "./activity-feed-state.js";
 import cors from "cors";
 import express from "express";
 import fs from "node:fs";
@@ -32,6 +34,9 @@ const bootstrap = async (): Promise<void> => {
     appConfig.botReferencesFile
   );
   await botClient.init();
+  const activityFeedClient = new ActivityFeedClient();
+  const activityFeedState = new ActivityFeedStateStore(appConfig.activityFeedStateFile);
+  await activityFeedState.init();
 
   const sse = new SseHub();
 
@@ -44,8 +49,8 @@ const bootstrap = async (): Promise<void> => {
     archiveRetentionDays: appConfig.archiveRetentionDays
   };
 
-  const notifier = new TeamsNotificationProvider(botClient);
-  const service = new TaskService(store, notifier, sse, rules);
+  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient);
+  const service = new TaskService(store, notifier, sse, rules, activityFeedState);
   botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
 
   app.use(cors());

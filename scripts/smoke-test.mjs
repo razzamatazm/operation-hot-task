@@ -78,6 +78,7 @@ const createServer = async (port, extraEnv = {}) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "loan-smoke-"));
   const dataFile = path.join(tempDir, "tasks.json");
   const botRefs = path.join(tempDir, "bot-references.json");
+  const activityStateFile = path.join(tempDir, "activity-feed-state.json");
 
   const logs = [];
   const child = spawn(process.execPath, ["apps/server/dist/index.js"], {
@@ -88,6 +89,7 @@ const createServer = async (port, extraEnv = {}) => {
       PORT: String(port),
       DATA_FILE: dataFile,
       BOT_REFERENCES_FILE: botRefs,
+      ACTIVITY_FEED_STATE_FILE: activityStateFile,
       ...extraEnv
     },
     stdio: ["ignore", "pipe", "pipe"]

@@ -29,5 +29,12 @@ export const config = {
   botAppPassword: process.env.BOT_APP_PASSWORD,
   botTenantId: process.env.BOT_TENANT_ID,
   botReferencesFile: process.env.BOT_REFERENCES_FILE ?? "apps/server/data/bot-references.json",
-  inboundApiKey: process.env.INBOUND_API_KEY
+  inboundApiKey: process.env.INBOUND_API_KEY,
+  enableActivityFeedNotifications: (process.env.ENABLE_ACTIVITY_FEED_NOTIFICATIONS ?? "false") === "true",
+  activityFeedStateFile: process.env.ACTIVITY_FEED_STATE_FILE ?? "apps/server/data/activity-feed-state.json",
+  graphTenantId: process.env.GRAPH_TENANT_ID,
+  graphClientId: process.env.GRAPH_CLIENT_ID,
+  graphClientSecret: process.env.GRAPH_CLIENT_SECRET,
+  graphBaseUrl: process.env.GRAPH_BASE_URL ?? "https://graph.microsoft.com/v1.0",
+  teamsAppId: process.env.TEAMS_APP_ID
 };
