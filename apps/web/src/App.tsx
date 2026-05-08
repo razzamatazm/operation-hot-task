@@ -157,6 +157,9 @@ const TaskCard = ({
     <div className={cardClass}>
       <div className="task-card-left">
         <div className={banner.className}>{banner.label}</div>
+        {variant === "watching" && (
+          <div className="task-card-watching-label">You created this task</div>
+        )}
         <div className="task-card-title">
           {task.taskType !== "OOO" && task.humperdinkLink ? (
             <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link">
@@ -177,9 +180,6 @@ const TaskCard = ({
           {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
           <div>Creator: {task.createdBy.displayName}</div>
           {task.assignee && <div>Assignee: {task.assignee.displayName}</div>}
-          {variant === "watching" && (
-            <div className="task-card-watching-label">You created this task</div>
-          )}
         </div>
         {showActions && (
           <div className="task-card-actions">
@@ -392,7 +392,6 @@ const RecentActivityTable = ({
             const isExpanded = expandedTaskId === task.id;
             const isClosed = CLOSED_STATUSES.includes(task.status);
             const detailId = `recent-detail-${task.id}`;
-
             return (
               <Fragment key={task.id}>
                 <tr
@@ -706,23 +705,39 @@ export const App = () => {
     setDismissedIds((prev) => new Set(prev).add(taskId));
   };
 
-  /*
-   * My Tasks:
-   *  - Tasks assigned to me (any active status)
-   *  - Tasks I created that aren't ARCHIVED or CANCELLED (includes OPEN, CLAIMED by others, NEEDS_REVIEW, COMPLETED)
-   */
-  const myTasks = useMemo(
+  // Tasks where I am the assignee (my work to do).
+  const myWorkTasks = useMemo(
     () => tasks.filter((t) => {
       if (t.status === "ARCHIVED" || t.status === "CANCELLED") return false;
       if (dismissedIds.has(t.id)) return false;
-      // Assignee (non-creator) stops seeing completed tasks
-      if (t.status === "COMPLETED" && t.assignee?.id === user.id && t.createdBy.id !== user.id) return false;
-      if (t.assignee?.id === user.id) return true;
-      if (t.createdBy.id === user.id) return true;
-      return false;
+      if (t.assignee?.id !== user.id) return false;
+      // Non-creator assignees stop seeing completed tasks
+      if (t.status === "COMPLETED" && t.createdBy.id !== user.id) return false;
+      return true;
+    }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [tasks, user.id, dismissedIds]
+  );
+
+  // Tasks I created but am not the assignee — includes OPEN (unclaimed), in-progress by others, completed by others.
+  const myCreatedTasks = useMemo(
+    () => tasks.filter((t) => {
+      if (t.status === "ARCHIVED" || t.status === "CANCELLED") return false;
+      if (dismissedIds.has(t.id)) return false;
+      if (t.createdBy.id !== user.id) return false;
+      if (t.assignee?.id === user.id) return false; // already in myWorkTasks
+      return true;
+    }).sort((a, b) => {
+      // OPEN (waiting for claim) floats above in-progress/completed
+      const aOpen = a.status === "OPEN" ? 1 : 0;
+      const bOpen = b.status === "OPEN" ? 1 : 0;
+      if (bOpen !== aOpen) return bOpen - aOpen;
+      return b.updatedAt.localeCompare(a.updatedAt);
     }),
     [tasks, user.id, dismissedIds]
   );
+
+  // Combined count for section header badge
+  const myTasks = useMemo(() => [...myWorkTasks, ...myCreatedTasks], [myWorkTasks, myCreatedTasks]);
 
   /*
    * Available Tasks: OPEN status, excluding tasks the user created (those are in My Tasks).
@@ -949,8 +964,11 @@ export const App = () => {
             <h2>My Tasks</h2>
             <span className="section-count">{myTasks.length}</span>
           </div>
+          {myWorkTasks.length > 0 && (
+            <div className="section-subhead">My Work</div>
+          )}
           <CardList
-            tasks={myTasks}
+            tasks={myWorkTasks}
             user={user}
             onClaim={onClaim}
             onUnclaim={onUnclaim}
@@ -961,6 +979,23 @@ export const App = () => {
             emptyMessage="No tasks assigned to you."
             variant={myTaskVariant}
           />
+          {myCreatedTasks.length > 0 && (
+            <>
+              <div className="section-subhead">Created by Me</div>
+              <CardList
+                tasks={myCreatedTasks}
+                user={user}
+                onClaim={onClaim}
+                onUnclaim={onUnclaim}
+                onTransition={onTransition}
+                onAddReviewNote={onAddReviewNote}
+                onDismiss={onDismiss}
+                showActions={true}
+                emptyMessage=""
+                variant={myTaskVariant}
+              />
+            </>
+          )}
 
           {availableTasks.length > 0 && (
             <>

@@ -349,6 +349,15 @@ button.btn-good:hover {
   border-radius: 3px;
 }
 
+.section-subhead {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 0 4px;
+}
+
 /* ── Recent Activity Table ───────────────────────────────── */
 .recent-activity-wrap {
   background: var(--panel);
@@ -356,6 +365,8 @@ button.btn-good:hover {
   border-radius: 10px;
   box-shadow: var(--shadow-sm);
   overflow-x: auto;
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.12) 100%);
+  mask-image: linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.12) 100%);
 }
 
 .recent-activity-table {
@@ -404,12 +415,9 @@ button.btn-good:hover {
   outline-offset: -2px;
 }
 
-.recent-row-active td {
-  color: var(--ink);
-}
-
+.recent-row-active td,
 .recent-row-closed td {
-  color: var(--muted);
+  color: var(--ink);
 }
 
 .recent-row-alt td {
@@ -515,7 +523,8 @@ button.btn-good:hover {
 }
 
 .task-card-watching {
-  border-left: 3px solid var(--brand);
+  border-left: 4px solid var(--brand);
+  border-top: 2px solid var(--brand);
   background: var(--bg-soft);
 }
 
