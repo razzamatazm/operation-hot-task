@@ -118,12 +118,14 @@ export class TaskStore {
   }
 
   private normalizeTask(task: LoanTask): LoanTask {
-    const raw = task as LoanTask & { folderName?: string; loanName?: string; serverLocation?: string };
+    const raw = task as LoanTask & { folderName?: string; loanName?: string; serverLocation?: string; points?: number };
     const folderName = raw.folderName?.trim() || raw.loanName?.trim() || raw.serverLocation?.trim() || "Untitled Task";
+    const points = Number.isInteger(raw.points) && (raw.points ?? 0) >= 1 && (raw.points ?? 0) <= 5 ? (raw.points as number) : 1;
     return {
       ...raw,
       folderName,
-      loanName: folderName
+      loanName: folderName,
+      points
     };
   }
 }

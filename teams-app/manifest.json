@@ -62,9 +62,5 @@
     }
   ],
   "permissions": ["identity", "messageTeamMembers"],
-  "webApplicationInfo": {
-    "id": "YOUR-TAB-AAD-APP-ID",
-    "resource": "api://YOUR-TAB-AAD-APP-ID"
-  },
   "validDomains": ["YOUR-APP-DOMAIN"]
 }

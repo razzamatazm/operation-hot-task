@@ -7,6 +7,7 @@ export const createTaskSchema = z.object({
   dueAt: z.string().datetime().optional(),
   returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "returnDate must be YYYY-MM-DD").optional(),
   urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"]).optional(),
+  points: z.number().int().min(0).max(5).optional(),
   notes: z.string().min(1),
   humperdinkLink: z.string().url().optional().or(z.literal("")),
   serverLocation: z.string().optional()
@@ -52,6 +53,10 @@ export const createTaskSchema = z.object({
       message: "returnDate is only allowed for OOO tasks"
     });
   }
+});
+
+export const updatePointsSchema = z.object({
+  points: z.number().int().min(0).max(5)
 });
 
 export const transitionSchema = z.object({
