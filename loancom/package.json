@@ -19,6 +19,6 @@
     "db:reset": "rm -f apps/server/data/loancom.db && npm run dev:server"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   }
 }
