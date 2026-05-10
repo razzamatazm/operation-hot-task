@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-feature-settings: 'tnum';
+  }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  :focus-visible {
+    outline: 3px solid #1f4fa0;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  button,
+  [role='button'] {
+    min-height: 56px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-6 py-3 font-semibold transition-colors;
+  }
+  .btn-primary {
+    @apply bg-accent text-white hover:bg-blue-800;
+  }
+  .btn-ghost {
+    @apply bg-transparent text-ink hover:bg-black/5;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold;
+  }
+}

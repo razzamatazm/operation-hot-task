@@ -1,0 +1,30 @@
+{
+  "name": "@loancom/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@loancom/shared": "*",
+    "better-sqlite3": "^11.5.0",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.36.4",
+    "express": "^4.21.1",
+    "nanoid": "^5.0.9",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

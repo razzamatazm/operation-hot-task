@@ -1,0 +1,24 @@
+{
+  "name": "loancom",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Loan committee approvals app",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace @loancom/shared && (npm run dev --workspace @loancom/server & npm run dev --workspace @loancom/web)",
+    "dev:server": "npm run dev --workspace @loancom/server",
+    "dev:web": "npm run dev --workspace @loancom/web",
+    "build": "npm run build --workspace @loancom/shared && npm run build --workspace @loancom/server && npm run build --workspace @loancom/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "test:workflow": "npm run build --workspace @loancom/shared && node scripts/workflow-sim-test.mjs",
+    "db:reset": "rm -f apps/server/data/loancom.db && npm run dev:server"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
