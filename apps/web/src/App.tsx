@@ -827,14 +827,24 @@ export const App = () => {
      task id → ISO timestamp of the latest non-self note already viewed.
      Persisted in localStorage so it survives reloads. */
   const seenNotesKey = `loan-tasks:seen-notes:${user.id}`;
-  const [seenNotesAt, setSeenNotesAt] = useState<Record<string, string>>(() => {
+  const loadSeenNotes = (uid: string): Record<string, string> => {
     try {
-      const raw = window.localStorage.getItem(seenNotesKey);
+      const raw = window.localStorage.getItem(`loan-tasks:seen-notes:${uid}`);
       return raw ? (JSON.parse(raw) as Record<string, string>) : {};
     } catch {
       return {};
     }
-  });
+  };
+  const [seenNotesAt, setSeenNotesAt] = useState<Record<string, string>>(() => loadSeenNotes(user.id));
+  /* When the active user changes (mock user picker), reset the in-memory
+     map to that user's stored data BEFORE the writer effect runs — so we
+     don't clobber B's localStorage with A's seen state. setState during
+     render is the React-supported way to derive state from a changing prop. */
+  const [trackedUserId, setTrackedUserId] = useState(user.id);
+  if (trackedUserId !== user.id) {
+    setTrackedUserId(user.id);
+    setSeenNotesAt(loadSeenNotes(user.id));
+  }
   useEffect(() => {
     try {
       window.localStorage.setItem(seenNotesKey, JSON.stringify(seenNotesAt));
@@ -1201,7 +1211,8 @@ export const App = () => {
               <label>
                 Humperdink Link
                 <input
-                  type="url"
+                  type="text"
+                  inputMode="url"
                   placeholder="Optional"
                   value={form.humperdinkLink}
                   onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
