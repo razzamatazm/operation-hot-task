@@ -360,10 +360,11 @@ button.btn-good:hover {
 
 .recent-activity-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 760px;
   border-collapse: collapse;
   font-family: "DM Sans", sans-serif;
   font-size: 0.8rem;
+  table-layout: auto;
 }
 
 .recent-activity-table th {
@@ -391,6 +392,11 @@ button.btn-good:hover {
   border-bottom: none;
 }
 
+.recent-activity-table tbody {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 35%, rgba(0, 0, 0, 0.4) 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 35%, rgba(0, 0, 0, 0.4) 100%);
+}
+
 .recent-row {
   cursor: pointer;
 }
@@ -408,10 +414,6 @@ button.btn-good:hover {
   color: var(--ink);
 }
 
-.recent-row-closed td {
-  color: var(--muted);
-}
-
 .recent-row-alt td {
   background: var(--row-alt);
 }
@@ -426,6 +428,23 @@ button.btn-good:hover {
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 1080px) {
+  .recent-activity-table th:nth-child(7),
+  .recent-activity-table td:nth-child(7) { display: none; }
+}
+
+@media (max-width: 880px) {
+  .recent-activity-table th:nth-child(6),
+  .recent-activity-table td:nth-child(6) { display: none; }
+  .recent-activity-table { min-width: 600px; }
+}
+
+@media (max-width: 680px) {
+  .recent-activity-table th:nth-child(5),
+  .recent-activity-table td:nth-child(5) { display: none; }
+  .recent-activity-table { min-width: 480px; }
 }
 
 .recent-cell-task a {
@@ -491,19 +510,18 @@ button.btn-good:hover {
 /* ── Task Cards ───────────────────────────────────────────── */
 .card-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .task-card {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--panel);
-  padding: 14px 16px;
   box-shadow: var(--shadow-sm);
   transition: box-shadow 0.15s;
+  overflow: hidden;
 }
 
 .task-card:hover {
@@ -511,12 +529,7 @@ button.btn-good:hover {
 }
 
 .task-card-own {
-  border-left: 3px solid var(--good);
-}
-
-.task-card-watching {
-  border-left: 3px solid var(--brand);
-  background: var(--bg-soft);
+  border-left: 2px solid var(--brand-soft);
 }
 
 .task-card-dimmed {
@@ -524,66 +537,203 @@ button.btn-good:hover {
 }
 
 .task-card-dimmed:hover {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .task-card-closed {
   opacity: 0.7;
-  border-left: 3px solid var(--muted);
 }
 
 .task-card-watching-label {
   font-family: "DM Sans", sans-serif;
   font-size: 0.76rem;
-  color: var(--brand);
-  font-weight: 600;
-  width: fit-content;
-  background: var(--brand-soft);
-  border: 1px solid var(--brand);
-  border-radius: 4px;
-  padding: 2px 8px;
+  color: var(--muted);
+  font-style: italic;
 }
 
-/* ── Status banner ────────────────────────────────────────── */
-.status-banner {
+/* ── Urgency left stripe ──────────────────────────────────── */
+.task-card-urg-green { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good); }
+.task-card-urg-yellow { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--warn); }
+.task-card-urg-orange { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot); }
+.task-card-urg-red { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad); }
+.task-card.task-card-urg-green:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--good); }
+.task-card.task-card-urg-yellow:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--warn); }
+.task-card.task-card-urg-orange:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
+.task-card.task-card-urg-red:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
+
+/* ── Closed-status card treatment ─────────────────────────── */
+.task-card-completed {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
+  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
+}
+.task-card-completed:hover {
+  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
+}
+.task-card-completed .task-card-collapsed-folder,
+.task-card-completed .task-card-collapsed-folder a {
+  color: var(--muted);
+}
+.task-card-completed .task-card-collapsed-type {
+  color: var(--ink-secondary);
+}
+
+.task-card-cancelled {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
+}
+.task-card-cancelled:hover {
+  box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad);
+}
+
+.task-card-archived {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--line);
+}
+.task-card-archived:hover {
+  box-shadow: var(--shadow-md), inset 3px 0 0 var(--line);
+}
+
+/* ── Collapsed task card row ──────────────────────────────── */
+.task-card-collapsed {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) 84px 110px 132px;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 18px;
+  cursor: pointer;
+  min-height: 52px;
+  user-select: none;
+}
+
+.task-card-collapsed:hover {
+  background: var(--row-hover);
+}
+
+.task-card-collapsed:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.task-card-collapsed-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.task-card-collapsed-type {
+  display: block;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.task-card-collapsed-folder {
+  font-family: "DM Sans", sans-serif;
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.task-card-collapsed-folder a {
+  color: var(--ink-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px dotted var(--line);
+}
+
+.task-card-collapsed-folder a:hover {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+  text-decoration: none;
+}
+
+.task-card-collapsed-due {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.72rem;
-  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-card-collapsed-due-overdue {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.task-card-quick-action {
+  flex-shrink: 0;
+  white-space: nowrap;
+  justify-self: end;
+  width: 100%;
+  max-width: 132px;
+}
+
+.task-card-quick-action-empty {
+  display: block;
+  width: 132px;
+  height: 1px;
+}
+
+/* ── Expanded body ────────────────────────────────────────── */
+.task-card-expanded {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--bg);
+}
+
+/* ── Status banner (muted, text-only) ─────────────────────── */
+.status-banner {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 4px 9px;
-  border-radius: 4px;
+  letter-spacing: 0.06em;
   width: fit-content;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .status-open {
-  background: var(--panel);
   color: var(--ink-secondary);
-  border: 1px solid var(--line);
 }
 
 .status-claimed {
-  background: var(--good-bg);
-  color: var(--good);
-  border: 1px solid var(--good);
+  color: var(--ink);
 }
 
 .status-merge {
-  background: var(--hot-bg);
-  color: var(--hot);
-  border: 1px solid var(--hot);
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .status-completed {
-  background: var(--brand-soft);
-  color: var(--brand);
-  border: 1px solid var(--brand);
+  color: var(--good);
+  font-weight: 700;
 }
 
 .status-cancelled {
-  background: var(--bad-bg);
   color: var(--bad);
-  border: 1px solid var(--bad);
+  font-weight: 700;
+}
+
+.status-archived {
+  color: var(--muted);
 }
 
 .task-card-left {
@@ -826,6 +976,140 @@ button.btn-good:hover {
   50% { opacity: 0.65; }
 }
 
+/* ── Poop score ───────────────────────────────────────────── */
+.poop-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.poop-track .poop-slot,
+.poop-track .poop-slot:hover,
+.poop-track .poop-slot:focus,
+.poop-track .poop-slot:focus-visible {
+  background: transparent;
+}
+
+.poop-slot {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  filter: grayscale(1);
+  opacity: 0.2;
+  outline: none;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.12s ease, filter 0.12s ease, transform 0.12s ease;
+}
+
+.poop-slot:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.poop-slot-on {
+  filter: grayscale(0);
+  opacity: 1;
+}
+
+.poop-track-editable .poop-slot {
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.poop-track-editable:hover .poop-slot:not(.poop-slot-on) {
+  opacity: 0.4;
+}
+
+.poop-track-editable .poop-slot:hover {
+  filter: grayscale(0);
+  opacity: 1;
+  transform: scale(1.35);
+}
+
+.poop-track-editable .poop-slot:focus-visible {
+  outline: 1.5px solid var(--brand);
+  outline-offset: 1px;
+  border-radius: 2px;
+  filter: grayscale(0);
+  opacity: 1;
+  box-shadow: none;
+}
+
+.poop-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.poop-picker-form {
+  margin-top: 4px;
+  width: fit-content;
+}
+
+.form-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.72rem;
+  margin-left: 4px;
+}
+
+.poop-pick {
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  font-size: 0.92rem;
+  line-height: 1;
+  border-radius: 3px;
+  filter: grayscale(1);
+  opacity: 0.35;
+  transition: filter 0.1s, opacity 0.1s;
+  color: inherit;
+  font-weight: 400;
+}
+
+.poop-pick:hover {
+  background: var(--row-hover);
+  filter: grayscale(0.5);
+  opacity: 0.7;
+}
+
+.poop-pick-on {
+  filter: grayscale(0);
+  opacity: 1;
+}
+
+.poop-pick-cancel {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0 4px;
+  margin-left: 2px;
+  border-radius: 3px;
+}
+
+.poop-pick-cancel:hover {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+
 /* ── Notification bar ─────────────────────────────────────── */
 .notif-bar {
   display: flex;
@@ -893,13 +1177,25 @@ button.btn-good:hover {
 }
 
 @media (max-width: 768px) {
-  .task-card {
+  .task-card-expanded {
     grid-template-columns: 1fr;
   }
 
-  .recent-activity-table {
-    min-width: 860px;
+  .task-card-collapsed {
+    grid-template-columns: 88px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "status title action"
+      "poop  due   action";
+    column-gap: 10px;
+    row-gap: 4px;
   }
+  .task-card-collapsed > .status-banner { grid-area: status; }
+  .task-card-collapsed-title { grid-area: title; }
+  .task-card-collapsed > .poop-track { grid-area: poop; justify-self: start; }
+  .task-card-collapsed-due { grid-area: due; text-align: left; }
+  .task-card-collapsed > .task-card-quick-action,
+  .task-card-collapsed > .task-card-quick-action-empty { grid-area: action; align-self: center; }
+
 }
 
 /* ── Metrics Panel ───────────────────────────────────────── */
