@@ -1,6 +1,6 @@
 import { app as teamsApp } from "@microsoft/teams-js";
 import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
-import { FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -107,6 +107,54 @@ const STATUS_BANNER: Record<string, { label: string; className: string }> = {
   ARCHIVED: { label: "Archived", className: "status-banner status-archived" }
 };
 
+const firstName = (displayName: string | undefined): string => {
+  if (!displayName) return "";
+  return displayName.split(/\s+/)[0] ?? displayName;
+};
+
+/* Banner adapts to viewer perspective: a creator sees their own OPEN as
+   "Pending Claim", and a CLAIMED task in someone else's hands as
+   "In Progress · <FirstName>". */
+const IN_FLIGHT_STATUSES: TaskStatus[] = ["CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED"];
+
+/* LOAN_DOCS has multiple stages between claim and complete. The side banner
+   only shows whose-court (CLAIMED vs IN PROGRESS); the actual stage rides
+   on the title as a hyphen suffix. */
+const stageSuffix = (task: LoanTask): string => {
+  if (task.taskType !== "LOAN_DOCS") return "";
+  if (task.status === "MERGE_DONE") return " - Merge Done";
+  if (task.status === "MERGE_APPROVED") return " - Merge Approved";
+  return "";
+};
+
+const resolveBanner = (
+  task: LoanTask,
+  isCreator: boolean,
+  isAssignee: boolean
+): { label: string; subs?: string[]; className: string } => {
+  if (task.status === "OPEN" && isCreator) {
+    return { label: "Pending Claim", className: "status-banner status-pending" };
+  }
+  /* Whose-court banner for any in-flight stage. CLAIMED = your turn,
+     IN PROGRESS = waiting on the other party. */
+  if (IN_FLIGHT_STATUSES.includes(task.status) && (isAssignee || isCreator)) {
+    const otherInCourt =
+      (isCreator && !isAssignee && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW" || task.status === "MERGE_APPROVED")) ||
+      (isAssignee && !isCreator && task.status === "MERGE_DONE");
+    const otherName = isAssignee
+      ? firstName(task.createdBy.displayName)
+      : task.assignee
+        ? firstName(task.assignee.displayName)
+        : "";
+    const subs = otherName ? [otherName] : [];
+    if (otherInCourt) {
+      return { label: "In Progress", subs, className: "status-banner status-claimed" };
+    }
+    return { label: "Claimed", subs, className: "status-banner status-claimed" };
+  }
+  return STATUS_BANNER[task.status] ?? { label: "Open", className: "status-banner status-open" };
+};
+
 /* ── Poop score control ───────────────────────────────────── */
 const PoopDisplay = ({
   count,
@@ -174,7 +222,9 @@ const TaskCard = ({
   onUpdatePoints,
   showActions,
   variant,
-  hideCollapsedHeader
+  hideCollapsedHeader,
+  seenNoteAt,
+  onMarkNoteSeen
 }: {
   task: LoanTask;
   user: UserIdentity;
@@ -187,45 +237,103 @@ const TaskCard = ({
   showActions: boolean;
   variant: "own" | "watching" | "available" | "completed";
   hideCollapsedHeader?: boolean;
+  seenNoteAt?: string;
+  onMarkNoteSeen?: (taskId: string, at: string) => void;
 }) => {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
-  const [expanded, setExpanded] = useState(Boolean(hideCollapsedHeader) || task.status === "OPEN");
-  const overdue = isOverdue(task);
-  const transitions = nextFlowStatuses(task).filter((s) => s !== "OPEN");
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
+  /* Latest note from the OTHER party — drives unread/force-open behavior. */
+  const latestOtherNoteAt = useMemo(() => {
+    let latest = "";
+    for (const n of task.reviewNotes ?? []) {
+      if (n.by.id !== user.id && n.at > latest) latest = n.at;
+    }
+    return latest;
+  }, [task.reviewNotes, user.id]);
+  const hasUnreadNote = !!latestOtherNoteAt && latestOtherNoteAt > (seenNoteAt ?? "");
+  /* Auto-pop tasks the viewer needs to act on:
+     - Available list: any OPEN task (browsing to claim)
+     - My Tasks: tasks you've claimed (until you transition them) and tasks
+       awaiting your approval as creator.
+     Unread note from the other party also forces the card open until viewed. */
+  const actionableByMe =
+    (isAssignee && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW" || task.status === "MERGE_APPROVED")) ||
+    (isCreator && task.status === "MERGE_DONE");
+  const autoExpand =
+    (task.status === "OPEN" && variant === "available") || actionableByMe;
+  const [expanded, setExpanded] = useState(Boolean(hideCollapsedHeader) || autoExpand || hasUnreadNote);
+  /* On status change, re-derive expanded from autoExpand (unread keeps it open). */
+  useEffect(() => {
+    if (hideCollapsedHeader) return;
+    setExpanded(autoExpand || hasUnreadNote);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.status]);
+  /* New unread note arriving (false -> true) force-opens the card. */
+  useEffect(() => {
+    if (!hasUnreadNote || hideCollapsedHeader) return;
+    setExpanded(true);
+  }, [hasUnreadNote, hideCollapsedHeader]);
+  /* Acknowledge an unread note: clears force-open + undim lock. Triggered
+     by an explicit user gesture (header click/key, or sending a reply) —
+     not by auto-open, so the undim state is actually visible. */
+  const acknowledgeUnread = (): void => {
+    if (hasUnreadNote && latestOtherNoteAt && onMarkNoteSeen) {
+      onMarkNoteSeen(task.id, latestOtherNoteAt);
+    }
+  };
+  /* Auto-scroll the notes thread to the newest entry whenever the count grows
+     or the card opens. */
+  const reviewListRef = useRef<HTMLDivElement | null>(null);
+  const reviewCount = task.reviewNotes?.length ?? 0;
+  useEffect(() => {
+    const el = reviewListRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [reviewCount, expanded]);
+  const overdue = isOverdue(task);
+  const transitions = nextFlowStatuses(task).filter((s) => s !== "OPEN");
 
   const handleSubmitNote = async () => {
     if (!noteText.trim()) return;
     await onAddReviewNote(task.id, noteText.trim());
     setNoteOpen(false);
     setNoteText("");
+    acknowledgeUnread();
   };
 
-  const banner = STATUS_BANNER[task.status] ?? { label: "Open", className: "status-banner status-open" };
-  /* Dim when waiting on the other party to act */
-  const waitingOnOther =
+  const banner = resolveBanner(task, isCreator, isAssignee);
+  /* "In someone else's court" — they need to act, you're waiting. Dim. */
+  const inOthersCourt =
     (isCreator && !isAssignee && task.status === "CLAIMED") ||
     (isCreator && !isAssignee && task.status === "MERGE_APPROVED") ||
     (isAssignee && !isCreator && task.status === "MERGE_DONE");
+  /* Pending claim — your task, nobody picked it up. Dim + shrink. */
+  const pendingClaim = isCreator && task.status === "OPEN" && variant !== "available";
+  /* An unread note from the other party trumps dimming — surface it. */
+  const dimmed = !hasUnreadNote && (inOthersCourt || pendingClaim);
   const isClosed = CLOSED_STATUSES.includes(task.status);
   const cardClass = [
     "task-card",
     !isClosed && task.taskType !== "OOO" ? URGENCY_STRIPE_CLASS[task.urgency] : "",
-    !isClosed && waitingOnOther ? "task-card-dimmed" : "",
-    !isClosed && !waitingOnOther && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
-    !isClosed && !waitingOnOther && variant === "own" ? "task-card-own" : "",
+    !isClosed && dimmed ? "task-card-dimmed" : "",
+    pendingClaim ? "task-card-shrunk" : "",
+    !isClosed && !dimmed && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
+    !isClosed && !dimmed && variant === "own" ? "task-card-own" : "",
     isClosed && !isCreator ? "task-card-closed" : "",
     task.status === "COMPLETED" ? "task-card-completed" : "",
     task.status === "CANCELLED" ? "task-card-cancelled" : "",
     task.status === "ARCHIVED" ? "task-card-archived" : ""
   ].filter(Boolean).join(" ");
 
-  const handleHeaderClick = () => setExpanded((e) => !e);
+  const handleHeaderClick = () => {
+    acknowledgeUnread();
+    setExpanded((e) => !e);
+  };
   const handleHeaderKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
+    acknowledgeUnread();
     setExpanded((v) => !v);
   };
   const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
@@ -271,10 +379,23 @@ const TaskCard = ({
           onKeyDown={handleHeaderKey}
           title={urgencyTitle}
         >
-          <span className={banner.className}>{banner.label}</span>
+          <span className={banner.className}>
+            <span className="status-banner-label">
+              {banner.label}
+              {hasUnreadNote && (
+                <span className="task-card-unread-dot" aria-label="New note" title="New note" />
+              )}
+            </span>
+            {banner.subs?.map((line, i) => (
+              <span key={i} className="status-banner-sub">{line}</span>
+            ))}
+          </span>
           <span className="task-card-collapsed-title">
             <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
               {TASK_TYPE_LABELS[task.taskType]}
+              {stageSuffix(task) && (
+                <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>
+              )}
             </span>
             <span className="task-card-collapsed-folder">
               {task.taskType !== "OOO" && task.humperdinkLink ? (
@@ -309,7 +430,7 @@ const TaskCard = ({
             <button
               type="button"
               className={quickActionClass}
-              onClick={(e) => { e.stopPropagation(); primaryAction!.run(); }}
+              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
             >
               {primaryAction.label}
             </button>
@@ -324,36 +445,33 @@ const TaskCard = ({
             <div className="task-card-meta">
               <div>Created: {formatDate(task.createdAt)}</div>
               {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
-              <div>Creator: {task.createdBy.displayName}</div>
+              {!isCreator && <div>Creator: {task.createdBy.displayName}</div>}
               {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
-              {variant === "watching" && (
-                <div className="task-card-watching-label">You created this task</div>
-              )}
             </div>
             {showActions && (
               <div className="task-card-actions">
                 {task.status === "OPEN" && isCreator && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
                     Cancel Task
                   </button>
                 )}
                 {canUnclaim(task, user) && (
-                  <button type="button" className="btn-sm btn-ghost" onClick={() => onUnclaim(task.id)}>
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
                     Unclaim
                   </button>
                 )}
                 {task.status === "CLAIMED" && isCreator && !isAssignee && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
                     Cancel
                   </button>
                 )}
                 {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
                     Cancel
                   </button>
                 )}
                 {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
                     Cancel
                   </button>
                 )}
@@ -365,13 +483,15 @@ const TaskCard = ({
             {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
               <div className="task-card-review">
                 <strong>Notes Thread</strong>
-                {task.reviewNotes.map((note, i) => (
-                  <div key={i} className="review-thread-entry">
-                    <span className="review-thread-author">{note.by.displayName}</span>
-                    <span className="review-thread-time">{formatDate(note.at)}</span>
-                    <p>{note.text}</p>
-                  </div>
-                ))}
+                <div className="task-card-review-list" ref={reviewListRef}>
+                  {task.reviewNotes.map((note, i) => (
+                    <div key={i} className="review-thread-entry">
+                      <span className="review-thread-author">{note.by.displayName}</span>
+                      <span className="review-thread-time">{formatDate(note.at)}</span>
+                      <p>{note.text}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {showActions && !CLOSED_STATUSES.includes(task.status) && (isCreator || isAssignee || user.roles.includes("ADMIN")) && !noteOpen && (
@@ -413,7 +533,9 @@ const CardList = ({
   onUpdatePoints,
   showActions,
   emptyMessage,
-  variant
+  variant,
+  seenNotesAt,
+  onMarkNoteSeen
 }: {
   tasks: LoanTask[];
   user: UserIdentity;
@@ -426,6 +548,8 @@ const CardList = ({
   showActions: boolean;
   emptyMessage: string;
   variant?: (task: LoanTask) => "own" | "watching" | "available" | "completed";
+  seenNotesAt?: Record<string, string>;
+  onMarkNoteSeen?: (taskId: string, at: string) => void;
 }) => (
   <div className="card-list">
     {tasks.length === 0 ? (
@@ -444,6 +568,8 @@ const CardList = ({
           onUpdatePoints={onUpdatePoints}
           showActions={showActions}
           variant={variant ? variant(task) : "own"}
+          {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
+          {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
         />
       ))
     )}
@@ -697,6 +823,33 @@ export const App = () => {
   const [expandedRecentTaskId, setExpandedRecentTaskId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "archived" | "metrics">("active");
 
+  /* Per-user "I've seen the latest note from someone else" map, keyed by
+     task id → ISO timestamp of the latest non-self note already viewed.
+     Persisted in localStorage so it survives reloads. */
+  const seenNotesKey = `loan-tasks:seen-notes:${user.id}`;
+  const [seenNotesAt, setSeenNotesAt] = useState<Record<string, string>>(() => {
+    try {
+      const raw = window.localStorage.getItem(seenNotesKey);
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(seenNotesKey, JSON.stringify(seenNotesAt));
+    } catch {
+      /* storage unavailable — degrade silently */
+    }
+  }, [seenNotesAt, seenNotesKey]);
+  const markNoteSeen = (taskId: string, at: string): void => {
+    setSeenNotesAt((prev) => {
+      const cur = prev[taskId];
+      if (cur && cur >= at) return prev;
+      return { ...prev, [taskId]: at };
+    });
+  };
+
   const [form, setForm] = useState({
     folderName: "",
     taskType: "LOI" as TaskType,
@@ -762,12 +915,14 @@ export const App = () => {
 
   const onCreateTask = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    const rawLink = form.humperdinkLink.trim();
+    const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
     const payload: CreateTaskInput = {
       folderName: form.folderName,
       taskType: form.taskType,
       notes: form.notes,
       ...(form.taskType === "OOO" ? { returnDate: form.returnDate } : { urgency: form.urgency }),
-      ...(form.taskType !== "OOO" && form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {}),
+      ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {})
     };
 
@@ -938,6 +1093,24 @@ export const App = () => {
     return "own";
   };
 
+  /* My Tasks order: completed (archive) → actionable by me → other's court → pending claim. */
+  const sortedMyTasks = useMemo(() => {
+    const bucket = (t: LoanTask): number => {
+      const isCreator = t.createdBy.id === user.id;
+      const isAssignee = t.assignee?.id === user.id;
+      if (t.status === "COMPLETED") return 0;
+      if (isCreator && t.status === "MERGE_DONE") return 1;
+      if (isAssignee && (t.status === "CLAIMED" || t.status === "NEEDS_REVIEW" || t.status === "MERGE_APPROVED")) return 1;
+      if (isCreator && t.status === "OPEN") return 3;
+      return 2;
+    };
+    return [...myTasks].sort((a, b) => {
+      const diff = bucket(a) - bucket(b);
+      if (diff !== 0) return diff;
+      return a.dueAt.localeCompare(b.dueAt);
+    });
+  }, [myTasks, user.id]);
+
   const recentTaskVariant = (task: LoanTask): "own" | "watching" | "available" | "completed" => {
     if (task.assignee?.id === user.id) return "own";
     if (task.createdBy.id === user.id) return "watching";
@@ -1027,7 +1200,18 @@ export const App = () => {
             {form.taskType !== "OOO" && (
               <label>
                 Humperdink Link
-                <input type="url" placeholder="Optional" value={form.humperdinkLink} onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))} />
+                <input
+                  type="url"
+                  placeholder="Optional"
+                  value={form.humperdinkLink}
+                  onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && !/^https?:\/\//i.test(v)) {
+                      setForm((c) => ({ ...c, humperdinkLink: `https://${v}` }));
+                    }
+                  }}
+                />
               </label>
             )}
             <label>
@@ -1102,7 +1286,7 @@ export const App = () => {
             <span className="section-count">{myTasks.length}</span>
           </div>
           <CardList
-            tasks={myTasks}
+            tasks={sortedMyTasks}
             user={user}
             onClaim={onClaim}
             onUnclaim={onUnclaim}
@@ -1113,6 +1297,8 @@ export const App = () => {
             showActions={true}
             emptyMessage="No tasks assigned to you."
             variant={myTaskVariant}
+            seenNotesAt={seenNotesAt}
+            onMarkNoteSeen={markNoteSeen}
           />
 
           {availableTasks.length > 0 && (

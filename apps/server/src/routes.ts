@@ -157,12 +157,20 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    /* Disable proxy buffering (nginx, vite dev proxy) so chunks flush live. */
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
     sse.addClient(res);
-    res.write("event: connected\\ndata: {}\\n\\n");
+    res.write("event: connected\ndata: {}\n\n");
+
+    /* Heartbeat keeps intermediate proxies from coalescing the stream. */
+    const heartbeat = setInterval(() => {
+      res.write(": ping\n\n");
+    }, 15000);
 
     req.on("close", () => {
+      clearInterval(heartbeat);
       sse.removeClient(res);
     });
   });
