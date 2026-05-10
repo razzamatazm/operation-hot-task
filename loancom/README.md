@@ -5,7 +5,7 @@ A web app for two octogenarian company owners to approve, deny, or negotiate loa
 ## Quick start (demo)
 
 ```bash
-nvm use            # Node 20
+nvm use            # Node 22
 npm install
 cp .env.example .env
 npm run dev        # starts API at :4000 and SPA at :5173
