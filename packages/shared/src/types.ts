@@ -54,7 +54,7 @@ export interface LoanTask {
   taskType: TaskType;
   dueAt: string;
   urgency: UrgencyLevel;
-  points?: number;
+  points: number;
   notes: string;
   humperdinkLink?: string;
   /** @deprecated Compatibility alias for one release window. */

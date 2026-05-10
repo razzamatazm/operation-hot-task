@@ -24,6 +24,7 @@ import { TaskStore } from "./store.js";
 
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
 
 export class TaskService {
   constructor(
@@ -58,6 +59,7 @@ export class TaskService {
     const isOoo = input.taskType === "OOO";
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
     const folderName = input.folderName.trim();
+    const points = clampPoints(input.points ?? 0);
     const dueAt = isOoo
       ? computeDueAtFromReturnDate(input.returnDate ?? "", this.appConfig)
       : input.dueAt ?? computeDefaultDueAt(input.taskType, now, urgency, this.appConfig);
@@ -72,6 +74,7 @@ export class TaskService {
       taskType: input.taskType,
       dueAt,
       urgency,
+      points,
       notes: input.notes.trim(),
       status: "OPEN",
       createdAt: now.toISOString(),
@@ -101,6 +104,29 @@ export class TaskService {
     await this.evaluateActivitySignals({ now });
 
     return task;
+  }
+
+  async updateTaskPoints(taskId: string, points: number, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    if (task.createdBy.id !== user.id && !user.roles.includes("ADMIN")) {
+      throw new Error("Only the task creator can change poops");
+    }
+    if (!ACTIVE_STATUSES.includes(task.status)) {
+      throw new Error("Poops cannot be changed on a closed task");
+    }
+    const next = clampPoints(points);
+    if (next === task.points) {
+      return task;
+    }
+    const updated: LoanTask = {
+      ...task,
+      points: next,
+      updatedAt: new Date().toISOString()
+    };
+    const event = this.makeHistory(task.id, user, "TASK_POINTS_UPDATED", `Poops set to ${next}`);
+    await this.store.upsertTask(updated, event);
+    this.events.broadcast({ type: "task.changed", payload: updated });
+    return updated;
   }
 
   async claimTask(taskId: string, user: UserIdentity): Promise<LoanTask> {
