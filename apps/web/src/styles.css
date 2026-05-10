@@ -513,6 +513,20 @@ button.btn-good:hover {
   gap: 6px;
 }
 
+/* Pending-claim variant — your task, nobody's picked it up.
+   Shrunk row sits at the bottom of My Tasks: lower height, lighter title. */
+.task-card-shrunk .task-card-collapsed {
+  padding: 4px 14px 4px 18px;
+  min-height: 36px;
+}
+.task-card-shrunk .task-card-collapsed-type {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.task-card-shrunk .task-card-collapsed-folder {
+  font-size: 0.72rem;
+}
+
 .task-card {
   display: flex;
   flex-direction: column;
@@ -544,11 +558,22 @@ button.btn-good:hover {
   opacity: 0.7;
 }
 
-.task-card-watching-label {
-  font-family: "DM Sans", sans-serif;
-  font-size: 0.76rem;
-  color: var(--muted);
-  font-style: italic;
+/* Creator-stake marker: right-edge stripe mirrors urgency stripe on the left.
+   Means "you created this", paired with the (left) urgency signal. */
+.task-card-watching {
+  position: relative;
+}
+.task-card-watching::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--brand-soft);
+  pointer-events: none;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 
 /* ── Urgency left stripe ──────────────────────────────────── */
@@ -632,6 +657,11 @@ button.btn-good:hover {
   line-height: 1.2;
 }
 
+.task-card-collapsed-stage {
+  font-weight: 500;
+  color: var(--ink-secondary);
+}
+
 .task-card-collapsed-folder {
   font-family: "DM Sans", sans-serif;
   font-weight: 500;
@@ -697,6 +727,9 @@ button.btn-good:hover {
 
 /* ── Status banner (muted, text-only) ─────────────────────── */
 .status-banner {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
   font-family: "JetBrains Mono", monospace;
   font-size: 0.66rem;
   font-weight: 600;
@@ -707,10 +740,22 @@ button.btn-good:hover {
   background: transparent;
   border: none;
   padding: 0;
+  line-height: 1.15;
+}
+
+.status-banner-sub {
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.04em;
 }
 
 .status-open {
   color: var(--ink-secondary);
+}
+
+.status-pending {
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .status-claimed {
@@ -835,6 +880,15 @@ button.btn-good:hover {
   font-size: 0.82rem;
   color: var(--ink);
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.task-card-review-list {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .task-card-review strong {
@@ -974,6 +1028,25 @@ button.btn-good:hover {
 @keyframes pulse-overdue {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.65; }
+}
+
+/* Unread-note dot — sits inline next to the status banner label, pulsing red. */
+.task-card-unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--bad);
+  vertical-align: middle;
+  animation: pulse-unread 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pulse-unread {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
 }
 
 /* ── Poop score ───────────────────────────────────────────── */
