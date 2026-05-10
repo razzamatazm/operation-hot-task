@@ -1,6 +1,6 @@
 import { app as teamsApp } from "@microsoft/teams-js";
 import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
-import { FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -23,11 +23,11 @@ const URGENCY_LABELS: Record<UrgencyLevel, string> = {
   RED: "Urgent Now"
 };
 
-const URGENCY_TAG_CLASS: Record<UrgencyLevel, string> = {
-  GREEN: "tag tag-green",
-  YELLOW: "tag tag-yellow",
-  ORANGE: "tag tag-orange",
-  RED: "tag tag-red"
+const URGENCY_STRIPE_CLASS: Record<UrgencyLevel, string> = {
+  GREEN: "task-card-urg-green",
+  YELLOW: "task-card-urg-yellow",
+  ORANGE: "task-card-urg-orange",
+  RED: "task-card-urg-red"
 };
 
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
@@ -77,29 +77,89 @@ const formatPtDateOnly = (iso: string): string => {
   });
 };
 
+const formatRelativeDue = (iso: string, overdue: boolean): string => {
+  const diffMs = new Date(iso).getTime() - Date.now();
+  const abs = Math.abs(diffMs);
+  const min = Math.round(abs / 60000);
+  const hr = Math.round(abs / 3600000);
+  const day = Math.round(abs / 86400000);
+  let span: string;
+  if (min < 60) span = `${min}m`;
+  else if (hr < 24) span = `${hr}h`;
+  else span = `${day}d`;
+  return overdue ? `${span} overdue` : `due in ${span}`;
+};
+
 const applyTheme = (theme?: string): void => {
   const normalized = theme === "dark" || theme === "contrast" ? theme : "light";
   document.documentElement.setAttribute("data-theme", normalized);
 };
-
-/* ── Urgency Tag ──────────────────────────────────────────── */
-const UrgencyTag = ({ urgency }: { urgency: UrgencyLevel }) => (
-  <span className={URGENCY_TAG_CLASS[urgency]}>
-    <span className="tag-dot" />
-    {URGENCY_LABELS[urgency]}
-  </span>
-);
 
 /* ── Status banner helpers ─────────────────────────────────── */
 const STATUS_BANNER: Record<string, { label: string; className: string }> = {
   OPEN: { label: "Open", className: "status-banner status-open" },
   CLAIMED: { label: "In Progress", className: "status-banner status-claimed" },
   NEEDS_REVIEW: { label: "In Progress", className: "status-banner status-claimed" },
-  MERGE_DONE: { label: "Merge Done — Awaiting Approval", className: "status-banner status-merge" },
+  MERGE_DONE: { label: "Merge Done", className: "status-banner status-merge" },
   MERGE_APPROVED: { label: "Merge Approved", className: "status-banner status-merge" },
-  COMPLETED: { label: "Completed", className: "status-banner status-completed" },
-  CANCELLED: { label: "Cancelled", className: "status-banner status-cancelled" },
-  ARCHIVED: { label: "Archived", className: "status-banner status-completed" }
+  COMPLETED: { label: "✓ Completed", className: "status-banner status-completed" },
+  CANCELLED: { label: "✕ Cancelled", className: "status-banner status-cancelled" },
+  ARCHIVED: { label: "Archived", className: "status-banner status-archived" }
+};
+
+/* ── Poop score control ───────────────────────────────────── */
+const PoopDisplay = ({
+  count,
+  canEdit,
+  onChange
+}: {
+  count: number;
+  canEdit: boolean;
+  onChange: (next: number) => void;
+}) => {
+  const safeCount = Math.max(0, Math.min(5, count | 0));
+
+  if (safeCount === 0 && !canEdit) return null;
+
+  const titleText = canEdit
+    ? `Shittiness: ${safeCount}/5 — click to rate`
+    : `Shittiness: ${safeCount}/5`;
+
+  return (
+    <span
+      className={`poop-track${canEdit ? " poop-track-editable" : ""}`}
+      onClick={(e) => e.stopPropagation()}
+      title={titleText}
+      aria-label={titleText}
+    >
+      {[1, 2, 3, 4, 5].map((n) => {
+        const filled = n <= safeCount;
+        const className = `poop-slot${filled ? " poop-slot-on" : ""}`;
+        if (!canEdit) {
+          return (
+            <span key={n} className={className} aria-hidden="true">
+              💩
+            </span>
+          );
+        }
+        return (
+          <button
+            key={n}
+            type="button"
+            className={className}
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(n === safeCount ? 0 : n);
+            }}
+            aria-label={`Set shittiness to ${n}`}
+            aria-pressed={filled}
+          >
+            💩
+          </button>
+        );
+      })}
+    </span>
+  );
 };
 
 /* ── Task Card ────────────────────────────────────────────── */
@@ -111,8 +171,10 @@ const TaskCard = ({
   onTransition,
   onAddReviewNote,
   onDismiss,
+  onUpdatePoints,
   showActions,
-  variant
+  variant,
+  hideCollapsedHeader
 }: {
   task: LoanTask;
   user: UserIdentity;
@@ -121,11 +183,14 @@ const TaskCard = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onDismiss: (taskId: string) => void;
+  onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   showActions: boolean;
   variant: "own" | "watching" | "available" | "completed";
+  hideCollapsedHeader?: boolean;
 }) => {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [expanded, setExpanded] = useState(Boolean(hideCollapsedHeader) || task.status === "OPEN");
   const overdue = isOverdue(task);
   const transitions = nextFlowStatuses(task).filter((s) => s !== "OPEN");
   const isAssignee = task.assignee?.id === user.id;
@@ -147,149 +212,191 @@ const TaskCard = ({
   const isClosed = CLOSED_STATUSES.includes(task.status);
   const cardClass = [
     "task-card",
+    !isClosed && task.taskType !== "OOO" ? URGENCY_STRIPE_CLASS[task.urgency] : "",
     !isClosed && waitingOnOther ? "task-card-dimmed" : "",
     !isClosed && !waitingOnOther && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
     !isClosed && !waitingOnOther && variant === "own" ? "task-card-own" : "",
-    isClosed && !isCreator ? "task-card-closed" : ""
+    isClosed && !isCreator ? "task-card-closed" : "",
+    task.status === "COMPLETED" ? "task-card-completed" : "",
+    task.status === "CANCELLED" ? "task-card-cancelled" : "",
+    task.status === "ARCHIVED" ? "task-card-archived" : ""
   ].filter(Boolean).join(" ");
+
+  const handleHeaderClick = () => setExpanded((e) => !e);
+  const handleHeaderKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    setExpanded((v) => !v);
+  };
+  const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
+
+  const dueDisplay = task.taskType === "OOO"
+    ? `Return ${formatPtDateOnly(task.dueAt)}`
+    : formatRelativeDue(task.dueAt, overdue);
+  const dueTitle = task.taskType === "OOO" ? undefined : `Due ${formatDate(task.dueAt)}`;
+  const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
+
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
+  let primaryAction: QuickAction | null = null;
+  if (showActions) {
+    if (task.status === "OPEN" && !isCreator) {
+      primaryAction = { label: "Claim", kind: "good", run: () => { void onClaim(task.id); } };
+    } else if (task.status === "CLAIMED" && isAssignee && task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE")) {
+      primaryAction = { label: "Mark Merge Done", kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
+    } else if (task.status === "CLAIMED" && isAssignee && transitions.includes("COMPLETED")) {
+      primaryAction = { label: "Complete", kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+    } else if (task.status === "MERGE_DONE" && isCreator) {
+      primaryAction = { label: "Approve", kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
+    } else if (task.status === "MERGE_APPROVED" && isAssignee) {
+      primaryAction = { label: "Complete", kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+    } else if (task.status === "COMPLETED" && isCreator) {
+      primaryAction = { label: "Archive", kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };
+    } else if ((task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee)) {
+      primaryAction = { label: "Re-open", kind: "default", run: () => { void onTransition(task.id, "OPEN"); } };
+    }
+  }
+  const quickActionClass = primaryAction
+    ? `btn-sm task-card-quick-action${primaryAction.kind === "good" ? " btn-good" : primaryAction.kind === "ghost" ? " btn-ghost" : primaryAction.kind === "danger" ? " btn-danger" : ""}`
+    : "";
 
   return (
     <div className={cardClass}>
-      <div className="task-card-left">
-        <div className={banner.className}>{banner.label}</div>
-        <div className="task-card-title">
-          {task.taskType !== "OOO" && task.humperdinkLink ? (
-            <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link">
-              <span>{task.folderName}</span>
-              <span className="external-link-icon" aria-hidden="true">↗</span>
-            </a>
+      {!hideCollapsedHeader && (
+        <div
+          className={`task-card-collapsed${expanded ? " task-card-collapsed-open" : ""}`}
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          onClick={handleHeaderClick}
+          onKeyDown={handleHeaderKey}
+          title={urgencyTitle}
+        >
+          <span className={banner.className}>{banner.label}</span>
+          <span className="task-card-collapsed-title">
+            <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
+              {TASK_TYPE_LABELS[task.taskType]}
+            </span>
+            <span className="task-card-collapsed-folder">
+              {task.taskType !== "OOO" && task.humperdinkLink ? (
+                <a
+                  href={task.humperdinkLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open Humperdink link for ${task.folderName}`}
+                  title="Open Humperdink link"
+                  onClick={stopBubble}
+                >
+                  <span>{task.folderName}</span>
+                  <span className="external-link-icon" aria-hidden="true">↗</span>
+                </a>
+              ) : (
+                <span>{task.folderName}</span>
+              )}
+            </span>
+          </span>
+          <PoopDisplay
+            count={task.points ?? 0}
+            canEdit={isCreator && !isClosed}
+            onChange={(n) => { void onUpdatePoints(task.id, n); }}
+          />
+          <span
+            className={`task-card-collapsed-due${overdue ? " task-card-collapsed-due-overdue" : ""}`}
+            title={dueTitle}
+          >
+            {dueDisplay}
+          </span>
+          {primaryAction ? (
+            <button
+              type="button"
+              className={quickActionClass}
+              onClick={(e) => { e.stopPropagation(); primaryAction!.run(); }}
+            >
+              {primaryAction.label}
+            </button>
           ) : (
-            task.folderName
+            <span className="task-card-quick-action-empty" aria-hidden="true" />
           )}
         </div>
-        <div className="task-card-tags">
-          <span className="tag tag-type">{TASK_TYPE_LABELS[task.taskType]}</span>
-          {task.taskType !== "OOO" && <UrgencyTag urgency={task.urgency} />}
-          {overdue && <span className="tag tag-overdue">Overdue</span>}
-        </div>
-        <div className="task-card-meta">
-          <div>Created: {formatDate(task.createdAt)}</div>
-          {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
-          <div>Creator: {task.createdBy.displayName}</div>
-          {task.assignee && <div>Assignee: {task.assignee.displayName}</div>}
-          {variant === "watching" && (
-            <div className="task-card-watching-label">You created this task</div>
-          )}
-        </div>
-        {showActions && (
-          <div className="task-card-actions">
-            {/* OPEN: others can Claim, creator can Cancel */}
-            {task.status === "OPEN" && !isCreator && (
-              <button type="button" className="btn-sm btn-good" onClick={() => onClaim(task.id)}>
-                Claim
-              </button>
-            )}
-            {task.status === "OPEN" && isCreator && (
-              <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
-                Cancel Task
-              </button>
-            )}
-            {/* CLAIMED: assignee can Unclaim, Complete/Merge Done; creator can only Cancel */}
-            {canUnclaim(task, user) && (
-              <button type="button" className="btn-sm btn-ghost" onClick={() => onUnclaim(task.id)}>
-                Unclaim
-              </button>
-            )}
-            {task.status === "CLAIMED" && isAssignee && (
-              <>
-                {task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE") ? (
-                  <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "MERGE_DONE")}>
-                    Mark Merge Done
-                  </button>
-                ) : transitions.includes("COMPLETED") ? (
-                  <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "COMPLETED")}>
-                    Complete
-                  </button>
-                ) : null}
-              </>
-            )}
-            {task.status === "CLAIMED" && isCreator && !isAssignee && (
-              <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
-                Cancel
-              </button>
-            )}
-            {/* MERGE_DONE: creator can Approve, anyone involved can Cancel */}
-            {task.status === "MERGE_DONE" && isCreator && (
-              <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "MERGE_APPROVED")}>
-                Approve Merge
-              </button>
-            )}
-            {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-              <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
-                Cancel
-              </button>
-            )}
-            {/* MERGE_APPROVED: assignee can Complete, anyone involved can Cancel */}
-            {task.status === "MERGE_APPROVED" && isAssignee && (
-              <button type="button" className="btn-sm btn-good" onClick={() => onTransition(task.id, "COMPLETED")}>
-                Complete
-              </button>
-            )}
-            {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-              <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
-                Cancel
-              </button>
-            )}
-            {/* COMPLETED: creator can Archive */}
-            {task.status === "COMPLETED" && isCreator && (
-              <button type="button" className="btn-sm btn-ghost" onClick={() => onTransition(task.id, "ARCHIVED")}>
-                Archive
-              </button>
-            )}
-            {/* COMPLETED/ARCHIVED: either party can re-open */}
-            {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
-              <button type="button" className="btn-sm" onClick={() => onTransition(task.id, "OPEN")}>
-                Re-open
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      <div className="task-card-right">
-        <div className="task-card-notes">{task.notes}</div>
-        {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
-          <div className="task-card-review">
-            <strong>Notes Thread</strong>
-            {task.reviewNotes.map((note, i) => (
-              <div key={i} className="review-thread-entry">
-                <span className="review-thread-author">{note.by.displayName}</span>
-                <span className="review-thread-time">{formatDate(note.at)}</span>
-                <p>{note.text}</p>
-              </div>
-            ))}
-          </div>
-        )}
-        {showActions && !CLOSED_STATUSES.includes(task.status) && (isCreator || isAssignee || user.roles.includes("ADMIN")) && !noteOpen && (
-          <button type="button" className="btn-sm btn-ghost review-reply-btn" onClick={() => { setNoteOpen(true); setNoteText(""); }}>
-            Add Note
-          </button>
-        )}
-        {noteOpen && (
-          <div className="review-note-input">
-            <textarea
-              rows={2}
-              placeholder="Add a note..."
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              autoFocus
-            />
-            <div className="review-note-actions">
-              <button type="button" className="btn-sm btn-ghost" onClick={() => setNoteOpen(false)}>Cancel</button>
-              <button type="button" className="btn-sm" onClick={handleSubmitNote} disabled={!noteText.trim()}>Add Note</button>
+      )}
+      {expanded && (
+        <div className="task-card-expanded">
+          <div className="task-card-left">
+            <div className="task-card-meta">
+              <div>Created: {formatDate(task.createdAt)}</div>
+              {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
+              <div>Creator: {task.createdBy.displayName}</div>
+              {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
+              {variant === "watching" && (
+                <div className="task-card-watching-label">You created this task</div>
+              )}
             </div>
+            {showActions && (
+              <div className="task-card-actions">
+                {task.status === "OPEN" && isCreator && (
+                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                    Cancel Task
+                  </button>
+                )}
+                {canUnclaim(task, user) && (
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => onUnclaim(task.id)}>
+                    Unclaim
+                  </button>
+                )}
+                {task.status === "CLAIMED" && isCreator && !isAssignee && (
+                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                    Cancel
+                  </button>
+                )}
+                {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
+                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                    Cancel
+                  </button>
+                )}
+                {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
+                  <button type="button" className="btn-sm btn-danger" onClick={() => onTransition(task.id, "CANCELLED")}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+          <div className="task-card-right">
+            <div className="task-card-notes">{task.notes}</div>
+            {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
+              <div className="task-card-review">
+                <strong>Notes Thread</strong>
+                {task.reviewNotes.map((note, i) => (
+                  <div key={i} className="review-thread-entry">
+                    <span className="review-thread-author">{note.by.displayName}</span>
+                    <span className="review-thread-time">{formatDate(note.at)}</span>
+                    <p>{note.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {showActions && !CLOSED_STATUSES.includes(task.status) && (isCreator || isAssignee || user.roles.includes("ADMIN")) && !noteOpen && (
+              <button type="button" className="btn-sm btn-ghost review-reply-btn" onClick={() => { setNoteOpen(true); setNoteText(""); }}>
+                Add Note
+              </button>
+            )}
+            {noteOpen && (
+              <div className="review-note-input">
+                <textarea
+                  rows={2}
+                  placeholder="Add a note..."
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  autoFocus
+                />
+                <div className="review-note-actions">
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => setNoteOpen(false)}>Cancel</button>
+                  <button type="button" className="btn-sm" onClick={handleSubmitNote} disabled={!noteText.trim()}>Add Note</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -303,6 +410,7 @@ const CardList = ({
   onTransition,
   onAddReviewNote,
   onDismiss,
+  onUpdatePoints,
   showActions,
   emptyMessage,
   variant
@@ -314,6 +422,7 @@ const CardList = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onDismiss: (taskId: string) => void;
+  onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   showActions: boolean;
   emptyMessage: string;
   variant?: (task: LoanTask) => "own" | "watching" | "available" | "completed";
@@ -332,6 +441,7 @@ const CardList = ({
           onTransition={onTransition}
           onAddReviewNote={onAddReviewNote}
           onDismiss={onDismiss}
+          onUpdatePoints={onUpdatePoints}
           showActions={showActions}
           variant={variant ? variant(task) : "own"}
         />
@@ -350,6 +460,7 @@ const RecentActivityTable = ({
   onTransition,
   onAddReviewNote,
   onDismiss,
+  onUpdatePoints,
   variantForTask
 }: {
   tasks: LoanTask[];
@@ -361,6 +472,7 @@ const RecentActivityTable = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onDismiss: (taskId: string) => void;
+  onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   variantForTask: (task: LoanTask) => "own" | "watching" | "available" | "completed";
 }) => {
   if (tasks.length === 0) {
@@ -437,8 +549,10 @@ const RecentActivityTable = ({
                         onTransition={onTransition}
                         onAddReviewNote={onAddReviewNote}
                         onDismiss={onDismiss}
+                        onUpdatePoints={onUpdatePoints}
                         showActions={true}
                         variant={variantForTask(task)}
+                        hideCollapsedHeader
                       />
                     </td>
                   </tr>
@@ -589,7 +703,8 @@ export const App = () => {
     urgency: "GREEN" as UrgencyLevel,
     returnDate: "",
     notes: "",
-    humperdinkLink: ""
+    humperdinkLink: "",
+    points: 0
   });
 
   const isAdmin = user.roles.includes("ADMIN");
@@ -652,12 +767,13 @@ export const App = () => {
       taskType: form.taskType,
       notes: form.notes,
       ...(form.taskType === "OOO" ? { returnDate: form.returnDate } : { urgency: form.urgency }),
-      ...(form.taskType !== "OOO" && form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {})
+      ...(form.taskType !== "OOO" && form.humperdinkLink ? { humperdinkLink: form.humperdinkLink } : {}),
+      ...(form.points > 0 ? { points: form.points } : {})
     };
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", notes: "", returnDate: "", humperdinkLink: "" }));
+      setForm((c) => ({ ...c, folderName: "", notes: "", returnDate: "", humperdinkLink: "", points: 0 }));
       setError(null);
       setFormOpen(false);
       await refresh();
@@ -699,6 +815,15 @@ export const App = () => {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add review note");
+    }
+  };
+
+  const onUpdatePoints = async (taskId: string, points: number): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/points`, { method: "POST", body: JSON.stringify({ points }) }, user);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update poops");
     }
   };
 
@@ -905,6 +1030,33 @@ export const App = () => {
                 <input type="url" placeholder="Optional" value={form.humperdinkLink} onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))} />
               </label>
             )}
+            <label>
+              Shittiness <span className="form-hint">(poop score 1–5)</span>
+              <span className="poop-picker poop-picker-form">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`poop-pick${n <= form.points ? " poop-pick-on" : ""}`}
+                    onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
+                    aria-label={`${n} poop${n === 1 ? "" : "s"}`}
+                    aria-pressed={n <= form.points}
+                  >
+                    💩
+                  </button>
+                ))}
+                {form.points > 0 && (
+                  <button
+                    type="button"
+                    className="poop-pick-cancel"
+                    onClick={() => setForm((c) => ({ ...c, points: 0 }))}
+                    aria-label="Clear"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            </label>
             <div className="form-actions">
               <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)}>Cancel</button>
               <button type="submit">Create Task</button>
@@ -957,6 +1109,7 @@ export const App = () => {
             onTransition={onTransition}
             onAddReviewNote={onAddReviewNote}
             onDismiss={onDismiss}
+            onUpdatePoints={onUpdatePoints}
             showActions={true}
             emptyMessage="No tasks assigned to you."
             variant={myTaskVariant}
@@ -976,6 +1129,7 @@ export const App = () => {
                 onTransition={onTransition}
                 onAddReviewNote={onAddReviewNote}
                 onDismiss={onDismiss}
+                onUpdatePoints={onUpdatePoints}
                 showActions={true}
                 emptyMessage="No open tasks available."
                 variant={() => "available"}
@@ -997,6 +1151,7 @@ export const App = () => {
             onTransition={onTransition}
             onAddReviewNote={onAddReviewNote}
             onDismiss={onDismiss}
+            onUpdatePoints={onUpdatePoints}
             variantForTask={recentTaskVariant}
           />
         </>
@@ -1017,6 +1172,7 @@ export const App = () => {
             onTransition={onTransition}
             onAddReviewNote={onAddReviewNote}
             onDismiss={onDismiss}
+            onUpdatePoints={onUpdatePoints}
             showActions={true}
             emptyMessage="No archived tasks yet."
             variant={() => "completed"}
