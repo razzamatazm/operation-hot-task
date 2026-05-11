@@ -3,6 +3,7 @@ import path from "node:path";
 import { CreateTaskInput, LoanTask, TaskType, UrgencyLevel, UserIdentity, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
 import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, MessageFactory, TurnContext } from "botbuilder";
 import { Express } from "express";
+import { normalizeHumperdinkLink } from "./validation.js";
 
 interface StoredReference {
   key: string;
@@ -167,14 +168,6 @@ const parseReturnDate = (text: string): string | undefined => {
 const isSkip = (text: string): boolean => {
   const normalized = normalizeText(text);
   return normalized === "skip" || normalized === "none" || normalized === "n/a";
-};
-const isValidUrl = (text: string): boolean => {
-  try {
-    const parsed = new URL(text);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
 };
 const formatField = (value: string | undefined): string => (value && value.trim().length > 0 ? value : "Not provided");
 const urgencyLabel = (urgency: UrgencyLevel): string => URGENCY_CHOICES.find((choice) => choice.value === urgency)?.label ?? urgency;
@@ -439,12 +432,14 @@ class LoanTasksBot extends ActivityHandler {
 
     if (draft.step === "HUMPERDINK") {
       const trimmed = text.trim();
-      if (!isSkip(trimmed) && trimmed.length > 0 && !isValidUrl(trimmed)) {
+      const skipOrEmpty = isSkip(trimmed) || trimmed.length === 0;
+      const normalized = skipOrEmpty ? "" : normalizeHumperdinkLink(trimmed);
+      if (!skipOrEmpty && (normalized === null || normalized === "")) {
         await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Please enter a valid URL (http/https), or choose Skip:"));
         return;
       }
 
-      const humperdinkLink = isSkip(trimmed) || trimmed.length === 0 ? undefined : trimmed;
+      const humperdinkLink = skipOrEmpty ? undefined : (normalized as string);
       const nextDraft = this.updateDraft(draft, { step: "REVIEW" });
       if (humperdinkLink) {
         nextDraft.humperdinkLink = humperdinkLink;
