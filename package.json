@@ -25,6 +25,6 @@
     "format": "npm run format --workspace @loan-tasks/server && npm run format --workspace @loan-tasks/web && npm run format --workspace @loan-tasks/shared"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   }
 }

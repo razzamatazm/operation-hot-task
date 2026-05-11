@@ -31,7 +31,7 @@ export AZ_APP_PREFIX="operation-hot-task"
 
 What this does:
 - Creates resource group and Linux App Service plan
-- Creates web app (Node 20)
+- Creates web app (Node 24)
 - Sets required app settings for your business-hour/reminder policy
 - Sets startup command to `npm run start:prod`
 - Deploys current git `HEAD` via zip deploy

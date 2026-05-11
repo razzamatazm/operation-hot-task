@@ -7,26 +7,31 @@ import { spawn } from "node:child_process";
 
 const BASE_PORT = 4100;
 
+// Identities aligned with apps/web/src/mockUsers.ts so any task that
+// somehow leaks into dev data is at least tagged to a real current user.
+// `otherOfficer` is a smoke-only synthetic identity (no second non-checker
+// loan officer exists in mockUsers); the prefix makes it obvious in any
+// data file it appears in.
 const users = {
   creator: {
     id: "loan-officer-1",
-    name: "Jamie Loan Officer",
+    name: "Suzie",
     roles: "LOAN_OFFICER"
   },
   otherOfficer: {
-    id: "loan-officer-2",
-    name: "Alex Loan Officer",
+    id: "smoke-other-officer",
+    name: "Smoke Other Officer",
     roles: "LOAN_OFFICER"
   },
   fileChecker: {
     id: "file-checker-1",
-    name: "Taylor File Checker",
+    name: "Alexa",
     roles: "LOAN_OFFICER,FILE_CHECKER"
   },
   admin: {
     id: "admin-1",
-    name: "Morgan Admin",
-    roles: "LOAN_OFFICER,ADMIN"
+    name: "Johanna",
+    roles: "LOAN_OFFICER,FILE_CHECKER,ADMIN"
   }
 };
 
@@ -165,9 +170,11 @@ const run = async () => {
     const loiTask = createLoi.json.task;
     assert.equal(loiTask.status, "OPEN");
     assert.equal(loiTask.urgency, "GREEN");
+    assert.equal(loiTask.points, 0);
     assert.equal(loiTask.folderName, "Smoke LOI");
     assert.equal(loiTask.loanName, "Smoke LOI");
     pushPass("create LOI defaults applied");
+    pushPass("tasks default Poops to 0 (unrated)");
     pushPass("legacy loanName payload maps to canonical folderName");
 
     const greenDueMs = new Date(loiTask.dueAt).getTime() - new Date(loiTask.createdAt).getTime();
@@ -179,15 +186,18 @@ const run = async () => {
       body: {
         folderName: "Smoke Orange",
         taskType: "VALUE",
+        points: 5,
         urgency: "ORANGE",
         notes: "smoke-orange"
       }
     });
     expectStatus(createOrange.status, 201, "create ORANGE task", createOrange.json);
     const orangeTask = createOrange.json.task;
+    assert.equal(orangeTask.points, 5);
     const orangeDueMs = new Date(orangeTask.dueAt).getTime() - new Date(orangeTask.createdAt).getTime();
     assert.ok(orangeDueMs >= 55 * 60 * 1000 && orangeDueMs <= 65 * 60 * 1000, `ORANGE due delta expected ~1h, got ${orangeDueMs}`);
     pushPass("ORANGE urgency default due is approximately 1 hour");
+    pushPass("create accepts Poops in 1-5 range");
 
     const createRed = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
@@ -278,6 +288,63 @@ const run = async () => {
     expectStatus(createNonOooWithReturnDate.status, 400, "create non-OOO with returnDate", createNonOooWithReturnDate.json);
     pushPass("non-OOO task rejects returnDate");
 
+    const createWithZeroPoints = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Zero Poops",
+        taskType: "LOI",
+        points: 0,
+        notes: "unrated"
+      }
+    });
+    expectStatus(createWithZeroPoints.status, 201, "create with 0 points (unrated)", createWithZeroPoints.json);
+    assert.equal(createWithZeroPoints.json.task.points, 0);
+
+    const createWithSixPoints = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Invalid Six Poops",
+        taskType: "LOI",
+        points: 6,
+        notes: "invalid points"
+      }
+    });
+    expectStatus(createWithSixPoints.status, 400, "create with 6 points", createWithSixPoints.json);
+
+    const createWithFractionalPoints = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Invalid Fractional Poops",
+        taskType: "LOI",
+        points: 2.5,
+        notes: "invalid points"
+      }
+    });
+    expectStatus(createWithFractionalPoints.status, 400, "create with non-integer points", createWithFractionalPoints.json);
+    pushPass("create rejects out-of-range / non-integer Poops, allows 0 as unrated");
+
+    const updatePointsDenied = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/points`, {
+      user: users.otherOfficer,
+      body: { points: 4 }
+    });
+    expectStatus(updatePointsDenied.status, 400, "post-create points update is blocked for non-creator", updatePointsDenied.json);
+    pushPass("post-create Poops update blocked for non-creator");
+
+    const updatePointsByCreator = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/points`, {
+      user: users.creator,
+      body: { points: 4 }
+    });
+    expectStatus(updatePointsByCreator.status, 200, "creator updates points after create", updatePointsByCreator.json);
+    assert.equal(updatePointsByCreator.json.task.points, 4);
+
+    const clearPointsByCreator = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/points`, {
+      user: users.creator,
+      body: { points: 0 }
+    });
+    expectStatus(clearPointsByCreator.status, 200, "creator clears points to 0", clearPointsByCreator.json);
+    assert.equal(clearPointsByCreator.json.task.points, 0);
+    pushPass("creator can update and clear Poops after create");
+
     const claimByOther = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/claim`, {
       user: users.otherOfficer
     });
@@ -333,6 +400,13 @@ const run = async () => {
     });
     expectStatus(archived.status, 200, "completed->archived", archived.json);
     pushPass("core LOI lifecycle works to archived");
+
+    const updatePointsArchived = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/points`, {
+      user: users.creator,
+      body: { points: 5 }
+    });
+    expectStatus(updatePointsArchived.status, 400, "cannot update points after archive", updatePointsArchived.json);
+    pushPass("Poops updates remain blocked for closed statuses");
 
     const history = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}/history`, {
       user: users.creator

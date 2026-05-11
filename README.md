@@ -8,6 +8,8 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
 - Teams **Bot endpoint** (`apps/server`) for notification delivery (DM + channel posts)
 - Teams **Activity Feed** notifications via Microsoft Graph (optional, app-only auth)
 - Teams **Bot quick add** flow via `/bot new`
+- Task difficulty points via **Dinks** (`1-5`, default `1`)
+- Weekly/monthly Dinks leaderboard tab
 - Task lifecycle and rules for:
   - LOI
   - Value
@@ -27,6 +29,10 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
   - `ORANGE` within 1 hour
   - `RED` immediate
 - Due timestamps are backend-tracked for standard task types; OOO tasks require user-entered `returnDate` (`YYYY-MM-DD`, PT) and auto-complete at 8:30 AM PT on that date
+- Dinks leaderboard scoring:
+  - Scores are summed from task `points` on tasks currently in `COMPLETED` or `ARCHIVED`
+  - Time windows are based on `completedAt` in `America/Los_Angeles`
+  - Weekly window starts Monday at `12:00 AM` PT
 - Auto-purge archived tasks after 90 days (3 months)
 
 ## Repo layout
@@ -111,6 +117,7 @@ Base URL: `/api`
 - `POST /tasks/:taskId/claim`
 - `POST /tasks/:taskId/unclaim`
 - `POST /tasks/:taskId/transition`
+- `POST /tasks/:taskId/points`
 - `GET /stream` (SSE)
 
 Create-task payload naming:
@@ -121,12 +128,16 @@ Create-task payload naming:
   - `taskType: "OOO"` rejects `urgency`
   - `taskType: "OOO"` rejects `humperdinkLink`
   - non-OOO task types reject `returnDate`
+- Dinks rules:
+  - Optional create field: `points` (integer `1-5`, defaults to `1`)
+  - Only task creator can update points via `POST /tasks/:taskId/points`
+  - Points can only be edited while task is active (`OPEN`, `CLAIMED`, `NEEDS_REVIEW`, `MERGE_DONE`, `MERGE_APPROVED`)
 
 Bot endpoint:
 
 - `POST /api/bot/messages`
 - Bot chat commands:
-  - `/bot new` quick add wizard (description -> task type -> [OOO: return date | non-OOO: urgency] -> notes -> [non-OOO: humperdink link] -> review/edit -> confirm -> create)
+  - `/bot new` quick add wizard (description -> task type -> [OOO: return date | non-OOO: urgency] -> dinks -> notes -> [non-OOO: humperdink link] -> review/edit -> confirm -> create)
   - `/bot back` return to the previous step during quick add
   - `/bot cancel`
   - `help`
