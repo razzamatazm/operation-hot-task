@@ -208,7 +208,7 @@ h1, h2, h3, h4 {
 
 .task-form {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
 
@@ -1130,16 +1130,32 @@ button.btn-good:hover {
 
 .poop-picker-form {
   margin-top: 4px;
-  width: fit-content;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 4px;
+  gap: 0;
+  justify-content: space-around;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: calc(0.85rem * 1.5 + 16px);
 }
 
-.form-hint {
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--muted);
-  font-weight: 400;
-  font-size: 0.72rem;
-  margin-left: 4px;
+.poop-picker-form .poop-pick {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.poop-picker-form .poop-pick-cancel {
+  flex: 0 0 auto;
+  padding: 0 6px;
 }
 
 .poop-pick {
@@ -1162,9 +1178,11 @@ button.btn-good:hover {
   opacity: 0.7;
 }
 
-.poop-pick-on {
+.poop-pick-on,
+.poop-pick.poop-pick-on:hover {
   filter: grayscale(0);
   opacity: 1;
+  background: transparent;
 }
 
 .poop-pick-cancel {

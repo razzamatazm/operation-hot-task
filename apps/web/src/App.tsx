@@ -170,8 +170,8 @@ const PoopDisplay = ({
   if (safeCount === 0 && !canEdit) return null;
 
   const titleText = canEdit
-    ? `Shittiness: ${safeCount}/5 — click to rate`
-    : `Shittiness: ${safeCount}/5`;
+    ? `Namvar factor: ${safeCount}/5 — click to rate`
+    : `Namvar factor: ${safeCount}/5`;
 
   return (
     <span
@@ -199,7 +199,7 @@ const PoopDisplay = ({
               e.stopPropagation();
               onChange(n === safeCount ? 0 : n);
             }}
-            aria-label={`Set shittiness to ${n}`}
+            aria-label={`Set Namvar factor to ${n}`}
             aria-pressed={filled}
           >
             💩
@@ -819,6 +819,7 @@ export const App = () => {
   const [tasks, setTasks] = useState<LoanTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [namvarHover, setNamvarHover] = useState<number | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [expandedRecentTaskId, setExpandedRecentTaskId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "archived" | "metrics">("active");
@@ -1203,12 +1204,36 @@ export const App = () => {
                 </select>
               </label>
             )}
+            <label>
+              Namvar Factor
+              <span
+                className="poop-picker poop-picker-form"
+                onMouseLeave={() => setNamvarHover(null)}
+              >
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const active = n <= (namvarHover ?? form.points);
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`poop-pick${active ? " poop-pick-on" : ""}`}
+                      onMouseEnter={() => setNamvarHover(n)}
+                      onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
+                      aria-label={`${n} poop${n === 1 ? "" : "s"}`}
+                      aria-pressed={n <= form.points}
+                    >
+                      💩
+                    </button>
+                  );
+                })}
+              </span>
+            </label>
             <label className="span-full">
               {getNotesFieldLabel(form.taskType)}
               <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
             </label>
             {form.taskType !== "OOO" && (
-              <label>
+              <label className="span-full">
                 Humperdink Link
                 <input
                   type="text"
@@ -1225,33 +1250,6 @@ export const App = () => {
                 />
               </label>
             )}
-            <label>
-              Shittiness <span className="form-hint">(poop score 1–5)</span>
-              <span className="poop-picker poop-picker-form">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className={`poop-pick${n <= form.points ? " poop-pick-on" : ""}`}
-                    onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
-                    aria-label={`${n} poop${n === 1 ? "" : "s"}`}
-                    aria-pressed={n <= form.points}
-                  >
-                    💩
-                  </button>
-                ))}
-                {form.points > 0 && (
-                  <button
-                    type="button"
-                    className="poop-pick-cancel"
-                    onClick={() => setForm((c) => ({ ...c, points: 0 }))}
-                    aria-label="Clear"
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            </label>
             <div className="form-actions">
               <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)}>Cancel</button>
               <button type="submit">Create Task</button>
