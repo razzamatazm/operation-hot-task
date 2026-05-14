@@ -496,11 +496,26 @@ button.btn-good:hover {
   box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad);
 }
 
+/* Archived keeps the "completed green" visual — same stripe and tinted
+   backdrop as COMPLETED. The dim opacity (applied via .task-card-dimmed
+   for the creator or .task-card-closed for everyone else) is what tells
+   the eye it's filed away vs. still actionable. */
 .task-card-archived {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--line);
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
+  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
 }
 .task-card-archived:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--line);
+  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
+}
+.task-card-archived .task-card-collapsed-folder,
+.task-card-archived .task-card-collapsed-folder a {
+  color: var(--muted);
+}
+.task-card-archived .task-card-collapsed-type {
+  color: var(--ink-secondary);
+}
+.task-card-archived .status-banner-label {
+  color: var(--good);
 }
 
 /* Celebrating — green halo pulse for ~3s when the creator's task hits a
