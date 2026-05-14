@@ -503,6 +503,22 @@ button.btn-good:hover {
   box-shadow: var(--shadow-md), inset 3px 0 0 var(--line);
 }
 
+/* Celebrating — green halo pulse for ~3s when the creator's task hits a
+   completion milestone (COMPLETED or LOAN_DOCS MERGE_DONE). The card is
+   already pinned to the top of the grid via the celebrating sort bucket;
+   the pulse just draws the eye. Animation runs twice then settles. */
+.task-card-celebrating {
+  animation: pulse-celebrate 1.4s ease-in-out 2;
+}
+@keyframes pulse-celebrate {
+  0%, 100% {
+    box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good), 0 0 0 0 rgba(46, 160, 67, 0);
+  }
+  50% {
+    box-shadow: var(--shadow-md), inset 3px 0 0 var(--good), 0 0 0 10px rgba(46, 160, 67, 0.28);
+  }
+}
+
 /* ── Collapsed task card row ──────────────────────────────── */
 /* Columns: status | assigner | assignee | title | namvar | due | action */
 .task-card-collapsed {

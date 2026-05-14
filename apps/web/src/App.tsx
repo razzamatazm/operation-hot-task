@@ -202,7 +202,8 @@ const TaskCard = ({
   showActions,
   variant,
   seenNoteAt,
-  onMarkNoteSeen
+  onMarkNoteSeen,
+  pulsing
 }: {
   task: LoanTask;
   user: UserIdentity;
@@ -215,6 +216,7 @@ const TaskCard = ({
   variant: "own" | "watching" | "available" | "completed";
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
+  pulsing?: boolean;
 }) => {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -275,17 +277,31 @@ const TaskCard = ({
   const banner = resolveBanner(task);
   const isClosed = CLOSED_STATUSES.includes(task.status);
   const isObserver = !isCreator && !isAssignee;
-  /* Unified dim rule: only dim observer-view of in-flight tasks. Open is
-     always undimmed (anyone can claim); creator/assignee are never dimmed
-     (you're involved); unread notes override. */
-  const dimmed = !hasUnreadNote && !isClosed && task.status !== "OPEN" && isObserver;
-  /* Mini = half-height row used for closed tasks at the bottom of the grid. */
-  const mini = isClosed;
+  /* "Celebrating" = the creator just hit a completion milestone
+     (COMPLETED, or LOAN_DOCS MERGE_DONE). Stays celebrating until the
+     creator archives the task (or it falls back to an earlier status). */
+  const isCelebrating =
+    isCreator &&
+    (task.status === "COMPLETED" || (task.taskType === "LOAN_DOCS" && task.status === "MERGE_DONE"));
+  /* Dim rule:
+     - You created it → bright. Only ARCHIVED dims (task is filed away).
+     - You're the assignee → bright (you're doing the work).
+     - You're an observer → dim everything except OPEN (anyone may claim).
+     Unread notes override and force-undim. */
+  const creatorArchived = isCreator && task.status === "ARCHIVED";
+  const dimmed = !hasUnreadNote && (
+    creatorArchived ||
+    (!isClosed && task.status !== "OPEN" && isObserver)
+  );
+  /* Mini = closed bottom-bucket row. Celebrating COMPLETED renders as a
+     full-size pulsing card at the top until the creator archives it. */
+  const mini = isClosed && !isCelebrating;
   const cardClass = [
     "task-card",
     !isClosed && task.taskType !== "OOO" ? STATUS_STRIPE_CLASS[task.status] ?? "" : "",
     dimmed ? "task-card-dimmed" : "",
     mini ? "task-card-mini" : "",
+    pulsing ? "task-card-celebrating" : "",
     !isClosed && !dimmed && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
     !isClosed && !dimmed && variant === "own" ? "task-card-own" : "",
     isClosed && !isCreator ? "task-card-closed" : "",
@@ -556,7 +572,8 @@ const CardList = ({
   emptyMessage,
   variant,
   seenNotesAt,
-  onMarkNoteSeen
+  onMarkNoteSeen,
+  pulsingIds
 }: {
   tasks: LoanTask[];
   user: UserIdentity;
@@ -570,6 +587,7 @@ const CardList = ({
   variant?: (task: LoanTask) => "own" | "watching" | "available" | "completed";
   seenNotesAt?: Record<string, string>;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
+  pulsingIds?: Set<string>;
 }) => (
   <div className="card-list">
     {tasks.length === 0 ? (
@@ -587,6 +605,7 @@ const CardList = ({
           onUpdatePoints={onUpdatePoints}
           showActions={showActions}
           variant={variant ? variant(task) : "own"}
+          pulsing={pulsingIds?.has(task.id) ?? false}
           {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
           {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
         />
@@ -762,6 +781,51 @@ export const App = () => {
     });
   };
 
+  /* "Celebrating" — a task the current viewer created that just hit a
+     completion milestone (COMPLETED, or LOAN_DOCS MERGE_DONE). The task
+     pins to a celebrating bucket at the top of the grid while the
+     status holds, and pulses green briefly when the transition lands.
+     Pulse only fires for transitions observed during this session —
+     never on initial page load. */
+  const isCelebratingStatus = (t: LoanTask): boolean =>
+    t.status === "COMPLETED" || (t.taskType === "LOAN_DOCS" && t.status === "MERGE_DONE");
+  const [pulsingIds, setPulsingIds] = useState<Set<string>>(() => new Set());
+  const prevStatusesRef = useRef<Map<string, TaskStatus>>(new Map());
+  useEffect(() => {
+    const next = new Map<string, TaskStatus>();
+    const newlyPulsing: string[] = [];
+    for (const t of tasks) {
+      next.set(t.id, t.status);
+      if (t.createdBy.id !== user.id) continue;
+      if (!isCelebratingStatus(t)) continue;
+      const prev = prevStatusesRef.current.get(t.id);
+      if (prev !== undefined && prev !== t.status) {
+        newlyPulsing.push(t.id);
+      }
+    }
+    prevStatusesRef.current = next;
+    if (newlyPulsing.length === 0) return;
+    setPulsingIds((p) => {
+      const merged = new Set(p);
+      for (const id of newlyPulsing) merged.add(id);
+      return merged;
+    });
+    const timer = setTimeout(() => {
+      setPulsingIds((p) => {
+        const merged = new Set(p);
+        for (const id of newlyPulsing) merged.delete(id);
+        return merged;
+      });
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [tasks, user.id]);
+  /* Reset pulse + status snapshot on mock-user switch so a fresh viewer
+     doesn't inherit the previous user's pulse state or transitions. */
+  useEffect(() => {
+    prevStatusesRef.current = new Map();
+    setPulsingIds(new Set());
+  }, [user.id]);
+
   const [form, setForm] = useState({
     folderName: "",
     taskType: "LOI" as TaskType,
@@ -894,17 +958,18 @@ export const App = () => {
     }
   };
 
-  /* Unified visible-task list. CANCELLED tasks are filtered out of the
-     grid (a cancellation is a "never happened" — still counted in the
-     admin metrics panel). Fraud Check claims are gated to FILE_CHECKERs
-     in the workflow; the UI just hides the Claim button for viewers
-     who can't act. Sort: OPEN → in-flight → closed mini rows,
+  /* Unified visible-task list. CANCELLED is filtered out (still counted
+     in admin Metrics). Fraud Check claims are gated to FILE_CHECKERs in
+     the workflow; the UI just hides the Claim button for viewers who
+     can't act. Sort: celebrating (creator-only completion milestone)
+     pinned to the very top → OPEN → in-flight → closed mini rows,
      newest-first within each bucket. */
   const unifiedTasks = useMemo(() => {
     const bucket = (t: LoanTask): number => {
-      if (t.status === "OPEN") return 0;
-      if (CLOSED_STATUSES.includes(t.status)) return 2;
-      return 1;
+      if (t.createdBy.id === user.id && isCelebratingStatus(t)) return 0;
+      if (t.status === "OPEN") return 1;
+      if (CLOSED_STATUSES.includes(t.status)) return 3;
+      return 2;
     };
     return tasks
       .filter((t) => t.status !== "CANCELLED")
@@ -913,7 +978,8 @@ export const App = () => {
         if (diff !== 0) return diff;
         return b.createdAt.localeCompare(a.createdAt);
       });
-  }, [tasks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, user.id]);
 
   const openCount = useMemo(() => unifiedTasks.filter((t) => t.status === "OPEN").length, [unifiedTasks]);
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
@@ -1146,6 +1212,7 @@ export const App = () => {
             variant={variantForTask}
             seenNotesAt={seenNotesAt}
             onMarkNoteSeen={markNoteSeen}
+            pulsingIds={pulsingIds}
           />
         </>
       )}

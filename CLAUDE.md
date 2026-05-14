@@ -128,11 +128,18 @@ full actions (Re-open / Archive).
 
 ### Auto-expand and bucket sort
 
-`unifiedTasks` sorts into 3 buckets, newest-first within each:
+`unifiedTasks` sorts into 4 buckets, newest-first within each:
 
-1. `OPEN` — always at the top, always undimmed (anyone may claim).
-2. In-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED`).
-3. Closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`) — render as mini rows.
+1. **Celebrating** — the creator's task just hit `COMPLETED` (or
+   `LOAN_DOCS` + `MERGE_DONE`). Pinned to the very top with a green
+   pulse for ~3s after the transition (`task-card-celebrating` class,
+   driven by `pulsingIds` state in `App.tsx`). Stays in this bucket
+   until the creator archives it.
+2. `OPEN` — always undimmed (anyone may claim).
+3. In-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED`).
+4. Closed (`COMPLETED` / `ARCHIVED`) — render as mini rows. `CANCELLED`
+   is filtered out of the grid entirely (still counted in the admin
+   Metrics panel).
 
 A row auto-pops open when:
 - `actionableByMe` (assignee on `CLAIMED`/`NEEDS_REVIEW`/`MERGE_APPROVED`,
@@ -177,10 +184,13 @@ collapsed row.
   status stripe (left edge), so left=status, right=ownership without
   competing.
 - `task-card-mini` — half-height closed-row variant (see *Mini rows*).
-- `task-card-dimmed` — 0.55 opacity. Applied when the viewer is an
-  **observer** (neither creator nor assignee) of an in-flight task. Open
-  tasks are never dimmed (anyone can claim); creator/assignee are never
-  dimmed (you're involved). Unread notes suppress the dim.
+- `task-card-celebrating` — green pulse halo applied for ~3s after a
+  creator's task hits a completion milestone.
+- `task-card-dimmed` — 0.55 opacity. Rules:
+  - You created the task → bright. Only `ARCHIVED` dims (filed away).
+  - You're the assignee (non-creator) → bright (you're doing the work).
+  - You're an observer (neither) → dim everything except `OPEN`.
+  Unread notes suppress the dim.
 - `task-card-closed` — 0.7 opacity for closed-status tasks the user
   didn't create.
 
