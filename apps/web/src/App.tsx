@@ -454,7 +454,7 @@ const TaskCard = ({
             <div className="task-card-meta">
               <div>Created: {formatDate(task.createdAt)}</div>
               {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
-              {!isCreator && <div>Creator: {task.createdBy.displayName}</div>}
+              {task.taskType !== "OOO" && <div>Urgency: {URGENCY_LABELS[task.urgency]}</div>}
               {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
             </div>
             {showActions && cancelStage === "confirming" && (
