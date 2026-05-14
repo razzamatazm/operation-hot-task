@@ -211,27 +211,14 @@ const TaskCard = ({
     return latest;
   }, [task.reviewNotes, user.id]);
   const hasUnreadNote = !!latestOtherNoteAt && latestOtherNoteAt > (seenNoteAt ?? "");
-  /* Auto-pop tasks the viewer needs to act on. Closed (mini) rows never
-     auto-expand; observer rows on OPEN do (so Claim is one click away).
-     Unread note from the other party also forces the card open until viewed. */
-  const actionableByMe =
-    (isAssignee && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW" || task.status === "MERGE_APPROVED")) ||
-    (isCreator && task.status === "MERGE_DONE");
-  const autoExpand =
-    !CLOSED_STATUSES.includes(task.status) &&
-    ((task.status === "OPEN" && !isCreator) || actionableByMe);
-  const [expanded, setExpanded] = useState(autoExpand || hasUnreadNote);
-  /* Re-derive expanded when status changes or the viewer changes (mock user
-     picker). Unread overrides closed via separate effect. */
+  /* Rows render collapsed by default — the grid columns (status, assigner,
+     assignee, due, namvar, action) carry enough signal to scan without
+     opening. Only an unread note from the other party force-opens the card
+     until acknowledged. */
+  const [expanded, setExpanded] = useState(hasUnreadNote);
   useEffect(() => {
-    setExpanded(autoExpand || hasUnreadNote);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.status, user.id]);
-  /* New unread note arriving (false -> true) force-opens the card. */
-  useEffect(() => {
-    if (!hasUnreadNote) return;
-    setExpanded(true);
-  }, [hasUnreadNote]);
+    setExpanded(hasUnreadNote);
+  }, [task.status, user.id, hasUnreadNote]);
   /* Acknowledge an unread note: clears force-open + undim lock. Triggered
      by an explicit user gesture (header click/key, or sending a reply) —
      not by auto-open, so the undim state is actually visible. */
