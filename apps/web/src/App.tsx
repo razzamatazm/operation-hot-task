@@ -465,6 +465,11 @@ const TaskCard = ({
                     Cancel
                   </button>
                 )}
+                {task.status === "MERGE_DONE" && isAssignee && (
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
+                    Undo Merge Done
+                  </button>
+                )}
                 {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
                   <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
                     Cancel
@@ -473,6 +478,11 @@ const TaskCard = ({
                 {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
                   <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
                     Cancel
+                  </button>
+                )}
+                {task.status === "COMPLETED" && (
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
+                    Re-open
                   </button>
                 )}
               </div>

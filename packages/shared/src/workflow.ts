@@ -17,7 +17,7 @@ const ALWAYS_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   NEEDS_REVIEW: ["CLAIMED", "COMPLETED", "CANCELLED"],
   COMPLETED: ["NEEDS_REVIEW", "OPEN"],
   ARCHIVED: ["OPEN"],
-  MERGE_DONE: ["CANCELLED"],
+  MERGE_DONE: ["CLAIMED", "CANCELLED"],
   MERGE_APPROVED: ["CANCELLED"]
 };
 
@@ -299,6 +299,14 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
 
   if ((next === "CLAIMED" || next === "COMPLETED") && task.status === "NEEDS_REVIEW" && !canMoveNeedsReview(task, user)) {
     return { ok: false, reason: "Only assignee, creator, or admin can move a needs review task" };
+  }
+
+  if (next === "CLAIMED" && task.status === "MERGE_DONE") {
+    const isAssignee = task.assignee?.id === user.id;
+    const isAdmin = hasRole(user, "ADMIN");
+    if (!isAssignee && !isAdmin) {
+      return { ok: false, reason: "Only assignee or admin can undo merge done" };
+    }
   }
 
   if (next === "COMPLETED" && !canCompleteTask(task, user)) {
