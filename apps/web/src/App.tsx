@@ -85,6 +85,20 @@ const formatRelativeDue = (iso: string, overdue: boolean): string => {
   return overdue ? `${span} overdue` : `due in ${span}`;
 };
 
+/* For closed tasks the deadline is moot — show how long ago it landed.
+   Falls back to "done" when no completedAt is recorded. */
+const formatRelativeCompleted = (iso?: string): string => {
+  if (!iso) return "done";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 60000) return "done just now";
+  const min = Math.round(diffMs / 60000);
+  if (min < 60) return `done ${min}m ago`;
+  const hr = Math.round(diffMs / 3600000);
+  if (hr < 24) return `done ${hr}h ago`;
+  const day = Math.round(diffMs / 86400000);
+  return `done ${day}d ago`;
+};
+
 const applyTheme = (theme?: string): void => {
   const normalized = theme === "dark" || theme === "contrast" ? theme : "light";
   document.documentElement.setAttribute("data-theme", normalized);
@@ -204,6 +218,14 @@ const TaskCard = ({
 }) => {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
+  /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
+     drops the task from the grid since cancelled rows are filtered out. */
+  const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
+  useEffect(() => {
+    if (cancelStage !== "done") return;
+    const id = setTimeout(() => setCancelStage("idle"), 1200);
+    return () => clearTimeout(id);
+  }, [cancelStage]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
   /* Latest note from the OTHER party — drives unread/force-open behavior. */
@@ -284,10 +306,16 @@ const TaskCard = ({
   };
   const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
 
-  const dueDisplay = task.taskType === "OOO"
-    ? `Return ${formatPtDateOnly(task.dueAt)}`
-    : formatRelativeDue(task.dueAt, overdue);
-  const dueTitle = task.taskType === "OOO" ? undefined : `Due ${formatDate(task.dueAt)}`;
+  const dueDisplay = task.status === "COMPLETED" || task.status === "ARCHIVED"
+    ? formatRelativeCompleted(task.completedAt)
+    : task.taskType === "OOO"
+      ? `Return ${formatPtDateOnly(task.dueAt)}`
+      : formatRelativeDue(task.dueAt, overdue);
+  const dueTitle = task.status === "COMPLETED" || task.status === "ARCHIVED"
+    ? (task.completedAt ? `Completed ${formatDate(task.completedAt)}` : undefined)
+    : task.taskType === "OOO"
+      ? undefined
+      : `Due ${formatDate(task.dueAt)}`;
   const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
 
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
@@ -413,10 +441,24 @@ const TaskCard = ({
               {!isCreator && <div>Creator: {task.createdBy.displayName}</div>}
               {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
             </div>
-            {showActions && (
+            {showActions && cancelStage === "confirming" && (
+              <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
+                <span>Cancel this task?</span>
+                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
+                  Yes, cancel
+                </button>
+                <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
+                  Keep
+                </button>
+              </div>
+            )}
+            {showActions && cancelStage === "done" && (
+              <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
+            )}
+            {showActions && cancelStage === "idle" && (
               <div className="task-card-actions">
                 {task.status === "OPEN" && isCreator && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
                     Cancel Task
                   </button>
                 )}
@@ -426,7 +468,7 @@ const TaskCard = ({
                   </button>
                 )}
                 {task.status === "CLAIMED" && isCreator && !isAssignee && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
                     Cancel
                   </button>
                 )}
@@ -436,12 +478,12 @@ const TaskCard = ({
                   </button>
                 )}
                 {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
                     Cancel
                   </button>
                 )}
                 {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CANCELLED"); }}>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
                     Cancel
                   </button>
                 )}
@@ -852,22 +894,25 @@ export const App = () => {
     }
   };
 
-  /* Unified visible-task list. Every user sees every task — Fraud Check
-     claims are gated to FILE_CHECKERs in the workflow (`canClaimTask`),
-     so the UI just hides the Claim button for viewers who can't act.
-     Sort: OPEN → in-flight → closed (mini rows), newest-first within
-     each bucket. */
+  /* Unified visible-task list. CANCELLED tasks are filtered out of the
+     grid (a cancellation is a "never happened" — still counted in the
+     admin metrics panel). Fraud Check claims are gated to FILE_CHECKERs
+     in the workflow; the UI just hides the Claim button for viewers
+     who can't act. Sort: OPEN → in-flight → closed mini rows,
+     newest-first within each bucket. */
   const unifiedTasks = useMemo(() => {
     const bucket = (t: LoanTask): number => {
       if (t.status === "OPEN") return 0;
       if (CLOSED_STATUSES.includes(t.status)) return 2;
       return 1;
     };
-    return [...tasks].sort((a, b) => {
-      const diff = bucket(a) - bucket(b);
-      if (diff !== 0) return diff;
-      return b.createdAt.localeCompare(a.createdAt);
-    });
+    return tasks
+      .filter((t) => t.status !== "CANCELLED")
+      .sort((a, b) => {
+        const diff = bucket(a) - bucket(b);
+        if (diff !== 0) return diff;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
   }, [tasks]);
 
   const openCount = useMemo(() => unifiedTasks.filter((t) => t.status === "OPEN").length, [unifiedTasks]);

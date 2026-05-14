@@ -803,6 +803,32 @@ button.btn-good:hover {
   padding-top: 6px;
 }
 
+/* Two-step cancel: confirmation row replaces the actions block. */
+.task-card-cancel-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: var(--bad-bg);
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+.task-card-cancel-done {
+  background: var(--bad-bg);
+  border-color: var(--bad);
+  color: var(--bad);
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  justify-content: center;
+  animation: fadeIn 0.12s ease-out;
+}
+
 .task-card-right {
   display: flex;
   flex-direction: column;
@@ -1249,6 +1275,75 @@ button.btn-good:hover {
   }
   .task-card-collapsed-mini > .task-card-quick-action,
   .task-card-collapsed-mini > .task-card-quick-action-empty { grid-area: action; align-self: center; }
+}
+
+/* Teams mobile — typically 375–414px wide. Bump tap targets, tighten
+   the modal so it actually fits, and let the top bar wrap cleanly. */
+@media (max-width: 480px) {
+  .app-shell {
+    padding: 10px 10px 24px;
+    gap: 10px;
+  }
+
+  .top-bar {
+    gap: 8px;
+  }
+  .top-bar h1 {
+    font-size: 1.15rem;
+  }
+  .user-picker {
+    flex-wrap: wrap;
+  }
+  .user-picker select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  button.btn-sm {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+    min-height: 36px;
+  }
+  .form-toggle {
+    padding: 9px 14px;
+    min-height: 38px;
+  }
+
+  .task-card-collapsed,
+  .task-card-collapsed-mini {
+    padding: 8px 10px 8px 14px;
+    column-gap: 8px;
+  }
+  .task-card-collapsed {
+    grid-template-columns: 76px 1fr 1fr auto;
+  }
+
+  .form-overlay {
+    padding: 16px 8px;
+    align-items: stretch;
+  }
+  .form-panel {
+    padding: 14px 14px;
+    border-radius: 8px;
+  }
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+  .form-actions button {
+    width: 100%;
+  }
+
+  .task-card-expanded {
+    padding: 10px 12px 12px;
+    gap: 12px;
+  }
+  .task-card-actions,
+  .task-card-cancel-confirm {
+    width: 100%;
+  }
+  .task-card-cancel-confirm button {
+    flex: 1;
+  }
 }
 
 /* ── Metrics Panel ───────────────────────────────────────── */
