@@ -956,7 +956,15 @@ export const App = () => {
       {error && <p className="error-bar">{error}</p>}
 
       {formOpen && (
-        <div className="form-panel">
+        <div
+          className="form-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="New task"
+          onClick={() => setFormOpen(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setFormOpen(false); }}
+        >
+          <div className="form-panel" onClick={(e) => e.stopPropagation()}>
           <form className="task-form" onSubmit={onCreateTask}>
             <label>
               {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
@@ -1044,10 +1052,14 @@ export const App = () => {
               <button type="submit">Create Task</button>
             </div>
           </form>
+          </div>
         </div>
       )}
 
-      {/* ── Tab bar ─────────────────────────────────── */}
+      {/* Tab bar only renders when there's more than one tab to choose
+          (i.e. admins with the Metrics panel). Non-admins see the unified
+          grid directly. */}
+      {isAdmin && (
       <div className="tab-bar">
         <button
           type="button"
@@ -1057,7 +1069,6 @@ export const App = () => {
           Tasks
           <span className="section-count">{activeCount}</span>
         </button>
-        {isAdmin && (
           <button
             type="button"
             className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
@@ -1065,8 +1076,8 @@ export const App = () => {
           >
             Metrics
           </button>
-        )}
       </div>
+      )}
 
       {/* ── Unified task grid ──────────────────────── */}
       {activeTab === "active" && (

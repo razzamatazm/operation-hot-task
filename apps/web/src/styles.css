@@ -192,17 +192,34 @@ h1, h2, h3, h4 {
   transform: rotate(45deg);
 }
 
+/* New-task form floats over the list as a modal — clicking outside or
+   Cancel dismisses. Backdrop fades in; panel slides down from the top. */
+.form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 14, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px 24px;
+  z-index: 50;
+  animation: fadeIn 0.12s ease-out;
+  overflow-y: auto;
+}
+
 .form-panel {
+  width: 100%;
+  max-width: 760px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel);
-  padding: 14px 16px;
-  box-shadow: var(--shadow-sm);
-  animation: slideDown 0.15s ease-out;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-md), 0 16px 40px -16px rgba(0, 0, 0, 0.35);
+  animation: slideDown 0.18s ease-out;
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(-12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -443,9 +460,16 @@ button.btn-good:hover {
 
 /* ── Status left stripe ───────────────────────────────────── */
 /* OPEN = red (needs a claim), in-flight = orange (warming).
+   Both fade a tinted backdrop from the left to echo the COMPLETED treatment.
    Closed statuses carry their own stripes below. */
-.task-card-stripe-open { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad); }
-.task-card-stripe-progress { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot); }
+.task-card-stripe-open {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
+  background: linear-gradient(90deg, var(--bad-bg) 0%, var(--panel) 32%);
+}
+.task-card-stripe-progress {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot);
+  background: linear-gradient(90deg, var(--hot-bg) 0%, var(--panel) 32%);
+}
 .task-card.task-card-stripe-open:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
 .task-card.task-card-stripe-progress:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
 
