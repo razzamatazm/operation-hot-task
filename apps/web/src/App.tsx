@@ -1,5 +1,5 @@
 import { app as teamsApp } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
@@ -22,11 +22,15 @@ const URGENCY_LABELS: Record<UrgencyLevel, string> = {
   RED: "Urgent Now"
 };
 
-const URGENCY_STRIPE_CLASS: Record<UrgencyLevel, string> = {
-  GREEN: "task-card-urg-green",
-  YELLOW: "task-card-urg-yellow",
-  ORANGE: "task-card-urg-orange",
-  RED: "task-card-urg-red"
+/* Left stripe = status (not urgency).
+   OPEN → red ("needs a claim"), in-flight → orange ("warming"),
+   COMPLETED/CANCELLED/ARCHIVED carry their own closed-status stripes. */
+const STATUS_STRIPE_CLASS: Partial<Record<TaskStatus, string>> = {
+  OPEN: "task-card-stripe-open",
+  CLAIMED: "task-card-stripe-progress",
+  NEEDS_REVIEW: "task-card-stripe-progress",
+  MERGE_DONE: "task-card-stripe-progress",
+  MERGE_APPROVED: "task-card-stripe-progress"
 };
 
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
@@ -257,7 +261,7 @@ const TaskCard = ({
   const mini = isClosed;
   const cardClass = [
     "task-card",
-    !isClosed && task.taskType !== "OOO" ? URGENCY_STRIPE_CLASS[task.urgency] : "",
+    !isClosed && task.taskType !== "OOO" ? STATUS_STRIPE_CLASS[task.status] ?? "" : "",
     dimmed ? "task-card-dimmed" : "",
     mini ? "task-card-mini" : "",
     !isClosed && !dimmed && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
@@ -289,7 +293,7 @@ const TaskCard = ({
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
   let primaryAction: QuickAction | null = null;
   if (showActions) {
-    if (task.status === "OPEN" && !isCreator) {
+    if (task.status === "OPEN" && !isCreator && canClaimTask(task, user)) {
       primaryAction = { label: "Claim", kind: "good", run: () => { void onClaim(task.id); } };
     } else if (task.status === "CLAIMED" && isAssignee && task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: "Mark Merge Done", kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
@@ -848,33 +852,23 @@ export const App = () => {
     }
   };
 
-  /* Unified visible-task list. Every user sees every task they're allowed
-     to see (FRAUD restricted to FILE_CHECKER unless they're creator or
-     assignee). Sort: OPEN first, then in-flight, then closed at the
-     bottom — newest-first within each bucket. Closed render as mini rows. */
+  /* Unified visible-task list. Every user sees every task — Fraud Check
+     claims are gated to FILE_CHECKERs in the workflow (`canClaimTask`),
+     so the UI just hides the Claim button for viewers who can't act.
+     Sort: OPEN → in-flight → closed (mini rows), newest-first within
+     each bucket. */
   const unifiedTasks = useMemo(() => {
-    /* Fraud tasks are restricted to file checkers + the task's own
-       creator/assignee. Admins who aren't also file checkers don't see
-       unrelated fraud tasks — the workflow blocks claim/complete for
-       non-file-checkers, so surfacing a Claim button would only mislead. */
-    const isFraudVisible = (t: LoanTask): boolean => {
-      if (t.taskType !== "FRAUD") return true;
-      if (user.roles.includes("FILE_CHECKER")) return true;
-      return t.createdBy.id === user.id || t.assignee?.id === user.id;
-    };
     const bucket = (t: LoanTask): number => {
       if (t.status === "OPEN") return 0;
       if (CLOSED_STATUSES.includes(t.status)) return 2;
       return 1;
     };
-    return tasks
-      .filter(isFraudVisible)
-      .sort((a, b) => {
-        const diff = bucket(a) - bucket(b);
-        if (diff !== 0) return diff;
-        return b.createdAt.localeCompare(a.createdAt);
-      });
-  }, [tasks, user.id, user.roles]);
+    return [...tasks].sort((a, b) => {
+      const diff = bucket(a) - bucket(b);
+      if (diff !== 0) return diff;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [tasks]);
 
   const openCount = useMemo(() => unifiedTasks.filter((t) => t.status === "OPEN").length, [unifiedTasks]);
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);

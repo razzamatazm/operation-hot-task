@@ -142,15 +142,17 @@ A row auto-pops open when:
 Closed rows never auto-expand. The `useEffect([task.status, user.id])`
 re-derives `expanded` on status transitions and on mock-user switch.
 
-### Urgency = left stripe, not a pill
+### Status = left stripe
 
-Urgency renders as a 3px colored inset stripe on the card via
-`URGENCY_STRIPE_CLASS` → `.task-card-urg-{green|yellow|orange|red}`.
-The full label (`Within 24 Hours`, `Urgent Now`, ...) is in the row's
-`title` tooltip and on the create form. Do not bring back an inline
-urgency pill — it duplicates the stripe and crowds the row.
+The 3px colored inset stripe on the card encodes **task status**, not
+urgency. `STATUS_STRIPE_CLASS` →
+- `.task-card-stripe-open` — red (`--bad`): needs a claim.
+- `.task-card-stripe-progress` — orange (`--hot`): in-flight.
+- COMPLETED / CANCELLED / ARCHIVED carry their own closed-status
+  stripes (green / red / gray) plus the gradient backdrop.
 
-OOO tasks have no urgency stripe.
+Urgency lives on the create form and influences sort/due labels, but
+no longer drives the stripe. OOO tasks have no stripe.
 
 ### Expanded body
 
@@ -172,7 +174,7 @@ collapsed row.
 - `task-card-own` — 2px brand-soft left border. Tasks assigned to you.
 - `task-card-watching` — 3px brand-soft right-edge stripe via `::after`.
   Marks tasks **you created** but didn't assign to yourself. Mirrors the
-  urgency stripe (left edge), so left=urgency, right=ownership without
+  status stripe (left edge), so left=status, right=ownership without
   competing.
 - `task-card-mini` — half-height closed-row variant (see *Mini rows*).
 - `task-card-dimmed` — 0.55 opacity. Applied when the viewer is an
@@ -182,7 +184,7 @@ collapsed row.
 - `task-card-closed` — 0.7 opacity for closed-status tasks the user
   didn't create.
 
-These layer on top of the urgency stripe; the stripe wins visually
+These layer on top of the status stripe; the stripe wins visually
 because it's an inset shadow, not a border.
 
 ### Unread-note signal

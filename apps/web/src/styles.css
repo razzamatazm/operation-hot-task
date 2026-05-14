@@ -423,8 +423,8 @@ button.btn-good:hover {
   opacity: 0.7;
 }
 
-/* Creator-stake marker: right-edge stripe mirrors urgency stripe on the left.
-   Means "you created this", paired with the (left) urgency signal. */
+/* Creator-stake marker: right-edge stripe mirrors status stripe on the left.
+   Means "you created this", paired with the (left) status signal. */
 .task-card-watching {
   position: relative;
 }
@@ -441,15 +441,13 @@ button.btn-good:hover {
   border-bottom-right-radius: 8px;
 }
 
-/* ── Urgency left stripe ──────────────────────────────────── */
-.task-card-urg-green { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good); }
-.task-card-urg-yellow { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--warn); }
-.task-card-urg-orange { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot); }
-.task-card-urg-red { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad); }
-.task-card.task-card-urg-green:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--good); }
-.task-card.task-card-urg-yellow:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--warn); }
-.task-card.task-card-urg-orange:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
-.task-card.task-card-urg-red:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
+/* ── Status left stripe ───────────────────────────────────── */
+/* OPEN = red (needs a claim), in-flight = orange (warming).
+   Closed statuses carry their own stripes below. */
+.task-card-stripe-open { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad); }
+.task-card-stripe-progress { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot); }
+.task-card.task-card-stripe-open:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
+.task-card.task-card-stripe-progress:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
 
 /* ── Closed-status card treatment ─────────────────────────── */
 .task-card-completed {
