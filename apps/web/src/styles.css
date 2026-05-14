@@ -349,127 +349,6 @@ button.btn-good:hover {
   border-radius: 3px;
 }
 
-/* ── Recent Activity Table ───────────────────────────────── */
-.recent-activity-wrap {
-  background: var(--panel);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  box-shadow: var(--shadow-sm);
-  overflow-x: auto;
-}
-
-.recent-activity-table {
-  width: 100%;
-  min-width: 760px;
-  border-collapse: collapse;
-  font-family: "DM Sans", sans-serif;
-  font-size: 0.8rem;
-  table-layout: auto;
-}
-
-.recent-activity-table th {
-  text-align: left;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted);
-  background: var(--bg-soft);
-  border-bottom: 1px solid var(--line);
-  padding: 8px 10px;
-  white-space: nowrap;
-}
-
-.recent-activity-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--ink-secondary);
-  white-space: nowrap;
-}
-
-.recent-activity-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.recent-activity-table tbody {
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 35%, rgba(0, 0, 0, 0.4) 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 35%, rgba(0, 0, 0, 0.4) 100%);
-}
-
-.recent-row {
-  cursor: pointer;
-}
-
-.recent-row:hover td {
-  background: var(--row-hover);
-}
-
-.recent-row:focus-visible td {
-  outline: 2px solid var(--brand);
-  outline-offset: -2px;
-}
-
-.recent-row-active td {
-  color: var(--ink);
-}
-
-.recent-row-alt td {
-  background: var(--row-alt);
-}
-
-.recent-row-expanded td {
-  background: var(--brand-soft);
-}
-
-.recent-activity-table td.recent-cell-task,
-.recent-activity-table td:nth-child(4),
-.recent-activity-table td:nth-child(5) {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (max-width: 1080px) {
-  .recent-activity-table th:nth-child(7),
-  .recent-activity-table td:nth-child(7) { display: none; }
-}
-
-@media (max-width: 880px) {
-  .recent-activity-table th:nth-child(6),
-  .recent-activity-table td:nth-child(6) { display: none; }
-  .recent-activity-table { min-width: 600px; }
-}
-
-@media (max-width: 680px) {
-  .recent-activity-table th:nth-child(5),
-  .recent-activity-table td:nth-child(5) { display: none; }
-  .recent-activity-table { min-width: 480px; }
-}
-
-.recent-cell-task a {
-  color: var(--brand);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-}
-
-.recent-cell-task a:hover {
-  color: var(--brand-hover);
-  border-bottom-color: var(--brand-hover);
-}
-
-.recent-detail-row td {
-  padding: 10px;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.recent-detail-row .task-card {
-  margin: 0;
-  border-radius: 8px;
-}
-
 /* ── Tab bar ──────────────────────────────────────────────── */
 .tab-bar {
   display: flex;
@@ -511,20 +390,6 @@ button.btn-good:hover {
 .card-list {
   display: grid;
   gap: 6px;
-}
-
-/* Pending-claim variant — your task, nobody's picked it up.
-   Shrunk row sits at the bottom of My Tasks: lower height, lighter title. */
-.task-card-shrunk .task-card-collapsed {
-  padding: 4px 14px 4px 18px;
-  min-height: 36px;
-}
-.task-card-shrunk .task-card-collapsed-type {
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-.task-card-shrunk .task-card-collapsed-folder {
-  font-size: 0.72rem;
 }
 
 .task-card {
@@ -617,15 +482,69 @@ button.btn-good:hover {
 }
 
 /* ── Collapsed task card row ──────────────────────────────── */
+/* Columns: status | assigner | assignee | title | namvar | due | action */
 .task-card-collapsed {
   display: grid;
-  grid-template-columns: 108px minmax(0, 1fr) 84px 110px 132px;
+  grid-template-columns: 96px 78px 84px minmax(0, 1fr) 84px 96px 116px;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 10px 14px 10px 18px;
   cursor: pointer;
   min-height: 52px;
   user-select: none;
+}
+
+/* Mini = closed tasks sunk to the bottom. Half height, no namvar, no action.
+   Columns: status | assigner | assignee | title | due */
+.task-card-collapsed-mini {
+  grid-template-columns: 96px 78px 84px minmax(0, 1fr) 96px;
+  min-height: 28px;
+  padding: 3px 14px 3px 18px;
+  gap: 10px;
+}
+.task-card-collapsed-mini .task-card-collapsed-type {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.task-card-collapsed-mini .task-card-collapsed-folder {
+  font-size: 0.7rem;
+}
+.task-card-collapsed-mini .status-banner-label,
+.task-card-collapsed-mini .task-card-people-value {
+  font-size: 0.6rem;
+}
+.task-card-collapsed-mini .task-card-people-label {
+  display: none;
+}
+
+/* Assigner / Assignee column — mono, tight, label-over-value.
+   Red "ME" / "PENDING" mark personal involvement & unassigned state. */
+.task-card-people {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.1;
+}
+.task-card-people-label {
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+.task-card-people-value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-card-people-me {
+  color: var(--bad);
 }
 
 .task-card-collapsed:hover {
@@ -706,12 +625,12 @@ button.btn-good:hover {
   white-space: nowrap;
   justify-self: end;
   width: 100%;
-  max-width: 132px;
+  max-width: 116px;
 }
 
 .task-card-quick-action-empty {
   display: block;
-  width: 132px;
+  width: 116px;
   height: 1px;
 }
 
@@ -1273,20 +1192,31 @@ button.btn-good:hover {
   }
 
   .task-card-collapsed {
-    grid-template-columns: 88px minmax(0, 1fr) auto;
+    grid-template-columns: 84px 1fr 1fr auto;
     grid-template-areas:
-      "status title action"
-      "poop  due   action";
+      "status   title    title    action"
+      "assigner assignee due      action"
+      "poop     poop     poop     action";
     column-gap: 10px;
     row-gap: 4px;
   }
   .task-card-collapsed > .status-banner { grid-area: status; }
   .task-card-collapsed-title { grid-area: title; }
+  .task-card-collapsed > .task-card-people-assigner { grid-area: assigner; }
+  .task-card-collapsed > .task-card-people-assignee { grid-area: assignee; }
   .task-card-collapsed > .poop-track { grid-area: poop; justify-self: start; }
   .task-card-collapsed-due { grid-area: due; text-align: left; }
   .task-card-collapsed > .task-card-quick-action,
   .task-card-collapsed > .task-card-quick-action-empty { grid-area: action; align-self: center; }
 
+  .task-card-collapsed-mini {
+    grid-template-columns: 84px 1fr 1fr;
+    grid-template-areas:
+      "status   title    title"
+      "assigner assignee due";
+  }
+  .task-card-collapsed-mini > .task-card-quick-action,
+  .task-card-collapsed-mini > .task-card-quick-action-empty { display: none; }
 }
 
 /* ── Metrics Panel ───────────────────────────────────────── */
