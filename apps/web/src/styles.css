@@ -494,13 +494,23 @@ button.btn-good:hover {
   user-select: none;
 }
 
-/* Mini = closed tasks sunk to the bottom. Half height, no namvar, no action.
-   Columns: status | assigner | assignee | title | due */
+/* Mini = closed tasks sunk to the bottom. Half height, no namvar.
+   Columns: status | assigner | assignee | title | due | action.
+   Action column kept so creators can Archive / Re-open without expanding. */
 .task-card-collapsed-mini {
-  grid-template-columns: 96px 78px 84px minmax(0, 1fr) 96px;
+  grid-template-columns: 96px 78px 84px minmax(0, 1fr) 96px 96px;
   min-height: 28px;
   padding: 3px 14px 3px 18px;
   gap: 10px;
+}
+.task-card-collapsed-mini .task-card-quick-action {
+  max-width: 96px;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  min-height: 22px;
+}
+.task-card-collapsed-mini .task-card-quick-action-empty {
+  width: 96px;
 }
 .task-card-collapsed-mini .task-card-collapsed-type {
   font-size: 0.78rem;
@@ -1210,13 +1220,13 @@ button.btn-good:hover {
   .task-card-collapsed > .task-card-quick-action-empty { grid-area: action; align-self: center; }
 
   .task-card-collapsed-mini {
-    grid-template-columns: 84px 1fr 1fr;
+    grid-template-columns: 84px 1fr 1fr auto;
     grid-template-areas:
-      "status   title    title"
-      "assigner assignee due";
+      "status   title    title    action"
+      "assigner assignee due      action";
   }
   .task-card-collapsed-mini > .task-card-quick-action,
-  .task-card-collapsed-mini > .task-card-quick-action-empty { display: none; }
+  .task-card-collapsed-mini > .task-card-quick-action-empty { grid-area: action; align-self: center; }
 }
 
 /* ── Metrics Panel ───────────────────────────────────────── */

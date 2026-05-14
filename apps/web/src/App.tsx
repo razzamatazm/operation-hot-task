@@ -388,18 +388,16 @@ const TaskCard = ({
           >
             {dueDisplay}
           </span>
-          {!mini && (
-            primaryAction ? (
-              <button
-                type="button"
-                className={quickActionClass}
-                onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
-              >
-                {primaryAction.label}
-              </button>
-            ) : (
-              <span className="task-card-quick-action-empty" aria-hidden="true" />
-            )
+          {primaryAction ? (
+            <button
+              type="button"
+              className={quickActionClass}
+              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+            >
+              {primaryAction.label}
+            </button>
+          ) : (
+            <span className="task-card-quick-action-empty" aria-hidden="true" />
           )}
         </div>
       {expanded && (
@@ -443,7 +441,12 @@ const TaskCard = ({
                     Cancel
                   </button>
                 )}
-                {task.status === "COMPLETED" && (
+                {task.status === "COMPLETED" && isCreator && (
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
+                    Archive
+                  </button>
+                )}
+                {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
                   <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
                     Re-open
                   </button>
@@ -850,9 +853,13 @@ export const App = () => {
      assignee). Sort: OPEN first, then in-flight, then closed at the
      bottom — newest-first within each bucket. Closed render as mini rows. */
   const unifiedTasks = useMemo(() => {
+    /* Fraud tasks are restricted to file checkers + the task's own
+       creator/assignee. Admins who aren't also file checkers don't see
+       unrelated fraud tasks — the workflow blocks claim/complete for
+       non-file-checkers, so surfacing a Claim button would only mislead. */
     const isFraudVisible = (t: LoanTask): boolean => {
       if (t.taskType !== "FRAUD") return true;
-      if (user.roles.includes("FILE_CHECKER") || user.roles.includes("ADMIN")) return true;
+      if (user.roles.includes("FILE_CHECKER")) return true;
       return t.createdBy.id === user.id || t.assignee?.id === user.id;
     };
     const bucket = (t: LoanTask): number => {
