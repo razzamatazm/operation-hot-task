@@ -981,7 +981,6 @@ export const App = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, user.id]);
 
-  const openCount = useMemo(() => unifiedTasks.filter((t) => t.status === "OPEN").length, [unifiedTasks]);
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
 
   /* ── Metrics computations (admin only) ──────────────────── */
@@ -1193,12 +1192,6 @@ export const App = () => {
       {/* ── Unified task grid ──────────────────────── */}
       {activeTab === "active" && (
         <>
-          <div className="section-head task-grid-head">
-            <h2>All Tasks</h2>
-            <span className="section-count">
-              {openCount} open · {unifiedTasks.length} total
-            </span>
-          </div>
           <CardList
             tasks={unifiedTasks}
             user={user}
