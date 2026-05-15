@@ -107,12 +107,15 @@ const applyTheme = (theme?: string): void => {
 /* ── Status banner helpers ─────────────────────────────────── */
 /* Single perspective-free banner per status. The Assigner / Assignee
    columns carry "whose court" — the banner is just the task state. */
+/* Multi-word labels embed a newline so `.status-banner-label`'s
+   `white-space: pre-line` stacks them across two lines, keeping the
+   status column narrow and the rows tidy. */
 const STATUS_BANNER: Record<string, { label: string; className: string }> = {
   OPEN: { label: "OPEN", className: "status-banner status-open" },
-  CLAIMED: { label: "IN PROGRESS", className: "status-banner status-claimed" },
-  NEEDS_REVIEW: { label: "IN REVIEW", className: "status-banner status-claimed" },
-  MERGE_DONE: { label: "MERGE DONE", className: "status-banner status-merge" },
-  MERGE_APPROVED: { label: "MERGE APPROVED", className: "status-banner status-merge" },
+  CLAIMED: { label: "IN\nPROGRESS", className: "status-banner status-claimed" },
+  NEEDS_REVIEW: { label: "IN\nREVIEW", className: "status-banner status-claimed" },
+  MERGE_DONE: { label: "MERGE\nDONE", className: "status-banner status-merge" },
+  MERGE_APPROVED: { label: "MERGE\nAPPROVED", className: "status-banner status-merge" },
   COMPLETED: { label: "COMPLETED!", className: "status-banner status-completed" },
   CANCELLED: { label: "CANCELLED", className: "status-banner status-cancelled" },
   ARCHIVED: { label: "ARCHIVED", className: "status-banner status-archived" }
@@ -387,18 +390,16 @@ const TaskCard = ({
               )}
             </span>
           </span>
-          <span className="task-card-people">
-            <span className="task-card-people-row">
-              <span className="task-card-people-label">Assigner</span>
-              <span className={assignerValueClass} title={task.createdBy.displayName}>
-                {assignerLabel}
-              </span>
+          <span className="task-card-people task-card-people-assigner">
+            <span className="task-card-people-label">Assigner</span>
+            <span className={assignerValueClass} title={task.createdBy.displayName}>
+              {assignerLabel}
             </span>
-            <span className="task-card-people-row">
-              <span className="task-card-people-label">Assignee</span>
-              <span className={assigneeValueClass} title={task.assignee?.displayName ?? "Unassigned"}>
-                {assigneeLabel}
-              </span>
+          </span>
+          <span className="task-card-people task-card-people-assignee">
+            <span className="task-card-people-label">Assignee</span>
+            <span className={assigneeValueClass} title={task.assignee?.displayName ?? "Unassigned"}>
+              {assigneeLabel}
             </span>
           </span>
           <span className="task-card-collapsed-title">
