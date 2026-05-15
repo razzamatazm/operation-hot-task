@@ -424,7 +424,9 @@ const TaskCard = ({
               )}
             </span>
           </span>
-          {!mini && (
+          {mini ? (
+            <span className="task-card-collapsed-cell-empty" aria-hidden="true" />
+          ) : (
             <PoopDisplay
               count={task.points ?? 0}
               canEdit={isCreator && !isClosed}

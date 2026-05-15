@@ -547,23 +547,20 @@ button.btn-good:hover {
   user-select: none;
 }
 
-/* Mini = closed tasks sunk to the bottom. Half height, no namvar.
-   Columns: status | assigner | assignee | title | due | action.
-   Action column kept so creators can Archive / Re-open without expanding. */
+/* Mini = closed tasks sunk to the bottom. Reuses the full grid template
+   so every column (status, assigner, assignee, title, namvar, due,
+   action) aligns vertically with the active rows above. Padding + font
+   sizes are tightened to keep the row roughly half height; the namvar
+   and action slots render as empty placeholder spans. */
 .task-card-collapsed-mini {
-  grid-template-columns: 96px 78px 84px minmax(0, 1fr) 96px 96px;
-  min-height: 28px;
-  padding: 3px 14px 3px 18px;
-  gap: 10px;
+  padding: 4px 14px 4px 18px;
+  min-height: 32px;
 }
 .task-card-collapsed-mini .task-card-quick-action {
-  max-width: 96px;
+  max-width: 116px;
   font-size: 0.7rem;
   padding: 3px 8px;
   min-height: 22px;
-}
-.task-card-collapsed-mini .task-card-quick-action-empty {
-  width: 96px;
 }
 .task-card-collapsed-mini .task-card-collapsed-type {
   font-size: 0.78rem;
@@ -574,10 +571,10 @@ button.btn-good:hover {
 }
 .task-card-collapsed-mini .status-banner-label,
 .task-card-collapsed-mini .task-card-people-value {
-  font-size: 0.6rem;
+  font-size: 0.62rem;
 }
 .task-card-collapsed-mini .task-card-people-label {
-  display: none;
+  font-size: 0.55rem;
 }
 
 /* Assigner / Assignee column — mono, tight, label-over-value.
@@ -1306,6 +1303,9 @@ button.btn-good:hover {
   }
   .task-card-collapsed-mini > .task-card-quick-action,
   .task-card-collapsed-mini > .task-card-quick-action-empty { grid-area: action; align-self: center; }
+  /* Mini placeholder (occupies the namvar/action column on desktop) has no
+     home in the mobile area template — hide so it doesn't claim an implicit row. */
+  .task-card-collapsed > .task-card-collapsed-cell-empty { display: none; }
 }
 
 /* Teams mobile — typically 375–414px wide. Bump tap targets, tighten
