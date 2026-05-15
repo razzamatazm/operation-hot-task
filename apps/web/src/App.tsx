@@ -349,9 +349,10 @@ const TaskCard = ({
       primaryAction = { label: "Complete", kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "COMPLETED" && isCreator) {
       primaryAction = { label: "Archive", kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };
-    } else if ((task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee)) {
-      primaryAction = { label: "Re-open", kind: "default", run: () => { void onTransition(task.id, "OPEN"); } };
     }
+    /* Re-open is intentionally NOT a quick-action — it lives in the
+       expanded body. Closed mini rows show Archive (creator-only) or
+       nothing; clicking the row expands to reveal Re-open. */
   }
   const quickActionClass = primaryAction
     ? `btn-sm task-card-quick-action${primaryAction.kind === "good" ? " btn-good" : primaryAction.kind === "ghost" ? " btn-ghost" : primaryAction.kind === "danger" ? " btn-danger" : ""}`
@@ -742,7 +743,7 @@ export const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"active" | "metrics">("active");
+  const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics">("active");
 
   /* Per-user "I've seen the latest note from someone else" map, keyed by
      task id → ISO timestamp of the latest non-self note already viewed.
@@ -839,7 +840,7 @@ export const App = () => {
   const isAdmin = user.roles.includes("ADMIN");
 
   useEffect(() => {
-    if (!isAdmin && activeTab === "metrics") {
+    if (!isAdmin && (activeTab === "metrics" || activeTab === "all")) {
       setActiveTab("active");
     }
   }, [isAdmin, activeTab]);
@@ -959,12 +960,16 @@ export const App = () => {
   };
 
   /* Unified visible-task list. CANCELLED is filtered out (still counted
-     in admin Metrics). Fraud Check claims are gated to FILE_CHECKERs in
-     the workflow; the UI just hides the Claim button for viewers who
-     can't act. Sort: celebrating (creator-only completion milestone)
-     pinned to the very top → OPEN → in-flight → closed mini rows,
-     newest-first within each bucket. */
-  const unifiedTasks = useMemo(() => {
+     in admin Metrics). Closed tasks (COMPLETED / ARCHIVED) older than
+     CLOSED_TTL_DAYS drop off the bottom — admins can see everything
+     ever via the All Tasks tab. Fraud Check claims are gated to
+     FILE_CHECKERs in the workflow; the UI just hides the Claim button
+     for viewers who can't act. Sort: celebrating (creator-only
+     completion milestone) pinned to the very top → OPEN → in-flight →
+     closed mini rows, newest-first within each bucket. */
+  const CLOSED_TTL_DAYS = 14;
+  const buildSorted = (includeOldClosed: boolean): LoanTask[] => {
+    const cutoff = Date.now() - CLOSED_TTL_DAYS * 24 * 60 * 60 * 1000;
     const bucket = (t: LoanTask): number => {
       if (t.createdBy.id === user.id && isCelebratingStatus(t)) return 0;
       if (t.status === "OPEN") return 1;
@@ -973,13 +978,24 @@ export const App = () => {
     };
     return tasks
       .filter((t) => t.status !== "CANCELLED")
+      .filter((t) => {
+        if (includeOldClosed) return true;
+        if (!CLOSED_STATUSES.includes(t.status)) return true;
+        const stamp = t.completedAt ?? t.updatedAt;
+        return new Date(stamp).getTime() >= cutoff;
+      })
       .sort((a, b) => {
         const diff = bucket(a) - bucket(b);
         if (diff !== 0) return diff;
         return b.createdAt.localeCompare(a.createdAt);
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, user.id]);
+  };
+  const unifiedTasks = useMemo(() => buildSorted(false),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasks, user.id]);
+  const allTasksAdmin = useMemo(() => buildSorted(true),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasks, user.id]);
 
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
 
@@ -1179,13 +1195,21 @@ export const App = () => {
           Tasks
           <span className="section-count">{activeCount}</span>
         </button>
-          <button
-            type="button"
-            className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
-            onClick={() => setActiveTab("metrics")}
-          >
-            Metrics
-          </button>
+        <button
+          type="button"
+          className={`tab-btn${activeTab === "all" ? " tab-active" : ""}`}
+          onClick={() => setActiveTab("all")}
+        >
+          All Tasks
+          <span className="section-count">{allTasksAdmin.length}</span>
+        </button>
+        <button
+          type="button"
+          className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
+          onClick={() => setActiveTab("metrics")}
+        >
+          Metrics
+        </button>
       </div>
       )}
 
@@ -1194,6 +1218,31 @@ export const App = () => {
         <>
           <CardList
             tasks={unifiedTasks}
+            user={user}
+            onClaim={onClaim}
+            onUnclaim={onUnclaim}
+            onTransition={onTransition}
+            onAddReviewNote={onAddReviewNote}
+            onUpdatePoints={onUpdatePoints}
+            showActions={true}
+            emptyMessage="No tasks yet."
+            variant={variantForTask}
+            seenNotesAt={seenNotesAt}
+            onMarkNoteSeen={markNoteSeen}
+            pulsingIds={pulsingIds}
+          />
+        </>
+      )}
+
+      {/* ── All Tasks (admin) ────────────────────────── */}
+      {activeTab === "all" && isAdmin && (
+        <>
+          <div className="section-head task-grid-head">
+            <h2>All Tasks (admin)</h2>
+            <span className="section-count">{allTasksAdmin.length} total · no age cutoff</span>
+          </div>
+          <CardList
+            tasks={allTasksAdmin}
             user={user}
             onClaim={onClaim}
             onUnclaim={onUnclaim}
