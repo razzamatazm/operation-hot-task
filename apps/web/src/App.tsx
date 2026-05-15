@@ -387,16 +387,18 @@ const TaskCard = ({
               )}
             </span>
           </span>
-          <span className="task-card-people task-card-people-assigner">
-            <span className="task-card-people-label">Assigner</span>
-            <span className={assignerValueClass} title={task.createdBy.displayName}>
-              {assignerLabel}
+          <span className="task-card-people">
+            <span className="task-card-people-row">
+              <span className="task-card-people-label">Assigner</span>
+              <span className={assignerValueClass} title={task.createdBy.displayName}>
+                {assignerLabel}
+              </span>
             </span>
-          </span>
-          <span className="task-card-people task-card-people-assignee">
-            <span className="task-card-people-label">Assignee</span>
-            <span className={assigneeValueClass} title={task.assignee?.displayName ?? "Unassigned"}>
-              {assigneeLabel}
+            <span className="task-card-people-row">
+              <span className="task-card-people-label">Assignee</span>
+              <span className={assigneeValueClass} title={task.assignee?.displayName ?? "Unassigned"}>
+                {assigneeLabel}
+              </span>
             </span>
           </span>
           <span className="task-card-collapsed-title">
