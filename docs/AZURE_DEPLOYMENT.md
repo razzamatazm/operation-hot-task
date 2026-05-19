@@ -130,6 +130,14 @@ server via a `start:prod` step. That fails:
 - The build at startup also runs in a devDependency-pruned environment,
   so even an oryx build that succeeds is undone by the startup rebuild.
 
+### FRONTEND_DIST is resolved against the server package root
+
+The server (`apps/server/src/config.ts`) resolves a relative `FRONTEND_DIST`
+against `apps/server/`, **not** the process cwd. The correct value is
+`../web/dist` (the code's own default). Setting it to `apps/web/dist`
+makes the server look in `apps/server/apps/web/dist` and serve no
+frontend (`serving_frontend=false`, `/` returns 404).
+
 ### SCM container restart race
 
 `az webapp config` changes (app settings, startup command) restart the SCM

@@ -66,7 +66,7 @@ az webapp config appsettings set \
     SCM_DO_BUILD_DURING_DEPLOYMENT=false \
     ENABLE_ORYX_BUILD=false \
     HOST=0.0.0.0 \
-    FRONTEND_DIST=apps/web/dist \
+    FRONTEND_DIST=../web/dist \
     DATA_FILE=/home/site/data/tasks.json \
     BOT_REFERENCES_FILE=/home/site/data/bot-references.json \
     BUSINESS_TIMEZONE=America/Los_Angeles \
