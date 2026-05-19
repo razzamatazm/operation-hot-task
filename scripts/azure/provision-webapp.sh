@@ -12,7 +12,8 @@ need() {
 }
 
 need az
-need git
+need npm
+need zip
 
 SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
 LOCATION="${AZ_LOCATION:-westus2}"
@@ -53,12 +54,17 @@ else
   echo "web app already exists; skipping create"
 fi
 
+# We build locally and ship the compiled output + production node_modules,
+# so the server must NOT run an oryx build. Building on the server fails:
+# TypeScript/Vite are devDependencies and the server's production install
+# prunes them ("tsc: not found"). Keep SCM build OFF.
 echo "==> applying app settings"
 az webapp config appsettings set \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
   --settings \
-    SCM_DO_BUILD_DURING_DEPLOYMENT=true \
+    SCM_DO_BUILD_DURING_DEPLOYMENT=false \
+    ENABLE_ORYX_BUILD=false \
     HOST=0.0.0.0 \
     FRONTEND_DIST=apps/web/dist \
     DATA_FILE=/home/site/data/tasks.json \
@@ -72,18 +78,49 @@ az webapp config appsettings set \
     ENABLE_DM_NOTIFICATIONS=true \
   --output table
 
+# Artifacts are prebuilt and node_modules ships in the package, so startup
+# only runs the server. No build, no workspace symlink hack.
 echo "==> setting startup command"
-STARTUP_CMD="mkdir -p /home/site/wwwroot/node_modules/@loan-tasks && ln -sfn /home/site/wwwroot/packages/shared /home/site/wwwroot/node_modules/@loan-tasks/shared && npm run start:prod"
+STARTUP_CMD="npm run start"
 az webapp config set \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
   --startup-file "$STARTUP_CMD" \
   --output table
 
-echo "==> creating deployment package from current HEAD"
+# Build the app locally where devDependencies are available.
+echo "==> installing dependencies and building locally"
+npm ci
+npm run build
+
+# Stage a self-contained deployment package: compiled output + every
+# workspace package.json + a production-only node_modules.
+echo "==> staging deployment package"
+STAGE_DIR="$(mktemp -d /tmp/operation-hot-task-stage-XXXXXX)"
 TMP_BASE="$(mktemp /tmp/operation-hot-task-XXXXXX)"
 DEPLOY_ZIP="${TMP_BASE}.zip"
-git archive --format=zip --output "$DEPLOY_ZIP" HEAD
+trap 'rm -rf "$STAGE_DIR" "$DEPLOY_ZIP" "$TMP_BASE"' EXIT
+
+mkdir -p "$STAGE_DIR/apps/server" "$STAGE_DIR/apps/web" "$STAGE_DIR/packages/shared"
+cp package.json package-lock.json "$STAGE_DIR/"
+cp apps/server/package.json "$STAGE_DIR/apps/server/"
+cp -R apps/server/dist "$STAGE_DIR/apps/server/dist"
+cp apps/web/package.json "$STAGE_DIR/apps/web/"
+cp -R apps/web/dist "$STAGE_DIR/apps/web/dist"
+cp packages/shared/package.json "$STAGE_DIR/packages/shared/"
+cp -R packages/shared/dist "$STAGE_DIR/packages/shared/dist"
+
+echo "==> installing production dependencies into the package"
+(cd "$STAGE_DIR" && npm ci --omit=dev)
+
+echo "==> zipping deployment package"
+(cd "$STAGE_DIR" && zip -r -q "$DEPLOY_ZIP" .)
+
+# Azure restarts the SCM container on app-settings / startup changes. A
+# deploy started in that window is killed ("Deployment has been stopped
+# due to SCM container restart"). Let the config changes settle first.
+echo "==> waiting for config changes to settle (60s)"
+sleep 60
 
 echo "==> deploying package"
 az webapp deploy \
@@ -93,8 +130,6 @@ az webapp deploy \
   --type zip \
   --clean true \
   --output table
-
-rm -f "$DEPLOY_ZIP" "$TMP_BASE"
 
 APP_URL="https://${WEBAPP_NAME}.azurewebsites.net"
 echo

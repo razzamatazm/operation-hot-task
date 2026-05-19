@@ -107,3 +107,33 @@ GitHub Actions runs automatically on push/PR:
 - Rotate bot secret by re-running:
   - `scripts/azure/create-identity-and-bot.sh`
 - If you want separate staging/prod, change `AZ_RESOURCE_GROUP`, `AZ_WEBAPP_NAME`, and `AZ_APP_PREFIX` per environment.
+
+## Deploy model — build locally, ship artifacts (do not build on the server)
+
+`provision-webapp.sh` builds the app **locally** (`npm ci && npm run build`),
+then ships a self-contained package: compiled `dist/` output for every
+workspace plus a production-only `node_modules` (`npm ci --omit=dev`). The
+server only runs (`npm run start`); it never builds.
+
+`SCM_DO_BUILD_DURING_DEPLOYMENT` and `ENABLE_ORYX_BUILD` are set to `false`
+on purpose. **Do not turn them on.**
+
+### Why (failure this prevents)
+
+An earlier version shipped only source (`git archive HEAD`) and built on the
+server via a `start:prod` step. That fails:
+
+- `tsc: not found` / `vite: not found` — TypeScript and Vite are
+  `devDependencies`. The server's production install prunes them, so the
+  build has no compiler. Building requires devDependencies; the runtime
+  must not.
+- The build at startup also runs in a devDependency-pruned environment,
+  so even an oryx build that succeeds is undone by the startup rebuild.
+
+### SCM container restart race
+
+`az webapp config` changes (app settings, startup command) restart the SCM
+container. A deploy started immediately after is killed with *"Deployment
+has been stopped due to SCM container restart."* The script now waits 60s
+after config changes before `az webapp deploy`. Keep that delay — never
+run a config change and a deploy back-to-back.
