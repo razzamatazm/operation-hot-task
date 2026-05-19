@@ -70,29 +70,35 @@ Defined in `TaskCard` in [apps/web/src/App.tsx](apps/web/src/App.tsx).
 The collapsed row is the densest surface in the app — every change should
 preserve scannability.
 
+### Unified grid
+
+Every task the viewer is allowed to see lives in one list (`unifiedTasks`
+in `App.tsx`). No more separate My / Available / Recent sections —
+Assigner and Assignee columns carry "whose court" on every row, so the
+viewer can scan involvement at a glance.
+
 ### Collapsed row (the main list view)
 
 CSS grid with **fixed columns** so rows align top-to-bottom:
 
 ```
-108px  | minmax(0,1fr) | 84px | 110px | 132px
-status | title         | poop | due   | action
+96px   | 78px     | 84px     | minmax(0,1fr) | 84px | 96px | 116px
+status | assigner | assignee | title         | poop | due  | action
 ```
 
 Each slot has one job. When adding info, replace something — don't append:
 
-- **Status banner (mono, small)** — perspective-aware via `resolveBanner` in
-  `App.tsx`, not a flat status-name map. Multi-line stack inside the 108px
-  column: primary label + optional `subs[]` (mono, weight 500, `--muted`).
-  Cases:
-  - `PENDING CLAIM` — your task, nobody picked it up
-  - `CLAIMED` / `<other-first-name>` — assignee view of an in-flight task
-  - `IN PROGRESS` / `<other-first-name>` — task is in the other party's court
-  - `MERGE DONE`, `COMPLETED`, `CANCELLED`, `ARCHIVED` — terminal/leaf states
-    fall through to the static `STATUS_BANNER` map.
-  Stage detail (Merge Done, Merge Approved) for LOAN_DOCS rides on the
-  **title** as a hyphen suffix, not the banner — keeps the banner about
-  whose court the task sits in.
+- **Status banner (mono, small)** — flat status name from `STATUS_BANNER`
+  via `resolveBanner` (`OPEN`, `IN PROGRESS`, `IN REVIEW`, `MERGE DONE`,
+  `MERGE APPROVED`, `COMPLETED!`, `CANCELLED`, `ARCHIVED`). Perspective
+  *no longer* rides on the banner — the Assigner/Assignee columns do that
+  work. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS rides on
+  the **title** as a hyphen suffix.
+- **Assigner / Assignee** — two stacked-label columns (`.task-card-people`,
+  mono, uppercase first-name). `ME` (assigner = current user) and `ME` /
+  `PENDING` (assignee = current user, or unassigned on OPEN) render in
+  `--bad` red so personal involvement and "still needs a claim" pop
+  without parsing the banner.
 - **Title** — type label (e.g. `Loan Docs`), optional ` - <stage>` suffix
   in lighter weight via `task-card-collapsed-stage`, then folder name with
   optional `↗` external Humperdink link. Single line, ellipsized.
@@ -100,48 +106,60 @@ Each slot has one job. When adding info, replace something — don't append:
   color, remaining slots ghosted (grayscale + low opacity) so the row
   width never changes. Creator can click any slot to set the score
   (clicking the current count clears to 0). See `PoopDisplay` /
-  `.poop-track`.
+  `.poop-track`. Hidden on mini rows.
 - **Due** — relative short form via `formatRelativeDue`: `due in 4h`,
   `2d overdue`. Full absolute timestamp shows as `title` tooltip. Red +
   bold (`.task-card-collapsed-due-overdue`) when overdue.
 - **Action** — single contextual button (`Claim` / `Complete` /
   `Approve` / `Cancel` / `Re-open` / `Archive`). Picked by the
   `primaryAction` ladder in `TaskCard`. When no action applies, an empty
-  spacer keeps the column reserved so rows still align.
+  spacer keeps the column reserved so rows still align. Hidden on mini.
 
 The **whole row** is the expand toggle (`role="button"`, Enter/Space).
 Don't add a chevron; it's redundant.
 
+### Mini rows (closed tasks)
+
+Closed statuses (`COMPLETED` / `CANCELLED` / `ARCHIVED`) drop into the
+bottom of the grid as `.task-card-collapsed-mini` rows: half height
+(~28px min), no poop, no action column, no "Assigner/Assignee" labels
+above the values. Title font shrinks. Clicking still expands to reveal
+full actions (Re-open / Archive).
+
 ### Auto-expand and bucket sort
 
-The collapsed/expanded default is derived from "is this in the viewer's
-court?", not just status:
+`unifiedTasks` sorts into 4 buckets, newest-first within each:
 
-- Auto-pops on mount when `actionableByMe` (assignee on
-  CLAIMED/NEEDS_REVIEW/MERGE_APPROVED, creator on MERGE_DONE) or when an
-  Available Tasks variant card is OPEN.
-- A `useEffect([task.status])` re-derives `expanded` on transitions so a
-  task collapses the moment it leaves your court (e.g. assignee marks merge
-  done → card collapses, drops into the other-court bucket).
+1. **Celebrating** — the creator's task just hit `COMPLETED` (or
+   `LOAN_DOCS` + `MERGE_DONE`). Pinned to the very top with a green
+   pulse for ~3s after the transition (`task-card-celebrating` class,
+   driven by `pulsingIds` state in `App.tsx`). Stays in this bucket
+   until the creator archives it.
+2. `OPEN` — always undimmed (anyone may claim).
+3. In-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED`).
+4. Closed (`COMPLETED` / `ARCHIVED`) — render as mini rows. `CANCELLED`
+   is filtered out of the grid entirely (still counted in the admin
+   Metrics panel).
 
-`My Tasks` is sorted into 4 buckets via `sortedMyTasks`:
-1. `COMPLETED` (creator's archive queue)
-2. Actionable by you
-3. In the other party's court
-4. Pending claim
+A row auto-pops open when:
+- `actionableByMe` (assignee on `CLAIMED`/`NEEDS_REVIEW`/`MERGE_APPROVED`,
+  creator on `MERGE_DONE`), or
+- `OPEN` and the viewer isn't the creator (one-click claim).
 
-Sub-labels were tried and dropped — banner text + dim + sort encode the
-bucket without an extra header row.
+Closed rows never auto-expand. The `useEffect([task.status, user.id])`
+re-derives `expanded` on status transitions and on mock-user switch.
 
-### Urgency = left stripe, not a pill
+### Status = left stripe
 
-Urgency renders as a 3px colored inset stripe on the card via
-`URGENCY_STRIPE_CLASS` → `.task-card-urg-{green|yellow|orange|red}`.
-The full label (`Within 24 Hours`, `Urgent Now`, ...) is in the row's
-`title` tooltip and on the create form. Do not bring back an inline
-urgency pill — it duplicates the stripe and crowds the row.
+The 3px colored inset stripe on the card encodes **task status**, not
+urgency. `STATUS_STRIPE_CLASS` →
+- `.task-card-stripe-open` — red (`--bad`): needs a claim.
+- `.task-card-stripe-progress` — orange (`--hot`): in-flight.
+- COMPLETED / CANCELLED / ARCHIVED carry their own closed-status
+  stripes (green / red / gray) plus the gradient backdrop.
 
-OOO tasks have no urgency stripe.
+Urgency lives on the create form and influences sort/due labels, but
+no longer drives the stripe. OOO tasks have no stripe.
 
 ### Expanded body
 
@@ -163,17 +181,20 @@ collapsed row.
 - `task-card-own` — 2px brand-soft left border. Tasks assigned to you.
 - `task-card-watching` — 3px brand-soft right-edge stripe via `::after`.
   Marks tasks **you created** but didn't assign to yourself. Mirrors the
-  urgency stripe (left edge), so left=urgency, right=ownership without
+  status stripe (left edge), so left=status, right=ownership without
   competing.
-- `task-card-shrunk` — pending-claim row variant. Reduced padding
-  (4px vs 10px) and smaller title weight; rides with `task-card-dimmed`.
-- `task-card-dimmed` — 0.55 opacity. Applied when the task is in the
-  **other party's court** (you're waiting) **or** is your own pending
-  claim. Suppressed when an unread note is present (see below).
+- `task-card-mini` — half-height closed-row variant (see *Mini rows*).
+- `task-card-celebrating` — green pulse halo applied for ~3s after a
+  creator's task hits a completion milestone.
+- `task-card-dimmed` — 0.55 opacity. Rules:
+  - You created the task → bright. Only `ARCHIVED` dims (filed away).
+  - You're the assignee (non-creator) → bright (you're doing the work).
+  - You're an observer (neither) → dim everything except `OPEN`.
+  Unread notes suppress the dim.
 - `task-card-closed` — 0.7 opacity for closed-status tasks the user
   didn't create.
 
-These layer on top of the urgency stripe; the stripe wins visually
+These layer on top of the status stripe; the stripe wins visually
 because it's an inset shadow, not a border.
 
 ### Unread-note signal
@@ -194,15 +215,6 @@ seen — otherwise the undim/dot would never visibly land. Resetting state
 on user-switch (mock picker) goes through the `trackedUserId` setState-
 during-render guard so user A's seen state can't be written under user B's
 storage key.
-
-## Recent Activity Table
-
-`RecentActivityTable` in [apps/web/src/App.tsx](apps/web/src/App.tsx).
-Distinct from the card list: dense tabular view of the last 30 tasks,
-expandable inline (renders the same `TaskCard` body with
-`hideCollapsedHeader`). Faded mask (`-webkit-mask-image`) on the tbody
-softens the bottom edge — keep it, it signals "tail of history" without
-a hard cut.
 
 ## Tags / Pills
 
