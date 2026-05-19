@@ -59,6 +59,12 @@
       "scopes": [
         "personal"
       ]
+    },
+    {
+      "entityId": "conversations",
+      "scopes": [
+        "personal"
+      ]
     }
   ],
   "configurableTabs": [

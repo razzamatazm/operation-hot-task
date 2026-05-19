@@ -153,8 +153,8 @@ const PoopDisplay = ({
   if (safeCount === 0 && !canEdit) return null;
 
   const titleText = canEdit
-    ? `Namvar factor: ${safeCount}/5 — click to rate`
-    : `Namvar factor: ${safeCount}/5`;
+    ? `How Bad? ${safeCount}/5 — click to rate`
+    : `How Bad? ${safeCount}/5`;
 
   return (
     <span
@@ -182,7 +182,7 @@ const PoopDisplay = ({
               e.stopPropagation();
               onChange(n === safeCount ? 0 : n);
             }}
-            aria-label={`Set Namvar factor to ${n}`}
+            aria-label={`Set How Bad? to ${n}`}
             aria-pressed={filled}
           >
             💩
@@ -1133,7 +1133,7 @@ export const App = () => {
               </label>
             )}
             <label>
-              Namvar Factor
+              How Bad?
               <span
                 className="poop-picker poop-picker-form"
                 onMouseLeave={() => setNamvarHover(null)}

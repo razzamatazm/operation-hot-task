@@ -52,6 +52,10 @@
       "contentUrl": "https://YOUR-APP-DOMAIN/",
       "websiteUrl": "https://YOUR-APP-DOMAIN/",
       "scopes": ["personal"]
+    },
+    {
+      "entityId": "conversations",
+      "scopes": ["personal"]
     }
   ],
   "configurableTabs": [
