@@ -187,6 +187,25 @@ Teams caches the app by `version`. Re-uploading a package with the same
 change, rebuild the package, then **uninstall + reinstall** in Teams (not
 "Update") to clear the tab cache.
 
+### 6. Bot "Chat" tab pinned first in the personal app
+
+A personal-scoped bot adds a "Chat" tab that **defaults to the first
+position** — it does not come from `staticTabs`. Removing other static
+tabs does not remove it. To move it out of first slot, declare a reserved
+`conversations` static tab *after* the app tab in `staticTabs`:
+
+```json
+"staticTabs": [
+  { "entityId": "loan-tasks-home", "name": "Operation Hot Task", ... },
+  { "entityId": "conversations", "scopes": ["personal"] }
+]
+```
+
+Do **not** delete the `conversations` entry — without it the bot chat
+reverts to the default first position. The bot keeps `personal` scope so
+1:1 DM notifications keep working (personal install is required for
+proactive DMs; without it Teams returns `403 ForbiddenOperationException`).
+
 ### Reading the logs when a deploy misbehaves
 
 ```
