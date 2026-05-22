@@ -192,17 +192,34 @@ h1, h2, h3, h4 {
   transform: rotate(45deg);
 }
 
+/* New-task form floats over the list as a modal — clicking outside or
+   Cancel dismisses. Backdrop fades in; panel slides down from the top. */
+.form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 14, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px 24px;
+  z-index: 50;
+  animation: fadeIn 0.12s ease-out;
+  overflow-y: auto;
+}
+
 .form-panel {
+  width: 100%;
+  max-width: 760px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel);
-  padding: 14px 16px;
-  box-shadow: var(--shadow-sm);
-  animation: slideDown 0.15s ease-out;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-md), 0 16px 40px -16px rgba(0, 0, 0, 0.35);
+  animation: slideDown 0.18s ease-out;
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(-12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -349,127 +366,6 @@ button.btn-good:hover {
   border-radius: 3px;
 }
 
-/* ── Recent Activity Table ───────────────────────────────── */
-.recent-activity-wrap {
-  background: var(--panel);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  box-shadow: var(--shadow-sm);
-  overflow-x: auto;
-}
-
-.recent-activity-table {
-  width: 100%;
-  min-width: 760px;
-  border-collapse: collapse;
-  font-family: "DM Sans", sans-serif;
-  font-size: 0.8rem;
-  table-layout: auto;
-}
-
-.recent-activity-table th {
-  text-align: left;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted);
-  background: var(--bg-soft);
-  border-bottom: 1px solid var(--line);
-  padding: 8px 10px;
-  white-space: nowrap;
-}
-
-.recent-activity-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--ink-secondary);
-  white-space: nowrap;
-}
-
-.recent-activity-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.recent-activity-table tbody {
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 35%, rgba(0, 0, 0, 0.4) 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 35%, rgba(0, 0, 0, 0.4) 100%);
-}
-
-.recent-row {
-  cursor: pointer;
-}
-
-.recent-row:hover td {
-  background: var(--row-hover);
-}
-
-.recent-row:focus-visible td {
-  outline: 2px solid var(--brand);
-  outline-offset: -2px;
-}
-
-.recent-row-active td {
-  color: var(--ink);
-}
-
-.recent-row-alt td {
-  background: var(--row-alt);
-}
-
-.recent-row-expanded td {
-  background: var(--brand-soft);
-}
-
-.recent-activity-table td.recent-cell-task,
-.recent-activity-table td:nth-child(4),
-.recent-activity-table td:nth-child(5) {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (max-width: 1080px) {
-  .recent-activity-table th:nth-child(7),
-  .recent-activity-table td:nth-child(7) { display: none; }
-}
-
-@media (max-width: 880px) {
-  .recent-activity-table th:nth-child(6),
-  .recent-activity-table td:nth-child(6) { display: none; }
-  .recent-activity-table { min-width: 600px; }
-}
-
-@media (max-width: 680px) {
-  .recent-activity-table th:nth-child(5),
-  .recent-activity-table td:nth-child(5) { display: none; }
-  .recent-activity-table { min-width: 480px; }
-}
-
-.recent-cell-task a {
-  color: var(--brand);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-}
-
-.recent-cell-task a:hover {
-  color: var(--brand-hover);
-  border-bottom-color: var(--brand-hover);
-}
-
-.recent-detail-row td {
-  padding: 10px;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.recent-detail-row .task-card {
-  margin: 0;
-  border-radius: 8px;
-}
-
 /* ── Tab bar ──────────────────────────────────────────────── */
 .tab-bar {
   display: flex;
@@ -513,20 +409,6 @@ button.btn-good:hover {
   gap: 6px;
 }
 
-/* Pending-claim variant — your task, nobody's picked it up.
-   Shrunk row sits at the bottom of My Tasks: lower height, lighter title. */
-.task-card-shrunk .task-card-collapsed {
-  padding: 4px 14px 4px 18px;
-  min-height: 36px;
-}
-.task-card-shrunk .task-card-collapsed-type {
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-.task-card-shrunk .task-card-collapsed-folder {
-  font-size: 0.72rem;
-}
-
 .task-card {
   display: flex;
   flex-direction: column;
@@ -554,12 +436,8 @@ button.btn-good:hover {
   opacity: 0.85;
 }
 
-.task-card-closed {
-  opacity: 0.7;
-}
-
-/* Creator-stake marker: right-edge stripe mirrors urgency stripe on the left.
-   Means "you created this", paired with the (left) urgency signal. */
+/* Creator-stake marker: right-edge stripe mirrors status stripe on the left.
+   Means "you created this", paired with the (left) status signal. */
 .task-card-watching {
   position: relative;
 }
@@ -576,15 +454,20 @@ button.btn-good:hover {
   border-bottom-right-radius: 8px;
 }
 
-/* ── Urgency left stripe ──────────────────────────────────── */
-.task-card-urg-green { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good); }
-.task-card-urg-yellow { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--warn); }
-.task-card-urg-orange { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot); }
-.task-card-urg-red { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad); }
-.task-card.task-card-urg-green:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--good); }
-.task-card.task-card-urg-yellow:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--warn); }
-.task-card.task-card-urg-orange:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
-.task-card.task-card-urg-red:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
+/* ── Status left stripe ───────────────────────────────────── */
+/* OPEN = red (needs a claim), in-flight = orange (warming).
+   Both fade a tinted backdrop from the left to echo the COMPLETED treatment.
+   Closed statuses carry their own stripes below. */
+.task-card-stripe-open {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
+  background: linear-gradient(90deg, var(--bad-bg) 0%, var(--panel) 32%);
+}
+.task-card-stripe-progress {
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot);
+  background: linear-gradient(90deg, var(--hot-bg) 0%, var(--panel) 32%);
+}
+.task-card.task-card-stripe-open:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
+.task-card.task-card-stripe-progress:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
 
 /* ── Closed-status card treatment ─────────────────────────── */
 .task-card-completed {
@@ -609,23 +492,115 @@ button.btn-good:hover {
   box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad);
 }
 
+/* Archived keeps the "completed green" visual — same stripe and tinted
+   backdrop as COMPLETED. The dim opacity (.task-card-dimmed, applied to
+   every closed card) is what tells the eye it's filed away vs. still
+   actionable. */
 .task-card-archived {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--line);
+  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
+  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
 }
 .task-card-archived:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--line);
+  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
+}
+.task-card-archived .task-card-collapsed-folder,
+.task-card-archived .task-card-collapsed-folder a {
+  color: var(--muted);
+}
+.task-card-archived .task-card-collapsed-type {
+  color: var(--ink-secondary);
+}
+.task-card-archived .status-banner-label {
+  color: var(--good);
+}
+
+/* Celebrating — green halo pulse for ~3s when the creator's task hits a
+   completion milestone (COMPLETED or LOAN_DOCS MERGE_DONE). The card is
+   already pinned to the top of the grid via the celebrating sort bucket;
+   the pulse just draws the eye. Animation runs twice then settles. */
+.task-card-celebrating {
+  animation: pulse-celebrate 1.4s ease-in-out 2;
+}
+@keyframes pulse-celebrate {
+  0%, 100% {
+    box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good), 0 0 0 0 rgba(46, 160, 67, 0);
+  }
+  50% {
+    box-shadow: var(--shadow-md), inset 3px 0 0 var(--good), 0 0 0 10px rgba(46, 160, 67, 0.28);
+  }
 }
 
 /* ── Collapsed task card row ──────────────────────────────── */
+/* Columns: status | assigner | assignee | title | namvar | due | action */
 .task-card-collapsed {
   display: grid;
-  grid-template-columns: 108px minmax(0, 1fr) 84px 110px 132px;
+  grid-template-columns: 96px 78px 84px minmax(0, 1fr) 84px 96px 116px;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 10px 14px 10px 18px;
   cursor: pointer;
   min-height: 52px;
   user-select: none;
+}
+
+/* Mini = closed tasks sunk to the bottom. Reuses the full grid template
+   so every column (status, assigner, assignee, title, namvar, due,
+   action) aligns vertically with the active rows above. Padding + font
+   sizes are tightened to keep the row roughly half height; the namvar
+   and action slots render as empty placeholder spans. */
+.task-card-collapsed-mini {
+  padding: 4px 14px 4px 18px;
+  min-height: 32px;
+}
+.task-card-collapsed-mini .task-card-quick-action {
+  max-width: 116px;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  min-height: 22px;
+}
+.task-card-collapsed-mini .task-card-collapsed-type {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.task-card-collapsed-mini .task-card-collapsed-folder {
+  font-size: 0.7rem;
+}
+.task-card-collapsed-mini .status-banner-label,
+.task-card-collapsed-mini .task-card-people-value {
+  font-size: 0.62rem;
+}
+.task-card-collapsed-mini .task-card-people-label {
+  font-size: 0.55rem;
+}
+
+/* Assigner / Assignee column — mono, tight, label-over-value.
+   Red "ME" / "PENDING" mark personal involvement & unassigned state. */
+.task-card-people {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.1;
+}
+.task-card-people-label {
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+.task-card-people-value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-card-people-me {
+  color: var(--bad);
 }
 
 .task-card-collapsed:hover {
@@ -706,12 +681,12 @@ button.btn-good:hover {
   white-space: nowrap;
   justify-self: end;
   width: 100%;
-  max-width: 132px;
+  max-width: 116px;
 }
 
 .task-card-quick-action-empty {
   display: block;
-  width: 132px;
+  width: 116px;
   height: 1px;
 }
 
@@ -736,11 +711,15 @@ button.btn-good:hover {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   width: fit-content;
-  white-space: nowrap;
   background: transparent;
   border: none;
   padding: 0;
   line-height: 1.15;
+}
+/* Multi-word banner labels (IN PROGRESS / MERGE DONE / ...) embed a
+   newline in the source string — render it as a line break. */
+.status-banner-label {
+  white-space: pre-line;
 }
 
 .status-banner-sub {
@@ -850,6 +829,32 @@ button.btn-good:hover {
   gap: 8px;
   flex-wrap: wrap;
   padding-top: 6px;
+}
+
+/* Two-step cancel: confirmation row replaces the actions block. */
+.task-card-cancel-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: var(--bad-bg);
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+.task-card-cancel-done {
+  background: var(--bad-bg);
+  border-color: var(--bad);
+  color: var(--bad);
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  justify-content: center;
+  animation: fadeIn 0.12s ease-out;
 }
 
 .task-card-right {
@@ -1273,20 +1278,101 @@ button.btn-good:hover {
   }
 
   .task-card-collapsed {
-    grid-template-columns: 88px minmax(0, 1fr) auto;
+    grid-template-columns: 84px 1fr 1fr auto;
     grid-template-areas:
-      "status title action"
-      "poop  due   action";
+      "status   title    title    action"
+      "assigner assignee due      action"
+      "poop     poop     poop     action";
     column-gap: 10px;
     row-gap: 4px;
   }
   .task-card-collapsed > .status-banner { grid-area: status; }
   .task-card-collapsed-title { grid-area: title; }
+  .task-card-collapsed > .task-card-people-assigner { grid-area: assigner; }
+  .task-card-collapsed > .task-card-people-assignee { grid-area: assignee; }
   .task-card-collapsed > .poop-track { grid-area: poop; justify-self: start; }
   .task-card-collapsed-due { grid-area: due; text-align: left; }
   .task-card-collapsed > .task-card-quick-action,
   .task-card-collapsed > .task-card-quick-action-empty { grid-area: action; align-self: center; }
 
+  .task-card-collapsed-mini {
+    grid-template-columns: 84px 1fr 1fr auto;
+    grid-template-areas:
+      "status   title    title    action"
+      "assigner assignee due      action";
+  }
+  /* Mini placeholder (occupies the namvar slot on desktop) has no home
+     in the mobile area template — hide so it doesn't claim an implicit row. */
+  .task-card-collapsed > .task-card-collapsed-cell-empty { display: none; }
+}
+
+/* Teams mobile — typically 375–414px wide. Bump tap targets, tighten
+   the modal so it actually fits, and let the top bar wrap cleanly. */
+@media (max-width: 480px) {
+  .app-shell {
+    padding: 10px 10px 24px;
+    gap: 10px;
+  }
+
+  .top-bar {
+    gap: 8px;
+  }
+  .top-bar h1 {
+    font-size: 1.15rem;
+  }
+  .user-picker {
+    flex-wrap: wrap;
+  }
+  .user-picker select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  button.btn-sm {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+    min-height: 36px;
+  }
+  .form-toggle {
+    padding: 9px 14px;
+    min-height: 38px;
+  }
+
+  .task-card-collapsed,
+  .task-card-collapsed-mini {
+    padding: 8px 10px 8px 14px;
+    column-gap: 8px;
+  }
+  .task-card-collapsed {
+    grid-template-columns: 76px 1fr 1fr auto;
+  }
+
+  .form-overlay {
+    padding: 16px 8px;
+    align-items: stretch;
+  }
+  .form-panel {
+    padding: 14px 14px;
+    border-radius: 8px;
+  }
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+  .form-actions button {
+    width: 100%;
+  }
+
+  .task-card-expanded {
+    padding: 10px 12px 12px;
+    gap: 12px;
+  }
+  .task-card-actions,
+  .task-card-cancel-confirm {
+    width: 100%;
+  }
+  .task-card-cancel-confirm button {
+    flex: 1;
+  }
 }
 
 /* ── Metrics Panel ───────────────────────────────────────── */
