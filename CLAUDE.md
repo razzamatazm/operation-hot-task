@@ -184,13 +184,13 @@ collapsed row.
 - `task-card-mini` — half-height closed-row variant (see *Mini rows*).
 - `task-card-celebrating` — green pulse halo applied for ~3s after a
   creator's task hits a completion milestone.
-- `task-card-dimmed` — 0.55 opacity. Rules:
-  - You created the task → bright. Only `ARCHIVED` dims (filed away).
-  - You're the assignee (non-creator) → bright (you're doing the work).
-  - You're an observer (neither) → dim everything except `OPEN`.
-  Unread notes suppress the dim.
-- `task-card-closed` — 0.7 opacity for closed-status tasks the user
-  didn't create.
+- `task-card-dimmed` — 0.55 opacity (0.85 on hover). Rules:
+  - `OPEN` → always bright (anyone may claim).
+  - Attached (creator or assignee) + in-flight → bright (it's your work).
+  - Closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`) → dim, even if you're
+    attached.
+  - Observer (neither creator nor assignee) + in-flight → dim.
+  The celebrating card and unread notes suppress the dim.
 
 These layer on top of the status stripe; the stripe wins visually
 because it's an inset shadow, not a border.

@@ -287,14 +287,13 @@ const TaskCard = ({
     isCreator &&
     (task.status === "COMPLETED" || (task.taskType === "LOAN_DOCS" && task.status === "MERGE_DONE"));
   /* Dim rule:
-     - You created it → bright. Only ARCHIVED dims (task is filed away).
-     - You're the assignee → bright (you're doing the work).
-     - You're an observer → dim everything except OPEN (anyone may claim).
-     Unread notes override and force-undim. */
-  const creatorArchived = isCreator && task.status === "ARCHIVED";
-  const dimmed = !hasUnreadNote && (
-    creatorArchived ||
-    (!isClosed && task.status !== "OPEN" && isObserver)
+     - OPEN → always bright (anyone may claim).
+     - Attached (creator or assignee), in-flight → bright (it's your work).
+     - Closed (completed/cancelled/archived) → dim, even if attached.
+     - Observer, in-flight → dim (not your task).
+     - Celebrating card and unread notes override → stay bright. */
+  const dimmed = !hasUnreadNote && !isCelebrating && task.status !== "OPEN" && (
+    isClosed || isObserver
   );
   /* Mini = closed bottom-bucket row. Celebrating COMPLETED renders as a
      full-size pulsing card at the top until the creator archives it. */
@@ -307,7 +306,6 @@ const TaskCard = ({
     pulsing ? "task-card-celebrating" : "",
     !isClosed && !dimmed && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
     !isClosed && !dimmed && variant === "own" ? "task-card-own" : "",
-    isClosed && !isCreator ? "task-card-closed" : "",
     task.status === "COMPLETED" ? "task-card-completed" : "",
     task.status === "CANCELLED" ? "task-card-cancelled" : "",
     task.status === "ARCHIVED" ? "task-card-archived" : ""

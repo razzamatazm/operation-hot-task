@@ -436,10 +436,6 @@ button.btn-good:hover {
   opacity: 0.85;
 }
 
-.task-card-closed {
-  opacity: 0.7;
-}
-
 /* Creator-stake marker: right-edge stripe mirrors status stripe on the left.
    Means "you created this", paired with the (left) status signal. */
 .task-card-watching {
@@ -497,9 +493,9 @@ button.btn-good:hover {
 }
 
 /* Archived keeps the "completed green" visual — same stripe and tinted
-   backdrop as COMPLETED. The dim opacity (applied via .task-card-dimmed
-   for the creator or .task-card-closed for everyone else) is what tells
-   the eye it's filed away vs. still actionable. */
+   backdrop as COMPLETED. The dim opacity (.task-card-dimmed, applied to
+   every closed card) is what tells the eye it's filed away vs. still
+   actionable. */
 .task-card-archived {
   box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
   background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
