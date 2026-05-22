@@ -244,15 +244,15 @@ const TaskCard = ({
   const hasUnreadNote = !!latestOtherNoteAt && latestOtherNoteAt > (seenNoteAt ?? "");
   /* Rows render collapsed by default — the grid columns (status, assigner,
      assignee, due, namvar, action) carry enough signal to scan without
-     opening. Only an unread note from the other party force-opens the card
-     until acknowledged. */
-  const [expanded, setExpanded] = useState(hasUnreadNote);
+     opening. An unread note from the other party no longer force-opens the
+     card; it only pulses the red unread dot. The user opens the row to read. */
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
-    setExpanded(hasUnreadNote);
-  }, [task.status, user.id, hasUnreadNote]);
-  /* Acknowledge an unread note: clears force-open + undim lock. Triggered
-     by an explicit user gesture (header click/key, or sending a reply) —
-     not by auto-open, so the undim state is actually visible. */
+    setExpanded(false);
+  }, [task.status, user.id]);
+  /* Acknowledge an unread note: clears the undim lock and the red dot.
+     Triggered by an explicit user gesture (header click/key, or sending
+     a reply). */
   const acknowledgeUnread = (): void => {
     if (hasUnreadNote && latestOtherNoteAt && onMarkNoteSeen) {
       onMarkNoteSeen(task.id, latestOtherNoteAt);

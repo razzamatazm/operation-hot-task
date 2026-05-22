@@ -141,13 +141,11 @@ full actions (Re-open / Archive).
    is filtered out of the grid entirely (still counted in the admin
    Metrics panel).
 
-A row auto-pops open when:
-- `actionableByMe` (assignee on `CLAIMED`/`NEEDS_REVIEW`/`MERGE_APPROVED`,
-  creator on `MERGE_DONE`), or
-- `OPEN` and the viewer isn't the creator (one-click claim).
-
-Closed rows never auto-expand. The `useEffect([task.status, user.id])`
-re-derives `expanded` on status transitions and on mock-user switch.
+Rows never auto-expand — every card renders collapsed, including on a
+new unread note (that only pulses the red dot). The
+`useEffect([task.status, user.id])` collapses `expanded` back to `false`
+on status transitions and on mock-user switch. The user clicks a row to
+open it.
 
 ### Status = left stripe
 
@@ -203,18 +201,17 @@ Per-user "I've seen the latest note from someone else" map persists in
 `localStorage` keyed by user id (see `seenNotesAt` in `App.tsx`). When a
 note arrives from the other party, the recipient's card:
 
-- Force-opens (overrides the auto-expand rule).
 - Drops dim (`hasUnreadNote` short-circuits `dimmed`).
 - Pulses a small red `.task-card-unread-dot` (8px, `--bad`) next to the
   status-banner label, animated via `pulse-unread`.
 
-The lock clears only on an explicit user gesture (`acknowledgeUnread`):
-header click/key, replying via Add Note, or any state-changing button
-(Claim/Complete/Approve/Cancel/Unclaim). Auto-popping does **not** mark
-seen — otherwise the undim/dot would never visibly land. Resetting state
-on user-switch (mock picker) goes through the `trackedUserId` setState-
-during-render guard so user A's seen state can't be written under user B's
-storage key.
+The card does **not** auto-open on a new note — the red dot is the only
+signal; the user opens the row to read. The lock clears only on an
+explicit user gesture (`acknowledgeUnread`): header click/key, replying
+via Add Note, or any state-changing button
+(Claim/Complete/Approve/Cancel/Unclaim). Resetting state on user-switch
+(mock picker) goes through the `trackedUserId` setState-during-render
+guard so user A's seen state can't be written under user B's storage key.
 
 ## Tags / Pills
 
