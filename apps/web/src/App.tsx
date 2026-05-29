@@ -1,10 +1,23 @@
-import { app as teamsApp } from "@microsoft/teams-js";
+import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
-const INITIAL_USER = mockUsers[0]!;
+const IS_DEV = import.meta.env.DEV;
+/* In a Teams tab the user is resolved from the SSO token (see bootstrap
+   effect). In a plain dev browser there's no Teams host, so fall back to a
+   mock user the dev can switch between. */
+const INITIAL_USER: UserIdentity = IS_DEV
+  ? mockUsers[0]!
+  : { id: "", displayName: "…", roles: ["LOAN_OFFICER"] };
+
+/* SSO bearer token, set once the Teams auth flow resolves. Module-level so
+   the standalone apiRequest helper can read it without prop-drilling. */
+let authToken: string | null = null;
+export const setAuthToken = (token: string | null): void => {
+  authToken = token;
+};
 
 const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
@@ -38,9 +51,15 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-user-id": user.id,
-      "x-user-name": user.displayName,
-      "x-user-roles": user.roles.join(","),
+      /* Teams: SSO bearer. Dev browser (no token): identify via the mock
+         user headers so local role-switching still works. */
+      ...(authToken
+        ? { authorization: `Bearer ${authToken}` }
+        : {
+            "x-user-id": user.id,
+            "x-user-name": user.displayName,
+            "x-user-roles": user.roles.join(",")
+          }),
       ...(init.headers ?? {})
     }
   });
@@ -868,9 +887,20 @@ export const App = () => {
         };
         applyTheme(context.app?.theme ?? context.theme);
         teamsApp.registerOnThemeChangeHandler?.((theme) => applyTheme(theme));
+
+        /* Teams host present → resolve the real identity via SSO. */
+        const token = await authentication.getAuthToken();
+        setAuthToken(token);
+        const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
+        setUser(me);
       })
       .catch(() => {
+        /* Plain browser (no Teams host) or SSO failure. In dev, keep the
+           mock user + selector. In prod surface that sign-in is required. */
         applyTheme("light");
+        if (!IS_DEV) {
+          setError("Unable to sign in. Open this app from Microsoft Teams.");
+        }
       });
   }, []);
 
@@ -1070,16 +1100,20 @@ export const App = () => {
             New Task
           </button>
         </div>
-        <label className="user-picker">
-          <span>User:</span>
-          <select value={user.id} onChange={(e) => setUser(mockUsers.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
-            {mockUsers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.displayName} ({u.roles.join("/")})
-              </option>
-            ))}
-          </select>
-        </label>
+        {IS_DEV ? (
+          <label className="user-picker">
+            <span>User:</span>
+            <select value={user.id} onChange={(e) => setUser(mockUsers.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
+              {mockUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.displayName} ({u.roles.join("/")})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span className="user-picker user-picker-static">{user.displayName}</span>
+        )}
       </header>
 
       {error && <p className="error-bar">{error}</p>}

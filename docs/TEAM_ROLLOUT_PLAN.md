@@ -4,7 +4,59 @@ Goal: remove the mock user selector. Each Teams user becomes a real,
 persistent user. Channel + DM + activity-feed notifications keep working,
 targeting real Azure AD (Entra) identities.
 
-Status: **not started**. This doc is the implementation plan to enact.
+Status: **Phases 1 & 2 done** (2026-05-29). Phases 3–4 not started.
+
+> **Phase 2 notes / deviations**
+> - **No drizzle.** The app is file-JSON storage (see CLAUDE.md), so the
+>   "users table" is a file-based `UserStore` (`apps/server/src/user-store.ts`,
+>   `data/users.json`) mirroring `TaskStore`'s contract — same swap-to-Azure-SQL
+>   story. `PersistedUser`: `id` (=oid), `email?`, `displayName`, `roles`,
+>   `teamsUserId?` (Phase 3), `createdAt`, `lastSeenAt`.
+> - **Real token verification** (`auth.ts`): `jose` `createRemoteJWKSet` +
+>   `jwtVerify` against `login.microsoftonline.com/<tenant>/discovery/v2.0/keys`,
+>   validating `iss`, `aud` (App ID URI and/or client id), and `tid`. The
+>   Phase-1 unverified decode is **gone**. `AuthError` → HTTP 401.
+> - **Config** (`config.ts` + `.env.example`): `AAD_TENANT_ID`,
+>   `SSO_AUDIENCE`, `SSO_CLIENT_ID`, `DEV_BYPASS_AUTH`, `USERS_FILE`. SSO is
+>   "configured" once tenant + an audience are set; until then (or with
+>   `DEV_BYPASS_AUTH=true`) the server accepts `x-user-*` dev headers.
+> - **Role resolution** (DB-only): dev/header path → header roles are
+>   authoritative (mock-user switching still works); token path → existing
+>   user keeps stored roles, new user defaults `LOAN_OFFICER`.
+> - **Admin endpoints**: `GET /api/users`, `PUT /api/users/:id/roles`
+>   (ADMIN-gated) for onboarding + the future admin UI.
+> - **Onboarding seed**: `scripts/seed-users.mjs <roster.json>` upserts the
+>   roster into `users.json` (produce roster from Graph
+>   `GET /teams/{id}/members`).
+> - `getActor` now: `authenticate(req)` → `userStore.upsertOnLogin` →
+>   `service.registerUser`. Mutation routes map `AuthError` → 401 via
+>   `sendError`.
+> - **Watch-out items resolved**: unverified decode replaced by JWKS verify;
+>   placeholders surfaced as env vars (`.env.example`) + manifest `YOUR-…`
+>   tokens (still must be filled from the Entra app registration before a
+>   real Teams test). `/stream` remains unauthenticated (EventSource can't
+>   send a Bearer header) — acceptable while it only broadcasts task changes;
+>   revisit if it ever needs per-user gating.
+
+> **Phase 1 notes / deviations**
+> - `webApplicationInfo` added to `teams-app/manifest.json`; the
+>   `operation-hot-task-teams/manifest.json` copy already had it — its
+>   `resource` was fixed to the `api://<host>/<appId>` form. Both bumped to
+>   `1.1.0`. App-id / Entra-id values are still `YOUR-…` placeholders.
+> - `apps/web/src/App.tsx`: SSO bootstrap (`authentication.getAuthToken()`
+>   → `GET /api/me` → `setUser`), `Authorization: Bearer` in `apiRequest`,
+>   mock `<select>` now gated behind `import.meta.env.DEV` (kept, not
+>   deleted — Phase 4 removes it). Module-level `authToken` feeds the
+>   standalone `apiRequest` helper.
+> - `GET /api/me` added in `routes.ts` (listed under Phase 1 but server-side).
+> - `auth.ts` now reads the Bearer token but **decodes it WITHOUT verifying
+>   the signature** — a deliberate Phase-1 stopgap so the flow works
+>   end-to-end. **Not internet-safe until Phase 2** adds `jose` JWKS
+>   verification (aud/iss/tid) + DB role lookup. Header/dev fallback retained.
+> - `UserIdentity` gained an optional `email` field (shared types).
+> - EventSource `/stream` can't send a Bearer header; it's currently
+>   unauthenticated, so no change needed — revisit if `/stream` ever gates
+>   on identity.
 
 ---
 

@@ -48,5 +48,19 @@ export const config = {
   graphClientId: process.env.GRAPH_CLIENT_ID,
   graphClientSecret: process.env.GRAPH_CLIENT_SECRET,
   graphBaseUrl: process.env.GRAPH_BASE_URL ?? "https://graph.microsoft.com/v1.0",
-  teamsAppId: process.env.TEAMS_APP_ID
+  teamsAppId: process.env.TEAMS_APP_ID,
+  usersFile: resolveServerPath(process.env.USERS_FILE, "data/users.json"),
+  /* Entra SSO token validation (Phase 2). When tenant + at least one
+     accepted audience are set, the server verifies bearer tokens against
+     the tenant JWKS. When unset, SSO is "not configured" and the server
+     falls back to dev header identity. */
+  ssoTenantId: process.env.AAD_TENANT_ID,
+  /* App ID URI, e.g. api://<host>/<appId> — primary accepted audience. */
+  ssoAudience: process.env.SSO_AUDIENCE,
+  /* Bare Entra app/client id — also accepted as `aud` (Teams sometimes
+     issues the client id rather than the App ID URI). */
+  ssoClientId: process.env.SSO_CLIENT_ID,
+  /* Force header/dev identity even when SSO is configured. Local-dev only —
+     must never be true on an internet-facing deploy. */
+  devBypassAuth: (process.env.DEV_BYPASS_AUTH ?? "false") === "true"
 };

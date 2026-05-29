@@ -38,6 +38,9 @@ export interface UserIdentity {
   id: string;
   displayName: string;
   roles: UserRole[];
+  /* Entra `preferred_username` / UPN. Optional: header-auth dev users and
+     historical task snapshots may not carry it. */
+  email?: string;
 }
 
 export interface ReviewNote {
