@@ -18,6 +18,10 @@ TEAMS_APP_ID="${TEAMS_APP_ID:-}"
 BOT_APP_ID="${BOT_APP_ID:-}"
 WEBAPP_NAME="${AZ_WEBAPP_NAME:-operation-hot-task-app}"
 DOMAIN="${TEAMS_DOMAIN:-${WEBAPP_NAME}.azurewebsites.net}"
+# webApplicationInfo.id is the Entra app that issues the SSO token — often the
+# same as the Teams app id, but NOT always (this deploy uses a distinct tab app
+# registration). Defaults to TEAMS_APP_ID for backward compatibility.
+SSO_APP_ID="${SSO_APP_ID:-$TEAMS_APP_ID}"
 MANIFEST_TEMPLATE="teams-app/manifest.json"
 MANIFEST_OUT="teams-app/manifest.generated.json"
 PACKAGE_OUT="teams-app/operation-hot-task-teams.zip"
@@ -33,6 +37,7 @@ jq \
   --arg appId "$TEAMS_APP_ID" \
   --arg botId "$BOT_APP_ID" \
   --arg domain "$DOMAIN" \
+  --arg ssoAppId "$SSO_APP_ID" \
   '
     .id = $appId
     | .bots[0].botId = $botId
@@ -40,8 +45,8 @@ jq \
     | .staticTabs[0].websiteUrl = ("https://" + $domain + "/")
     | .configurableTabs[0].configurationUrl = ("https://" + $domain + "/")
     | .validDomains = [$domain]
-    | .webApplicationInfo.id = $appId
-    | .webApplicationInfo.resource = ("api://" + $domain + "/" + $appId)
+    | .webApplicationInfo.id = $ssoAppId
+    | .webApplicationInfo.resource = ("api://" + $domain + "/" + $ssoAppId)
   ' \
   "$MANIFEST_TEMPLATE" > "$MANIFEST_OUT"
 

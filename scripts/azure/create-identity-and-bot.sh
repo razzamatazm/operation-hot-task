@@ -69,7 +69,10 @@ fi
 TEAMS_WEB_CLIENT="5e3ce6c0-2b1f-4285-8d4b-75ee78787346"
 TEAMS_DESKTOP_CLIENT="1fec8e78-bce4-4aaf-ab1b-5451cc387264"
 
-API_PATCH="$(cat <<JSON
+# Graph rejects pre-authorizing a scope id in the same request that defines
+# the scope, so do it in two PATCHes: (1) define the scope + force v2 tokens,
+# (2) pre-authorize the Teams clients against the now-existing scope.
+SCOPE_PATCH="$(cat <<JSON
 {
   "api": {
     "requestedAccessTokenVersion": 2,
@@ -84,7 +87,15 @@ API_PATCH="$(cat <<JSON
         "userConsentDisplayName": "Access Operation Hot Task as you",
         "userConsentDescription": "Allows Teams to call the Operation Hot Task API as you."
       }
-    ],
+    ]
+  }
+}
+JSON
+)"
+
+PREAUTH_PATCH="$(cat <<JSON
+{
+  "api": {
     "preAuthorizedApplications": [
       { "appId": "${TEAMS_WEB_CLIENT}", "delegatedPermissionIds": ["${SCOPE_ID}"] },
       { "appId": "${TEAMS_DESKTOP_CLIENT}", "delegatedPermissionIds": ["${SCOPE_ID}"] }
@@ -94,11 +105,29 @@ API_PATCH="$(cat <<JSON
 JSON
 )"
 
-echo "==> configuring access_as_user scope + Teams pre-authorization (v2 tokens)"
+echo "==> defining access_as_user scope (v2 tokens)"
 az rest --method PATCH \
   --url "https://graph.microsoft.com/v1.0/applications/${TAB_OBJECT_ID}" \
   --headers "Content-Type=application/json" \
-  --body "$API_PATCH" >/dev/null
+  --body "$SCOPE_PATCH" >/dev/null
+
+echo "==> pre-authorizing Teams clients for access_as_user"
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/${TAB_OBJECT_ID}" \
+  --headers "Content-Type=application/json" \
+  --body "$PREAUTH_PATCH" >/dev/null
+
+# Write SSO settings now — before the bot section — so a bot-step hiccup
+# can't leave the server without its token-validation config.
+echo "==> writing SSO app settings"
+az webapp config appsettings set \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$WEBAPP_NAME" \
+  --settings \
+    AAD_TENANT_ID="$TENANT_ID" \
+    SSO_AUDIENCE="$APP_ID_URI" \
+    SSO_CLIENT_ID="$TAB_APP_ID" \
+  --output table >/dev/null
 
 BOT_APP_ID="$(find_app_id "$BOT_APP_NAME")"
 if [[ -z "$BOT_APP_ID" ]]; then
@@ -114,9 +143,13 @@ BOT_APP_SECRET="$(az ad app credential reset --id "$BOT_APP_ID" --append --displ
 
 BOT_ENDPOINT="https://${WEBAPP_NAME}.azurewebsites.net/api/bot/messages"
 
+# Azure Bot resource names are GLOBALLY unique. If a name clash happens (e.g.
+# the bot already exists under a different name like `<prefix>-bot-lof`), don't
+# abort the whole run — SSO is already configured above. Pass the existing
+# bot's name via AZ_BOT_RESOURCE_NAME for an in-place endpoint update.
 echo "==> creating/updating Azure Bot resource: $BOT_RESOURCE_NAME"
 if ! az bot show --resource-group "$RESOURCE_GROUP" --name "$BOT_RESOURCE_NAME" >/dev/null 2>&1; then
-  az bot create \
+  if ! az bot create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$BOT_RESOURCE_NAME" \
     --app-type SingleTenant \
@@ -124,7 +157,11 @@ if ! az bot show --resource-group "$RESOURCE_GROUP" --name "$BOT_RESOURCE_NAME" 
     --appid "$BOT_APP_ID" \
     --tenant-id "$TENANT_ID" \
     --endpoint "$BOT_ENDPOINT" \
-    --output table
+    --output table; then
+    echo "WARN: bot resource '$BOT_RESOURCE_NAME' could not be created (name may be taken globally)." >&2
+    echo "WARN: SSO settings are already applied. If the bot exists under another name," >&2
+    echo "WARN: re-run with AZ_BOT_RESOURCE_NAME=<existing-bot-name> to update its endpoint." >&2
+  fi
 else
   az bot update \
     --resource-group "$RESOURCE_GROUP" \
@@ -133,7 +170,7 @@ else
     --output table
 fi
 
-echo "==> writing bot credentials + SSO settings to app settings"
+echo "==> writing bot credentials to app settings"
 az webapp config appsettings set \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
@@ -141,9 +178,6 @@ az webapp config appsettings set \
     BOT_APP_ID="$BOT_APP_ID" \
     BOT_APP_PASSWORD="$BOT_APP_SECRET" \
     BOT_TENANT_ID="$TENANT_ID" \
-    AAD_TENANT_ID="$TENANT_ID" \
-    SSO_AUDIENCE="$APP_ID_URI" \
-    SSO_CLIENT_ID="$TAB_APP_ID" \
   --output table >/dev/null
 
 cat <<OUT
@@ -160,9 +194,15 @@ The tab app now exposes $APP_ID_URI with the access_as_user scope,
 pre-authorized for the Teams web + desktop/mobile clients.
 
 Next:
-  - Build the Teams package (webApplicationInfo auto-fills from these IDs):
-      export TEAMS_APP_ID=$TAB_APP_ID BOT_APP_ID=$BOT_APP_ID TEAMS_DOMAIN=$WEBAPP_DOMAIN
+  - Build the Teams package. TEAMS_APP_ID is the Teams *app/package* id (keep
+    your existing one to update in place); SSO_APP_ID is this tab app
+    registration ($TAB_APP_ID), which fills webApplicationInfo:
+      export TEAMS_APP_ID=<existing-teams-app-id> \
+             SSO_APP_ID=$TAB_APP_ID \
+             BOT_APP_ID=$BOT_APP_ID \
+             TEAMS_DOMAIN=$WEBAPP_DOMAIN
       ./scripts/azure/build-teams-package.sh
+    (If you have no existing Teams app id, set TEAMS_APP_ID=$TAB_APP_ID too.)
   - If your tenant requires it, grant admin consent for the access_as_user
     scope in Entra (App registrations > $TAB_APP_NAME > API permissions).
 
