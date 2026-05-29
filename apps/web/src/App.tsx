@@ -22,6 +22,7 @@ export const setAuthToken = (token: string | null): void => {
 const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
   LOI: "LOI Check",
+  BUDDY_CHAT: "Buddy Chat",
   VALUE: "Value Check",
   FRAUD: "Fraud Check",
   LOAN_DOCS: "Loan Docs",
@@ -640,6 +641,7 @@ const CardList = ({
 /* ── Metrics Panel ────────────────────────────────────────── */
 const TYPE_BAR_CLASS: Record<TaskType, string> = {
   LOI: "type-bar type-bar-brand",
+  BUDDY_CHAT: "type-bar type-bar-brand",
   VALUE: "type-bar type-bar-good",
   FRAUD: "type-bar type-bar-bad",
   LOAN_DOCS: "type-bar type-bar-hot",
@@ -1137,6 +1139,7 @@ export const App = () => {
               Type
               <select value={form.taskType} onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}>
                 <option value="LOI">LOI Check</option>
+                <option value="BUDDY_CHAT">Buddy Chat</option>
                 <option value="VALUE">Value Check</option>
                 <option value="FRAUD">Fraud Check</option>
                 <option value="LOAN_DOCS">Loan Docs</option>

@@ -35,7 +35,7 @@ const humperdinkLinkSchema = z
 export const createTaskSchema = z.object({
   folderName: z.string().min(1).optional(),
   loanName: z.string().min(1).optional(),
-  taskType: z.enum(["LOI", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]),
+  taskType: z.enum(["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]),
   dueAt: z.string().datetime().optional(),
   returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "returnDate must be YYYY-MM-DD").optional(),
   urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"]).optional(),

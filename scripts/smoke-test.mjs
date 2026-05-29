@@ -181,6 +181,18 @@ const run = async () => {
     assert.ok(greenDueMs > 0, "GREEN dueAt should be in the future");
     pushPass("default GREEN urgency computes a future backend due date");
 
+    const createBuddyChat = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Smoke Buddy Chat",
+        taskType: "BUDDY_CHAT",
+        notes: "smoke-buddy-chat"
+      }
+    });
+    expectStatus(createBuddyChat.status, 201, "create BUDDY_CHAT", createBuddyChat.json);
+    assert.equal(createBuddyChat.json.task.taskType, "BUDDY_CHAT");
+    pushPass("BUDDY_CHAT task type accepted by create validation");
+
     const createOrange = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {

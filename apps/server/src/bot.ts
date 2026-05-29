@@ -43,9 +43,10 @@ interface QuickAddDraft {
 
 const TASK_TYPE_CHOICES: ReadonlyArray<{ label: string; value: TaskType }> = [
   { label: "LOI Check", value: "LOI" },
+  { label: "Buddy Chat", value: "BUDDY_CHAT" },
   { label: "Value Check", value: "VALUE" },
-  { label: "Loan Docs", value: "LOAN_DOCS" },
   { label: "Fraud Check", value: "FRAUD" },
+  { label: "Loan Docs", value: "LOAN_DOCS" },
   { label: "OOO - Out of Office", value: "OOO" }
 ];
 
@@ -84,6 +85,9 @@ const parseTaskType = (text: string): TaskType | undefined => {
 
   if (normalized === "loi") {
     return "LOI";
+  }
+  if (normalized === "buddy chat" || normalized === "buddy_chat") {
+    return "BUDDY_CHAT";
   }
   if (normalized === "value") {
     return "VALUE";

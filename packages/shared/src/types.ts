@@ -1,8 +1,9 @@
-export const TASK_TYPES = ["LOI", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const;
+export const TASK_TYPES = ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
 export const NOTES_FIELD_LABELS: Readonly<Record<TaskType, string>> = {
   LOI: "Loan Terms and Contacts",
+  BUDDY_CHAT: "Concerns",
   VALUE: "Notes",
   FRAUD: "Outstanding Items and Notes",
   LOAN_DOCS: "Notes",
