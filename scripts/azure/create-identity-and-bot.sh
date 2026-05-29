@@ -138,18 +138,23 @@ else
 fi
 az ad sp create --id "$BOT_APP_ID" >/dev/null 2>&1 || true
 
-echo "==> creating bot client secret (store this securely)"
-BOT_APP_SECRET="$(az ad app credential reset --id "$BOT_APP_ID" --append --display-name "$BOT_SECRET_DISPLAY_NAME" --years 2 --query password -o tsv)"
-
 BOT_ENDPOINT="https://${WEBAPP_NAME}.azurewebsites.net/api/bot/messages"
 
 # Azure Bot resource names are GLOBALLY unique. If a name clash happens (e.g.
 # the bot already exists under a different name like `<prefix>-bot-lof`), don't
 # abort the whole run — SSO is already configured above. Pass the existing
 # bot's name via AZ_BOT_RESOURCE_NAME for an in-place endpoint update.
+BOT_WIRED=0
 echo "==> creating/updating Azure Bot resource: $BOT_RESOURCE_NAME"
-if ! az bot show --resource-group "$RESOURCE_GROUP" --name "$BOT_RESOURCE_NAME" >/dev/null 2>&1; then
-  if ! az bot create \
+if az bot show --resource-group "$RESOURCE_GROUP" --name "$BOT_RESOURCE_NAME" >/dev/null 2>&1; then
+  if az bot update \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$BOT_RESOURCE_NAME" \
+    --endpoint "$BOT_ENDPOINT" \
+    --output table; then
+    BOT_WIRED=1
+  fi
+elif az bot create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$BOT_RESOURCE_NAME" \
     --app-type SingleTenant \
@@ -158,27 +163,32 @@ if ! az bot show --resource-group "$RESOURCE_GROUP" --name "$BOT_RESOURCE_NAME" 
     --tenant-id "$TENANT_ID" \
     --endpoint "$BOT_ENDPOINT" \
     --output table; then
-    echo "WARN: bot resource '$BOT_RESOURCE_NAME' could not be created (name may be taken globally)." >&2
-    echo "WARN: SSO settings are already applied. If the bot exists under another name," >&2
-    echo "WARN: re-run with AZ_BOT_RESOURCE_NAME=<existing-bot-name> to update its endpoint." >&2
-  fi
+  BOT_WIRED=1
 else
-  az bot update \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$BOT_RESOURCE_NAME" \
-    --endpoint "$BOT_ENDPOINT" \
-    --output table
+  echo "WARN: bot resource '$BOT_RESOURCE_NAME' could not be created (name may be taken globally)." >&2
+  echo "WARN: SSO settings are already applied. If the bot exists under another name," >&2
+  echo "WARN: re-run with AZ_BOT_RESOURCE_NAME=<existing-bot-name> to update its endpoint." >&2
 fi
 
-echo "==> writing bot credentials to app settings"
-az webapp config appsettings set \
-  --resource-group "$RESOURCE_GROUP" \
-  --name "$WEBAPP_NAME" \
-  --settings \
-    BOT_APP_ID="$BOT_APP_ID" \
-    BOT_APP_PASSWORD="$BOT_APP_SECRET" \
-    BOT_TENANT_ID="$TENANT_ID" \
-  --output table >/dev/null
+# Only mint a new secret + write bot creds when a bot resource was actually
+# wired this run. Otherwise we'd point BOT_APP_ID/BOT_APP_PASSWORD at an app
+# registration with no Teams-connected bot — breaking the existing install.
+BOT_APP_SECRET=""
+if [[ "$BOT_WIRED" == "1" ]]; then
+  echo "==> creating bot client secret (store this securely)"
+  BOT_APP_SECRET="$(az ad app credential reset --id "$BOT_APP_ID" --append --display-name "$BOT_SECRET_DISPLAY_NAME" --years 2 --query password -o tsv)"
+  echo "==> writing bot credentials to app settings"
+  az webapp config appsettings set \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$WEBAPP_NAME" \
+    --settings \
+      BOT_APP_ID="$BOT_APP_ID" \
+      BOT_APP_PASSWORD="$BOT_APP_SECRET" \
+      BOT_TENANT_ID="$TENANT_ID" \
+    --output table >/dev/null
+else
+  echo "==> skipping bot credential write (no bot resource wired this run; existing bot creds left intact)"
+fi
 
 cat <<OUT
 
@@ -205,7 +215,19 @@ Next:
     (If you have no existing Teams app id, set TEAMS_APP_ID=$TAB_APP_ID too.)
   - If your tenant requires it, grant admin consent for the access_as_user
     scope in Entra (App registrations > $TAB_APP_NAME > API permissions).
+OUT
+
+if [[ "$BOT_WIRED" == "1" ]]; then
+  cat <<OUT
 
 IMPORTANT: save BOT_APP_PASSWORD securely now (it will not be shown again):
 BOT_APP_PASSWORD=$BOT_APP_SECRET
 OUT
+else
+  cat <<OUT
+
+NOTE: no Azure Bot resource was wired this run, so bot credentials were
+left untouched. The existing bot install keeps working. Re-run with
+AZ_BOT_RESOURCE_NAME set to the existing bot if you need to rotate creds.
+OUT
+fi
