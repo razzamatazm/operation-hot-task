@@ -8,6 +8,7 @@ import path from "node:path";
 import { buildRouter } from "./routes.js";
 import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
+import { UserStore } from "./user-store.js";
 import { TeamsNotificationProvider } from "./notifications.js";
 import { TaskService } from "./task-service.js";
 import { startScheduler } from "./scheduler.js";
@@ -26,6 +27,8 @@ const bootstrap = async (): Promise<void> => {
   const app = express();
   const store = new TaskStore(appConfig.dataFile);
   await store.init();
+  const userStore = new UserStore(appConfig.usersFile);
+  await userStore.init();
 
   const botClient = new TeamsBotClient(
     appConfig.botAppId,
@@ -56,7 +59,7 @@ const bootstrap = async (): Promise<void> => {
   app.use(cors());
   app.use(express.json());
 
-  app.use("/api", buildRouter(service, sse));
+  app.use("/api", buildRouter(service, sse, userStore));
   botClient.register(app);
 
   const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);

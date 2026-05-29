@@ -1,10 +1,23 @@
-import { Router } from "express";
-import { UserIdentity, nextFlowStatuses } from "@loan-tasks/shared";
-import { getUserFromRequest } from "./auth.js";
+import { Request, Response, Router } from "express";
+import { UserIdentity, UserRole, nextFlowStatuses } from "@loan-tasks/shared";
+import { AuthError, authenticate } from "./auth.js";
 import { config } from "./config.js";
 import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
+import { UserStore } from "./user-store.js";
 import { createTaskSchema, reviewNoteSchema, transitionSchema, updatePointsSchema } from "./validation.js";
+
+const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
+
+/* Map an error to a response. AuthError → 401, everything else → 400 (or a
+   supplied fallback status). */
+const sendError = (res: Response, error: unknown, fallback: string): void => {
+  if (error instanceof AuthError) {
+    res.status(error.status).json({ error: error.message });
+    return;
+  }
+  res.status(400).json({ error: error instanceof Error ? error.message : fallback });
+};
 
 const toCreateInput = (body: unknown) => {
   const parsed = createTaskSchema.parse(body);
@@ -24,16 +37,73 @@ const toCreateInput = (body: unknown) => {
   };
 };
 
-export const buildRouter = (service: TaskService, sse: SseHub): Router => {
+export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore): Router => {
   const router = Router();
-  const getActor = async (req: Parameters<typeof getUserFromRequest>[0]) => {
-    const user = getUserFromRequest(req);
+
+  /* Resolve the caller: verify the SSO token (or accept dev headers), then
+     upsert into the users table to attach DB-managed roles. Throws AuthError
+     when SSO is required but the request can't be authenticated. */
+  const getActor = async (req: Request): Promise<UserIdentity> => {
+    const identity = await authenticate(req);
+    const user = await userStore.upsertOnLogin(identity);
     await service.registerUser(user);
     return user;
   };
 
+  const requireAdmin = (user: UserIdentity): void => {
+    if (!user.roles.includes("ADMIN")) {
+      throw new AuthError("Admin role required");
+    }
+  };
+
   router.get("/health", (_req, res) => {
     res.json({ ok: true, clients: sse.count() });
+  });
+
+  /* Resolve the caller's identity from the SSO bearer token (or dev
+     headers). The web app calls this on boot to populate the current user. */
+  router.get("/me", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      res.json(user);
+    } catch (error) {
+      sendError(res, error, "Failed to resolve identity");
+    }
+  });
+
+  /* Admin: list users + manage roles (onboarding + future admin UI). */
+  router.get("/users", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      res.json({ users: await userStore.list() });
+    } catch (error) {
+      sendError(res, error, "Failed to list users");
+    }
+  });
+
+  router.put("/users/:id/roles", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      const roles = Array.isArray((req.body as { roles?: unknown }).roles)
+        ? ((req.body as { roles: unknown[] }).roles
+            .map((role) => String(role).toUpperCase())
+            .filter((role): role is UserRole => ALLOWED_ROLES.includes(role as UserRole)))
+        : [];
+      if (roles.length === 0) {
+        res.status(400).json({ error: "At least one valid role is required" });
+        return;
+      }
+      const updated = await userStore.setRoles(req.params.id, roles);
+      if (!updated) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      res.json({ user: updated });
+    } catch (error) {
+      sendError(res, error, "Failed to update roles");
+    }
   });
 
   router.get("/tasks", async (_req, res) => {
@@ -48,7 +118,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       const task = await service.createTask(input, user);
       res.status(201).json({ task });
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid payload" });
+      sendError(res, error, "Invalid payload");
     }
   });
 
@@ -106,7 +176,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       const task = await service.claimTask(req.params.taskId, user);
       res.json({ task });
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to claim task" });
+      sendError(res, error, "Failed to claim task");
     }
   });
 
@@ -116,7 +186,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       const task = await service.unclaimTask(req.params.taskId, user);
       res.json({ task });
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to unclaim task" });
+      sendError(res, error, "Failed to unclaim task");
     }
   });
 
@@ -127,7 +197,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       const task = await service.transitionStatus(req.params.taskId, status, user, reviewNotes);
       res.json({ task });
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to transition task" });
+      sendError(res, error, "Failed to transition task");
     }
   });
 
@@ -138,7 +208,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       const task = await service.updateTaskPoints(req.params.taskId, points, user);
       res.json({ task });
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update points" });
+      sendError(res, error, "Failed to update points");
     }
   });
 
@@ -149,7 +219,7 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
       const task = await service.addReviewNote(req.params.taskId, text, user);
       res.json({ task });
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to add review note" });
+      sendError(res, error, "Failed to add review note");
     }
   });
 
