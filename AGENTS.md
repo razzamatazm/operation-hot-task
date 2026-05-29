@@ -85,6 +85,7 @@ Verified against the repo and local run on `2026-05-04`.
 ## Product Scope
 Core task types:
 - LOI checks
+- Buddy Chat
 - Value checks
 - Fraud checks
 - Loan docs
@@ -117,7 +118,7 @@ Primary goals:
 ### Create Task Fields
 - Required fields:
   - Folder Name
-  - Task Type: `LOI`, `Value`, `Fraud`, `Loan Docs`, `OOO`
+  - Task Type: `LOI`, `Buddy Chat`, `Value`, `Fraud`, `Loan Docs`, `OOO`
   - Poop points: `1`-`5`, default `1`
   - Timing:
     - Non-OOO: urgency
@@ -131,6 +132,7 @@ Primary goals:
   - Folder Name label becomes `Vacation Description`
 - Notes label by task type:
   - LOI: `Loan Terms and Contacts`
+  - Buddy Chat: `Concerns`
   - Fraud: `Outstanding Items and Notes`
   - Value / Loan Docs / OOO: `Notes`
 
