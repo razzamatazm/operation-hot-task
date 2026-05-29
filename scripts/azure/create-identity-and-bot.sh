@@ -46,6 +46,60 @@ else
 fi
 az ad sp create --id "$TAB_APP_ID" >/dev/null 2>&1 || true
 
+# --- Teams SSO config on the tab app (rollout phase 1) ---
+# The tab app registration doubles as the SSO API: expose an Application ID
+# URI + an `access_as_user` scope, and pre-authorize the Teams first-party
+# clients so users get no consent prompt on first open.
+WEBAPP_DOMAIN="${TEAMS_DOMAIN:-${WEBAPP_NAME}.azurewebsites.net}"
+APP_ID_URI="api://${WEBAPP_DOMAIN}/${TAB_APP_ID}"
+TAB_OBJECT_ID="$(az ad app show --id "$TAB_APP_ID" --query id -o tsv)"
+
+echo "==> setting Application ID URI: $APP_ID_URI"
+az ad app update --id "$TAB_APP_ID" --identifier-uris "$APP_ID_URI"
+
+# Reuse the existing access_as_user scope id if present (idempotent re-runs),
+# else mint a new one.
+SCOPE_ID="$(az ad app show --id "$TAB_APP_ID" \
+  --query "api.oauth2PermissionScopes[?value=='access_as_user'].id | [0]" -o tsv)"
+if [[ -z "$SCOPE_ID" ]]; then
+  SCOPE_ID="$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-Z' 'a-z')"
+fi
+
+# Teams first-party client app IDs (web, desktop/mobile).
+TEAMS_WEB_CLIENT="5e3ce6c0-2b1f-4285-8d4b-75ee78787346"
+TEAMS_DESKTOP_CLIENT="1fec8e78-bce4-4aaf-ab1b-5451cc387264"
+
+API_PATCH="$(cat <<JSON
+{
+  "api": {
+    "requestedAccessTokenVersion": 2,
+    "oauth2PermissionScopes": [
+      {
+        "id": "${SCOPE_ID}",
+        "type": "User",
+        "value": "access_as_user",
+        "isEnabled": true,
+        "adminConsentDisplayName": "Access Operation Hot Task as the user",
+        "adminConsentDescription": "Allows Teams to call the Operation Hot Task API as the signed-in user.",
+        "userConsentDisplayName": "Access Operation Hot Task as you",
+        "userConsentDescription": "Allows Teams to call the Operation Hot Task API as you."
+      }
+    ],
+    "preAuthorizedApplications": [
+      { "appId": "${TEAMS_WEB_CLIENT}", "delegatedPermissionIds": ["${SCOPE_ID}"] },
+      { "appId": "${TEAMS_DESKTOP_CLIENT}", "delegatedPermissionIds": ["${SCOPE_ID}"] }
+    ]
+  }
+}
+JSON
+)"
+
+echo "==> configuring access_as_user scope + Teams pre-authorization (v2 tokens)"
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/${TAB_OBJECT_ID}" \
+  --headers "Content-Type=application/json" \
+  --body "$API_PATCH" >/dev/null
+
 BOT_APP_ID="$(find_app_id "$BOT_APP_NAME")"
 if [[ -z "$BOT_APP_ID" ]]; then
   echo "==> creating bot app registration: $BOT_APP_NAME"
@@ -79,7 +133,7 @@ else
     --output table
 fi
 
-echo "==> writing bot credentials to app settings"
+echo "==> writing bot credentials + SSO settings to app settings"
 az webapp config appsettings set \
   --resource-group "$RESOURCE_GROUP" \
   --name "$WEBAPP_NAME" \
@@ -87,6 +141,9 @@ az webapp config appsettings set \
     BOT_APP_ID="$BOT_APP_ID" \
     BOT_APP_PASSWORD="$BOT_APP_SECRET" \
     BOT_TENANT_ID="$TENANT_ID" \
+    AAD_TENANT_ID="$TENANT_ID" \
+    SSO_AUDIENCE="$APP_ID_URI" \
+    SSO_CLIENT_ID="$TAB_APP_ID" \
   --output table >/dev/null
 
 cat <<OUT
@@ -94,8 +151,20 @@ cat <<OUT
 identity_and_bot_complete
 TAB_APP_ID=$TAB_APP_ID
 BOT_APP_ID=$BOT_APP_ID
+APP_ID_URI=$APP_ID_URI
 BOT_RESOURCE_NAME=$BOT_RESOURCE_NAME
 BOT_ENDPOINT=$BOT_ENDPOINT
+
+SSO app settings written: AAD_TENANT_ID, SSO_AUDIENCE, SSO_CLIENT_ID.
+The tab app now exposes $APP_ID_URI with the access_as_user scope,
+pre-authorized for the Teams web + desktop/mobile clients.
+
+Next:
+  - Build the Teams package (webApplicationInfo auto-fills from these IDs):
+      export TEAMS_APP_ID=$TAB_APP_ID BOT_APP_ID=$BOT_APP_ID TEAMS_DOMAIN=$WEBAPP_DOMAIN
+      ./scripts/azure/build-teams-package.sh
+  - If your tenant requires it, grant admin consent for the access_as_user
+    scope in Entra (App registrations > $TAB_APP_NAME > API permissions).
 
 IMPORTANT: save BOT_APP_PASSWORD securely now (it will not be shown again):
 BOT_APP_PASSWORD=$BOT_APP_SECRET

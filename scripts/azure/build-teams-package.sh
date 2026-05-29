@@ -40,6 +40,8 @@ jq \
     | .staticTabs[0].websiteUrl = ("https://" + $domain + "/")
     | .configurableTabs[0].configurationUrl = ("https://" + $domain + "/")
     | .validDomains = [$domain]
+    | .webApplicationInfo.id = $appId
+    | .webApplicationInfo.resource = ("api://" + $domain + "/" + $appId)
   ' \
   "$MANIFEST_TEMPLATE" > "$MANIFEST_OUT"
 

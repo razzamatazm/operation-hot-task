@@ -54,8 +54,18 @@ What this does:
 - Creates a bot secret and writes bot creds into web app app settings (`BOT_APP_ID`, `BOT_APP_PASSWORD`, `BOT_TENANT_ID`)
 - Creates/updates Azure Bot resource (F0) with endpoint:
   - `https://${AZ_WEBAPP_NAME}.azurewebsites.net/api/bot/messages`
+- **SSO (team rollout):** on the tab app registration, sets the Application
+  ID URI (`api://<domain>/<tabAppId>`), exposes the `access_as_user` scope,
+  pre-authorizes the Teams web + desktop/mobile clients, forces v2 tokens,
+  and writes SSO app settings (`AAD_TENANT_ID`, `SSO_AUDIENCE`,
+  `SSO_CLIENT_ID`). This flips the server from dev header-trust to real
+  JWKS token verification.
 
-Save the printed `BOT_APP_PASSWORD` securely.
+Save the printed `BOT_APP_PASSWORD` securely. Note the printed `APP_ID_URI`.
+
+If your tenant requires it, grant admin consent for the `access_as_user`
+scope (App registrations > tab app > API permissions > Grant admin consent).
+Pre-authorized Teams clients skip the per-user consent prompt regardless.
 
 ## 3) Build Teams app package (manifest zip)
 
@@ -68,6 +78,9 @@ export TEAMS_DOMAIN="${AZ_WEBAPP_NAME}.azurewebsites.net"
 
 ./scripts/azure/build-teams-package.sh
 ```
+
+`webApplicationInfo` (the SSO block) is filled automatically from
+`TEAMS_APP_ID` + `TEAMS_DOMAIN` — no manual manifest edits needed.
 
 Output zip:
 - `teams-app/operation-hot-task-teams.zip`
