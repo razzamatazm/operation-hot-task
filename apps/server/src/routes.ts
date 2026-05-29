@@ -4,7 +4,7 @@ import { getUserFromRequest } from "./auth.js";
 import { config } from "./config.js";
 import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
-import { createTaskSchema, reviewNoteSchema, transitionSchema } from "./validation.js";
+import { createTaskSchema, reviewNoteSchema, transitionSchema, updatePointsSchema } from "./validation.js";
 
 const toCreateInput = (body: unknown) => {
   const parsed = createTaskSchema.parse(body);
@@ -19,6 +19,7 @@ const toCreateInput = (body: unknown) => {
     ...(parsed.dueAt ? { dueAt: parsed.dueAt } : {}),
     ...(parsed.returnDate ? { returnDate: parsed.returnDate } : {}),
     ...(parsed.urgency ? { urgency: parsed.urgency } : {}),
+    ...(parsed.points ? { points: parsed.points } : {}),
     ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {})
   };
 };
@@ -130,6 +131,17 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
     }
   });
 
+  router.post("/tasks/:taskId/points", async (req, res) => {
+    try {
+      const { points } = updatePointsSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.updateTaskPoints(req.params.taskId, points, user);
+      res.json({ task });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update points" });
+    }
+  });
+
   router.post("/tasks/:taskId/review-note", async (req, res) => {
     try {
       const { text } = reviewNoteSchema.parse(req.body);
@@ -145,12 +157,20 @@ export const buildRouter = (service: TaskService, sse: SseHub): Router => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    /* Disable proxy buffering (nginx, vite dev proxy) so chunks flush live. */
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
     sse.addClient(res);
-    res.write("event: connected\\ndata: {}\\n\\n");
+    res.write("event: connected\ndata: {}\n\n");
+
+    /* Heartbeat keeps intermediate proxies from coalescing the stream. */
+    const heartbeat = setInterval(() => {
+      res.write(": ping\n\n");
+    }, 15000);
 
     req.on("close", () => {
+      clearInterval(heartbeat);
       sse.removeClient(res);
     });
   });

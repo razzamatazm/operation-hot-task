@@ -3,6 +3,7 @@ import path from "node:path";
 import { CreateTaskInput, LoanTask, TaskType, UrgencyLevel, UserIdentity, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
 import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, MessageFactory, TurnContext } from "botbuilder";
 import { Express } from "express";
+import { normalizeHumperdinkLink } from "./validation.js";
 
 interface StoredReference {
   key: string;
@@ -12,7 +13,7 @@ interface StoredReference {
   userAadObjectId?: string;
 }
 
-type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "notes" | "returnDate" | "humperdinkLink">;
+type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "points" | "notes" | "returnDate" | "humperdinkLink">;
 type BotTaskCreator = (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>;
 
 type QuickAddStep =
@@ -20,11 +21,12 @@ type QuickAddStep =
   | "TASK_TYPE"
   | "RETURN_DATE"
   | "URGENCY"
+  | "POINTS"
   | "NOTES"
   | "HUMPERDINK"
   | "REVIEW"
   | "CONFIRM_CREATE";
-type EditableField = "FOLDER_NAME" | "TASK_TYPE" | "RETURN_DATE" | "URGENCY" | "NOTES" | "HUMPERDINK";
+type EditableField = "FOLDER_NAME" | "TASK_TYPE" | "RETURN_DATE" | "URGENCY" | "POINTS" | "NOTES" | "HUMPERDINK";
 
 interface QuickAddDraft {
   step: QuickAddStep;
@@ -33,6 +35,7 @@ interface QuickAddDraft {
   taskType?: TaskType;
   returnDate?: string;
   urgency?: UrgencyLevel;
+  points?: number;
   notes?: string;
   humperdinkLink?: string;
   editField?: EditableField;
@@ -59,11 +62,13 @@ const REVIEW_ACTIONS = [
   "Edit Task Type",
   "Edit Return Date",
   "Edit Urgency",
+  "Edit Poops",
   "Edit Notes",
   "Edit Humperdink Link",
   "Cancel"
 ] as const;
 const CONFIRM_CREATE_ACTIONS = ["Confirm create", "Back to review", "Cancel"] as const;
+const formatPoops = (points: number): string => "💩".repeat(Math.max(1, Math.min(5, Math.trunc(points))));
 
 const normalizeText = (raw: string): string =>
   raw
@@ -139,6 +144,13 @@ const parseUrgency = (text: string): UrgencyLevel | undefined => {
   }
   return undefined;
 };
+const parsePoints = (text: string): number | undefined => {
+  const value = Number.parseInt(text.trim(), 10);
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    return undefined;
+  }
+  return value;
+};
 
 const isNoAdditionalNotes = (text: string): boolean => normalizeText(text) === "no additional notes";
 const parseReturnDate = (text: string): string | undefined => {
@@ -161,14 +173,6 @@ const isSkip = (text: string): boolean => {
   const normalized = normalizeText(text);
   return normalized === "skip" || normalized === "none" || normalized === "n/a";
 };
-const isValidUrl = (text: string): boolean => {
-  try {
-    const parsed = new URL(text);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
 const formatField = (value: string | undefined): string => (value && value.trim().length > 0 ? value : "Not provided");
 const urgencyLabel = (urgency: UrgencyLevel): string => URGENCY_CHOICES.find((choice) => choice.value === urgency)?.label ?? urgency;
 const taskTypeLabel = (taskType: TaskType): string => TASK_TYPE_CHOICES.find((choice) => choice.value === taskType)?.label ?? taskType;
@@ -183,7 +187,7 @@ const parseConfirmCreateAction = (text: string): string | undefined => {
   return CONFIRM_CREATE_ACTIONS.find((action) => normalizeReviewAction(action) === normalized);
 };
 const isEditableStep = (step: QuickAddStep): step is EditableField =>
-  step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "RETURN_DATE" || step === "URGENCY" || step === "NOTES" || step === "HUMPERDINK";
+  step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "RETURN_DATE" || step === "URGENCY" || step === "POINTS" || step === "NOTES" || step === "HUMPERDINK";
 
 const reviewActionsForDraft = (draft: QuickAddDraft): string[] => {
   if (draft.taskType === "OOO") {
@@ -365,7 +369,24 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
 
-      const nextDraft = this.updateDraft(draft, { returnDate: parsed, step: "NOTES" });
+      const nextDraft = this.updateDraft(draft, { returnDate: parsed, step: "POINTS" });
+      this.drafts.set(key, nextDraft);
+      if (nextDraft.step === "REVIEW") {
+        await this.sendReview(context, nextDraft);
+        return;
+      }
+      await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
+      return;
+    }
+
+    if (draft.step === "POINTS") {
+      const parsed = parsePoints(text);
+      if (!parsed) {
+        await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Pick a poop value from 1 to 5:"));
+        return;
+      }
+
+      const nextDraft = this.updateDraft(draft, { points: parsed, step: "NOTES" });
       this.drafts.set(key, nextDraft);
       if (nextDraft.step === "REVIEW") {
         await this.sendReview(context, nextDraft);
@@ -389,15 +410,13 @@ class LoanTasksBot extends ActivityHandler {
         return;
       }
 
-      const nextDraft = this.updateDraft(draft, { urgency: parsed, step: "NOTES" });
+      const nextDraft = this.updateDraft(draft, { urgency: parsed, step: "POINTS" });
       this.drafts.set(key, nextDraft);
       if (nextDraft.step === "REVIEW") {
         await this.sendReview(context, nextDraft);
         return;
       }
-      await context.sendActivity(
-        MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(nextDraft.taskType))
-      );
+      await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
       return;
     }
 
@@ -417,12 +436,14 @@ class LoanTasksBot extends ActivityHandler {
 
     if (draft.step === "HUMPERDINK") {
       const trimmed = text.trim();
-      if (!isSkip(trimmed) && trimmed.length > 0 && !isValidUrl(trimmed)) {
+      const skipOrEmpty = isSkip(trimmed) || trimmed.length === 0;
+      const normalized = skipOrEmpty ? "" : normalizeHumperdinkLink(trimmed);
+      if (!skipOrEmpty && (normalized === null || normalized === "")) {
         await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Please enter a valid URL (http/https), or choose Skip:"));
         return;
       }
 
-      const humperdinkLink = isSkip(trimmed) || trimmed.length === 0 ? undefined : trimmed;
+      const humperdinkLink = skipOrEmpty ? undefined : (normalized as string);
       const nextDraft = this.updateDraft(draft, { step: "REVIEW" });
       if (humperdinkLink) {
         nextDraft.humperdinkLink = humperdinkLink;
@@ -473,6 +494,12 @@ class LoanTasksBot extends ActivityHandler {
         }
         this.drafts.set(key, this.updateDraft(draft, { step: "URGENCY", editField: "URGENCY" }));
         await context.sendActivity(MessageFactory.suggestedActions(URGENCY_CHOICES.map((choice) => choice.label), "Choose urgency:"));
+        return;
+      }
+
+      if (action === "Edit Poops") {
+        this.drafts.set(key, this.updateDraft(draft, { step: "POINTS", editField: "POINTS" }));
+        await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
         return;
       }
 
@@ -588,6 +615,10 @@ class LoanTasksBot extends ActivityHandler {
       await context.sendActivity(MessageFactory.suggestedActions(URGENCY_CHOICES.map((choice) => choice.label), "Choose urgency:"));
       return;
     }
+    if (draft.step === "POINTS") {
+      await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
+      return;
+    }
     if (draft.step === "RETURN_DATE") {
       await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
       return;
@@ -614,6 +645,7 @@ class LoanTasksBot extends ActivityHandler {
       draft.taskType === "OOO"
         ? `Return Date: ${formatField(draft.returnDate)}`
         : `Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`,
+      `Poops: ${formatPoops(draft.points ?? 1)} (${draft.points ?? 1})`,
       `${getNotesFieldLabel(draft.taskType)}: ${formatField(draft.notes)}`,
       ...(draft.taskType === "OOO" ? [] : [`Humperdink Link: ${formatField(draft.humperdinkLink)}`])
     ];
@@ -631,7 +663,8 @@ class LoanTasksBot extends ActivityHandler {
       `Task Type: ${draft.taskType ? taskTypeLabel(draft.taskType) : "Not provided"}`,
       draft.taskType === "OOO"
         ? `Return Date: ${formatField(draft.returnDate)}`
-        : `Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`
+        : `Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`,
+      `Poops: ${formatPoops(draft.points ?? 1)} (${draft.points ?? 1})`
     ];
     await context.sendActivity(
       MessageFactory.suggestedActions(
@@ -663,6 +696,7 @@ class LoanTasksBot extends ActivityHandler {
     const payload: BotTaskCreateInput = {
       folderName: draft.folderName,
       taskType: draft.taskType,
+      points: draft.points ?? 1,
       notes: draft.notes,
       ...(draft.taskType === "OOO" && draft.returnDate ? { returnDate: draft.returnDate } : {}),
       ...(draft.taskType !== "OOO" && draft.urgency ? { urgency: draft.urgency } : {}),
@@ -675,7 +709,7 @@ class LoanTasksBot extends ActivityHandler {
       await context.sendActivity(
         `Task created: ${task.folderName}\nType: ${taskTypeLabel(task.taskType)}\n${
           task.taskType === "OOO" ? `Return Date: ${draft.returnDate}` : `Urgency: ${urgencyLabel(task.urgency)}`
-        }\nStatus: ${task.status}`
+        }\nPoops: ${formatPoops(task.points)} (${task.points})\nStatus: ${task.status}`
       );
     } catch (error) {
       this.drafts.delete(key);

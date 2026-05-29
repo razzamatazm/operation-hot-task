@@ -1,5 +1,7 @@
 import { DEFAULT_CONFIG } from "@loan-tasks/shared";
 import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 dotenv.config();
 
@@ -11,11 +13,21 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+// Resolve relative data paths against the server package root, not the
+// process cwd, so dev (cwd=apps/server) and prod (cwd=repo root) and
+// smoke (cwd=repo root) all land on the same files. Absolute paths
+// (smoke uses os.tmpdir()) pass through untouched.
+const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const resolveServerPath = (value: string | undefined, fallback: string): string => {
+  const raw = value ?? fallback;
+  return path.isAbsolute(raw) ? raw : path.resolve(SERVER_ROOT, raw);
+};
+
 export const config = {
   port: parseNumber(process.env.PORT, 4100),
   host: process.env.HOST ?? "127.0.0.1",
-  dataFile: process.env.DATA_FILE ?? "apps/server/data/tasks.json",
-  frontendDist: process.env.FRONTEND_DIST ?? "apps/web/dist",
+  dataFile: resolveServerPath(process.env.DATA_FILE, "data/tasks.json"),
+  frontendDist: resolveServerPath(process.env.FRONTEND_DIST, "../web/dist"),
   businessTimezone: process.env.BUSINESS_TIMEZONE ?? DEFAULT_CONFIG.businessTimezone,
   businessStartHour: parseNumber(process.env.BUSINESS_START_HOUR, DEFAULT_CONFIG.businessStartHour),
   businessStartMinute: parseNumber(process.env.BUSINESS_START_MINUTE, DEFAULT_CONFIG.businessStartMinute),
@@ -28,10 +40,10 @@ export const config = {
   botAppId: process.env.BOT_APP_ID,
   botAppPassword: process.env.BOT_APP_PASSWORD,
   botTenantId: process.env.BOT_TENANT_ID,
-  botReferencesFile: process.env.BOT_REFERENCES_FILE ?? "apps/server/data/bot-references.json",
+  botReferencesFile: resolveServerPath(process.env.BOT_REFERENCES_FILE, "data/bot-references.json"),
   inboundApiKey: process.env.INBOUND_API_KEY,
   enableActivityFeedNotifications: (process.env.ENABLE_ACTIVITY_FEED_NOTIFICATIONS ?? "false") === "true",
-  activityFeedStateFile: process.env.ACTIVITY_FEED_STATE_FILE ?? "apps/server/data/activity-feed-state.json",
+  activityFeedStateFile: resolveServerPath(process.env.ACTIVITY_FEED_STATE_FILE, "data/activity-feed-state.json"),
   graphTenantId: process.env.GRAPH_TENANT_ID,
   graphClientId: process.env.GRAPH_CLIENT_ID,
   graphClientSecret: process.env.GRAPH_CLIENT_SECRET,

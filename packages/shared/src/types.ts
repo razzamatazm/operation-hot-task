@@ -55,6 +55,7 @@ export interface LoanTask {
   taskType: TaskType;
   dueAt: string;
   urgency: UrgencyLevel;
+  points: number;
   notes: string;
   humperdinkLink?: string;
   /** @deprecated Compatibility alias for one release window. */
@@ -88,6 +89,7 @@ export interface CreateTaskInput {
   dueAt?: string;
   returnDate?: string;
   urgency?: UrgencyLevel;
+  points?: number;
   notes: string;
   humperdinkLink?: string;
   /** @deprecated Compatibility alias for one release window. */
@@ -97,6 +99,10 @@ export interface CreateTaskInput {
 export interface UpdateTaskStatusInput {
   status: TaskStatus;
   reviewNotes?: string;
+}
+
+export interface UpdateTaskPointsInput {
+  points: number;
 }
 
 export interface NotificationEvent {

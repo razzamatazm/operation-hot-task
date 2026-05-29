@@ -1,14 +1,47 @@
 import { z } from "zod";
 
+const SCHEME_PREFIX_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+export const normalizeHumperdinkLink = (raw: string): string | null => {
+  const value = raw.trim();
+  if (value.length === 0) return "";
+  const candidate = SCHEME_PREFIX_RE.test(value) ? value : `https://${value}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (!parsed.hostname) return null;
+  return parsed.toString();
+};
+
+const humperdinkLinkSchema = z
+  .string()
+  .transform((value, ctx) => {
+    const normalized = normalizeHumperdinkLink(value);
+    if (normalized === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "humperdinkLink must be an http(s) URL"
+      });
+      return z.NEVER;
+    }
+    return normalized;
+  })
+  .optional();
+
 export const createTaskSchema = z.object({
   folderName: z.string().min(1).optional(),
   loanName: z.string().min(1).optional(),
-  taskType: z.enum(["LOI", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]),
+  taskType: z.enum(["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]),
   dueAt: z.string().datetime().optional(),
   returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "returnDate must be YYYY-MM-DD").optional(),
   urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"]).optional(),
+  points: z.number().int().min(0).max(5).optional(),
   notes: z.string().min(1),
-  humperdinkLink: z.string().url().optional().or(z.literal("")),
+  humperdinkLink: humperdinkLinkSchema,
   serverLocation: z.string().optional()
 }).superRefine((value, ctx) => {
   const hasFolderName = Boolean(value.folderName?.trim());
@@ -52,6 +85,10 @@ export const createTaskSchema = z.object({
       message: "returnDate is only allowed for OOO tasks"
     });
   }
+});
+
+export const updatePointsSchema = z.object({
+  points: z.number().int().min(0).max(5)
 });
 
 export const transitionSchema = z.object({

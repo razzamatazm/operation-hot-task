@@ -1,10 +1,91 @@
 # AGENTS.md
 
-## Project
-Loan Tasks Teams App for internal company use.
+## Agent Charter
+- This repo is for `Operation Hot Task`, an internal Microsoft Teams task app for loan operations.
+- Treat this file as the working source of truth for agent behavior, confirmed product decisions, and current implementation state.
+- Ask discovery questions one at a time when a change depends on business intent that is not already confirmed here.
+- Do not make implementation-critical product assumptions when the answer is not already captured here.
+- When the user confirms a new product or workflow decision, record it in this file in the appropriate section.
+- Separate `current implementation` from `target direction`. Do not present planned architecture as if it already exists.
 
+## Current Implementation Snapshot
+Verified against the repo and local run on `2026-05-04`.
+
+- Monorepo with:
+  - `apps/web`: React + Vite Teams tab UI
+  - `apps/server`: Express API, scheduler, SSE stream, Teams bot endpoint, notification plumbing
+  - `packages/shared`: shared task types, workflow rules, due-date logic
+  - `teams-app`: Teams manifest template and icon assets
+- Local development uses:
+  - Header-based mock auth, not Entra SSO
+  - JSON file persistence, not Azure SQL
+  - Vite frontend on `http://localhost:5173`
+  - Express backend on `http://127.0.0.1:4100`
+- The app is functional locally without Teams credentials.
+- Verified commands:
+  - `npm run build`
+  - `npm run test:scheduler`
+  - `npm run test:smoke`
+- Current data files:
+  - Tasks/history: `apps/server/data/tasks.json`
+  - Bot references: `apps/server/data/bot-references.json`
+  - Activity feed state: `apps/server/data/activity-feed-state.json`
+
+## Repo Runbook
+- Install: `npm install`
+- Local env setup:
+  - `cp apps/server/.env.example apps/server/.env`
+  - `cp apps/web/.env.example apps/web/.env`
+- Start local dev: `npm run dev`
+- Production-style build: `npm run build`
+- Main validation commands:
+  - `npm run test:scheduler`
+  - `npm run test:smoke`
+  - `npm run test:all`
+
+## Current UI Surfaces
+- Header:
+  - App title: `Operation Hot Task`
+  - `New Task` toggle
+  - Local user picker for mock identities
+- Tabs:
+  - `Active`
+  - `Archived`
+  - `Leaderboard`
+  - `Metrics` for admin users only
+- Active tab behavior:
+  - Shows the current user’s active work
+  - Shows claimable/open work when available
+  - Shows recent activity as a compact expandable table
+- Leaderboard tab:
+  - Displays poop leaderboard
+  - Supports `This Week` and `This Month`
+- Metrics tab:
+  - Admin-only
+  - Includes claim volume, status totals, LOI-to-Loan-Docs conversion, and task-type breakdown
+- Create-task form:
+  - OOO relabels `Folder Name` to `Vacation Description`
+  - Non-OOO tasks show urgency selector
+  - OOO tasks show return-date selector
+  - Poop points selector is always present as a 5-emoji picker
+  - Humperdink Link is non-OOO only
+
+## Current Auth And Identity Model
+- Local/API auth is currently request-header based.
+- Server reads:
+  - `x-user-id`
+  - `x-user-name`
+  - `x-user-roles`
+- Web UI simulates users with three built-in mock identities:
+  - `Suzie`: loan officer
+  - `Alexa`: loan officer + file checker
+  - `Johanna`: loan officer + file checker + admin
+- Entra ID SSO remains target direction, not current local behavior.
+
+## Product Scope
 Core task types:
 - LOI checks
+- Buddy Chat
 - Value checks
 - Fraud checks
 - Loan docs
@@ -13,148 +94,246 @@ Core task types:
 Primary goals:
 - Create, claim, complete, and archive tasks
 - Track in-progress and completed work
-- Show urgency with stoplight colors
+- Show urgency with stoplight-style visuals
 - Send real-time updates and overdue reminders
 
-## Working Agreement
-- Ask discovery questions one at a time.
-- Do not proceed to implementation-critical assumptions without user confirmation.
-- Record confirmed decisions in this file as the source of truth.
+## Confirmed Product Decisions
 
-## Proposed Technical Direction (Default Unless Changed)
-- Microsoft Teams app with:
-  - Tab for task management UI
-  - Bot for notifications/reminders
-- Microsoft Entra ID SSO for identity
-- Backend API + scheduler on Azure
-- Relational DB (Azure SQL) for task state and audit history
+### Teams Surface
+- Teams surface: Tab + Bot
+- Teams app display name: `Operation Hot Task`
+- App icons use paper-on-fire concept with color and outline variants
 
-## Workflow Direction
-- General statuses include:
+### Roles And Permissions
+- Roles:
+  - Loan officers
+  - File checkers
+  - Admins
+- File checkers are a subset of loan officers
+- Only file checkers can claim and complete Fraud Check tasks
+- `Cancelled` can be set by task creator or admin
+- `Claimed -> Needs Review` can be done by assignee or creator
+- `Needs Review -> Claimed` and `Needs Review -> Completed` do not require admin
+
+### Create Task Fields
+- Required fields:
+  - Folder Name
+  - Task Type: `LOI`, `Buddy Chat`, `Value`, `Fraud`, `Loan Docs`, `OOO`
+  - Poop points: `1`-`5`, default `1`
+  - Timing:
+    - Non-OOO: urgency
+    - OOO: return date in `YYYY-MM-DD`, PT
+  - Notes
+- Optional fields:
+  - Non-OOO only: Humperdink Link
+- Folder Name is the canonical task name
+- There is no separate file name field
+- OOO UI wording:
+  - Folder Name label becomes `Vacation Description`
+- Notes label by task type:
+  - LOI: `Loan Terms and Contacts`
+  - Buddy Chat: `Concerns`
+  - Fraud: `Outstanding Items and Notes`
+  - Value / Loan Docs / OOO: `Notes`
+
+### Status Model
+- General statuses:
   - `Open`
   - `Claimed`
   - `Needs Review`
   - `Cancelled`
   - `Completed`
   - `Archived`
-- Loan Docs lifecycle has extra merge stages:
+- Loan Docs lifecycle:
   - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
 
-## Decision Log
-### Confirmed
-- Teams surface: Tab + Bot
-- Roles:
-  - Loan officers
-  - File checkers (subset of loan officers)
-  - Admins
-- Permission constraint:
-  - Only file checkers can claim/complete Fraud Check tasks
-- Required create-task fields:
-  - Folder Name
-  - Task Type (`LOI`, `Value`, `Fraud`, `Loan Docs`, `OOO`)
-  - Timing:
-    - Non-OOO: Urgency (`Green`, `Yellow`, `Orange`, `Red`)
-    - OOO: Return Date (`YYYY-MM-DD`, PT)
-  - OOO description label:
-    - For OOO tasks, Folder Name is presented as `Vacation Description`
-  - Notes
-  - Notes label by task type (UI wording only; stored field remains `notes`):
-    - LOI: `Loan Terms and Contacts`
-    - Fraud: `Outstanding Items and Notes`
-    - Value / Loan Docs / OOO: `Notes`
-- Optional create-task fields:
-  - Non-OOO only: Humperdink Link (URL)
-  - Folder Name is the canonical task name (no separate file name field)
-- Due Date/Urgency behavior:
-  - Due date is tracked backend-only (not shown in user-facing UI)
-  - Auto due date is derived from urgency level
-- Default urgency:
-  - All task types default to `Green` (editable)
-- Urgency definitions:
-  - `Green`: due in 24 real hours from creation (if due time lands on weekend, roll to Monday)
+### Claiming Rules
+- Claiming is first-come-first-serve
+- Unclaim is allowed
+- Claim tasks section is hidden when there are no claimable tasks
+
+### Poop Points Rules
+- Stored field remains numeric `points`
+- User-facing points name is `Poops`
+- All task types, including OOO, use poop points
+- Poop points are awarded on completion
+- Task cards show per-task points as `1`-`5` repeated poop emojis
+- The create-task form uses a 5-emoji left-to-right picker:
+  - Inactive slots are monochrome poop emoji styling
+  - Active slots are full-color poop emojis
+- Poop points are only set at task creation time
+- Poop points cannot be edited after a task is created
+- Legacy tasks missing points are backfilled to `1`
+
+### Due Date And Urgency
+- Due date is tracked backend-only
+- Due date is not shown in user-facing UI as a dedicated field
+- Default urgency for all non-OOO task types is `Green`
+- Urgency meanings:
+  - `Green`: due in 24 real hours from creation; if the due time lands on a weekend, roll to Monday
   - `Yellow`: needed by end of business day
   - `Orange`: needed within 1 hour
-  - `Red`: urgent (drop-everything / immediate)
-- Urgency display policy:
-  - User-facing labels use timeframe-only wording (`Within 24 Hours`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
-  - Color remains visual styling only (no color word in label text)
-- Workflow statuses:
-  - Added `Needs Review` and `Cancelled`
-- Loan Docs workflow:
-  - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
-- Transition permissions:
-  - `Claimed -> Needs Review` can be done by assignee or task creator
-  - `Needs Review -> Claimed` and `Needs Review -> Completed` do not require admin
-  - `Cancelled` can be set by task creator or admin
-- Claiming:
-  - First-come-first-serve
-  - Unclaim is allowed
-  - Claim tasks section is hidden when there are no claimable tasks
-- Front page recent activity:
-  - Active tab includes a bottom section showing the most recent 30 tasks
-  - Ordering in that section: active statuses first (`Open`, `Claimed`, `Needs Review`, `Merge Done`, `Merge Approved`), then closed statuses (`Completed`, `Cancelled`, `Archived`)
-  - Within each group, tasks are sorted by newest created timestamp first
-  - Presented as a compact spreadsheet-style table (Task Name, Status, Type, Creator, Assignee, Date Created, Date Completed)
-  - Clicking a recent activity row expands inline detailed task view beneath that row
-  - `Date Completed` shows `—` unless `completedAt` exists
-- Notifications:
+  - `Red`: urgent now
+- User-facing urgency labels use timeframe wording:
+  - `Within 24 Hours`
+  - `End of Day`
+  - `Within 1 Hour`
+  - `Urgent Now`
+- Color is visual styling only
+
+### OOO Rules
+- OOO is a first-class task type
+- OOO uses return date instead of urgency input
+- Return date is date-only and interpreted in `America/Los_Angeles`
+- OOO `dueAt` is computed as `8:30 AM PT` on the return date
+- OOO return date must resolve to a future due time
+- OOO auto-completes from active statuses when the return due time is reached
+- OOO uses existing people model:
+  - Creator = out-of-office person
+  - Assignee = covering person when claimed
+- OOO keeps standard claim/unclaim flow using `Open` and `Claimed`
+
+### Leaderboard
+- `Leaderboard` tab is visible to all users
+- Time windows:
+  - `This Week`
+  - `This Month`
+- Week starts Monday at `12:00 AM` PT
+- Scoring uses `completedAt` in PT
+- Tasks counted are in current status `Completed` or `Archived`
+- Tie-breakers:
+  - Higher points
+  - Higher completed task count
+  - Display name ascending
+- Show all users with non-zero points in selected period
+- Reopened tasks are recalculated from current state; there is no immutable score ledger in v1
+
+### Front Page Recent Activity
+- Active tab includes bottom-section recent activity
+- Show the most recent `30` tasks
+- Ordering:
+  - Active statuses first: `Open`, `Claimed`, `Needs Review`, `Merge Done`, `Merge Approved`
+  - Closed statuses second: `Completed`, `Cancelled`, `Archived`
+  - Within each group: newest `createdAt` first
+- Table columns:
+  - Task Name
+  - Status
+  - Type
+  - Creator
+  - Assignee
+  - Date Created
+  - Date Completed
+- Clicking a row expands an inline detailed task view beneath that row
+- `Date Completed` shows `—` when `completedAt` is missing
+
+### Notifications
+- Notification channels:
   - In-app notifications
   - Teams bot direct messages
   - Teams bot channel posts
-  - Channel post target: dedicated Tasks channel (to be configured per Team)
-  - New task created: broadcast to channel (plus in-app event)
-  - Task claimed/unclaimed: post channel update; claimer also gets DM confirmation on claim
+  - Teams activity feed notifications
+- Dedicated Tasks channel is the channel-post target
+- Routing:
+  - New task created: channel broadcast plus in-app event
+  - Task claimed/unclaimed: channel update; claimer gets DM on claim
   - `Merge Done` and `Completed`: DM task creator
   - `Merge Approved`: DM task assignee
-  - Notes: DM counterpart user (assignee -> creator, creator -> assignee)
-  - Reminders: DM assignee, except `Loan Docs` waiting on merge approval (`Merge Done`) where reminder DM goes to creator
-  - v1 bot scope: notifications/reminders + quick add (`/bot new`)
-  - Bot quick add flow:
-    - Ask Folder Name
-    - Ask task type (`LOI Check`, `Value Check`, `Loan Docs`, `Fraud Check`, `OOO - Out of Office`)
-    - If task type is non-OOO, ask urgency (`Within 24 Hours`, `End of Day`, `Within 1 Hour`, `Urgent Now`)
-    - If task type is OOO, ask return date (`YYYY-MM-DD`, PT)
-    - Ask notes (with quick option for no additional notes)
-    - If task type is non-OOO, ask Humperdink Link (must be valid URL or skipped)
-    - Show final review step with field-level edits
-    - Show explicit final create confirmation before task submission
-    - Support `/bot back` to return to prior step during quick add
-- Overdue reminders:
-  - Every 1 hour
-  - Only during business hours
-  - Business hours: 8:30 AM to 5:30 PM, Los Angeles time (`America/Los_Angeles`)
-  - Stop reminders when status is `Completed`, `Archived`, or `Cancelled`
-- Data retention/compliance:
-  - Archived tasks retained for 3 months
-  - No additional compliance constraints specified for v1
-- Integrations:
-  - v1 is standalone (no LOS/CRM integration)
-  - Planned phase 2: allow in-house web app to create tasks via API/button click
-- Hosting:
+  - Notes: DM counterpart user
+  - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM goes to creator
+- Bot v1 scope:
+  - Notifications/reminders
+  - Quick add via `/bot new`
+- Bot quick add flow:
+  - Ask Folder Name
+  - Ask task type
+  - Ask urgency for non-OOO
+  - Ask return date for OOO
+  - Ask Poops
+  - Ask notes
+  - Ask Humperdink Link for non-OOO
+  - Show final review with field-level edits
+  - Show explicit final create confirmation
+  - Support `/bot back`
+
+### Activity Feed
+- Left-rail icon dot is not used
+- Teams activity feed is used instead
+- Activity type is `systemDefault` for v1
+- Activity feed alerts trigger on:
+  - State change
+  - Hourly reminder cadence during business hours
+- Bounce-back condition is `Needs Review`
+- Pickup scope is tasks claimable by the user
+- Due condition is overdue-only
+
+### Overdue Reminders And Retention
+- Reminder cadence: every 1 hour
+- Reminders only during business hours
+- Business hours:
+  - `8:30 AM` to `5:30 PM`
+  - `America/Los_Angeles`
+- Stop reminders when status is:
+  - `Completed`
+  - `Archived`
+  - `Cancelled`
+- Archived tasks are retained for `3 months`
+
+### Integrations And Hosting
+- v1 is standalone with no LOS/CRM integration
+- Planned phase 2:
+  - In-house web app can create tasks through API/button click
+- Hosting direction:
   - Local-first implementation
   - Azure-ready deployment target
-- Teams branding:
-  - App display name in Teams: `Operation Hot Task`
-  - App icons: paper-on-fire concept (color + outline variants)
-- OOO task type:
-  - Added task type: `OOO` (Out of Office)
-  - OOO uses return-date model instead of urgency input
-  - Return date is user-entered date-only and interpreted in `America/Los_Angeles`
-  - OOO dueAt is computed at `8:30 AM PT` on the return date
-  - OOO return date must resolve to a future due time
-  - OOO auto-completes from active statuses when return due time is reached
-  - OOO uses existing people model:
-    - Creator = out-of-office person
-    - Assignee = covering person when claimed
-  - OOO keeps standard claim/unclaim flow (`Open`/`Claimed`)
-- Teams app attention indicator:
-  - Left-rail icon dot is not used
-  - Teams activity feed notifications are used instead
-  - Activity feed uses `systemDefault` activity type for v1
-  - Activity feed state alerts trigger on state-change and hourly reminder cadence (business hours)
-  - Bounce-back condition for alerts is `Needs Review`
-  - Pickup scope for alerts is tasks claimable by the user
-  - Due condition for alerts is overdue-only (`dueAt` in the past)
 
-### Open Questions Queue
+## Current Backend Surface
+- Health:
+  - `GET /api/health`
+- Tasks:
+  - `GET /api/tasks`
+  - `POST /api/tasks`
+  - `GET /api/tasks/:taskId`
+  - `GET /api/tasks/:taskId/history`
+  - `POST /api/tasks/:taskId/claim`
+  - `POST /api/tasks/:taskId/unclaim`
+  - `POST /api/tasks/:taskId/transition`
+  - `POST /api/tasks/:taskId/points`
+  - `POST /api/tasks/:taskId/review-note`
+- Integration:
+  - `POST /api/integrations/tasks` with `x-api-key` when enabled
+- Streaming:
+  - `GET /api/stream`
+- Bot:
+  - `POST /api/bot/messages`
+
+## Current Architecture Notes
+- The server currently serves API traffic only in dev; Vite serves the UI separately.
+- The server can serve built frontend assets when `apps/web/dist/index.html` exists at the configured path for the running process.
+- Real-time UI updates are delivered through SSE.
+- Scheduler runs every 5 minutes and handles reminders, OOO auto-complete, auto-archive, and archive purge.
+- Persistence is file-backed through `TaskStore`.
+- Shared workflow logic lives in `packages/shared` and should remain the canonical place for status rules, due-date logic, and permission helpers.
+
+## Target Direction
+- Microsoft Teams app with:
+  - Tab for task management UI
+  - Bot for notifications/reminders
+- Microsoft Entra ID SSO for identity
+- Backend API + scheduler on Azure
+- Relational DB, expected Azure SQL, for task state and audit history
+
+## Implementation Guardrails For Agents
+- Prefer changing shared workflow and type logic in `packages/shared` before duplicating rules in `apps/web` or `apps/server`.
+- When changing product rules, update:
+  - shared types/workflow
+  - server validation and service logic
+  - web UI labels and affordances
+  - this file if the decision is confirmed
+- Do not assume Teams credentials, Graph credentials, bot credentials, or inbound integration auth are configured locally.
+- Preserve compatibility aliases only when necessary:
+  - `loanName`
+  - `serverLocation`
+- Distinguish local mock-auth behavior from production identity direction in user-facing explanations.
+
+## Open Questions Queue
 - None currently.
