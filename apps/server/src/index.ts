@@ -59,7 +59,7 @@ const bootstrap = async (): Promise<void> => {
   app.use(cors());
   app.use(express.json());
 
-  app.use("/api", buildRouter(service, sse, userStore, botClient));
+  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient));
   botClient.register(app);
 
   const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);

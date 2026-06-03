@@ -7,6 +7,7 @@ import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
 import { UserStore } from "./user-store.js";
 import { TeamsBotClient } from "./bot.js";
+import { ActivityFeedClient } from "./activity-feed.js";
 import { createTaskSchema, reviewNoteSchema, transitionSchema, updatePointsSchema } from "./validation.js";
 
 const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
@@ -39,7 +40,7 @@ const toCreateInput = (body: unknown) => {
   };
 };
 
-export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient): Router => {
+export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient): Router => {
   const router = Router();
 
   /* Resolve the caller: verify the SSO token (or accept dev headers), then
@@ -99,7 +100,10 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({
         bot: await botClient.status(),
         channelWebhook: Boolean(config.webhookUrl),
-        activityFeed: config.enableActivityFeedNotifications
+        /* Effective state, not the raw flag: ActivityFeedClient.isEnabled()
+           is false when the flag is on but Graph/Teams creds are missing, so
+           the admin panel won't show "On" when nothing can actually send. */
+        activityFeed: activityFeedClient.isEnabled()
       });
     } catch (error) {
       sendError(res, error, "Failed to read status");

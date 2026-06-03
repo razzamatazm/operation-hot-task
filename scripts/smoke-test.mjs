@@ -676,6 +676,23 @@ const run = async () => {
     }
   }
 
+  // /status reports the EFFECTIVE activity-feed state: flag on but Graph
+  // creds missing => the client is disabled => status must report false.
+  let partialServer;
+  try {
+    partialServer = await createServer(BASE_PORT + 2, { ENABLE_ACTIVITY_FEED_NOTIFICATIONS: "true" });
+    const partialStatus = await request(partialServer.baseUrl, "GET", "/status", { user: users.admin });
+    expectStatus(partialStatus.status, 200, "status with partial activity-feed config", partialStatus.json);
+    assert.equal(partialStatus.json.activityFeed, false, "activity feed reports effective (disabled) state without Graph creds");
+    pushPass("status reflects effective activity-feed state, not just the raw flag");
+  } catch (error) {
+    pushFail(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (partialServer) {
+      await partialServer.stop();
+    }
+  }
+
   const failed = results.filter((line) => line.startsWith("FAIL"));
   for (const line of results) {
     console.log(line);
