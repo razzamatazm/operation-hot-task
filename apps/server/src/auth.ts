@@ -3,12 +3,14 @@ import { UserIdentity, UserRole } from "@loan-tasks/shared";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { config } from "./config.js";
 
-/* Raised when a request cannot be authenticated. Routes map this to 401. */
+/* Raised when a request cannot be authenticated (401) or is authenticated
+   but not allowed (403 — e.g. a deactivated account or non-admin). */
 export class AuthError extends Error {
-  readonly status = 401;
-  constructor(message: string) {
+  readonly status: number;
+  constructor(message: string, status = 401) {
     super(message);
     this.name = "AuthError";
+    this.status = status;
   }
 }
 
