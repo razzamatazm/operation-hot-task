@@ -54,7 +54,7 @@ export class ActivityFeedClient {
       const payload = {
         topic: {
           source: "text",
-          value: "Operation Hot Task",
+          value: "Hot Task",
           webUrl: this.buildTaskDeepLink(taskId)
         },
         activityType: "systemDefault",
