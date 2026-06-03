@@ -786,6 +786,27 @@ export class TeamsBotClient {
     return Boolean(this.adapter && this.bot);
   }
 
+  /* Bot connectivity for the admin panel. `enabled` = credentials are
+     configured. DM/channel counts come from stored conversation references,
+     which only exist once Teams has actually delivered a message to this
+     server — so a non-zero count is real proof the bot is wired end-to-end. */
+  async status(): Promise<{ enabled: boolean; dmCount: number; channelCount: number }> {
+    if (!this.isEnabled()) {
+      return { enabled: false, dmCount: 0, channelCount: 0 };
+    }
+    let references: { scope: "DM" | "CHANNEL" }[] = [];
+    try {
+      references = await this.store.read();
+    } catch {
+      references = [];
+    }
+    return {
+      enabled: true,
+      dmCount: references.filter((r) => r.scope === "DM").length,
+      channelCount: references.filter((r) => r.scope === "CHANNEL").length
+    };
+  }
+
   register(app: Express, pathName = "/api/bot/messages"): void {
     app.post(pathName, async (req, res) => {
       if (!this.adapter || !this.bot) {

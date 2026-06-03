@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
 import { UserStore } from "./user-store.js";
+import { TeamsBotClient } from "./bot.js";
 import { createTaskSchema, reviewNoteSchema, transitionSchema, updatePointsSchema } from "./validation.js";
 
 const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
@@ -38,7 +39,7 @@ const toCreateInput = (body: unknown) => {
   };
 };
 
-export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore): Router => {
+export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient): Router => {
   const router = Router();
 
   /* Resolve the caller: verify the SSO token (or accept dev headers), then
@@ -87,6 +88,21 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json(user);
     } catch (error) {
       sendError(res, error, "Failed to resolve identity");
+    }
+  });
+
+  /* Admin: system status for the admin panel (bot connectivity, etc.). */
+  router.get("/status", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      res.json({
+        bot: await botClient.status(),
+        channelWebhook: Boolean(config.webhookUrl),
+        activityFeed: config.enableActivityFeedNotifications
+      });
+    } catch (error) {
+      sendError(res, error, "Failed to read status");
     }
   });
 

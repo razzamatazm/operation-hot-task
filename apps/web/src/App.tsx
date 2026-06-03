@@ -809,11 +809,29 @@ const formatAgo = (iso?: string): string => {
   return `${day}d ago`;
 };
 
-const isDefaultRole = (u: AdminUser): boolean =>
-  u.active && u.roles.length === 1 && u.roles[0] === "LOAN_OFFICER";
+interface SystemStatus {
+  bot: { enabled: boolean; dmCount: number; channelCount: number };
+  channelWebhook: boolean;
+  activityFeed: boolean;
+}
+
+const botStatusView = (
+  s: SystemStatus | null
+): { label: string; cls: "ok" | "warn" | "off" } => {
+  if (!s || !s.bot.enabled) return { label: "Not configured", cls: "off" };
+  const reach = s.bot.dmCount + s.bot.channelCount;
+  if (reach > 0) {
+    return {
+      label: `Connected · ${s.bot.dmCount} DM${s.bot.dmCount === 1 ? "" : "s"}, ${s.bot.channelCount} channel${s.bot.channelCount === 1 ? "" : "s"}`,
+      cls: "ok"
+    };
+  }
+  return { label: "Configured · no activity yet", cls: "warn" };
+};
 
 const AdminPanel = ({ user }: { user: UserIdentity }) => {
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [status, setStatus] = useState<SystemStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -832,6 +850,9 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
   };
   useEffect(() => {
     load().catch(() => {});
+    apiRequest<SystemStatus>("/status", { method: "GET" }, user)
+      .then(setStatus)
+      .catch(() => setStatus(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -911,6 +932,26 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
         </button>
       </div>
 
+      <div className="admin-status-bar">
+        {(() => {
+          const b = botStatusView(status);
+          return (
+            <span className={`admin-stat admin-stat-${b.cls}`} title="Teams bot connectivity">
+              <span className="admin-stat-label">Bot</span>
+              {b.label}
+            </span>
+          );
+        })()}
+        <span className={`admin-stat admin-stat-${status?.channelWebhook ? "ok" : "off"}`} title="Channel webhook for task broadcasts">
+          <span className="admin-stat-label">Channel posts</span>
+          {status?.channelWebhook ? "On" : "Off"}
+        </span>
+        <span className={`admin-stat admin-stat-${status?.activityFeed ? "ok" : "off"}`} title="Teams activity-feed notifications">
+          <span className="admin-stat-label">Activity feed</span>
+          {status?.activityFeed ? "On" : "Off"}
+        </span>
+      </div>
+
       {err && <p className="error-bar">{err}</p>}
 
       {addOpen && (
@@ -954,14 +995,13 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
         <tbody>
           {users.map((u) => {
             const isSelf = u.id === user.id;
-            const rowClass = !u.active ? "admin-row-off" : isDefaultRole(u) ? "admin-row-pending" : "";
+            const rowClass = !u.active ? "admin-row-off" : "";
             return (
               <tr key={u.id} className={rowClass} aria-busy={busyId === u.id}>
                 <td>
                   <div className="admin-uname">
                     {u.displayName}
                     {isSelf && <span className="admin-you">YOU</span>}
-                    {isDefaultRole(u) && <span className="admin-newtag">DEFAULT</span>}
                   </div>
                   <div className="admin-umail">{u.email ?? u.id}</div>
                 </td>
@@ -1032,8 +1072,8 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
         </tbody>
       </table>
       <p className="admin-hint">
-        <strong>Default</strong> = auto-created on first login, still on the starting Loan Officer
-        role. The last active admin can&rsquo;t be removed or demoted.
+        New people auto-create as Loan Officer on first login. The last active admin
+        can&rsquo;t be removed or demoted.
       </p>
     </div>
   );
