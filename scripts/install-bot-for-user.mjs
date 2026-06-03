@@ -133,6 +133,14 @@ for (const target of targets) {
         throw new Error("already installed but installation id not found; ask the user to message the bot once");
       }
       const delRes = await graph(token, `/users/${oid}/teamwork/installedApps/${installId}`, { method: "DELETE" });
+      if (delRes.status === 403) {
+        // App is pinned by an app setup policy — per-user uninstall is blocked,
+        // so we can't force a fresh installationUpdate. Such installs also
+        // don't deliver an installationUpdate to the bot until the user opens
+        // the chat, which is the only remaining way to seed their DM ref.
+        console.log(`• ${target} — already installed but pinned by an app setup policy (can't reinstall). Ask them to open the bot chat once to seed the DM ref.`);
+        continue;
+      }
       if (!delRes.ok && delRes.status !== 404) {
         throw new Error(`reinstall: remove failed (${delRes.status})`);
       }
