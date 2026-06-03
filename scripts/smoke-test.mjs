@@ -627,6 +627,14 @@ const run = async () => {
     });
     expectStatus(addWithoutGraph.status, 400, "add user fails without Graph configured", addWithoutGraph.json);
     pushPass("add-user surfaces a clear error when Graph is not configured");
+
+    const statusDenied = await request(server.baseUrl, "GET", "/status", { user: users.creator });
+    expectStatus(statusDenied.status, 403, "non-admin cannot read status", statusDenied.json);
+    const statusOk = await request(server.baseUrl, "GET", "/status", { user: users.admin });
+    expectStatus(statusOk.status, 200, "admin reads status", statusOk.json);
+    assert.equal(statusOk.json.bot.enabled, false, "bot reports disabled without creds");
+    assert.ok(typeof statusOk.json.bot.dmCount === "number", "bot status includes counts");
+    pushPass("admin status endpoint reports bot connectivity");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {
