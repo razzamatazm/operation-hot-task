@@ -747,7 +747,11 @@ export class TeamsBotClient {
     private readonly appId: string | undefined,
     private readonly appPassword: string | undefined,
     private readonly appTenantId: string | undefined,
-    dataFile: string
+    dataFile: string,
+    /* Invoked when a user DMs the bot, so the users table can record their
+       Teams `userId` (the `29:…` id) against their AAD oid — useful for the
+       admin bot-status strip + auditing. No-ops for users not in the table. */
+    private readonly onDmUser?: (aadObjectId: string, teamsUserId: string) => Promise<void>
   ) {
     this.store = new ReferenceStore(dataFile);
 
@@ -763,6 +767,9 @@ export class TeamsBotClient {
           const dmAadObjectId = scope === "DM" ? (reference.user as { aadObjectId?: string } | undefined)?.aadObjectId : undefined;
           const key = scope === "CHANNEL" ? `channel:${reference.conversation?.id ?? "unknown"}` : `dm:${dmAadObjectId ?? dmUserId ?? "unknown"}`;
           await this.store.save({ key, reference, scope, ...(dmUserId ? { userId: dmUserId } : {}), ...(dmAadObjectId ? { userAadObjectId: dmAadObjectId } : {}) });
+          if (scope === "DM" && dmAadObjectId && dmUserId && this.onDmUser) {
+            await this.onDmUser(dmAadObjectId, dmUserId);
+          }
         },
         async (input, user) => {
           if (!this.taskCreator) {

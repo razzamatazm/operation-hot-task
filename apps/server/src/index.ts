@@ -34,7 +34,10 @@ const bootstrap = async (): Promise<void> => {
     appConfig.botAppId,
     appConfig.botAppPassword,
     appConfig.botTenantId,
-    appConfig.botReferencesFile
+    appConfig.botReferencesFile,
+    async (aadObjectId, teamsUserId) => {
+      await userStore.setTeamsUserId(aadObjectId, teamsUserId);
+    }
   );
   await botClient.init();
   const activityFeedClient = new ActivityFeedClient();
