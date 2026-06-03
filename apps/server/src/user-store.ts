@@ -11,6 +11,9 @@ export interface PersistedUser {
   email?: string;
   displayName: string;
   roles: UserRole[];
+  /* Deactivated users keep their record + roles but are blocked at auth.
+     Defaults to true; legacy records without the field are treated active. */
+  active: boolean;
   teamsUserId?: string;
   createdAt: string;
   lastSeenAt: string;
@@ -21,6 +24,12 @@ interface DataShape {
 }
 
 const DEFAULT_ROLES: UserRole[] = ["LOAN_OFFICER"];
+
+/* Legacy records predate `active`; treat a missing flag as active. */
+const normalize = (user: PersistedUser): PersistedUser => ({
+  ...user,
+  active: user.active !== false
+});
 
 const toIdentity = (user: PersistedUser): UserIdentity => ({
   id: user.id,
@@ -50,7 +59,8 @@ export class UserStore {
   private async read(): Promise<DataShape> {
     const raw = await fs.readFile(this.filePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<DataShape>;
-    return { users: Array.isArray(parsed.users) ? parsed.users : [] };
+    const users = Array.isArray(parsed.users) ? parsed.users.map(normalize) : [];
+    return { users };
   }
 
   private async write(data: DataShape): Promise<void> {
@@ -87,6 +97,7 @@ export class UserStore {
         id: identity.id,
         displayName: identity.displayName,
         roles,
+        active: existing?.active ?? true,
         createdAt: existing?.createdAt ?? now,
         lastSeenAt: now,
         ...(email ? { email } : {}),
@@ -145,6 +156,7 @@ export class UserStore {
         id: entry.id,
         displayName: entry.displayName,
         roles: entry.roles,
+        active: existing?.active ?? true,
         createdAt: existing?.createdAt ?? now,
         lastSeenAt: existing?.lastSeenAt ?? now,
         ...(email ? { email } : {}),
@@ -157,6 +169,66 @@ export class UserStore {
       }
       await this.write(data);
     });
+  }
+
+  /* Admin: add a user resolved from Entra (Graph). Fails if id already
+     exists so the caller can surface a clear conflict. */
+  async createByAdmin(entry: { id: string; displayName: string; email?: string; roles: UserRole[] }): Promise<PersistedUser> {
+    let created!: PersistedUser;
+    let conflict = false;
+    await this.enqueue(async () => {
+      const data = await this.read();
+      if (data.users.some((user) => user.id === entry.id)) {
+        conflict = true;
+        return;
+      }
+      const now = new Date().toISOString();
+      created = {
+        id: entry.id,
+        displayName: entry.displayName,
+        roles: entry.roles.length > 0 ? entry.roles : DEFAULT_ROLES,
+        active: true,
+        createdAt: now,
+        lastSeenAt: now,
+        ...(entry.email ? { email: entry.email } : {})
+      };
+      data.users.push(created);
+      await this.write(data);
+    });
+    if (conflict) {
+      throw new Error("User already exists");
+    }
+    return created;
+  }
+
+  /* Admin: activate / deactivate. */
+  async setActive(id: string, active: boolean): Promise<PersistedUser | undefined> {
+    let updated: PersistedUser | undefined;
+    await this.enqueue(async () => {
+      const data = await this.read();
+      const index = data.users.findIndex((user) => user.id === id);
+      if (index < 0) {
+        return;
+      }
+      data.users[index] = { ...data.users[index]!, active };
+      updated = data.users[index];
+      await this.write(data);
+    });
+    return updated;
+  }
+
+  /* Admin: permanently remove a user. Returns true if a record was deleted. */
+  async remove(id: string): Promise<boolean> {
+    let removed = false;
+    await this.enqueue(async () => {
+      const data = await this.read();
+      const next = data.users.filter((user) => user.id !== id);
+      removed = next.length !== data.users.length;
+      if (removed) {
+        await this.write({ users: next });
+      }
+    });
+    return removed;
   }
 
   private async enqueue(operation: () => Promise<void>): Promise<void> {

@@ -565,6 +565,68 @@ const run = async () => {
     });
     expectStatus(integrationDisabled.status, 503, "integration endpoint disabled without key", integrationDisabled.json);
     pushPass("integration endpoint disabled by default");
+
+    // ── Admin user management (Phase 2.5) ────────────────────
+    const usersDenied = await request(server.baseUrl, "GET", "/users", { user: users.creator });
+    expectStatus(usersDenied.status, 403, "non-admin cannot list users", usersDenied.json);
+
+    const usersList = await request(server.baseUrl, "GET", "/users", { user: users.admin });
+    expectStatus(usersList.status, 200, "admin lists users", usersList.json);
+    assert.ok(Array.isArray(usersList.json.users), "users array returned");
+    assert.ok(usersList.json.users.some((u) => u.id === users.otherOfficer.id), "known user present");
+    pushPass("admin can list users, non-admin is blocked");
+
+    const promote = await request(server.baseUrl, "PUT", `/users/${users.otherOfficer.id}/roles`, {
+      user: users.admin,
+      body: { roles: ["LOAN_OFFICER", "FILE_CHECKER"] }
+    });
+    expectStatus(promote.status, 200, "admin updates roles", promote.json);
+    assert.deepEqual(promote.json.user.roles.sort(), ["FILE_CHECKER", "LOAN_OFFICER"]);
+    pushPass("admin can update roles");
+
+    const deactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
+      user: users.admin,
+      body: { active: false }
+    });
+    expectStatus(deactivate.status, 200, "admin deactivates user", deactivate.json);
+    const deactivatedMe = await request(server.baseUrl, "GET", "/me", { user: users.otherOfficer });
+    expectStatus(deactivatedMe.status, 403, "deactivated user is blocked", deactivatedMe.json);
+    const reactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
+      user: users.admin,
+      body: { active: true }
+    });
+    expectStatus(reactivate.status, 200, "admin reactivates user", reactivate.json);
+    const reactivatedMe = await request(server.baseUrl, "GET", "/me", { user: users.otherOfficer });
+    expectStatus(reactivatedMe.status, 200, "reactivated user is allowed", reactivatedMe.json);
+    pushPass("deactivate blocks access, reactivate restores it");
+
+    const selfDeactivate = await request(server.baseUrl, "PATCH", `/users/${users.admin.id}`, {
+      user: users.admin,
+      body: { active: false }
+    });
+    expectStatus(selfDeactivate.status, 400, "admin cannot deactivate self", selfDeactivate.json);
+
+    const dropLastAdmin = await request(server.baseUrl, "PUT", `/users/${users.admin.id}/roles`, {
+      user: users.admin,
+      body: { roles: ["LOAN_OFFICER"] }
+    });
+    expectStatus(dropLastAdmin.status, 403, "cannot demote the last admin", dropLastAdmin.json);
+    pushPass("self-deactivate and last-admin demotion are blocked");
+
+    const removeUser = await request(server.baseUrl, "DELETE", `/users/${users.otherOfficer.id}`, {
+      user: users.admin
+    });
+    expectStatus(removeUser.status, 200, "admin removes a user", removeUser.json);
+    const afterRemove = await request(server.baseUrl, "GET", "/users", { user: users.admin });
+    assert.ok(!afterRemove.json.users.some((u) => u.id === users.otherOfficer.id), "removed user is gone");
+    pushPass("admin can remove a user");
+
+    const addWithoutGraph = await request(server.baseUrl, "POST", "/users", {
+      user: users.admin,
+      body: { email: "newhire@loneoakfund.com", roles: ["LOAN_OFFICER"] }
+    });
+    expectStatus(addWithoutGraph.status, 400, "add user fails without Graph configured", addWithoutGraph.json);
+    pushPass("add-user surfaces a clear error when Graph is not configured");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {

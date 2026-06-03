@@ -1,6 +1,7 @@
 import { Request, Response, Router } from "express";
 import { UserIdentity, UserRole, nextFlowStatuses } from "@loan-tasks/shared";
 import { AuthError, authenticate } from "./auth.js";
+import { resolveUserByEmail } from "./graph-users.js";
 import { config } from "./config.js";
 import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
@@ -46,13 +47,31 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   const getActor = async (req: Request): Promise<UserIdentity> => {
     const identity = await authenticate(req);
     const user = await userStore.upsertOnLogin(identity);
+    const record = await userStore.get(user.id);
+    if (record && record.active === false) {
+      throw new AuthError("Your account has been deactivated. Contact an admin.", 403);
+    }
     await service.registerUser(user);
     return user;
   };
 
   const requireAdmin = (user: UserIdentity): void => {
     if (!user.roles.includes("ADMIN")) {
-      throw new AuthError("Admin role required");
+      throw new AuthError("Admin role required", 403);
+    }
+  };
+
+  /* Guard the last admin: block any change that would leave zero active
+     admins. `willBeActiveAdmin` is the target's state AFTER the proposed op. */
+  const ensureAdminRemains = async (targetId: string, willBeActiveAdmin: boolean): Promise<void> => {
+    if (willBeActiveAdmin) {
+      return;
+    }
+    const others = (await userStore.list()).filter(
+      (u) => u.id !== targetId && u.active && u.roles.includes("ADMIN")
+    );
+    if (others.length === 0) {
+      throw new AuthError("Can't remove the last active admin", 403);
     }
   };
 
@@ -95,14 +114,93 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
         res.status(400).json({ error: "At least one valid role is required" });
         return;
       }
-      const updated = await userStore.setRoles(req.params.id, roles);
-      if (!updated) {
+      const target = await userStore.get(req.params.id);
+      if (!target) {
         res.status(404).json({ error: "User not found" });
         return;
       }
+      await ensureAdminRemains(req.params.id, target.active && roles.includes("ADMIN"));
+      const updated = await userStore.setRoles(req.params.id, roles);
       res.json({ user: updated });
     } catch (error) {
       sendError(res, error, "Failed to update roles");
+    }
+  });
+
+  /* Admin: add a user by email (resolved via Entra/Graph). */
+  router.post("/users", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      const body = req.body as { email?: unknown; roles?: unknown };
+      const email = typeof body.email === "string" ? body.email.trim() : "";
+      if (!email) {
+        res.status(400).json({ error: "email is required" });
+        return;
+      }
+      const roles = Array.isArray(body.roles)
+        ? body.roles
+            .map((role) => String(role).toUpperCase())
+            .filter((role): role is UserRole => ALLOWED_ROLES.includes(role as UserRole))
+        : [];
+      const resolved = await resolveUserByEmail(email);
+      const user = await userStore.createByAdmin({
+        id: resolved.id,
+        displayName: resolved.displayName,
+        roles,
+        ...(resolved.email ? { email: resolved.email } : {})
+      });
+      res.status(201).json({ user });
+    } catch (error) {
+      sendError(res, error, "Failed to add user");
+    }
+  });
+
+  /* Admin: activate / deactivate a user. */
+  router.patch("/users/:id", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      const active = (req.body as { active?: unknown }).active;
+      if (typeof active !== "boolean") {
+        res.status(400).json({ error: "active (boolean) is required" });
+        return;
+      }
+      if (!active && req.params.id === actor.id) {
+        res.status(400).json({ error: "You can't deactivate yourself" });
+        return;
+      }
+      const target = await userStore.get(req.params.id);
+      if (!target) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      await ensureAdminRemains(req.params.id, active && target.roles.includes("ADMIN"));
+      const updated = await userStore.setActive(req.params.id, active);
+      res.json({ user: updated });
+    } catch (error) {
+      sendError(res, error, "Failed to update user");
+    }
+  });
+
+  /* Admin: permanently remove a user. */
+  router.delete("/users/:id", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      if (req.params.id === actor.id) {
+        res.status(400).json({ error: "You can't remove yourself" });
+        return;
+      }
+      await ensureAdminRemains(req.params.id, false);
+      const removed = await userStore.remove(req.params.id);
+      if (!removed) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      sendError(res, error, "Failed to remove user");
     }
   });
 

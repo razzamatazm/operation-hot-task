@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, USER_ROLES, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, USER_ROLES, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
@@ -760,6 +760,265 @@ const MetricsPanel = ({
   );
 };
 
+/* ── Admin panel (Users & Roles) ──────────────────────────── */
+interface AdminUser {
+  id: string;
+  email?: string;
+  displayName: string;
+  roles: UserRole[];
+  active: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+const ADMIN_ROLE_DEFS: { key: UserRole; label: string; cls: string }[] = [
+  { key: "LOAN_OFFICER", label: "Loan Officer", cls: "lo" },
+  { key: "FILE_CHECKER", label: "File Checker", cls: "fc" },
+  { key: "ADMIN", label: "Admin", cls: "admin" }
+];
+
+const formatAgo = (iso?: string): string => {
+  if (!iso) return "never";
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return "just now";
+  const min = Math.round(diff / 60000);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(diff / 3600000);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(diff / 86400000);
+  return `${day}d ago`;
+};
+
+const isDefaultRole = (u: AdminUser): boolean =>
+  u.active && u.roles.length === 1 && u.roles[0] === "LOAN_OFFICER";
+
+const AdminPanel = ({ user }: { user: UserIdentity }) => {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addEmail, setAddEmail] = useState("");
+  const [addRoles, setAddRoles] = useState<UserRole[]>(["LOAN_OFFICER"]);
+  const [adding, setAdding] = useState(false);
+
+  const load = async (): Promise<void> => {
+    try {
+      const data = await apiRequest<{ users: AdminUser[] }>("/users", { method: "GET" }, user);
+      setUsers(data.users);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load users");
+    }
+  };
+  useEffect(() => {
+    load().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const activeAdminCount = users.filter((u) => u.active && u.roles.includes("ADMIN")).length;
+
+  const run = async (id: string, fn: () => Promise<unknown>): Promise<void> => {
+    setBusyId(id);
+    try {
+      await fn();
+      await load();
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const toggleRole = (u: AdminUser, role: UserRole): void => {
+    const has = u.roles.includes(role);
+    const roles = has ? u.roles.filter((r) => r !== role) : [...u.roles, role];
+    if (roles.length === 0) {
+      setErr("A user needs at least one role.");
+      return;
+    }
+    void run(u.id, () =>
+      apiRequest(`/users/${u.id}/roles`, { method: "PUT", body: JSON.stringify({ roles }) }, user)
+    );
+  };
+
+  const setActive = (u: AdminUser, active: boolean): void => {
+    void run(u.id, () =>
+      apiRequest(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ active }) }, user)
+    );
+  };
+
+  const removeUser = (u: AdminUser): void => {
+    if (!window.confirm(`Remove ${u.displayName}? This deletes their record and role assignments.`)) {
+      return;
+    }
+    void run(u.id, () => apiRequest(`/users/${u.id}`, { method: "DELETE" }, user));
+  };
+
+  const submitAdd = async (): Promise<void> => {
+    const email = addEmail.trim();
+    if (!email) return;
+    setAdding(true);
+    try {
+      await apiRequest("/users", { method: "POST", body: JSON.stringify({ email, roles: addRoles }) }, user);
+      setAddEmail("");
+      setAddRoles(["LOAN_OFFICER"]);
+      setAddOpen(false);
+      await load();
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to add user");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const toggleAddRole = (role: UserRole): void => {
+    setAddRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  };
+
+  return (
+    <div className="admin-panel">
+      <div className="section-head">
+        <h2>
+          Users &amp; Roles
+          <span className="section-count">
+            {users.length} USERS · {activeAdminCount} ADMIN
+          </span>
+        </h2>
+        <button type="button" className="btn-sm" onClick={() => setAddOpen((o) => !o)}>
+          {addOpen ? "Cancel" : "+ Add User"}
+        </button>
+      </div>
+
+      {err && <p className="error-bar">{err}</p>}
+
+      {addOpen && (
+        <div className="admin-add-row">
+          <input
+            type="email"
+            placeholder="name@loneoakfund.com"
+            value={addEmail}
+            onChange={(e) => setAddEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void submitAdd(); }}
+            autoFocus
+          />
+          <div className="admin-roles-cell">
+            {ADMIN_ROLE_DEFS.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className={`admin-role ${r.cls}${addRoles.includes(r.key) ? " on" : ""}`}
+                onClick={() => toggleAddRole(r.key)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn-sm btn-good" disabled={adding || !addEmail.trim()} onClick={() => void submitAdd()}>
+            {adding ? "Adding…" : "Add"}
+          </button>
+        </div>
+      )}
+
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Roles · click to toggle</th>
+            <th>Status</th>
+            <th>Last seen</th>
+            <th className="admin-manage-col">Manage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((u) => {
+            const isSelf = u.id === user.id;
+            const rowClass = !u.active ? "admin-row-off" : isDefaultRole(u) ? "admin-row-pending" : "";
+            return (
+              <tr key={u.id} className={rowClass} aria-busy={busyId === u.id}>
+                <td>
+                  <div className="admin-uname">
+                    {u.displayName}
+                    {isSelf && <span className="admin-you">YOU</span>}
+                    {isDefaultRole(u) && <span className="admin-newtag">DEFAULT</span>}
+                  </div>
+                  <div className="admin-umail">{u.email ?? u.id}</div>
+                </td>
+                <td>
+                  <div className="admin-roles-cell">
+                    {ADMIN_ROLE_DEFS.map((r) => (
+                      <button
+                        key={r.key}
+                        type="button"
+                        className={`admin-role ${r.cls}${u.roles.includes(r.key) ? " on" : ""}`}
+                        disabled={busyId === u.id}
+                        onClick={() => toggleRole(u, r.key)}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  <span className={`admin-status ${u.active ? "active" : "deact"}`}>
+                    {u.active ? "Active" : "Deactivated"}
+                  </span>
+                </td>
+                <td>
+                  <span className="admin-seen" title={u.lastSeenAt ? formatDate(u.lastSeenAt) : undefined}>
+                    {formatAgo(u.lastSeenAt)}
+                  </span>
+                </td>
+                <td>
+                  <div className="admin-actions">
+                    {u.active ? (
+                      <button
+                        type="button"
+                        className="admin-link warn"
+                        disabled={busyId === u.id || isSelf}
+                        onClick={() => setActive(u, false)}
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="admin-link good"
+                        disabled={busyId === u.id}
+                        onClick={() => setActive(u, true)}
+                      >
+                        Reactivate
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="admin-link bad"
+                      disabled={busyId === u.id || isSelf}
+                      onClick={() => removeUser(u)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+          {users.length === 0 && (
+            <tr>
+              <td colSpan={5} className="admin-empty">No users yet.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <p className="admin-hint">
+        <strong>Default</strong> = auto-created on first login, still on the starting Loan Officer
+        role. The last active admin can&rsquo;t be removed or demoted.
+      </p>
+    </div>
+  );
+};
+
 /* ── Main app ─────────────────────────────────────────────── */
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
@@ -767,7 +1026,7 @@ export const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics">("active");
+  const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
 
   /* Per-user "I've seen the latest note from someone else" map, keyed by
      task id → ISO timestamp of the latest non-self note already viewed.
@@ -864,7 +1123,7 @@ export const App = () => {
   const isAdmin = user.roles.includes("ADMIN");
 
   useEffect(() => {
-    if (!isAdmin && (activeTab === "metrics" || activeTab === "all")) {
+    if (!isAdmin && (activeTab === "metrics" || activeTab === "all" || activeTab === "admin")) {
       setActiveTab("active");
     }
   }, [isAdmin, activeTab]);
@@ -1250,6 +1509,13 @@ export const App = () => {
         >
           Metrics
         </button>
+        <button
+          type="button"
+          className={`tab-btn${activeTab === "admin" ? " tab-active" : ""}`}
+          onClick={() => setActiveTab("admin")}
+        >
+          Admin
+        </button>
       </div>
       )}
 
@@ -1303,6 +1569,9 @@ export const App = () => {
       {activeTab === "metrics" && isAdmin && (
         <MetricsPanel leaderboard={claimsLeaderboard} totals={statusTotals} typeBreakdown={typeBreakdown} />
       )}
+
+      {/* ── Admin tab content ───────────────────────── */}
+      {activeTab === "admin" && isAdmin && <AdminPanel user={user} />}
 
       {/* ── Footer ──────────────────────────────────── */}
       <footer className="footer-note">
