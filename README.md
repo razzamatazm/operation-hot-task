@@ -94,15 +94,17 @@ Run both:
 npm run test:all
 ```
 
-## Local user simulation
+## Authentication
 
-The tab includes an "Acting user" selector with mock identities:
+In production the app authenticates with **Microsoft Entra SSO**: the Teams
+tab acquires a token (`authentication.getAuthToken()`), the server verifies it
+against the tenant JWKS (`auth.ts`), and roles come from the `users` table.
 
-- Loan officer
-- File checker (loan officer + file checker role)
-- Admin
-
-These set request headers used by the API for permission checks.
+**Local dev only:** when SSO is unconfigured (plain browser, no Teams host),
+the header bar shows an "Acting user" selector with mock identities (loan
+officer / file checker / admin). It sends `x-user-*` headers that the server
+trusts *only while SSO env is unset*, so local role-switching works without a
+Teams tab. This path is tree-shaken out of the production bundle.
 
 ## API overview
 
@@ -218,7 +220,6 @@ For Azure, swap storage behind `TaskStore` with Azure SQL while preserving the `
 
 ## Next recommended steps
 
-1. Replace mock header-based auth with Entra SSO token validation.
-2. Persist to Azure SQL and add migrations.
-3. Add admin settings UI for business hours and reminder policy.
-4. Add inbound API auth + endpoint for phase-2 task creation from your in-house web app.
+1. Persist to Azure SQL and add migrations.
+2. Add admin settings UI for business hours and reminder policy.
+3. Add inbound API auth + endpoint for phase-2 task creation from your in-house web app.

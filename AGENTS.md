@@ -17,7 +17,7 @@ Verified against the repo and local run on `2026-05-04`.
   - `packages/shared`: shared task types, workflow rules, due-date logic
   - `teams-app`: Teams manifest template and icon assets
 - Local development uses:
-  - Header-based mock auth, not Entra SSO
+  - Header-based mock auth fallback (prod uses Entra SSO)
   - JSON file persistence, not Azure SQL
   - Vite frontend on `http://localhost:5173`
   - Express backend on `http://127.0.0.1:4100`
@@ -71,16 +71,20 @@ Verified against the repo and local run on `2026-05-04`.
   - Humperdink Link is non-OOO only
 
 ## Current Auth And Identity Model
-- Local/API auth is currently request-header based.
-- Server reads:
-  - `x-user-id`
-  - `x-user-name`
-  - `x-user-roles`
-- Web UI simulates users with three built-in mock identities:
+- **Production: Microsoft Entra SSO.** The Teams tab acquires a token
+  (`authentication.getAuthToken()`); the server verifies it against the tenant
+  JWKS in `auth.ts` (validates `iss` / `aud` / `tid`) and resolves the stable
+  `oid`. Roles come from the file-based `users` table (`user-store.ts`), seeded
+  via the onboarding flow and managed in the admin panel.
+- **Local dev fallback only:** when SSO env is unset (plain browser, no Teams
+  host), the server trusts `x-user-id` / `x-user-name` / `x-user-roles`
+  headers. The web app sends these from a dev-only `DEV_USERS` list (in
+  `apps/web/src/App.tsx`, tree-shaken from the prod bundle):
   - `Suzie`: loan officer
   - `Alexa`: loan officer + file checker
   - `Johanna`: loan officer + file checker + admin
-- Entra ID SSO remains target direction, not current local behavior.
+- The `x-user-*` path is disabled whenever SSO is configured, so it can never
+  be used on the internet-facing deploy.
 
 ## Product Scope
 Core task types:

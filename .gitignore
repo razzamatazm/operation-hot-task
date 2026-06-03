@@ -12,3 +12,6 @@ yarn-error.log*
 pnpm-lock.yaml
 teams-app/manifest.generated.json
 teams-app/*.zip
+
+# TS incremental build info
+*.tsbuildinfo

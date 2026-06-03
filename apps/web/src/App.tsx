@@ -1,15 +1,21 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { mockUsers } from "./mockUsers";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
-/* In a Teams tab the user is resolved from the SSO token (see bootstrap
-   effect). In a plain dev browser there's no Teams host, so fall back to a
-   mock user the dev can switch between. */
+/* Dev-only mock identities for the plain-browser path (no Teams host). The
+   server's `x-user-*` header fallback (auth.ts, only when SSO is unconfigured)
+   trusts these so local role-switching works. IS_DEV is statically false in a
+   prod build, so this list and the selector are tree-shaken out of the bundle.
+   In a Teams tab the real identity comes from the SSO token (bootstrap). */
+const DEV_USERS: UserIdentity[] = [
+  { id: "loan-officer-1", displayName: "Suzie", roles: ["LOAN_OFFICER"] },
+  { id: "file-checker-1", displayName: "Alexa", roles: ["LOAN_OFFICER", "FILE_CHECKER"] },
+  { id: "admin-1", displayName: "Johanna", roles: ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] }
+];
 const INITIAL_USER: UserIdentity = IS_DEV
-  ? mockUsers[0]!
+  ? DEV_USERS[0]!
   : { id: "", displayName: "Signing in", roles: ["LOAN_OFFICER"] };
 
 /* SSO bearer token, set once the Teams auth flow resolves. Module-level so
@@ -1497,8 +1503,8 @@ export const App = () => {
         {IS_DEV ? (
           <label className="user-picker">
             <span>User:</span>
-            <select value={user.id} onChange={(e) => setUser(mockUsers.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
-              {mockUsers.map((u) => (
+            <select value={user.id} onChange={(e) => setUser(DEV_USERS.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
+              {DEV_USERS.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.displayName} ({u.roles.join("/")})
                 </option>
