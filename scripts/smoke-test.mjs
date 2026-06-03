@@ -7,11 +7,11 @@ import { spawn } from "node:child_process";
 
 const BASE_PORT = 4100;
 
-// Identities aligned with apps/web/src/mockUsers.ts so any task that
-// somehow leaks into dev data is at least tagged to a real current user.
-// `otherOfficer` is a smoke-only synthetic identity (no second non-checker
-// loan officer exists in mockUsers); the prefix makes it obvious in any
-// data file it appears in.
+// Identities aligned with the DEV_USERS list in apps/web/src/App.tsx so any
+// task that somehow leaks into dev data is at least tagged to a real current
+// user. `otherOfficer` is a smoke-only synthetic identity (no second
+// non-checker loan officer exists in DEV_USERS); the prefix makes it obvious
+// in any data file it appears in.
 const users = {
   creator: {
     id: "loan-officer-1",
