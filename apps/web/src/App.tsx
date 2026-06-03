@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, USER_ROLES, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mockUsers } from "./mockUsers";
 
@@ -10,7 +10,7 @@ const IS_DEV = import.meta.env.DEV;
    mock user the dev can switch between. */
 const INITIAL_USER: UserIdentity = IS_DEV
   ? mockUsers[0]!
-  : { id: "", displayName: "…", roles: ["LOAN_OFFICER"] };
+  : { id: "", displayName: "Signing in", roles: ["LOAN_OFFICER"] };
 
 /* SSO bearer token, set once the Teams auth flow resolves. Module-level so
    the standalone apiRequest helper can read it without prop-drilling. */
@@ -226,7 +226,9 @@ const TaskCard = ({
   variant,
   seenNoteAt,
   onMarkNoteSeen,
-  pulsing
+  pulsing,
+  expandOverride,
+  onSetExpand
 }: {
   task: LoanTask;
   user: UserIdentity;
@@ -240,6 +242,9 @@ const TaskCard = ({
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
   pulsing?: boolean;
+  /* Per-user persisted manual open/close. undefined = follow the default. */
+  expandOverride?: boolean;
+  onSetExpand?: (taskId: string, open: boolean) => void;
 }) => {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -262,14 +267,23 @@ const TaskCard = ({
     return latest;
   }, [task.reviewNotes, user.id]);
   const hasUnreadNote = !!latestOtherNoteAt && latestOtherNoteAt > (seenNoteAt ?? "");
-  /* Rows render collapsed by default — the grid columns (status, assigner,
-     assignee, due, namvar, action) carry enough signal to scan without
-     opening. An unread note from the other party no longer force-opens the
-     card; it only pulses the red unread dot. The user opens the row to read. */
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    setExpanded(false);
-  }, [task.status, user.id]);
+  /* Accordion default-open rule:
+       - OPEN (up for grabs) → open for everyone
+       - an unread note from the other party → open (even once completed)
+       - you're involved (creator/assignee) and the task is in-flight → open
+     Everything else (completed / closed without an unread note) → closed.
+     A persisted per-user manual override (expandOverride) wins; the App
+     clears it on a status change or a fresh unread note so the default
+     re-applies. */
+  const involvedInFlight =
+    (isCreator || isAssignee) &&
+    (task.status === "CLAIMED" ||
+      task.status === "NEEDS_REVIEW" ||
+      task.status === "MERGE_DONE" ||
+      task.status === "MERGE_APPROVED");
+  const defaultOpen = task.status === "OPEN" || hasUnreadNote || involvedInFlight;
+  const expanded = expandOverride ?? defaultOpen;
+  const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open);
   /* Acknowledge an unread note: clears the undim lock and the red dot.
      Triggered by an explicit user gesture (header click/key, or sending
      a reply). */
@@ -333,13 +347,13 @@ const TaskCard = ({
 
   const handleHeaderClick = () => {
     acknowledgeUnread();
-    setExpanded((e) => !e);
+    setExpanded(!expanded);
   };
   const handleHeaderKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     acknowledgeUnread();
-    setExpanded((v) => !v);
+    setExpanded(!expanded);
   };
   const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
 
@@ -597,7 +611,9 @@ const CardList = ({
   variant,
   seenNotesAt,
   onMarkNoteSeen,
-  pulsingIds
+  pulsingIds,
+  expandOverrides,
+  onSetExpand
 }: {
   tasks: LoanTask[];
   user: UserIdentity;
@@ -612,6 +628,8 @@ const CardList = ({
   seenNotesAt?: Record<string, string>;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
   pulsingIds?: Set<string>;
+  expandOverrides?: Record<string, boolean>;
+  onSetExpand?: (taskId: string, open: boolean) => void;
 }) => (
   <div className="card-list">
     {tasks.length === 0 ? (
@@ -632,6 +650,8 @@ const CardList = ({
           pulsing={pulsingIds?.has(task.id) ?? false}
           {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
           {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
+          {...(expandOverrides?.[task.id] !== undefined ? { expandOverride: expandOverrides[task.id] } : {})}
+          {...(onSetExpand ? { onSetExpand } : {})}
         />
       ))
     )}
@@ -1041,14 +1061,28 @@ export const App = () => {
     }
   };
   const [seenNotesAt, setSeenNotesAt] = useState<Record<string, string>>(() => loadSeenNotes(user.id));
+  /* Per-user manual accordion overrides: task id → true (forced open) /
+     false (forced closed). undefined = follow the default-open rule. Persisted
+     so a manual collapse/expand survives Teams tab reloads. */
+  const expandKey = `loan-tasks:expand:${user.id}`;
+  const loadExpand = (uid: string): Record<string, boolean> => {
+    try {
+      const raw = window.localStorage.getItem(`loan-tasks:expand:${uid}`);
+      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  };
+  const [expandOverrides, setExpandOverrides] = useState<Record<string, boolean>>(() => loadExpand(user.id));
   /* When the active user changes (mock user picker), reset the in-memory
-     map to that user's stored data BEFORE the writer effect runs — so we
-     don't clobber B's localStorage with A's seen state. setState during
-     render is the React-supported way to derive state from a changing prop. */
+     maps to that user's stored data BEFORE the writer effects run — so we
+     don't clobber B's localStorage with A's state. setState during render is
+     the React-supported way to derive state from a changing prop. */
   const [trackedUserId, setTrackedUserId] = useState(user.id);
   if (trackedUserId !== user.id) {
     setTrackedUserId(user.id);
     setSeenNotesAt(loadSeenNotes(user.id));
+    setExpandOverrides(loadExpand(user.id));
   }
   useEffect(() => {
     try {
@@ -1064,6 +1098,55 @@ export const App = () => {
       return { ...prev, [taskId]: at };
     });
   };
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(expandKey, JSON.stringify(expandOverrides));
+    } catch {
+      /* storage unavailable — degrade silently */
+    }
+  }, [expandOverrides, expandKey]);
+  const setExpandOverride = (taskId: string, open: boolean): void => {
+    setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
+  };
+  /* Clear a manual override when the task's status changes or a fresh note
+     from the other party arrives, so the default-open rule re-applies (a
+     status move or new message is a strong enough signal to re-evaluate). */
+  const expandSnapshotRef = useRef<Map<string, { status: TaskStatus; note: string }>>(new Map());
+  useEffect(() => {
+    const prevSnap = expandSnapshotRef.current;
+    const nextSnap = new Map<string, { status: TaskStatus; note: string }>();
+    const clear: string[] = [];
+    for (const t of tasks) {
+      let latestOther = "";
+      for (const n of t.reviewNotes ?? []) {
+        if (n.by.id !== user.id && n.at > latestOther) latestOther = n.at;
+      }
+      nextSnap.set(t.id, { status: t.status, note: latestOther });
+      const before = prevSnap.get(t.id);
+      if (before && (before.status !== t.status || latestOther > before.note)) {
+        clear.push(t.id);
+      }
+    }
+    expandSnapshotRef.current = nextSnap;
+    if (clear.length === 0) return;
+    setExpandOverrides((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of clear) {
+        if (id in next) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks, user.id]);
+  /* Reset the status/note snapshot on user switch so a fresh viewer's first
+     render doesn't read the previous viewer's note-visibility state. */
+  useEffect(() => {
+    expandSnapshotRef.current = new Map();
+  }, [user.id]);
 
   /* "Celebrating" — a task the current viewer created that just hit a
      completion milestone (COMPLETED, or LOAN_DOCS MERGE_DONE). The task
@@ -1166,6 +1249,11 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
+    /* In prod, hold the first fetch until SSO resolves a real identity.
+       The placeholder user has an empty id (and dev-header auth would send a
+       non-ASCII display name), so fetching now both 401s and risks a header
+       encoding error. Dev always has a real mock id, so it runs immediately. */
+    if (!IS_DEV && !user.id) return;
     refresh().catch(() => {});
   }, [user.id]);
 
@@ -1536,6 +1624,8 @@ export const App = () => {
             seenNotesAt={seenNotesAt}
             onMarkNoteSeen={markNoteSeen}
             pulsingIds={pulsingIds}
+            expandOverrides={expandOverrides}
+            onSetExpand={setExpandOverride}
           />
         </>
       )}
@@ -1561,6 +1651,8 @@ export const App = () => {
             seenNotesAt={seenNotesAt}
             onMarkNoteSeen={markNoteSeen}
             pulsingIds={pulsingIds}
+            expandOverrides={expandOverrides}
+            onSetExpand={setExpandOverride}
           />
         </>
       )}
@@ -1572,11 +1664,6 @@ export const App = () => {
 
       {/* ── Admin tab content ───────────────────────── */}
       {activeTab === "admin" && isAdmin && <AdminPanel user={user} />}
-
-      {/* ── Footer ──────────────────────────────────── */}
-      <footer className="footer-note">
-        Roles: {USER_ROLES.join(", ")} &middot; Reminders: hourly, business hours 8:30a&ndash;5:30p PT
-      </footer>
     </main>
   );
 };
