@@ -4,8 +4,8 @@
   "version": "1.1.1",
   "id": "YOUR-APP-ID",
   "name": {
-    "short": "Operation Hot Task",
-    "full": "Operation Hot Task"
+    "short": "Hot Task",
+    "full": "Hot Task"
   },
   "developer": {
     "name": "Your Company",
@@ -48,7 +48,7 @@
   "staticTabs": [
     {
       "entityId": "loan-tasks-home",
-      "name": "Operation Hot Task",
+      "name": "Hot Task",
       "contentUrl": "https://YOUR-APP-DOMAIN/",
       "websiteUrl": "https://YOUR-APP-DOMAIN/",
       "scopes": ["personal"],

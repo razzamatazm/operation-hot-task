@@ -4,8 +4,8 @@
   "version": "1.1.1",
   "id": "bca6db0b-b2b7-423f-8c22-f4348f3a0340",
   "name": {
-    "short": "Operation Hot Task",
-    "full": "Operation Hot Task"
+    "short": "Hot Task",
+    "full": "Hot Task"
   },
   "developer": {
     "name": "Your Company",
@@ -53,7 +53,7 @@
   "staticTabs": [
     {
       "entityId": "loan-tasks-home",
-      "name": "Operation Hot Task",
+      "name": "Hot Task",
       "contentUrl": "https://operation-hot-task-app-lof.azurewebsites.net/",
       "websiteUrl": "https://operation-hot-task-app-lof.azurewebsites.net/",
       "scopes": [
