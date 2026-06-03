@@ -128,6 +128,20 @@ h1, h2, h3, h4 {
   gap: 16px;
 }
 
+/* Flame mark + title stay inline as one brand unit at every breakpoint. */
+.top-bar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top-bar-logo {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  fill: var(--hot);
+}
+
 .top-bar h1 {
   font-size: 1.35rem;
   font-weight: 700;

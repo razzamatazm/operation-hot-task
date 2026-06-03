@@ -21,7 +21,7 @@
     "outline": "outline.png",
     "color": "color.png"
   },
-  "accentColor": "#0b5fff",
+  "accentColor": "#e8590c",
   "bots": [
     {
       "botId": "YOUR-BOT-APP-ID",
