@@ -9,7 +9,12 @@
  * triggers the bot's installationUpdate and seeds the DM reference.
  *
  * Usage:
- *   node scripts/install-bot-for-user.mjs <email-or-oid> [more...]
+ *   node scripts/install-bot-for-user.mjs [--no-reinstall] <email-or-oid> [more...]
+ *
+ * Already-installed users are reinstalled (remove + re-add) by default so a
+ * fresh installationUpdate fires and the bot captures their DM reference —
+ * the straggler this script exists to repair. --no-reinstall reverts to a
+ * report-and-skip on 409.
  *
  * Required env (the publisher app registration — `oht-teams-publisher`):
  *   GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET
@@ -24,9 +29,15 @@
 const GRAPH = process.env.GRAPH_BASE_URL ?? "https://graph.microsoft.com/v1.0";
 const { GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, TEAMS_APP_ID } = process.env;
 
-const targets = process.argv.slice(2);
+const argv = process.argv.slice(2);
+/* By default an already-installed user is reinstalled (remove + re-add) so a
+   fresh installationUpdate fires and the bot captures a DM reference — the
+   straggler case this script exists to repair. --no-reinstall keeps the old
+   "report and skip" behaviour. */
+const reinstall = !argv.includes("--no-reinstall");
+const targets = argv.filter((arg) => !arg.startsWith("--"));
 if (targets.length === 0) {
-  console.error("Usage: node scripts/install-bot-for-user.mjs <email-or-oid> [more...]");
+  console.error("Usage: node scripts/install-bot-for-user.mjs [--no-reinstall] <email-or-oid> [more...]");
   process.exit(1);
 }
 for (const [k, v] of Object.entries({ GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, TEAMS_APP_ID })) {
@@ -93,15 +104,43 @@ for (const target of targets) {
       oid = (await ures.json()).id;
     }
 
-    const res = await graph(token, `/users/${oid}/teamwork/installedApps`, {
-      method: "POST",
-      body: JSON.stringify({ "teamsApp@odata.bind": `${GRAPH}/appCatalogs/teamsApps/${catalogId}` })
-    });
+    const install = () =>
+      graph(token, `/users/${oid}/teamwork/installedApps`, {
+        method: "POST",
+        body: JSON.stringify({ "teamsApp@odata.bind": `${GRAPH}/appCatalogs/teamsApps/${catalogId}` })
+      });
+
+    let res = await install();
+
+    if (res.status === 409) {
+      // Already installed. A bare 409 fires no bot activity, so a user whose
+      // DM ref was never captured (server missed the install event, or
+      // bot-references.json was reset) stays unreachable. Reinstall to force
+      // a fresh installationUpdate.
+      if (!reinstall) {
+        console.log(`• ${target} — already installed (skipped; pass without --no-reinstall to refresh the DM ref)`);
+        continue;
+      }
+      const listRes = await graph(
+        token,
+        `/users/${oid}/teamwork/installedApps?$expand=teamsApp&$filter=teamsApp/externalId eq '${TEAMS_APP_ID}'&$select=id`
+      );
+      if (!listRes.ok) {
+        throw new Error(`already installed; lookup for reinstall failed (${listRes.status})`);
+      }
+      const installId = ((await listRes.json()).value ?? [])[0]?.id;
+      if (!installId) {
+        throw new Error("already installed but installation id not found; ask the user to message the bot once");
+      }
+      const delRes = await graph(token, `/users/${oid}/teamwork/installedApps/${installId}`, { method: "DELETE" });
+      if (!delRes.ok && delRes.status !== 404) {
+        throw new Error(`reinstall: remove failed (${delRes.status})`);
+      }
+      res = await install();
+    }
 
     if (res.status === 201) {
-      console.log(`✓ ${target} — installed (bot DM ref will land on first activity)`);
-    } else if (res.status === 409) {
-      console.log(`• ${target} — already installed`);
+      console.log(`✓ ${target} — installed (bot DM ref lands on the next bot activity)`);
     } else {
       throw new Error(`install failed (${res.status}): ${await res.text()}`);
     }
