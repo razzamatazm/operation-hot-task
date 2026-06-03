@@ -10,7 +10,7 @@ const IS_DEV = import.meta.env.DEV;
    mock user the dev can switch between. */
 const INITIAL_USER: UserIdentity = IS_DEV
   ? mockUsers[0]!
-  : { id: "", displayName: "…", roles: ["LOAN_OFFICER"] };
+  : { id: "", displayName: "Signing in", roles: ["LOAN_OFFICER"] };
 
 /* SSO bearer token, set once the Teams auth flow resolves. Module-level so
    the standalone apiRequest helper can read it without prop-drilling. */
@@ -907,6 +907,11 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
+    /* In prod, hold the first fetch until SSO resolves a real identity.
+       The placeholder user has an empty id (and dev-header auth would send a
+       non-ASCII display name), so fetching now both 401s and risks a header
+       encoding error. Dev always has a real mock id, so it runs immediately. */
+    if (!IS_DEV && !user.id) return;
     refresh().catch(() => {});
   }, [user.id]);
 
