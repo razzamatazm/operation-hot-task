@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { CreateTaskInput, LoanTask, TaskType, UrgencyLevel, UserIdentity, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
-import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, MessageFactory, TurnContext } from "botbuilder";
+import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, InvokeResponse, MessageFactory, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
 
@@ -11,6 +11,15 @@ interface StoredReference {
   scope: "DM" | "CHANNEL";
   userId?: string;
   userAadObjectId?: string;
+}
+
+/* Where a task's root channel card landed, per channel. We thread later
+   updates (claim / unclaim) as replies under `activityId` instead of
+   broadcasting a fresh card to the whole channel. One task fans out to
+   every channel the bot lives in, so this is an array. */
+interface StoredThread {
+  taskId: string;
+  posts: Array<{ reference: Partial<ConversationReference>; activityId: string }>;
 }
 
 type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "points" | "notes" | "returnDate" | "humperdinkLink">;
@@ -243,12 +252,138 @@ class ReferenceStore {
   }
 }
 
+class ThreadStore {
+  private chain: Promise<void> = Promise.resolve();
+
+  constructor(private readonly filePath: string) {}
+
+  async init(): Promise<void> {
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    try {
+      await fs.access(this.filePath);
+    } catch {
+      await fs.writeFile(this.filePath, "[]", "utf8");
+    }
+  }
+
+  async read(): Promise<StoredThread[]> {
+    try {
+      const raw = await fs.readFile(this.filePath, "utf8");
+      return JSON.parse(raw) as StoredThread[];
+    } catch {
+      return [];
+    }
+  }
+
+  async get(taskId: string): Promise<StoredThread | undefined> {
+    const entries = await this.read();
+    return entries.find((entry) => entry.taskId === taskId);
+  }
+
+  async save(thread: StoredThread): Promise<void> {
+    await this.enqueue(async () => {
+      const entries = await this.read();
+      const idx = entries.findIndex((entry) => entry.taskId === thread.taskId);
+      if (idx >= 0) {
+        entries[idx] = thread;
+      } else {
+        entries.push(thread);
+      }
+      await fs.writeFile(this.filePath, JSON.stringify(entries, null, 2), "utf8");
+    });
+  }
+
+  private async enqueue(operation: () => Promise<void>): Promise<void> {
+    this.chain = this.chain.then(operation, operation);
+    return this.chain;
+  }
+}
+
+/* Result the bot returns to the injected claim handler, normalized so the
+   bot doesn't need to know about TaskService error shapes. */
+interface ClaimOutcome {
+  ok: boolean;
+  message: string;
+  status?: string;
+  assignee?: string;
+}
+
+/* Adaptive Card shown on a freshly created task: headline + detail + a
+   single one-tap Claim button (universal Action.Execute, handled by
+   onInvokeActivity). */
+const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string }): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [
+    { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
+    { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true }
+  ],
+  actions: [{ type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } }]
+});
+
+/* Card the original message is refreshed to after a successful claim — the
+   Claim button is gone so the task can't be double-claimed from the card. */
+const claimedCard = (outcome: ClaimOutcome): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [
+    { type: "TextBlock", text: outcome.message, weight: "Bolder", wrap: true, size: "Medium" },
+    ...(outcome.assignee
+      ? [{ type: "TextBlock", text: `Claimed by ${outcome.assignee}`, wrap: true, spacing: "Small", isSubtle: true }]
+      : [])
+  ]
+});
+
+/* Replace the tapped card with a refreshed Adaptive Card. */
+const cardRefreshResponse = (card: Record<string, unknown>): InvokeResponse => ({
+  status: 200,
+  body: {
+    statusCode: 200,
+    type: "application/vnd.microsoft.card.adaptive",
+    value: card
+  }
+});
+
+/* Leave the card as-is and surface a short toast to the tapper (e.g. when
+   the task was already claimed). */
+const cardMessageResponse = (text: string): InvokeResponse => ({
+  status: 200,
+  body: {
+    statusCode: 200,
+    type: "application/vnd.microsoft.activity.message",
+    value: text
+  }
+});
+
+/* Point a captured channel reference at a specific root message so a reply
+   lands inside that task's thread rather than starting a new one. Teams
+   threads on `conversation.id` suffixed with `;messageid=<rootId>`. */
+const threadReference = (
+  reference: Partial<ConversationReference>,
+  rootMessageId: string
+): Partial<ConversationReference> => {
+  const conversation = reference.conversation;
+  if (!conversation?.id) {
+    return reference;
+  }
+  const baseId = conversation.id.split(";")[0];
+  return {
+    ...reference,
+    conversation: { ...conversation, id: `${baseId};messageid=${rootMessageId}` }
+  };
+};
+
 class LoanTasksBot extends ActivityHandler {
   private readonly drafts = new Map<string, QuickAddDraft>();
 
   constructor(
     private readonly onReference: (reference: Partial<ConversationReference>, scope: "DM" | "CHANNEL") => Promise<void>,
-    private readonly onQuickAddTask: (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>
+    private readonly onQuickAddTask: (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>,
+    /* Resolve a tapped Claim button (`from.aadObjectId` + `taskId`) into a
+       claim. Returns a normalized outcome the bot renders back into the card. */
+    private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>
   ) {
     super();
 
@@ -262,6 +397,32 @@ class LoanTasksBot extends ActivityHandler {
       await this.handleMessage(context);
       await next();
     });
+  }
+
+  /* Universal Action.Execute handler for the Claim button on task cards.
+     ActivityHandler delivers card actions here as `adaptiveCard/action`
+     invokes; everything else falls through to the base implementation. */
+  protected async onInvokeActivity(context: TurnContext): Promise<InvokeResponse> {
+    await this.capture(context);
+    if (context.activity.name !== "adaptiveCard/action") {
+      return super.onInvokeActivity(context);
+    }
+
+    const value = (context.activity.value ?? {}) as { action?: { verb?: string; data?: Record<string, unknown> } };
+    const verb = value.action?.verb;
+    const taskId = typeof value.action?.data?.taskId === "string" ? value.action.data.taskId : undefined;
+
+    if (verb !== "claimTask" || !taskId) {
+      return cardMessageResponse("Sorry, I didn't recognise that action.");
+    }
+
+    const from = context.activity.from;
+    const outcome = await this.onClaim(taskId, from?.aadObjectId, from?.name ?? "Someone");
+
+    if (!outcome.ok) {
+      return cardMessageResponse(outcome.message);
+    }
+    return cardRefreshResponse(claimedCard(outcome));
   }
 
   private async handleMessage(context: TurnContext): Promise<void> {
@@ -741,7 +902,10 @@ export class TeamsBotClient {
   private readonly adapter?: BotFrameworkAdapter;
   private readonly bot?: LoanTasksBot;
   private readonly store: ReferenceStore;
+  private readonly threads: ThreadStore;
   private taskCreator?: BotTaskCreator;
+  private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
+  private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
 
   constructor(
     private readonly appId: string | undefined,
@@ -754,6 +918,7 @@ export class TeamsBotClient {
     private readonly onDmUser?: (aadObjectId: string, teamsUserId: string) => Promise<void>
   ) {
     this.store = new ReferenceStore(dataFile);
+    this.threads = new ThreadStore(path.join(path.dirname(dataFile), "bot-task-threads.json"));
 
     if (appId && appPassword) {
       this.adapter = new BotFrameworkAdapter({
@@ -776,7 +941,8 @@ export class TeamsBotClient {
             throw new Error("Quick add is not configured on server");
           }
           return this.taskCreator(input, user);
-        }
+        },
+        async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName)
       );
     }
   }
@@ -785,8 +951,39 @@ export class TeamsBotClient {
     this.taskCreator = taskCreator;
   }
 
+  /* Wire the one-tap Claim button to the task service. `resolveUser` maps a
+     Teams `aadObjectId` to a permission-bearing identity; `claim` performs
+     the claim (and fires its own thread/DM notifications). */
+  setClaimHandler(
+    resolveUser: (aadObjectId: string) => Promise<UserIdentity | undefined>,
+    claim: (taskId: string, user: UserIdentity) => Promise<LoanTask>
+  ): void {
+    this.userResolver = resolveUser;
+    this.taskClaimer = claim;
+  }
+
+  private async handleClaim(taskId: string, aadObjectId: string | undefined, _displayName: string): Promise<ClaimOutcome> {
+    if (!this.taskClaimer || !this.userResolver) {
+      return { ok: false, message: "Claiming isn't wired up on the server yet." };
+    }
+    if (!aadObjectId) {
+      return { ok: false, message: "Couldn't identify you in Teams — try claiming from the web app." };
+    }
+    const user = await this.userResolver(aadObjectId);
+    if (!user) {
+      return { ok: false, message: "You're not set up as a file checker yet — ask an admin." };
+    }
+    try {
+      const task = await this.taskClaimer(taskId, user);
+      return { ok: true, message: `${user.displayName} grabbed ${task.folderName}`, status: task.status, assignee: user.displayName };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Couldn't claim that task." };
+    }
+  }
+
   async init(): Promise<void> {
     await this.store.init();
+    await this.threads.init();
   }
 
   isEnabled(): boolean {
@@ -888,6 +1085,61 @@ export class TeamsBotClient {
         this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
           await context.sendActivity({ attachments: [card] });
         })
+      )
+    );
+  }
+
+  /* Post a freshly created task as an Adaptive Card with a one-tap Claim
+     button, recording each channel's root message id so later updates can
+     thread under it. */
+  async postTaskCard(taskId: string, title: string, detail: string): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+
+    const references = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
+    const card = CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId }));
+    const posts: StoredThread["posts"] = [];
+
+    await Promise.all(
+      references.map((entry) =>
+        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
+          const response = await context.sendActivity({ attachments: [card] });
+          if (response?.id) {
+            posts.push({ reference: entry.reference, activityId: response.id });
+          }
+        })
+      )
+    );
+
+    if (posts.length > 0) {
+      await this.threads.save({ taskId, posts });
+    }
+  }
+
+  /* Reply inside a task's existing channel thread (e.g. "Alex grabbed this
+     one"). Falls back to a fresh channel post if we have no record of the
+     root card — the bot may have restarted, or the task predates threading. */
+  async replyInThread(taskId: string, text: string, fallbackTitle: string): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+
+    const thread = await this.threads.get(taskId);
+    if (!thread || thread.posts.length === 0) {
+      await this.sendToChannels(fallbackTitle, text);
+      return;
+    }
+
+    await Promise.all(
+      thread.posts.map((post) =>
+        this.adapter!.continueConversationAsync(
+          this.appId!,
+          threadReference(post.reference, post.activityId),
+          async (context) => {
+            await context.sendActivity(MessageFactory.text(text));
+          }
+        )
       )
     );
   }

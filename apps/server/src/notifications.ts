@@ -30,7 +30,20 @@ export class TeamsNotificationProvider implements NotificationProvider {
     const detail = `Folder: ${event.task.folderName}\nStatus: ${event.task.status}\nUrgency: ${event.task.urgency}`;
 
     if (event.target === "CHANNEL") {
-      await this.botClient.sendToChannels(`${prefix} ${event.message}`, detail);
+      // Created tasks post as an Adaptive Card carrying a one-tap Claim button;
+      // the returned message id is recorded so later updates can thread under it.
+      await this.botClient.postTaskCard(event.task.id, `${prefix} ${event.message}`, detail);
+      await sendWebhook({
+        title: `${prefix} ${event.message}`,
+        text: detail
+      });
+      return;
+    }
+
+    if (event.target === "CHANNEL_THREAD") {
+      // Follow-ups (claim / unclaim) reply inside the task's existing thread
+      // instead of broadcasting a fresh card to the whole channel.
+      await this.botClient.replyInThread(event.task.id, event.message, `${prefix} ${event.message}`);
       await sendWebhook({
         title: `${prefix} ${event.message}`,
         text: detail

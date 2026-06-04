@@ -91,14 +91,14 @@ export class TaskService {
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${user.displayName} created task ${task.folderName}`,
+      message: `${user.displayName} tossed a new file check on the pile: ${task.folderName}`,
       target: "IN_APP"
     });
     await this.notify({
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${user.displayName} created task ${task.folderName}`,
+      message: `${user.displayName} tossed a new file check on the pile: ${task.folderName}`,
       target: "CHANNEL"
     });
     await this.evaluateActivitySignals({ now });
@@ -152,14 +152,14 @@ export class TaskService {
       type: "TASK_CLAIMED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} claimed ${updated.folderName}`,
-      target: "CHANNEL"
+      message: `${user.displayName} grabbed this one — on it now`,
+      target: "CHANNEL_THREAD"
     });
     await this.notify({
       type: "TASK_CLAIMED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `You picked up ${updated.folderName}`,
+      message: `You're on the hook for this one. Go get 'em.`,
       target: "DM",
       recipientUserIds: [user.id]
     });
@@ -191,8 +191,8 @@ export class TaskService {
       type: "TASK_UNCLAIMED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} unclaimed ${updated.folderName}`,
-      target: "CHANNEL"
+      message: `${user.displayName} let this one go — back up for grabs`,
+      target: "CHANNEL_THREAD"
     });
     await this.evaluateActivitySignals({ now: new Date(now) });
 
@@ -258,7 +258,7 @@ export class TaskService {
           type: "TASK_STATUS_CHANGED",
           task: updated,
           actor: { id: user.id, displayName: user.displayName },
-          message: `Needs review: ${updated.folderName}`,
+          message: `${updated.folderName} needs your eyes`,
           target: "ACTIVITY_FEED",
           recipientUserIds: recipients
         });
@@ -270,7 +270,7 @@ export class TaskService {
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `${updated.folderName} is now ${next}`,
+        message: next === "COMPLETED" ? `Done and dusted 🎉` : `Merge done — almost home`,
         target: "DM",
         recipientUserIds: [updated.createdBy.id]
       });
@@ -281,7 +281,7 @@ export class TaskService {
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `${updated.folderName} is now ${next}`,
+        message: `Got the green light`,
         target: "DM",
         recipientUserIds: [updated.assignee.id]
       });
@@ -325,7 +325,7 @@ export class TaskService {
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `${user.displayName} added a note on ${updated.folderName}`,
+        message: `${user.displayName} left you a note`,
         target: "DM",
         recipientUserIds: recipients
       });
@@ -372,14 +372,14 @@ export class TaskService {
           type: "TASK_STATUS_CHANGED",
           task: next,
           actor: { id: "system", displayName: "Task Scheduler" },
-          message: `${next.folderName} auto-completed on return date`,
+          message: `${next.folderName} wrapped itself up on the return date`,
           target: "IN_APP"
         });
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: next,
           actor: { id: "system", displayName: "Task Scheduler" },
-          message: `${next.folderName} is now COMPLETED`,
+          message: `Auto-completed while you were out — welcome back`,
           target: "DM",
           recipientUserIds: [next.createdBy.id]
         });
@@ -414,7 +414,7 @@ export class TaskService {
             type: "TASK_REMINDER",
             task: next,
             actor: { id: "system", displayName: "Task Scheduler" },
-            message: `Task ${next.folderName} is overdue`,
+            message: `Heads up — this one's overdue`,
             target: "DM",
             recipientUserIds: reminderRecipients
           });
@@ -576,7 +576,7 @@ export class TaskService {
             key,
             userId: user.id,
             signalType: "CLAIMABLE",
-            message: `Task available to claim: ${task.folderName}`,
+            message: `${task.folderName} is up for grabs`,
             task
           });
         }
@@ -589,7 +589,7 @@ export class TaskService {
           key,
           userId: overdueUserId,
           signalType: "OVERDUE",
-          message: `Task overdue: ${task.folderName}`,
+          message: `${task.folderName} is running late`,
           task
         });
       }
@@ -602,7 +602,7 @@ export class TaskService {
             key,
             userId,
             signalType: "NEEDS_REVIEW",
-            message: `Needs review: ${task.folderName}`,
+            message: `${task.folderName} needs your eyes`,
             task
           });
         }

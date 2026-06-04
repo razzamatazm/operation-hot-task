@@ -251,14 +251,26 @@ Primary goals:
   - Teams activity feed notifications
 - Dedicated Tasks channel is the channel-post target
 - Routing:
-  - New task created: channel broadcast plus in-app event
-  - Task claimed/unclaimed: channel update; claimer gets DM on claim
+  - New task created: channel post as an Adaptive Card with a one-tap **Claim**
+    button, plus in-app event. The card's root message id is recorded per
+    channel (`apps/server/data/bot-task-threads.json`) so follow-ups can thread.
+  - Task claimed/unclaimed: posted as a **reply in the task's existing thread**
+    (not a new full-channel broadcast); claimer also gets a DM on claim. Falls
+    back to a fresh channel post if the root message id is unknown (e.g. the
+    bot restarted, or the task predates threading).
   - `Merge Done` and `Completed`: DM task creator
   - `Merge Approved`: DM task assignee
   - Notes: DM counterpart user
   - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM goes to creator
+- Tapping **Claim** on a card resolves the Teams user (`from.aadObjectId`) to a
+  stored identity, claims the task, then refreshes the card (button removed) and
+  threads the "grabbed this one" reply. Unknown/inactive users get a toast and
+  no claim.
+- Copy is intentionally personable/casual (e.g. "tossed a new file check on the
+  pile", "grabbed this one — on it now"), low on emoji.
 - Bot v1 scope:
   - Notifications/reminders
+  - One-tap claim from channel cards
   - Quick add via `/bot new`
 - Bot quick add flow:
   - Ask Folder Name

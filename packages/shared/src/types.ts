@@ -113,7 +113,7 @@ export interface NotificationEvent {
   task: LoanTask;
   actor: Pick<UserIdentity, "id" | "displayName">;
   message: string;
-  target: "IN_APP" | "DM" | "CHANNEL" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "CHANNEL" | "CHANNEL_THREAD" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   createdAt: string;
 }
