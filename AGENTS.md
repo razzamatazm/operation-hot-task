@@ -252,8 +252,16 @@ Primary goals:
 - Dedicated Tasks channel is the channel-post target
 - Routing:
   - New task created: channel post as an Adaptive Card with a one-tap **Claim**
-    button, plus in-app event. The card's root message id is recorded per
-    channel (`apps/server/data/bot-task-threads.json`) so follow-ups can thread.
+    button and an **Open in Hot Task** deep link, plus in-app event. The card's
+    root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
+    so follow-ups can thread.
+    - Card detail block is `Folder` / `How Bad` (poop emojis) / `Urgency` shown
+      as its time-frame label ("Within 1 Hour"), not the raw colour code. The
+      title prefix still carries the colour, e.g. `[LOAN_DOCS] [ORANGE]`.
+    - **Open in Hot Task** is a Teams deep link to the `loan-tasks-home` tab
+      carrying the task id as `subEntityId`. The web app reads it (teams-js
+      `page.subPageId`) and expands + scrolls to that task. Requires
+      `TEAMS_APP_ID`; the button is omitted when it's unset.
   - Task claimed/unclaimed: posted as a **reply in the task's existing thread**
     (not a new full-channel broadcast); claimer also gets a DM on claim. Falls
     back to a fresh channel post if the root message id is unknown (e.g. the

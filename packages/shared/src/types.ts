@@ -20,6 +20,15 @@ export const getNotesFieldLabel = (taskType?: TaskType): string => {
 export const URGENCY_LEVELS = ["GREEN", "YELLOW", "ORANGE", "RED"] as const;
 export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
 
+/* Human time-frame for each urgency level — used in bot/notification copy so
+   we surface the deadline ("Within 1 Hour") rather than the raw colour code. */
+export const URGENCY_TIMEFRAMES: Record<UrgencyLevel, string> = {
+  GREEN: "Within 24 Hours",
+  YELLOW: "End of Day",
+  ORANGE: "Within 1 Hour",
+  RED: "Urgent Now"
+};
+
 export const USER_ROLES = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 

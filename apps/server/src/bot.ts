@@ -311,7 +311,7 @@ interface ClaimOutcome {
 /* Adaptive Card shown on a freshly created task: headline + detail + a
    single one-tap Claim button (universal Action.Execute, handled by
    onInvokeActivity). */
-const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string }): Record<string, unknown> => ({
+const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string }): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
@@ -319,7 +319,10 @@ const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string 
     { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
     { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true }
   ],
-  actions: [{ type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } }]
+  actions: [
+    { type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } },
+    ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
+  ]
 });
 
 /* Card the original message is refreshed to after a successful claim — the
@@ -1135,13 +1138,13 @@ export class TeamsBotClient {
   /* Post a freshly created task as an Adaptive Card with a one-tap Claim
      button, recording each channel's root message id so later updates can
      thread under it. */
-  async postTaskCard(taskId: string, title: string, detail: string): Promise<void> {
+  async postTaskCard(taskId: string, title: string, detail: string, openUrl?: string): Promise<void> {
     if (!this.adapter) {
       return;
     }
 
     const references = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
-    const card = CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId }));
+    const card = CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }));
     const posts: StoredThread["posts"] = [];
 
     await Promise.all(

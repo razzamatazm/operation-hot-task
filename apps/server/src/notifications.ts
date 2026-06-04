@@ -1,4 +1,4 @@
-import { NotificationEvent } from "@loan-tasks/shared";
+import { NotificationEvent, URGENCY_TIMEFRAMES } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -6,6 +6,19 @@ import { TeamsBotClient } from "./bot.js";
 export interface NotificationProvider {
   notify(event: NotificationEvent): Promise<void>;
 }
+
+/* Teams deep link to the Hot Task tab, focused on a specific task via
+   subEntityId (teams-js surfaces it as page.subPageId, which the web app reads
+   to expand + scroll to the card). Requires TEAMS_APP_ID; without it we can't
+   build a valid entity link, so the card simply omits the button. The
+   `loan-tasks-home` entity id matches the static tab in the Teams manifest. */
+const teamsTaskDeepLink = (taskId: string): string | undefined => {
+  if (!config.teamsAppId) {
+    return undefined;
+  }
+  const context = encodeURIComponent(JSON.stringify({ subEntityId: taskId }));
+  return `https://teams.microsoft.com/l/entity/${config.teamsAppId}/loan-tasks-home?context=${context}`;
+};
 
 const sendWebhook = async (payload: { title: string; text: string }): Promise<void> => {
   if (!config.webhookUrl) {
@@ -27,12 +40,14 @@ export class TeamsNotificationProvider implements NotificationProvider {
 
   async notify(event: NotificationEvent): Promise<void> {
     const prefix = `[${event.task.taskType}] [${event.task.urgency}]`;
-    const detail = `Folder: ${event.task.folderName}\nStatus: ${event.task.status}\nUrgency: ${event.task.urgency}`;
+    const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
+    const detail = `Folder: ${event.task.folderName}\nHow Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`;
 
     if (event.target === "CHANNEL") {
-      // Created tasks post as an Adaptive Card carrying a one-tap Claim button;
-      // the returned message id is recorded so later updates can thread under it.
-      await this.botClient.postTaskCard(event.task.id, `${prefix} ${event.message}`, detail);
+      // Created tasks post as an Adaptive Card carrying a one-tap Claim button
+      // plus an "Open in Hot Task" deep link; the returned message id is
+      // recorded so later updates can thread under it.
+      await this.botClient.postTaskCard(event.task.id, `${prefix} ${event.message}`, detail, teamsTaskDeepLink(event.task.id));
       await sendWebhook({
         title: `${prefix} ${event.message}`,
         text: detail
