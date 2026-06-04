@@ -69,6 +69,8 @@ az webapp config appsettings set \
     FRONTEND_DIST=../web/dist \
     DATA_FILE=/home/site/data/tasks.json \
     BOT_REFERENCES_FILE=/home/site/data/bot-references.json \
+    ADMIN_SETTINGS_FILE=/home/site/data/admin-settings.json \
+    ACTIVITY_FEED_STATE_FILE=/home/site/data/activity-feed-state.json \
     BUSINESS_TIMEZONE=America/Los_Angeles \
     BUSINESS_START_HOUR=8 \
     BUSINESS_START_MINUTE=30 \
