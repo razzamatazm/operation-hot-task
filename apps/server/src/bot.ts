@@ -987,7 +987,14 @@ export class TeamsBotClient {
       await this.updateTaskCard(taskId, claimedCard(outcome));
       return outcome;
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Couldn't claim that task." };
+      const reason = error instanceof Error ? error.message : "";
+      // canClaimTask fails for two reasons (already claimed, or fraud needs a
+      // file checker); both surface as this one error. Show a single friendly
+      // toast, and pass through anything unexpected so real bugs aren't masked.
+      if (reason === "Task cannot be claimed by this user") {
+        return { ok: false, message: "Can't claim this one — it's already taken or needs a file checker." };
+      }
+      return { ok: false, message: reason || "Couldn't claim that task." };
     }
   }
 
