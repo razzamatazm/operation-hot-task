@@ -11,6 +11,8 @@ interface StoredReference {
   scope: "DM" | "CHANNEL";
   userId?: string;
   userAadObjectId?: string;
+  /* Friendly "Team / Channel" label from channelData, for the admin picker. */
+  displayName?: string;
 }
 
 /* Where a task's root channel card landed, per channel. We thread later
@@ -492,6 +494,16 @@ const cardMessageResponse = (text: string): InvokeResponse => ({
 /* Point a captured channel reference at a specific root message so a reply
    lands inside that task's thread rather than starting a new one. Teams
    threads on `conversation.id` suffixed with `;messageid=<rootId>`. */
+/* Friendly "Team / Channel" label from a channel activity's channelData, for
+   the admin picker. Teams often omits channel.name for the default General
+   channel, so fall back to just the team name. Returns undefined for DMs or
+   when no names are present (caller then falls back to conversation id). */
+const channelDisplayName = (activity: { channelData?: unknown }): string | undefined => {
+  const data = activity.channelData as { team?: { name?: string }; channel?: { name?: string } } | undefined;
+  const parts = [data?.team?.name, data?.channel?.name].filter((p): p is string => Boolean(p && p.trim()));
+  return parts.length > 0 ? parts.join(" / ") : undefined;
+};
+
 const threadReference = (
   reference: Partial<ConversationReference>,
   rootMessageId: string
@@ -511,7 +523,7 @@ class LoanTasksBot extends ActivityHandler {
   private readonly drafts = new Map<string, QuickAddDraft>();
 
   constructor(
-    private readonly onReference: (reference: Partial<ConversationReference>, scope: "DM" | "CHANNEL") => Promise<void>,
+    private readonly onReference: (reference: Partial<ConversationReference>, scope: "DM" | "CHANNEL", displayName?: string) => Promise<void>,
     private readonly onQuickAddTask: (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>,
     /* Resolve a tapped Claim button (`from.aadObjectId` + `taskId`) into a
        claim. Returns a normalized outcome the bot renders back into the card. */
@@ -1099,7 +1111,7 @@ class LoanTasksBot extends ActivityHandler {
     const reference = TurnContext.getConversationReference(context.activity);
     const conversationType = context.activity.conversation?.conversationType;
     const scope = conversationType === "channel" ? "CHANNEL" : "DM";
-    await this.onReference(reference, scope);
+    await this.onReference(reference, scope, channelDisplayName(context.activity));
   }
 }
 
@@ -1135,11 +1147,11 @@ export class TeamsBotClient {
         ...(this.appTenantId ? { channelAuthTenant: this.appTenantId } : {})
       });
       this.bot = new LoanTasksBot(
-        async (reference, scope) => {
+        async (reference, scope, displayName) => {
           const dmUserId = scope === "DM" ? reference.user?.id : undefined;
           const dmAadObjectId = scope === "DM" ? (reference.user as { aadObjectId?: string } | undefined)?.aadObjectId : undefined;
           const key = scope === "CHANNEL" ? `channel:${reference.conversation?.id ?? "unknown"}` : `dm:${dmAadObjectId ?? dmUserId ?? "unknown"}`;
-          await this.store.save({ key, reference, scope, ...(dmUserId ? { userId: dmUserId } : {}), ...(dmAadObjectId ? { userAadObjectId: dmAadObjectId } : {}) });
+          await this.store.save({ key, reference, scope, ...(dmUserId ? { userId: dmUserId } : {}), ...(dmAadObjectId ? { userAadObjectId: dmAadObjectId } : {}), ...(displayName ? { displayName } : {}) });
           if (scope === "DM" && dmAadObjectId && dmUserId && this.onDmUser) {
             await this.onDmUser(dmAadObjectId, dmUserId);
           }
@@ -1466,7 +1478,7 @@ export class TeamsBotClient {
       if (!id) {
         continue;
       }
-      byId.set(id, { id, name: entry.reference.conversation?.name ?? id });
+      byId.set(id, { id, name: entry.displayName ?? entry.reference.conversation?.name ?? id });
     }
     return [...byId.values()];
   }
