@@ -94,11 +94,15 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // posts straight back as another review note. `event.message` is the raw
       // note text. Falls back to a plain DM if there are no targeted recipients.
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        // Last few notes for context, oldest → newest. Falls back to the raw
+        // message if the task somehow carries no stored notes.
+        const thread = (event.task.reviewNotes ?? [])
+          .slice(-5)
+          .map((entry) => ({ author: entry.by.displayName, text: entry.text }));
         await this.botClient.sendNoteCardToUsers(event.recipientUserIds, {
           taskId: event.task.id,
-          author: event.actor.displayName,
           folder: event.task.folderName,
-          noteText: event.message
+          thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }]
         });
         return;
       }

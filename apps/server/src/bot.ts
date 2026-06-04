@@ -327,26 +327,40 @@ interface NoteReplyOutcome {
   message: string;
 }
 
-/* DM card for an incoming review note: who/where, the note text, and an inline
-   reply box that posts straight back as another note (Action.Execute). */
-const noteCard = (opts: { taskId: string; author: string; folder: string; noteText: string }): Record<string, unknown> => ({
-  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-  type: "AdaptiveCard",
-  version: "1.4",
-  body: [
-    { type: "TextBlock", text: `${opts.author} left a note on ${opts.folder}`, weight: "Bolder", wrap: true },
-    { type: "TextBlock", text: opts.noteText, wrap: true, spacing: "Small" },
-    { type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }
-  ],
-  actions: [
-    {
-      type: "Action.Execute",
-      title: "Reply",
-      verb: "replyNote",
-      data: { taskId: opts.taskId, author: opts.author, folder: opts.folder, noteText: opts.noteText }
-    }
-  ]
-});
+interface NoteThreadEntry {
+  author: string;
+  text: string;
+}
+
+/* DM card for an incoming review note: the recent conversation (last entries,
+   oldest → newest) plus an inline reply box that posts straight back as another
+   note (Action.Execute). */
+const noteCard = (opts: { taskId: string; folder: string; thread: NoteThreadEntry[] }): Record<string, unknown> => {
+  const latest = opts.thread.at(-1);
+  return {
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    type: "AdaptiveCard",
+    version: "1.4",
+    body: [
+      { type: "TextBlock", text: `Conversation on ${opts.folder}`, weight: "Bolder", wrap: true },
+      ...opts.thread.map((entry) => ({
+        type: "TextBlock",
+        text: `**${entry.author}:** ${entry.text}`,
+        wrap: true,
+        spacing: "Small"
+      })),
+      { type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }
+    ],
+    actions: [
+      {
+        type: "Action.Execute",
+        title: "Reply",
+        verb: "replyNote",
+        data: { taskId: opts.taskId, author: latest?.author ?? "Someone", folder: opts.folder, noteText: latest?.text ?? "" }
+      }
+    ]
+  };
+};
 
 /* Card the note DM is refreshed to after a reply is posted — input gone. */
 const noteRepliedCard = (opts: { author: string; folder: string; noteText: string; reply: string }): Record<string, unknown> => ({
@@ -1118,7 +1132,7 @@ export class TeamsBotClient {
      inline reply box. Mirrors sendToDmUsers but sends a card attachment. */
   async sendNoteCardToUsers(
     userIds: string[],
-    note: { taskId: string; author: string; folder: string; noteText: string }
+    note: { taskId: string; folder: string; thread: NoteThreadEntry[] }
   ): Promise<void> {
     if (!this.adapter || userIds.length === 0) {
       return;

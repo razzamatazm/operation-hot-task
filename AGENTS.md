@@ -281,8 +281,9 @@ Primary goals:
     bot restarted, or the task predates threading).
   - `Merge Done` and `Completed`: DM task creator
   - `Merge Approved`: DM task assignee
-  - Notes: DM counterpart user as an **interactive note card** — shows the note
-    text with an inline reply box; tapping **Reply** posts the text straight back
+  - Notes: DM counterpart user as an **interactive note card** — shows the
+    recent conversation (last ~5 notes, oldest → newest) with an inline reply
+    box; tapping **Reply** posts the text straight back
     as another review note (which in turn DMs the original author, closing the
     loop). Routed via the `DM_NOTE` target; falls back to a plain DM when there's
     no targeted recipient. Reply resolves the Teams user (`from.aadObjectId`) to
