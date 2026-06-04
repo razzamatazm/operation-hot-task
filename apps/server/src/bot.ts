@@ -504,6 +504,26 @@ const cardMessageResponse = (text: string): InvokeResponse => ({
    same channel shows up multiple times in the picker. */
 const baseChannelId = (id: string): string => id.split(";")[0] ?? id;
 
+/* Collapse captured channel references to one per real channel, preferring the
+   unsuffixed root reference over a `;messageid=…` thread capture, so a single
+   channel never receives duplicate broadcasts. */
+const dedupeChannelRefs = (refs: StoredReference[]): StoredReference[] => {
+  const byBase = new Map<string, StoredReference>();
+  for (const entry of refs) {
+    const id = entry.reference.conversation?.id;
+    if (!id) {
+      continue;
+    }
+    const base = baseChannelId(id);
+    const existing = byBase.get(base);
+    const existingIsRoot = existing?.reference.conversation?.id === base;
+    if (!existing || (id === base && !existingIsRoot)) {
+      byBase.set(base, entry);
+    }
+  }
+  return [...byBase.values()];
+};
+
 /* Friendly "Team / Channel" label from a channel activity's channelData, for
    the admin picker. Teams often omits channel.name for the default General
    channel, so fall back to just the team name. Returns undefined for DMs or
@@ -1476,16 +1496,18 @@ export class TeamsBotClient {
     const channels = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
     const selectedId = this.notificationChannelResolver ? await this.notificationChannelResolver() : undefined;
     if (!selectedId) {
-      return channels;
+      // One reference per channel — without this, a channel with several
+      // thread-suffixed captures would get duplicate broadcasts.
+      return dedupeChannelRefs(channels);
     }
     // Match on the base channel id so a selection still resolves references
-    // captured inside a thread (`…;messageid=…`).
+    // captured inside a thread (`…;messageid=…`), then collapse to one.
     const selectedBase = baseChannelId(selectedId);
     const matched = channels.filter((entry) => {
       const id = entry.reference.conversation?.id;
       return id ? baseChannelId(id) === selectedBase : false;
     });
-    return matched.length > 0 ? matched : channels;
+    return dedupeChannelRefs(matched.length > 0 ? matched : channels);
   }
 
   /* List captured channels for the admin picker, one row per real channel
