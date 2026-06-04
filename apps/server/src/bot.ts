@@ -498,9 +498,32 @@ const cardMessageResponse = (text: string): InvokeResponse => ({
   }
 });
 
-/* Point a captured channel reference at a specific root message so a reply
-   lands inside that task's thread rather than starting a new one. Teams
-   threads on `conversation.id` suffixed with `;messageid=<rootId>`. */
+/* A Teams channel conversation id can carry a `;messageid=…` thread suffix when
+   the captured activity happened inside a thread. The channel itself is the part
+   before the suffix, so normalise to it for listing/selection — otherwise the
+   same channel shows up multiple times in the picker. */
+const baseChannelId = (id: string): string => id.split(";")[0] ?? id;
+
+/* Collapse captured channel references to one per real channel, preferring the
+   unsuffixed root reference over a `;messageid=…` thread capture, so a single
+   channel never receives duplicate broadcasts. */
+const dedupeChannelRefs = (refs: StoredReference[]): StoredReference[] => {
+  const byBase = new Map<string, StoredReference>();
+  for (const entry of refs) {
+    const id = entry.reference.conversation?.id;
+    if (!id) {
+      continue;
+    }
+    const base = baseChannelId(id);
+    const existing = byBase.get(base);
+    const existingIsRoot = existing?.reference.conversation?.id === base;
+    if (!existing || (id === base && !existingIsRoot)) {
+      byBase.set(base, entry);
+    }
+  }
+  return [...byBase.values()];
+};
+
 /* Friendly "Team / Channel" label from a channel activity's channelData, for
    the admin picker. Teams often omits channel.name for the default General
    channel, so fall back to just the team name. Returns undefined for DMs or
@@ -510,6 +533,10 @@ const channelDisplayName = (activity: { channelData?: unknown }): string | undef
   const parts = [data?.team?.name, data?.channel?.name].filter((p): p is string => Boolean(p && p.trim()));
   return parts.length > 0 ? parts.join(" / ") : undefined;
 };
+
+/* Point a captured channel reference at a specific root message so a reply
+   lands inside that task's thread rather than starting a new one. Teams
+   threads on `conversation.id` suffixed with `;messageid=<rootId>`. */
 
 const threadReference = (
   reference: Partial<ConversationReference>,
@@ -1469,23 +1496,39 @@ export class TeamsBotClient {
     const channels = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
     const selectedId = this.notificationChannelResolver ? await this.notificationChannelResolver() : undefined;
     if (!selectedId) {
-      return channels;
+      // One reference per channel — without this, a channel with several
+      // thread-suffixed captures would get duplicate broadcasts.
+      return dedupeChannelRefs(channels);
     }
-    const matched = channels.filter((entry) => entry.reference.conversation?.id === selectedId);
-    return matched.length > 0 ? matched : channels;
+    // Match on the base channel id so a selection still resolves references
+    // captured inside a thread (`…;messageid=…`), then collapse to one.
+    const selectedBase = baseChannelId(selectedId);
+    const matched = channels.filter((entry) => {
+      const id = entry.reference.conversation?.id;
+      return id ? baseChannelId(id) === selectedBase : false;
+    });
+    return dedupeChannelRefs(matched.length > 0 ? matched : channels);
   }
 
-  /* List captured channels for the admin picker. Name falls back to the id when
-     Teams didn't include a display name on the reference. */
+  /* List captured channels for the admin picker, one row per real channel
+     (thread suffixes collapsed). Prefers a friendly "Team / Channel" label;
+     falls back to the channel name, then the raw id. */
   async listChannels(): Promise<Array<{ id: string; name: string }>> {
     const channels = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
     const byId = new Map<string, { id: string; name: string }>();
     for (const entry of channels) {
-      const id = entry.reference.conversation?.id;
-      if (!id) {
+      const rawId = entry.reference.conversation?.id;
+      if (!rawId) {
         continue;
       }
-      byId.set(id, { id, name: entry.displayName ?? entry.reference.conversation?.name ?? id });
+      const id = baseChannelId(rawId);
+      const friendly = entry.displayName ?? entry.reference.conversation?.name;
+      const existing = byId.get(id);
+      // Insert once; upgrade a raw-id placeholder to a friendly name if a later
+      // capture for the same channel has one.
+      if (!existing || (friendly && existing.name === id)) {
+        byId.set(id, { id, name: friendly ?? id });
+      }
     }
     return [...byId.values()];
   }
