@@ -321,6 +321,45 @@ interface ClaimOutcome {
   assignee?: string;
 }
 
+/* Result of a reply-to-note submitted from a DM card. */
+interface NoteReplyOutcome {
+  ok: boolean;
+  message: string;
+}
+
+/* DM card for an incoming review note: who/where, the note text, and an inline
+   reply box that posts straight back as another note (Action.Execute). */
+const noteCard = (opts: { taskId: string; author: string; folder: string; noteText: string }): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [
+    { type: "TextBlock", text: `${opts.author} left a note on ${opts.folder}`, weight: "Bolder", wrap: true },
+    { type: "TextBlock", text: opts.noteText, wrap: true, spacing: "Small" },
+    { type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }
+  ],
+  actions: [
+    {
+      type: "Action.Execute",
+      title: "Reply",
+      verb: "replyNote",
+      data: { taskId: opts.taskId, author: opts.author, folder: opts.folder, noteText: opts.noteText }
+    }
+  ]
+});
+
+/* Card the note DM is refreshed to after a reply is posted — input gone. */
+const noteRepliedCard = (opts: { author: string; folder: string; noteText: string; reply: string }): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [
+    { type: "TextBlock", text: `${opts.author} left a note on ${opts.folder}`, weight: "Bolder", wrap: true },
+    { type: "TextBlock", text: opts.noteText, wrap: true, spacing: "Small", isSubtle: true },
+    { type: "TextBlock", text: `You replied: ${opts.reply}`, wrap: true, spacing: "Small" }
+  ]
+});
+
 /* Adaptive Card shown on a freshly created task: headline + detail + a
    single one-tap Claim button (universal Action.Execute, handled by
    onInvokeActivity). */
@@ -399,7 +438,9 @@ class LoanTasksBot extends ActivityHandler {
     private readonly onQuickAddTask: (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>,
     /* Resolve a tapped Claim button (`from.aadObjectId` + `taskId`) into a
        claim. Returns a normalized outcome the bot renders back into the card. */
-    private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>
+    private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>,
+    /* Resolve a reply submitted from a note DM card into a new review note. */
+    private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined) => Promise<NoteReplyOutcome>
   ) {
     super();
 
@@ -426,19 +467,46 @@ class LoanTasksBot extends ActivityHandler {
 
     const value = (context.activity.value ?? {}) as { action?: { verb?: string; data?: Record<string, unknown> } };
     const verb = value.action?.verb;
-    const taskId = typeof value.action?.data?.taskId === "string" ? value.action.data.taskId : undefined;
-
-    if (verb !== "claimTask" || !taskId) {
-      return cardMessageResponse("Sorry, I didn't recognise that action.");
-    }
-
+    const data = value.action?.data ?? {};
+    const taskId = typeof data.taskId === "string" ? data.taskId : undefined;
     const from = context.activity.from;
-    const outcome = await this.onClaim(taskId, from?.aadObjectId, from?.name ?? "Someone");
 
-    if (!outcome.ok) {
-      return cardMessageResponse(outcome.message);
+    if (verb === "claimTask") {
+      if (!taskId) {
+        return cardMessageResponse("Sorry, I couldn't tell which task that was.");
+      }
+      const outcome = await this.onClaim(taskId, from?.aadObjectId, from?.name ?? "Someone");
+      if (!outcome.ok) {
+        return cardMessageResponse(outcome.message);
+      }
+      return cardRefreshResponse(claimedCard(outcome));
     }
-    return cardRefreshResponse(claimedCard(outcome));
+
+    if (verb === "replyNote") {
+      const replyText = typeof data.replyText === "string" ? data.replyText.trim() : "";
+      if (!taskId) {
+        return cardMessageResponse("Sorry, I couldn't tell which task that was.");
+      }
+      if (!replyText) {
+        return cardMessageResponse("Type a reply first, then tap Reply.");
+      }
+      const outcome = await this.onNoteReply(taskId, replyText, from?.aadObjectId);
+      if (!outcome.ok) {
+        return cardMessageResponse(outcome.message);
+      }
+      // Refresh the card to confirm; echo the author/note via the action data
+      // so the confirmation keeps context.
+      return cardRefreshResponse(
+        noteRepliedCard({
+          author: typeof data.author === "string" ? data.author : "Someone",
+          folder: typeof data.folder === "string" ? data.folder : "the task",
+          noteText: typeof data.noteText === "string" ? data.noteText : "",
+          reply: replyText
+        })
+      );
+    }
+
+    return cardMessageResponse("Sorry, I didn't recognise that action.");
   }
 
   private async handleMessage(context: TurnContext): Promise<void> {
@@ -959,6 +1027,7 @@ export class TeamsBotClient {
   private taskCreator?: BotTaskCreator;
   private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
+  private noteAdder?: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>;
 
   constructor(
     private readonly appId: string | undefined,
@@ -995,7 +1064,8 @@ export class TeamsBotClient {
           }
           return this.taskCreator(input, user);
         },
-        async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName)
+        async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName),
+        async (taskId, text, aadObjectId) => this.handleNoteReply(taskId, text, aadObjectId)
       );
     }
   }
@@ -1013,6 +1083,64 @@ export class TeamsBotClient {
   ): void {
     this.userResolver = resolveUser;
     this.taskClaimer = claim;
+  }
+
+  /* Wire the inline reply box on note DM cards. `addNote` posts the reply back
+     as a review note (which fires its own notification to the counterpart). */
+  setNoteReplyHandler(
+    resolveUser: (aadObjectId: string) => Promise<UserIdentity | undefined>,
+    addNote: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>
+  ): void {
+    this.userResolver = resolveUser;
+    this.noteAdder = addNote;
+  }
+
+  private async handleNoteReply(taskId: string, text: string, aadObjectId: string | undefined): Promise<NoteReplyOutcome> {
+    if (!this.noteAdder || !this.userResolver) {
+      return { ok: false, message: "Replies aren't wired up on the server yet." };
+    }
+    if (!aadObjectId) {
+      return { ok: false, message: "Couldn't identify you in Teams — reply from the web app instead." };
+    }
+    const user = await this.userResolver(aadObjectId);
+    if (!user) {
+      return { ok: false, message: "You're not set up in Hot Task yet — ask an admin." };
+    }
+    try {
+      await this.noteAdder(taskId, text, user);
+      return { ok: true, message: "Reply posted." };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Couldn't post that reply." };
+    }
+  }
+
+  /* DM an interactive note card to specific users — the note text plus an
+     inline reply box. Mirrors sendToDmUsers but sends a card attachment. */
+  async sendNoteCardToUsers(
+    userIds: string[],
+    note: { taskId: string; author: string; folder: string; noteText: string }
+  ): Promise<void> {
+    if (!this.adapter || userIds.length === 0) {
+      return;
+    }
+    const unique = Array.from(new Set(userIds.map((id) => id.trim()).filter((id) => id.length > 0)));
+    if (unique.length === 0) {
+      return;
+    }
+    const references = (await this.store.read()).filter((entry) => {
+      if (entry.scope !== "DM") {
+        return false;
+      }
+      return unique.some((userId) => entry.userAadObjectId === userId || entry.userId === userId || entry.key === `dm:${userId}`);
+    });
+    const card = CardFactory.adaptiveCard(noteCard(note));
+    await Promise.all(
+      references.map((entry) =>
+        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
+          await context.sendActivity({ attachments: [card] });
+        })
+      )
+    );
   }
 
   private async handleClaim(taskId: string, aadObjectId: string | undefined, _displayName: string): Promise<ClaimOutcome> {

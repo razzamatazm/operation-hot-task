@@ -344,8 +344,10 @@ export class TaskService {
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `${user.displayName} left you a note`,
-        target: "DM",
+        // message carries the raw note text; the DM card shows it and offers a
+        // reply box that posts straight back as another note.
+        message: text.trim(),
+        target: "DM_NOTE",
         recipientUserIds: recipients
       });
       await this.notify({

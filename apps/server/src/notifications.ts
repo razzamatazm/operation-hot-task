@@ -85,7 +85,24 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
-    if (event.target === "DM" && !config.enableDmNotifications) {
+    if ((event.target === "DM" || event.target === "DM_NOTE") && !config.enableDmNotifications) {
+      return;
+    }
+
+    if (event.target === "DM_NOTE") {
+      // Interactive note card: shows the note text with an inline reply box that
+      // posts straight back as another review note. `event.message` is the raw
+      // note text. Falls back to a plain DM if there are no targeted recipients.
+      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        await this.botClient.sendNoteCardToUsers(event.recipientUserIds, {
+          taskId: event.task.id,
+          author: event.actor.displayName,
+          folder: event.task.folderName,
+          noteText: event.message
+        });
+        return;
+      }
+      await this.botClient.sendToDms(`${prefix} ${event.actor.displayName} left a note: ${event.message} (Folder: ${event.task.folderName})`);
       return;
     }
 

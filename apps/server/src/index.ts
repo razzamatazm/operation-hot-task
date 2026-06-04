@@ -62,6 +62,10 @@ const bootstrap = async (): Promise<void> => {
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
     async (taskId, user) => service.claimTask(taskId, user)
   );
+  botClient.setNoteReplyHandler(
+    async (aadObjectId) => userStore.getIdentity(aadObjectId),
+    async (taskId, text, user) => service.addReviewNote(taskId, text, user)
+  );
 
   app.use(cors());
   app.use(express.json());

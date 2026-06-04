@@ -281,7 +281,12 @@ Primary goals:
     bot restarted, or the task predates threading).
   - `Merge Done` and `Completed`: DM task creator
   - `Merge Approved`: DM task assignee
-  - Notes: DM counterpart user
+  - Notes: DM counterpart user as an **interactive note card** — shows the note
+    text with an inline reply box; tapping **Reply** posts the text straight back
+    as another review note (which in turn DMs the original author, closing the
+    loop). Routed via the `DM_NOTE` target; falls back to a plain DM when there's
+    no targeted recipient. Reply resolves the Teams user (`from.aadObjectId`) to
+    a stored identity and calls `addReviewNote`; the card refreshes to confirm.
   - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM goes to creator
 - Tapping **Claim** on a card resolves the Teams user (`from.aadObjectId`) to a
   stored identity, claims the task, then refreshes the card (button removed) and
