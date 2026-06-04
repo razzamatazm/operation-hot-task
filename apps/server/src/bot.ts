@@ -253,7 +253,14 @@ class ReferenceStore {
       const entries = await this.read();
       const idx = entries.findIndex((entry) => entry.key === reference.key);
       if (idx >= 0) {
-        entries[idx] = reference;
+        // Keep a previously captured friendly label when this save lacks one
+        // (e.g. an invoke activity with only the conversation id) so the admin
+        // picker doesn't regress to the raw id.
+        const prior = entries[idx];
+        entries[idx] = {
+          ...reference,
+          ...(reference.displayName === undefined && prior?.displayName ? { displayName: prior.displayName } : {})
+        };
       } else {
         entries.push(reference);
       }
