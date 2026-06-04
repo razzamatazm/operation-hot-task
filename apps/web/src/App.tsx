@@ -983,35 +983,6 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
         </span>
       </div>
 
-      <div className="section-head">
-        <h2>
-          Notification Channel
-          <span className="section-count">{channels.length} CHANNEL{channels.length === 1 ? "" : "S"}</span>
-        </h2>
-      </div>
-      {channels.length === 0 ? (
-        <p className="admin-hint">
-          No channels yet — add the bot to a Teams channel and post once so it shows up here.
-          Until one is chosen, group notifications go to every channel the bot is in.
-        </p>
-      ) : (
-        <div className="admin-channel-row">
-          <label>
-            Group notifications go to
-            <select
-              value={selectedChannel ?? ""}
-              disabled={channelBusy}
-              onChange={(e) => void changeChannel(e.target.value)}
-            >
-              <option value="">All channels</option>
-              {channels.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
       {err && <p className="error-bar">{err}</p>}
 
       {addOpen && (
@@ -1135,6 +1106,35 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
         New people auto-create as Loan Officer on first login. The last active admin
         can&rsquo;t be removed or demoted.
       </p>
+
+      <div className="section-head">
+        <h2>
+          Notification Channel
+          <span className="section-count">{channels.length} CHANNEL{channels.length === 1 ? "" : "S"}</span>
+        </h2>
+      </div>
+      {channels.length === 0 ? (
+        <p className="admin-hint">
+          No channels yet — add the bot to a Teams channel and post once so it shows up here.
+          Until one is chosen, group notifications go to every channel the bot is in.
+        </p>
+      ) : (
+        <div className="admin-channel-row">
+          <label>
+            Group notifications go to
+            <select
+              value={selectedChannel ?? ""}
+              disabled={channelBusy}
+              onChange={(e) => void changeChannel(e.target.value)}
+            >
+              <option value="">All channels</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
     </div>
   );
 };
