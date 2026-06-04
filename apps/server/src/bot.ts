@@ -1149,30 +1149,40 @@ class LoanTasksBot extends ActivityHandler {
     await this.onReference(reference, scope, displayName);
   }
 
-  /* Build the "Team / Channel" label for the picker. channelData carries the
-     team name but usually omits the channel name on message activities, so ask
-     the Teams connector for the channel list (no extra Graph permission) and
-     match the one we're in. Falls back to the channelData label, then just the
-     team name, if the connector call fails. */
+  /* Build the "Team / Channel" label for the picker from the Teams connector
+     (getTeamChannels for the channel name, getTeamDetails for the team name) —
+     channelData hands these out inconsistently. No extra Graph permission.
+     Falls back to the channelData label if the connector calls fail. */
   private async resolveChannelLabel(context: TurnContext): Promise<string | undefined> {
     const fallback = channelDisplayName(context.activity);
     const channelData = context.activity.channelData as
       | { team?: { name?: string }; channel?: { id?: string } }
       | undefined;
     const channelId = channelData?.channel?.id ?? baseChannelId(context.activity.conversation?.id ?? "");
-    const teamName = channelData?.team?.name;
-    if (!channelId) {
-      return fallback;
-    }
+
+    // channelData supplies team/channel names inconsistently across activity
+    // types (root message vs thread reply), so resolve both from the Teams
+    // connector (no extra Graph perm) for a stable "Team / Channel" label on
+    // every capture.
+    let teamName = channelData?.team?.name?.trim() || undefined;
+    let channelName: string | undefined;
     try {
       const channels = await TeamsInfo.getTeamChannels(context);
-      const match = channels.find((c) => c.id === channelId || baseChannelId(c.id ?? "") === baseChannelId(channelId));
-      const channelName = match?.name;
-      const parts = [teamName, channelName].filter((p): p is string => Boolean(p && p.trim()));
-      return parts.length > 0 ? parts.join(" / ") : fallback;
+      const match = channels.find((c) => baseChannelId(c.id ?? "") === baseChannelId(channelId));
+      channelName = match?.name?.trim() || undefined;
     } catch {
-      return fallback;
+      /* connector unavailable — keep whatever channelData gave us */
     }
+    if (!teamName) {
+      try {
+        teamName = (await TeamsInfo.getTeamDetails(context))?.name?.trim() || undefined;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const parts = [teamName, channelName].filter((p): p is string => Boolean(p));
+    return parts.length > 0 ? parts.join(" / ") : fallback;
   }
 }
 
@@ -1542,6 +1552,10 @@ export class TeamsBotClient {
      falls back to the channel name, then the raw id. */
   async listChannels(): Promise<Array<{ id: string; name: string }>> {
     const channels = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
+    // Among captures of the same channel, prefer the most informative label: a
+    // full "Team / Channel" beats a name beats the bare id. (channelData hands
+    // out team-only and channel-only labels on different activities.)
+    const labelScore = (name: string, id: string): number => (name === id ? 0 : name.includes(" / ") ? 2 : 1);
     const byId = new Map<string, { id: string; name: string }>();
     for (const entry of channels) {
       const rawId = entry.reference.conversation?.id;
@@ -1549,12 +1563,10 @@ export class TeamsBotClient {
         continue;
       }
       const id = baseChannelId(rawId);
-      const friendly = entry.displayName ?? entry.reference.conversation?.name;
+      const name = entry.displayName ?? entry.reference.conversation?.name ?? id;
       const existing = byId.get(id);
-      // Insert once; upgrade a raw-id placeholder to a friendly name if a later
-      // capture for the same channel has one.
-      if (!existing || (friendly && existing.name === id)) {
-        byId.set(id, { id, name: friendly ?? id });
+      if (!existing || labelScore(name, id) > labelScore(existing.name, id)) {
+        byId.set(id, { id, name });
       }
     }
     return [...byId.values()];
