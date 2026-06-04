@@ -975,10 +975,46 @@ export class TeamsBotClient {
     }
     try {
       const task = await this.taskClaimer(taskId, user);
-      return { ok: true, message: `${user.displayName} grabbed ${task.folderName}`, status: task.status, assignee: user.displayName };
+      const outcome: ClaimOutcome = {
+        ok: true,
+        message: `${user.displayName} grabbed ${task.folderName}`,
+        status: task.status,
+        assignee: user.displayName
+      };
+      // The invoke response only refreshes the card for the tapper's client.
+      // Update every recorded root message so the Claim button disappears for
+      // the whole channel (and across channels the task fanned out to).
+      await this.updateTaskCard(taskId, claimedCard(outcome));
+      return outcome;
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "Couldn't claim that task." };
     }
+  }
+
+  /* Replace the recorded root task card(s) in-place via updateActivity, so a
+     claim made from one card disables the button for everyone, everywhere the
+     card was posted — not just the client that tapped it. Best-effort: a
+     failed update (e.g. message deleted) shouldn't fail the claim. */
+  private async updateTaskCard(taskId: string, card: Record<string, unknown>): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+    const thread = await this.threads.get(taskId);
+    if (!thread || thread.posts.length === 0) {
+      return;
+    }
+    const attachment = CardFactory.adaptiveCard(card);
+    await Promise.all(
+      thread.posts.map((post) =>
+        this.adapter!.continueConversationAsync(this.appId!, post.reference, async (context) => {
+          try {
+            await context.updateActivity({ type: "message", id: post.activityId, attachments: [attachment] });
+          } catch (error) {
+            console.error("bot_update_task_card_failed", error);
+          }
+        })
+      )
+    );
   }
 
   async init(): Promise<void> {
