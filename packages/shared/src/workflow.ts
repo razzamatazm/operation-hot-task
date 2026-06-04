@@ -210,6 +210,35 @@ export const computeDefaultDueAt = (
   return computeDueAtFromUrgency(urgency, now, config);
 };
 
+const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
+  const flow = task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : STANDARD_FLOW;
+  const index = flow.indexOf(task.status);
+  return index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
+};
+
+const ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
+  MERGE_DONE: "Mark Merge Done",
+  MERGE_APPROVED: "Approve Merge",
+  COMPLETED: "Complete"
+};
+
+/* The single "move it forward" action to offer on a bot card (Mark Merge Done →
+   Approve Merge → Complete for Loan Docs; Complete for everyone else). Returns
+   undefined when there's no forward step worth a button (open/closed tasks).
+   Status-only — the actual transition still enforces the caller's permission. */
+export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: string } | undefined => {
+  if (task.status === "OPEN" || task.status === "COMPLETED" || task.status === "CANCELLED" || task.status === "ARCHIVED") {
+    return undefined;
+  }
+  const forward = nextForwardStatus(task);
+  const target = forward && forward !== "ARCHIVED" ? forward : task.status === "NEEDS_REVIEW" ? "COMPLETED" : undefined;
+  if (!target) {
+    return undefined;
+  }
+  const label = ADVANCE_LABELS[target];
+  return label ? { status: target, label } : undefined;
+};
+
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
   const flow = task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : STANDARD_FLOW;
   const index = flow.indexOf(task.status);

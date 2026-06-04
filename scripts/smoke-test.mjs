@@ -231,6 +231,7 @@ const run = async () => {
       body: {
         folderName: "OOO Coverage",
         taskType: "OOO",
+        startDate: "2099-01-01",
         returnDate: "2099-01-02",
         notes: "cover while away"
       }
@@ -239,6 +240,8 @@ const run = async () => {
     const oooTask = createOoo.json.task;
     assert.equal(oooTask.taskType, "OOO");
     assert.equal(oooTask.urgency, "GREEN");
+    assert.equal(oooTask.startDate, "2099-01-01");
+    assert.equal(oooTask.returnDate, "2099-01-02");
     const oooDue = new Date(oooTask.dueAt);
     const oooDuePt = oooDue.toLocaleString("en-US", {
       timeZone: "America/Los_Angeles",
@@ -257,11 +260,24 @@ const run = async () => {
       body: {
         folderName: "OOO Missing Return Date",
         taskType: "OOO",
+        startDate: "2099-01-01",
         notes: "missing return date"
       }
     });
     expectStatus(createOooMissingReturnDate.status, 400, "create OOO missing return date", createOooMissingReturnDate.json);
     pushPass("OOO task requires returnDate");
+
+    const createOooMissingStartDate = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "OOO Missing Start Date",
+        taskType: "OOO",
+        returnDate: "2099-01-02",
+        notes: "missing start date"
+      }
+    });
+    expectStatus(createOooMissingStartDate.status, 400, "create OOO missing start date", createOooMissingStartDate.json);
+    pushPass("OOO task requires startDate");
 
     const createOooWithUrgency = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,

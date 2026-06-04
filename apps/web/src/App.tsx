@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, formatWallDate, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -410,7 +410,7 @@ const TaskCard = ({
   const assigneeValueClass = `task-card-people-value${assigneeIsMe || assigneeMissing ? " task-card-people-me" : ""}`;
 
   return (
-    <div className={cardClass}>
+    <div className={cardClass} id={`task-${task.id}`}>
       <div
           className={`task-card-collapsed${expanded ? " task-card-collapsed-open" : ""}${mini ? " task-card-collapsed-mini" : ""}`}
           role="button"
@@ -497,7 +497,12 @@ const TaskCard = ({
           <div className="task-card-left">
             <div className="task-card-meta">
               <div>Created: {formatDate(task.createdAt)}</div>
-              {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
+              {task.taskType === "OOO" && (
+                <div>
+                  Out: {task.startDate ? formatWallDate(task.startDate) : "—"} →{" "}
+                  {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}
+                </div>
+              )}
               {task.taskType !== "OOO" && <div>Urgency: {URGENCY_LABELS[task.urgency]}</div>}
               {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
             </div>
@@ -1120,6 +1125,10 @@ export const App = () => {
     }
   };
   const [expandOverrides, setExpandOverrides] = useState<Record<string, boolean>>(() => loadExpand(user.id));
+  /* Task to focus from a Teams deep link (bot card "Open in Hot Task" carries
+     the task id as subEntityId). Held until the task is present in `tasks`,
+     then expanded + scrolled into view by the effect below. */
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   /* When the active user changes (mock user picker), reset the in-memory
      maps to that user's stored data BEFORE the writer effects run — so we
      don't clobber B's localStorage with A's state. setState during render is
@@ -1155,6 +1164,23 @@ export const App = () => {
   const setExpandOverride = (taskId: string, open: boolean): void => {
     setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
   };
+  /* Deep-link focus: once the linked task has loaded, jump to the main list,
+     expand it, and scroll it into view. Waits for the task to be present so a
+     cold open (tasks fetched after Teams init) still lands correctly. The rAF
+     defers the scroll until the expanded card has rendered. */
+  useEffect(() => {
+    if (!focusTaskId || !tasks.some((t) => t.id === focusTaskId)) {
+      return;
+    }
+    const target = focusTaskId;
+    setActiveTab("active");
+    setExpandOverride(target, true);
+    const raf = requestAnimationFrame(() => {
+      document.getElementById(`task-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    setFocusTaskId(null);
+    return () => cancelAnimationFrame(raf);
+  }, [focusTaskId, tasks]);
   /* Clear a manual override when the task's status changes or a fresh note
      from the other party arrives, so the default-open rule re-applies (a
      status move or new message is a strong enough signal to re-evaluate). */
@@ -1243,6 +1269,7 @@ export const App = () => {
     folderName: "",
     taskType: "LOI" as TaskType,
     urgency: "GREEN" as UrgencyLevel,
+    startDate: "",
     returnDate: "",
     notes: "",
     humperdinkLink: "",
@@ -1274,9 +1301,18 @@ export const App = () => {
         const context = (await teamsApp.getContext()) as {
           app?: { theme?: string };
           theme?: string;
+          page?: { subPageId?: string };
+          subEntityId?: string;
         };
         applyTheme(context.app?.theme ?? context.theme);
         teamsApp.registerOnThemeChangeHandler?.((theme) => applyTheme(theme));
+
+        /* Deep link from a bot card → focus that task once it loads.
+           teams-js v2 surfaces the link's subEntityId as page.subPageId. */
+        const deepLinkTaskId = context.page?.subPageId ?? context.subEntityId;
+        if (deepLinkTaskId) {
+          setFocusTaskId(deepLinkTaskId);
+        }
 
         /* Teams host present → resolve the real identity via SSO. */
         const token = await authentication.getAuthToken();
@@ -1326,14 +1362,14 @@ export const App = () => {
       folderName: form.folderName,
       taskType: form.taskType,
       notes: form.notes,
-      ...(form.taskType === "OOO" ? { returnDate: form.returnDate } : { urgency: form.urgency }),
+      ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {})
     };
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", notes: "", returnDate: "", humperdinkLink: "", points: 0 }));
+      setForm((c) => ({ ...c, folderName: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0 }));
       setError(null);
       setFormOpen(false);
       await refresh();
@@ -1545,15 +1581,27 @@ export const App = () => {
               </select>
             </label>
             {form.taskType === "OOO" ? (
-              <label>
-                Return Date
-                <input
-                  type="date"
-                  value={form.returnDate}
-                  onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
-                  required
-                />
-              </label>
+              <>
+                <label>
+                  Start Date
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
+                    required
+                  />
+                </label>
+                <label>
+                  Return Date
+                  <input
+                    type="date"
+                    value={form.returnDate}
+                    min={form.startDate || undefined}
+                    onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
+                    required
+                  />
+                </label>
+              </>
             ) : (
               <label>
                 Urgency

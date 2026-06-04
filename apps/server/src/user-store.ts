@@ -77,6 +77,18 @@ export class UserStore {
     return data.users.find((user) => user.id === id);
   }
 
+  /* Resolve an active user to a permission-bearing identity by AAD oid.
+     Used by the bot's one-tap Claim action, where the only thing we know
+     about the actor is `from.aadObjectId`. Inactive/unknown users return
+     undefined so the claim is rejected. */
+  async getIdentity(id: string): Promise<UserIdentity | undefined> {
+    const user = await this.get(id);
+    if (!user || user.active === false) {
+      return undefined;
+    }
+    return toIdentity(normalize(user));
+  }
+
   /* Create-or-update on every authenticated request. Returns the resolved
      identity WITH roles. Role resolution:
        - dev/header path (identity.headerRoles set): header roles are

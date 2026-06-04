@@ -17,8 +17,51 @@ export const getNotesFieldLabel = (taskType?: TaskType): string => {
   return NOTES_FIELD_LABELS[taskType] ?? "Notes";
 };
 
+/* Human, creator-perspective phrase per task type for the "New Task" headline,
+   e.g. "Tyler needs a set of loan docs done". OOO isn't a request, so it reads
+   as a status instead. */
+export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
+  LOI: "needs an LOI checked",
+  BUDDY_CHAT: "needs a Buddy Chat",
+  VALUE: "needs a Value Check",
+  FRAUD: "needs a Fraud Check",
+  LOAN_DOCS: "needs a set of loan docs done",
+  OOO: "is out of office"
+};
+
+export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
+  `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/* Format a calendar date as "Jun 4, 2026" without any timezone shift. Accepts
+   a bare "YYYY-MM-DD" or a full ISO string (uses only the date portion), so a
+   date-only value never slips to the previous day under UTC parsing. */
+export const formatWallDate = (value: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) {
+    return value;
+  }
+  const [, year, month, day] = match;
+  return `${MONTHS[Number(month) - 1]} ${Number(day)}, ${year}`;
+};
+
+/* OOO doesn't read as a work request, so it gets its own headline asking for
+   coverage across the absence window. */
+export const formatOooHeadline = (displayName: string, startDate: string, returnDate: string): string =>
+  `Out Of Office - ${displayName} will be out of the office from ${formatWallDate(startDate)} to ${formatWallDate(returnDate)} and needs coverage. Can you help?`;
+
 export const URGENCY_LEVELS = ["GREEN", "YELLOW", "ORANGE", "RED"] as const;
 export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
+
+/* Human time-frame for each urgency level — used in bot/notification copy so
+   we surface the deadline ("Within 1 Hour") rather than the raw colour code. */
+export const URGENCY_TIMEFRAMES: Record<UrgencyLevel, string> = {
+  GREEN: "Within 24 Hours",
+  YELLOW: "End of Day",
+  ORANGE: "Within 1 Hour",
+  RED: "Urgent Now"
+};
 
 export const USER_ROLES = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
@@ -64,6 +107,10 @@ export interface LoanTask {
   /** @deprecated Compatibility alias for one release window. */
   serverLocation?: string;
   status: TaskStatus;
+  /** OOO only: raw calendar dates of the absence (YYYY-MM-DD). `dueAt` still
+      holds the computed return-time for scheduling/sorting. */
+  startDate?: string;
+  returnDate?: string;
   createdAt: string;
   updatedAt: string;
   createdBy: Pick<UserIdentity, "id" | "displayName">;
@@ -90,6 +137,8 @@ export interface CreateTaskInput {
   loanName?: string;
   taskType: TaskType;
   dueAt?: string;
+  /** OOO: first day out of office (YYYY-MM-DD). */
+  startDate?: string;
   returnDate?: string;
   urgency?: UrgencyLevel;
   points?: number;
@@ -113,7 +162,7 @@ export interface NotificationEvent {
   task: LoanTask;
   actor: Pick<UserIdentity, "id" | "displayName">;
   message: string;
-  target: "IN_APP" | "DM" | "CHANNEL" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "CHANNEL" | "CHANNEL_THREAD" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   createdAt: string;
 }

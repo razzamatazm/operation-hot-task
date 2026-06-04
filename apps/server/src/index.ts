@@ -58,6 +58,18 @@ const bootstrap = async (): Promise<void> => {
   const notifier = new TeamsNotificationProvider(botClient, activityFeedClient);
   const service = new TaskService(store, notifier, sse, rules, activityFeedState);
   botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
+  botClient.setClaimHandler(
+    async (aadObjectId) => userStore.getIdentity(aadObjectId),
+    async (taskId, user) => service.claimTask(taskId, user)
+  );
+  botClient.setNoteReplyHandler(
+    async (aadObjectId) => userStore.getIdentity(aadObjectId),
+    async (taskId, text, user) => service.addReviewNote(taskId, text, user)
+  );
+  botClient.setTransitionHandler(
+    async (aadObjectId) => userStore.getIdentity(aadObjectId),
+    async (taskId, status, user) => service.transitionStatus(taskId, status, user)
+  );
 
   app.use(cors());
   app.use(express.json());
