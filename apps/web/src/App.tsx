@@ -849,6 +849,9 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
   const [addEmail, setAddEmail] = useState("");
   const [addRoles, setAddRoles] = useState<UserRole[]>(["LOAN_OFFICER"]);
   const [adding, setAdding] = useState(false);
+  const [channels, setChannels] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
+  const [channelBusy, setChannelBusy] = useState(false);
 
   const load = async (): Promise<void> => {
     try {
@@ -864,8 +867,25 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
     apiRequest<SystemStatus>("/status", { method: "GET" }, user)
       .then(setStatus)
       .catch(() => setStatus(null));
+    apiRequest<{ channels: Array<{ id: string; name: string }>; selected: string | null }>("/admin/channels", { method: "GET" }, user)
+      .then((d) => { setChannels(d.channels); setSelectedChannel(d.selected); })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const changeChannel = async (value: string): Promise<void> => {
+    const channelId = value === "" ? null : value;
+    setChannelBusy(true);
+    try {
+      const d = await apiRequest<{ selected: string | null }>("/admin/channels", { method: "PUT", body: JSON.stringify({ channelId }) }, user);
+      setSelectedChannel(d.selected);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to set channel");
+    } finally {
+      setChannelBusy(false);
+    }
+  };
 
   const activeAdminCount = users.filter((u) => u.active && u.roles.includes("ADMIN")).length;
 
@@ -962,6 +982,35 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
           {status?.activityFeed ? "On" : "Off"}
         </span>
       </div>
+
+      <div className="section-head">
+        <h2>
+          Notification Channel
+          <span className="section-count">{channels.length} CHANNEL{channels.length === 1 ? "" : "S"}</span>
+        </h2>
+      </div>
+      {channels.length === 0 ? (
+        <p className="admin-hint">
+          No channels yet — add the bot to a Teams channel and post once so it shows up here.
+          Until one is chosen, group notifications go to every channel the bot is in.
+        </p>
+      ) : (
+        <div className="admin-channel-row">
+          <label>
+            Group notifications go to
+            <select
+              value={selectedChannel ?? ""}
+              disabled={channelBusy}
+              onChange={(e) => void changeChannel(e.target.value)}
+            >
+              <option value="">All channels</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {err && <p className="error-bar">{err}</p>}
 

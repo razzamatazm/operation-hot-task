@@ -8,6 +8,7 @@ import { TaskService } from "./task-service.js";
 import { UserStore } from "./user-store.js";
 import { TeamsBotClient } from "./bot.js";
 import { ActivityFeedClient } from "./activity-feed.js";
+import { SettingsStore } from "./settings-store.js";
 import { createTaskSchema, reviewNoteSchema, transitionSchema, updatePointsSchema } from "./validation.js";
 
 const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
@@ -41,7 +42,7 @@ const toCreateInput = (body: unknown) => {
   };
 };
 
-export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient): Router => {
+export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient, settingsStore: SettingsStore): Router => {
   const router = Router();
 
   /* Resolve the caller: verify the SSO token (or accept dev headers), then
@@ -108,6 +109,38 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       });
     } catch (error) {
       sendError(res, error, "Failed to read status");
+    }
+  });
+
+  /* Admin: list captured channels + the one group notifications target.
+     `selected` is null when notifications broadcast to every channel. */
+  router.get("/admin/channels", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      res.json({
+        channels: await botClient.listChannels(),
+        selected: (await settingsStore.getNotificationChannelId()) ?? null
+      });
+    } catch (error) {
+      sendError(res, error, "Failed to list channels");
+    }
+  });
+
+  /* Admin: set the channel group notifications go to. `channelId: null` clears
+     the selection (revert to broadcasting to every channel). */
+  router.put("/admin/channels", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      const channelId = (req.body as { channelId?: unknown }).channelId;
+      if (channelId !== null && typeof channelId !== "string") {
+        throw new Error("channelId must be a string or null");
+      }
+      await settingsStore.setNotificationChannelId(channelId);
+      res.json({ selected: (await settingsStore.getNotificationChannelId()) ?? null });
+    } catch (error) {
+      sendError(res, error, "Failed to set channel");
     }
   });
 

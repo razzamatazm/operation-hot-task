@@ -44,6 +44,7 @@ export const config = {
   inboundApiKey: process.env.INBOUND_API_KEY,
   enableActivityFeedNotifications: (process.env.ENABLE_ACTIVITY_FEED_NOTIFICATIONS ?? "false") === "true",
   activityFeedStateFile: resolveServerPath(process.env.ACTIVITY_FEED_STATE_FILE, "data/activity-feed-state.json"),
+  adminSettingsFile: resolveServerPath(process.env.ADMIN_SETTINGS_FILE, "data/admin-settings.json"),
   graphTenantId: process.env.GRAPH_TENANT_ID,
   graphClientId: process.env.GRAPH_CLIENT_ID,
   graphClientSecret: process.env.GRAPH_CLIENT_SECRET,

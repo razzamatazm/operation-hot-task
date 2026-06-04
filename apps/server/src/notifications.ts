@@ -2,6 +2,7 @@ import { NotificationEvent, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTask
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
+import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
   notify(event: NotificationEvent): Promise<void>;
@@ -35,8 +36,20 @@ const sendWebhook = async (payload: { title: string; text: string }): Promise<vo
 export class TeamsNotificationProvider implements NotificationProvider {
   constructor(
     private readonly botClient: TeamsBotClient,
-    private readonly activityFeedClient: ActivityFeedClient
+    private readonly activityFeedClient: ActivityFeedClient,
+    private readonly settings: SettingsStore
   ) {}
+
+  /* The legacy webhook posts to one fixed channel URL it can't retarget, so
+     once an admin picks a specific notification channel we suppress it — the
+     bot send already covers the chosen channel. With no selection (broadcast),
+     the webhook still fires for backward compatibility. */
+  private async webhookIfBroadcasting(payload: { title: string; text: string }): Promise<void> {
+    if (await this.settings.getNotificationChannelId()) {
+      return;
+    }
+    await sendWebhook(payload);
+  }
 
   async notify(event: NotificationEvent): Promise<void> {
     // Type tag only — urgency now rides the detail block as a time-frame.
@@ -67,7 +80,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         cardDetail = detail;
       }
       await this.botClient.postTaskCard(event.task.id, cardTitle, cardDetail, teamsTaskDeepLink(event.task.id));
-      await sendWebhook({
+      await this.webhookIfBroadcasting({
         title: isOoo ? event.message : `${prefix} ${event.message}`,
         text: cardDetail
       });
@@ -78,7 +91,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // Follow-ups (claim / unclaim) reply inside the task's existing thread
       // instead of broadcasting a fresh card to the whole channel.
       await this.botClient.replyInThread(event.task.id, event.message, `${prefix} ${event.message}`);
-      await sendWebhook({
+      await this.webhookIfBroadcasting({
         title: `${prefix} ${event.message}`,
         text: detail
       });

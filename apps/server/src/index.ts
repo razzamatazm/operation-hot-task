@@ -10,6 +10,7 @@ import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
 import { UserStore } from "./user-store.js";
 import { TeamsNotificationProvider } from "./notifications.js";
+import { SettingsStore } from "./settings-store.js";
 import { TaskService } from "./task-service.js";
 import { startScheduler } from "./scheduler.js";
 import { AppConfig } from "@loan-tasks/shared";
@@ -43,6 +44,9 @@ const bootstrap = async (): Promise<void> => {
   const activityFeedClient = new ActivityFeedClient();
   const activityFeedState = new ActivityFeedStateStore(appConfig.activityFeedStateFile);
   await activityFeedState.init();
+  const settingsStore = new SettingsStore(appConfig.adminSettingsFile);
+  await settingsStore.init();
+  botClient.setNotificationChannelResolver(async () => settingsStore.getNotificationChannelId());
 
   const sse = new SseHub();
 
@@ -55,7 +59,7 @@ const bootstrap = async (): Promise<void> => {
     archiveRetentionDays: appConfig.archiveRetentionDays
   };
 
-  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient);
+  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient, settingsStore);
   const service = new TaskService(store, notifier, sse, rules, activityFeedState);
   botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
   botClient.setClaimHandler(
@@ -74,7 +78,7 @@ const bootstrap = async (): Promise<void> => {
   app.use(cors());
   app.use(express.json());
 
-  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient));
+  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient, settingsStore));
   botClient.register(app);
 
   const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);
