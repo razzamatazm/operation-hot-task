@@ -30,7 +30,7 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 };
 
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
-  `New Task - ${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
+  `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 

@@ -258,8 +258,8 @@ Primary goals:
     button and an **Open in Hot Task** deep link, plus in-app event. The card's
     root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
     so follow-ups can thread.
-    - Title is `[<TASK_TYPE>] New Task - <creator> <type phrase>: <file name>`,
-      e.g. `[LOAN_DOCS] New Task - Tyler needs a set of loan docs done: Smith-1042`.
+    - Title is `[<TASK_TYPE>] <creator> <type phrase>: <file name>`,
+      e.g. `[LOAN_DOCS] Tyler needs a set of loan docs done: Smith-1042`.
       Per-type phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked",
       VALUE "needs a Value Check", OOO "is out of office", etc.). The file name
       links to the task's Humperdink link when one exists. Urgency is NOT in the
