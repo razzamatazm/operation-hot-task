@@ -1525,13 +1525,23 @@ export class TeamsBotClient {
     }
 
     const thread = await this.threads.get(taskId);
-    if (!thread || thread.posts.length === 0) {
+    // Honour the admin's channel selection: a task created while broadcasting to
+    // all channels keeps a root post per channel, so narrow to the selected one.
+    // If none of the stored posts is in the selected channel, fall back to a
+    // fresh (already-filtered) channel post so the update still lands there.
+    const selectedId = this.notificationChannelResolver ? await this.notificationChannelResolver() : undefined;
+    const posts = thread
+      ? selectedId
+        ? thread.posts.filter((post) => post.reference.conversation?.id === selectedId)
+        : thread.posts
+      : [];
+    if (posts.length === 0) {
       await this.sendToChannels(fallbackTitle, text);
       return;
     }
 
     await Promise.all(
-      thread.posts.map((post) =>
+      posts.map((post) =>
         this.adapter!.continueConversationAsync(
           this.appId!,
           threadReference(post.reference, post.activityId),

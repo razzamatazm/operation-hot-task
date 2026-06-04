@@ -59,7 +59,7 @@ const bootstrap = async (): Promise<void> => {
     archiveRetentionDays: appConfig.archiveRetentionDays
   };
 
-  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient);
+  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient, settingsStore);
   const service = new TaskService(store, notifier, sse, rules, activityFeedState);
   botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
   botClient.setClaimHandler(
