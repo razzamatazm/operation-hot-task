@@ -1,4 +1,4 @@
-import { NotificationEvent, URGENCY_TIMEFRAMES } from "@loan-tasks/shared";
+import { NotificationEvent, URGENCY_TIMEFRAMES, formatNewTaskHeadline } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -39,15 +39,23 @@ export class TeamsNotificationProvider implements NotificationProvider {
   ) {}
 
   async notify(event: NotificationEvent): Promise<void> {
-    const prefix = `[${event.task.taskType}] [${event.task.urgency}]`;
+    // Type tag only — urgency now rides the detail block as a time-frame.
+    const prefix = `[${event.task.taskType}]`;
     const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
-    const detail = `Folder: ${event.task.folderName}\nHow Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`;
+    // Folder lives in the card title (as a Humperdink link when present), so the
+    // detail block carries only How Bad + Urgency.
+    const detail = `How Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`;
 
     if (event.target === "CHANNEL") {
       // Created tasks post as an Adaptive Card carrying a one-tap Claim button
       // plus an "Open in Hot Task" deep link; the returned message id is
-      // recorded so later updates can thread under it.
-      await this.botClient.postTaskCard(event.task.id, `${prefix} ${event.message}`, detail, teamsTaskDeepLink(event.task.id));
+      // recorded so later updates can thread under it. The file name in the
+      // headline links to Humperdink when the task has a link.
+      const fileName = event.task.humperdinkLink
+        ? `[${event.task.folderName}](${event.task.humperdinkLink})`
+        : event.task.folderName;
+      const cardTitle = `${prefix} ${formatNewTaskHeadline(event.actor.displayName, event.task.taskType)}: ${fileName}`;
+      await this.botClient.postTaskCard(event.task.id, cardTitle, detail, teamsTaskDeepLink(event.task.id));
       await sendWebhook({
         title: `${prefix} ${event.message}`,
         text: detail

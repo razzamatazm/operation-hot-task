@@ -11,6 +11,7 @@ import {
   canUnclaimTask,
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
+  formatNewTaskHeadline,
   isWithinBusinessHours,
   isOverdue,
   shouldPurgeArchived,
@@ -91,14 +92,14 @@ export class TaskService {
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${user.displayName} tossed a new file check on the pile: ${task.folderName}`,
+      message: `${formatNewTaskHeadline(user.displayName, task.taskType)}: ${task.folderName}`,
       target: "IN_APP"
     });
     await this.notify({
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${user.displayName} tossed a new file check on the pile: ${task.folderName}`,
+      message: `${formatNewTaskHeadline(user.displayName, task.taskType)}: ${task.folderName}`,
       target: "CHANNEL"
     });
     await this.evaluateActivitySignals({ now });

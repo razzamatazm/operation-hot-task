@@ -17,6 +17,21 @@ export const getNotesFieldLabel = (taskType?: TaskType): string => {
   return NOTES_FIELD_LABELS[taskType] ?? "Notes";
 };
 
+/* Human, creator-perspective phrase per task type for the "New Task" headline,
+   e.g. "Tyler needs a set of loan docs done". OOO isn't a request, so it reads
+   as a status instead. */
+export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
+  LOI: "needs an LOI checked",
+  BUDDY_CHAT: "needs a Buddy Chat",
+  VALUE: "needs a Value Check",
+  FRAUD: "needs a Fraud Check",
+  LOAN_DOCS: "needs a set of loan docs done",
+  OOO: "is out of office"
+};
+
+export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
+  `New Task - ${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
+
 export const URGENCY_LEVELS = ["GREEN", "YELLOW", "ORANGE", "RED"] as const;
 export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
 

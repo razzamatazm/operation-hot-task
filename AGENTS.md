@@ -255,9 +255,15 @@ Primary goals:
     button and an **Open in Hot Task** deep link, plus in-app event. The card's
     root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
     so follow-ups can thread.
-    - Card detail block is `Folder` / `How Bad` (poop emojis) / `Urgency` shown
-      as its time-frame label ("Within 1 Hour"), not the raw colour code. The
-      title prefix still carries the colour, e.g. `[LOAN_DOCS] [ORANGE]`.
+    - Title is `[<TASK_TYPE>] New Task - <creator> <type phrase>: <file name>`,
+      e.g. `[LOAN_DOCS] New Task - Tyler needs a set of loan docs done: Smith-1042`.
+      Per-type phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked",
+      VALUE "needs a Value Check", OOO "is out of office", etc.). The file name
+      links to the task's Humperdink link when one exists. Urgency is NOT in the
+      title (it moved to the detail block).
+    - Detail block is `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as
+      its time-frame label ("Within 1 Hour"), not the raw colour code. Folder is
+      omitted — the file name is already in the title.
     - **Open in Hot Task** is a Teams deep link to the `loan-tasks-home` tab
       carrying the task id as `subEntityId`. The web app reads it (teams-js
       `page.subPageId`) and expands + scrolls to that task. Requires
