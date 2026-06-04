@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, formatWallDate, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -497,7 +497,12 @@ const TaskCard = ({
           <div className="task-card-left">
             <div className="task-card-meta">
               <div>Created: {formatDate(task.createdAt)}</div>
-              {task.taskType === "OOO" && <div>Return Date: {formatPtDateOnly(task.dueAt)}</div>}
+              {task.taskType === "OOO" && (
+                <div>
+                  Out: {task.startDate ? formatWallDate(task.startDate) : "—"} →{" "}
+                  {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}
+                </div>
+              )}
               {task.taskType !== "OOO" && <div>Urgency: {URGENCY_LABELS[task.urgency]}</div>}
               {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
             </div>
@@ -1264,6 +1269,7 @@ export const App = () => {
     folderName: "",
     taskType: "LOI" as TaskType,
     urgency: "GREEN" as UrgencyLevel,
+    startDate: "",
     returnDate: "",
     notes: "",
     humperdinkLink: "",
@@ -1356,14 +1362,14 @@ export const App = () => {
       folderName: form.folderName,
       taskType: form.taskType,
       notes: form.notes,
-      ...(form.taskType === "OOO" ? { returnDate: form.returnDate } : { urgency: form.urgency }),
+      ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {})
     };
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", notes: "", returnDate: "", humperdinkLink: "", points: 0 }));
+      setForm((c) => ({ ...c, folderName: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0 }));
       setError(null);
       setFormOpen(false);
       await refresh();
@@ -1575,15 +1581,27 @@ export const App = () => {
               </select>
             </label>
             {form.taskType === "OOO" ? (
-              <label>
-                Return Date
-                <input
-                  type="date"
-                  value={form.returnDate}
-                  onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
-                  required
-                />
-              </label>
+              <>
+                <label>
+                  Start Date
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
+                    required
+                  />
+                </label>
+                <label>
+                  Return Date
+                  <input
+                    type="date"
+                    value={form.returnDate}
+                    min={form.startDate || undefined}
+                    onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
+                    required
+                  />
+                </label>
+              </>
             ) : (
               <label>
                 Urgency

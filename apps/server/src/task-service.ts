@@ -12,6 +12,7 @@ import {
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
   formatNewTaskHeadline,
+  formatOooHeadline,
   isWithinBusinessHours,
   isOverdue,
   shouldPurgeArchived,
@@ -68,6 +69,17 @@ export class TaskService {
       throw new Error("returnDate must result in a future due time");
     }
 
+    const startDate = input.startDate?.trim();
+    const returnDate = input.returnDate?.trim();
+    if (isOoo) {
+      if (!startDate || !returnDate) {
+        throw new Error("OOO tasks need a start date and a return date");
+      }
+      if (startDate > returnDate) {
+        throw new Error("Start date must be on or before the return date");
+      }
+    }
+
     const task: LoanTask = {
       id: uuid(),
       folderName,
@@ -81,8 +93,14 @@ export class TaskService {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       createdBy: { id: user.id, displayName: user.displayName },
+      ...(isOoo && startDate ? { startDate } : {}),
+      ...(isOoo && returnDate ? { returnDate } : {}),
       ...(input.humperdinkLink?.trim() ? { humperdinkLink: input.humperdinkLink.trim() } : {})
     };
+
+    const createdMessage = isOoo
+      ? formatOooHeadline(user.displayName, startDate ?? "", returnDate ?? "")
+      : `${formatNewTaskHeadline(user.displayName, task.taskType)}: ${task.folderName}`;
 
     const event = this.makeHistory(task.id, user, "TASK_CREATED", `Created ${task.taskType} task`);
     await this.store.upsertTask(task, event);
@@ -92,14 +110,14 @@ export class TaskService {
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${formatNewTaskHeadline(user.displayName, task.taskType)}: ${task.folderName}`,
+      message: createdMessage,
       target: "IN_APP"
     });
     await this.notify({
       type: "TASK_CREATED",
       task,
       actor: task.createdBy,
-      message: `${formatNewTaskHeadline(user.displayName, task.taskType)}: ${task.folderName}`,
+      message: createdMessage,
       target: "CHANNEL"
     });
     await this.evaluateActivitySignals({ now });

@@ -49,16 +49,27 @@ export class TeamsNotificationProvider implements NotificationProvider {
     if (event.target === "CHANNEL") {
       // Created tasks post as an Adaptive Card carrying a one-tap Claim button
       // plus an "Open in Hot Task" deep link; the returned message id is
-      // recorded so later updates can thread under it. The file name in the
-      // headline links to Humperdink when the task has a link.
-      const fileName = event.task.humperdinkLink
-        ? `[${event.task.folderName}](${event.task.humperdinkLink})`
-        : event.task.folderName;
-      const cardTitle = `${prefix} ${formatNewTaskHeadline(event.actor.displayName, event.task.taskType)}: ${fileName}`;
-      await this.botClient.postTaskCard(event.task.id, cardTitle, detail, teamsTaskDeepLink(event.task.id));
+      // recorded so later updates can thread under it.
+      const isOoo = event.task.taskType === "OOO";
+      let cardTitle: string;
+      let cardDetail: string;
+      if (isOoo) {
+        // OOO carries its own coverage sentence (with the absence window); the
+        // detail shows the vacation description rather than poops/urgency.
+        cardTitle = event.message;
+        cardDetail = event.task.folderName ? `Details: ${event.task.folderName}` : "Coverage needed";
+      } else {
+        // The file name in the headline links to Humperdink when present.
+        const fileName = event.task.humperdinkLink
+          ? `[${event.task.folderName}](${event.task.humperdinkLink})`
+          : event.task.folderName;
+        cardTitle = `${prefix} ${formatNewTaskHeadline(event.actor.displayName, event.task.taskType)}: ${fileName}`;
+        cardDetail = detail;
+      }
+      await this.botClient.postTaskCard(event.task.id, cardTitle, cardDetail, teamsTaskDeepLink(event.task.id));
       await sendWebhook({
-        title: `${prefix} ${event.message}`,
-        text: detail
+        title: isOoo ? event.message : `${prefix} ${event.message}`,
+        text: cardDetail
       });
       return;
     }

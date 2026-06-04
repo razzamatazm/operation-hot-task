@@ -66,7 +66,10 @@ Verified against the repo and local run on `2026-05-04`.
 - Create-task form:
   - OOO relabels `Folder Name` to `Vacation Description`
   - Non-OOO tasks show urgency selector
-  - OOO tasks show return-date selector
+  - OOO tasks show a **start-date** selector and a **return-date** selector
+    (start must be on or before return). Both are required; stored on the task
+    as `startDate` / `returnDate` (raw `YYYY-MM-DD`), with `dueAt` still computed
+    from the return date for scheduling.
   - Poop points selector is always present as a 5-emoji picker
   - Humperdink Link is non-OOO only
 
@@ -139,7 +142,7 @@ Primary goals:
   - Poop points: `1`-`5`, default `1`
   - Timing:
     - Non-OOO: urgency
-    - OOO: return date in `YYYY-MM-DD`, PT
+    - OOO: start date and return date in `YYYY-MM-DD`, PT (start ≤ return; both required)
   - Notes
 - Optional fields:
   - Non-OOO only: Humperdink Link
@@ -264,6 +267,10 @@ Primary goals:
     - Detail block is `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as
       its time-frame label ("Within 1 Hour"), not the raw colour code. Folder is
       omitted — the file name is already in the title.
+    - **OOO** is special-cased: no type tag/file name. Title reads
+      "Out Of Office - <creator> will be out of the office from <start> to
+      <return> and needs coverage. Can you help?" (dates via `formatWallDate`),
+      and the detail shows the vacation description instead of How Bad/Urgency.
     - **Open in Hot Task** is a Teams deep link to the `loan-tasks-home` tab
       carrying the task id as `subEntityId`. The web app reads it (teams-js
       `page.subPageId`) and expands + scrolls to that task. Requires

@@ -37,6 +37,7 @@ export const createTaskSchema = z.object({
   loanName: z.string().min(1).optional(),
   taskType: z.enum(["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]),
   dueAt: z.string().datetime().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD").optional(),
   returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "returnDate must be YYYY-MM-DD").optional(),
   urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"]).optional(),
   points: z.number().int().min(0).max(5).optional(),
@@ -55,10 +56,22 @@ export const createTaskSchema = z.object({
   }
 
   if (value.taskType === "OOO") {
+    if (!value.startDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "startDate is required for OOO tasks"
+      });
+    }
     if (!value.returnDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "returnDate is required for OOO tasks"
+      });
+    }
+    if (value.startDate && value.returnDate && value.startDate > value.returnDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "startDate must be on or before returnDate"
       });
     }
     if (value.urgency) {
@@ -79,11 +92,19 @@ export const createTaskSchema = z.object({
         message: "humperdinkLink is not allowed for OOO tasks"
       });
     }
-  } else if (value.returnDate) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "returnDate is only allowed for OOO tasks"
-    });
+  } else {
+    if (value.returnDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "returnDate is only allowed for OOO tasks"
+      });
+    }
+    if (value.startDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "startDate is only allowed for OOO tasks"
+      });
+    }
   }
 });
 
