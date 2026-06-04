@@ -973,8 +973,8 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
             </span>
           );
         })()}
-        <span className={`admin-stat admin-stat-${status?.channelWebhook ? "ok" : "off"}`} title="Channel webhook for task broadcasts">
-          <span className="admin-stat-label">Channel posts</span>
+        <span className={`admin-stat admin-stat-${status?.channelWebhook ? "ok" : "off"}`} title="Legacy incoming-webhook posts (separate from the bot). Bot channel posts use the Notification Channel below, not this.">
+          <span className="admin-stat-label">Legacy webhook</span>
           {status?.channelWebhook ? "On" : "Off"}
         </span>
         <span className={`admin-stat admin-stat-${status?.activityFeed ? "ok" : "off"}`} title="Teams activity-feed notifications">

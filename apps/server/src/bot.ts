@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
-import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
+import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
 
@@ -532,25 +532,6 @@ const channelDisplayName = (activity: { channelData?: unknown }): string | undef
   const data = activity.channelData as { team?: { name?: string }; channel?: { name?: string } } | undefined;
   const parts = [data?.team?.name, data?.channel?.name].filter((p): p is string => Boolean(p && p.trim()));
   return parts.length > 0 ? parts.join(" / ") : undefined;
-};
-
-/* Point a captured channel reference at a specific root message so a reply
-   lands inside that task's thread rather than starting a new one. Teams
-   threads on `conversation.id` suffixed with `;messageid=<rootId>`. */
-
-const threadReference = (
-  reference: Partial<ConversationReference>,
-  rootMessageId: string
-): Partial<ConversationReference> => {
-  const conversation = reference.conversation;
-  if (!conversation?.id) {
-    return reference;
-  }
-  const baseId = conversation.id.split(";")[0];
-  return {
-    ...reference,
-    conversation: { ...conversation, id: `${baseId};messageid=${rootMessageId}` }
-  };
 };
 
 class LoanTasksBot extends ActivityHandler {
@@ -1572,46 +1553,68 @@ export class TeamsBotClient {
     return [...byId.values()];
   }
 
+  /* Post a brand-new message into a Teams channel as a new thread. A proactive
+     continueConversation/sendActivity to the channel root returns
+     "NotImplemented" — new top-level channel posts must go through
+     createConversation with channelData.channel.id. Returns the created thread's
+     reference + root message id so follow-ups can reply/update in place.
+     Best-effort: logs and returns null on failure. */
+  private async createChannelThread(
+    entry: StoredReference,
+    activity: Partial<Activity>
+  ): Promise<{ reference: Partial<ConversationReference>; activityId: string } | null> {
+    const serviceUrl = entry.reference.serviceUrl;
+    const channelId = baseChannelId(entry.reference.conversation?.id ?? "");
+    if (!this.adapter || !serviceUrl || !channelId) {
+      return null;
+    }
+    try {
+      const client = this.adapter.createConnectorClient(serviceUrl);
+      const params = {
+        isGroup: true,
+        channelData: { channel: { id: channelId } },
+        activity: activity as Activity
+      } as ConversationParameters;
+      const res = await client.conversations.createConversation(params);
+      const reference: Partial<ConversationReference> = {
+        ...entry.reference,
+        conversation: { ...(entry.reference.conversation as ConversationAccount), id: res.id }
+      };
+      return { reference, activityId: res.activityId ?? "" };
+    } catch (error) {
+      console.error("bot_channel_post_failed", error);
+      return null;
+    }
+  }
+
   async sendToChannels(title: string, text: string): Promise<void> {
     if (!this.adapter) {
       return;
     }
-
     const references = await this.targetChannelReferences();
-    const card = CardFactory.heroCard(title, text);
-
-    await Promise.all(
-      references.map((entry) =>
-        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
-          await context.sendActivity({ attachments: [card] });
-        })
-      )
-    );
+    const activity = MessageFactory.attachment(CardFactory.heroCard(title, text));
+    for (const entry of references) {
+      await this.createChannelThread(entry, activity);
+    }
   }
 
   /* Post a freshly created task as an Adaptive Card with a one-tap Claim
-     button, recording each channel's root message id so later updates can
-     thread under it. */
+     button, recording each channel thread so later updates can reply/update. */
   async postTaskCard(taskId: string, title: string, detail: string, openUrl?: string): Promise<void> {
     if (!this.adapter) {
       return;
     }
-
     const references = await this.targetChannelReferences();
-    const card = CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }));
-    const posts: StoredThread["posts"] = [];
-
-    await Promise.all(
-      references.map((entry) =>
-        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
-          const response = await context.sendActivity({ attachments: [card] });
-          if (response?.id) {
-            posts.push({ reference: entry.reference, activityId: response.id });
-          }
-        })
-      )
+    const activity = MessageFactory.attachment(
+      CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }))
     );
-
+    const posts: StoredThread["posts"] = [];
+    for (const entry of references) {
+      const post = await this.createChannelThread(entry, activity);
+      if (post) {
+        posts.push(post);
+      }
+    }
     if (posts.length > 0) {
       await this.threads.save({ taskId, posts });
     }
@@ -1627,13 +1630,14 @@ export class TeamsBotClient {
 
     const thread = await this.threads.get(taskId);
     // Honour the admin's channel selection: a task created while broadcasting to
-    // all channels keeps a root post per channel, so narrow to the selected one.
-    // If none of the stored posts is in the selected channel, fall back to a
-    // fresh (already-filtered) channel post so the update still lands there.
+    // all channels keeps a thread per channel, so narrow to the selected one
+    // (by base id). If none matches, fall back to a fresh (already-filtered)
+    // channel post so the update still lands there.
     const selectedId = this.notificationChannelResolver ? await this.notificationChannelResolver() : undefined;
+    const selectedBase = selectedId ? baseChannelId(selectedId) : undefined;
     const posts = thread
-      ? selectedId
-        ? thread.posts.filter((post) => post.reference.conversation?.id === selectedId)
+      ? selectedBase
+        ? thread.posts.filter((post) => baseChannelId(post.reference.conversation?.id ?? "") === selectedBase)
         : thread.posts
       : [];
     if (posts.length === 0) {
@@ -1641,15 +1645,13 @@ export class TeamsBotClient {
       return;
     }
 
+    // post.reference already targets the thread (its conversation id carries the
+    // root message id from createConversation), so a plain reply lands in-thread.
     await Promise.all(
       posts.map((post) =>
-        this.adapter!.continueConversationAsync(
-          this.appId!,
-          threadReference(post.reference, post.activityId),
-          async (context) => {
-            await context.sendActivity(MessageFactory.text(text));
-          }
-        )
+        this.adapter!.continueConversationAsync(this.appId!, post.reference, async (context) => {
+          await context.sendActivity(MessageFactory.text(text));
+        })
       )
     );
   }
