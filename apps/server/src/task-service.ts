@@ -179,7 +179,7 @@ export class TaskService {
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
       message: `You're on the hook for this one. Go get 'em.`,
-      target: "DM",
+      target: "DM_CLAIM",
       recipientUserIds: [user.id]
     });
     await this.evaluateActivitySignals({ now: new Date(now) });

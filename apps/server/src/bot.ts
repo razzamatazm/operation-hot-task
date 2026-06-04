@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { CreateTaskInput, LoanTask, TaskType, UrgencyLevel, UserIdentity, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
 import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, InvokeResponse, MessageFactory, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -321,10 +321,9 @@ interface ClaimOutcome {
   assignee?: string;
 }
 
-/* Result of a reply-to-note submitted from a DM card. */
-interface NoteReplyOutcome {
-  ok: boolean;
-  message: string;
+interface AdvanceAction {
+  status: TaskStatus;
+  label: string;
 }
 
 interface NoteThreadEntry {
@@ -332,46 +331,110 @@ interface NoteThreadEntry {
   text: string;
 }
 
-/* DM card for an incoming review note: the recent conversation (last entries,
-   oldest → newest) plus an inline reply box that posts straight back as another
-   note (Action.Execute). */
-const noteCard = (opts: { taskId: string; folder: string; thread: NoteThreadEntry[] }): Record<string, unknown> => {
-  const latest = opts.thread.at(-1);
-  return {
-    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-    type: "AdaptiveCard",
-    version: "1.4",
-    body: [
-      { type: "TextBlock", text: `Conversation on ${opts.folder}`, weight: "Bolder", wrap: true },
-      ...opts.thread.map((entry) => ({
-        type: "TextBlock",
-        text: `**${entry.author}:** ${entry.text}`,
-        wrap: true,
-        spacing: "Small"
-      })),
-      { type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }
-    ],
-    actions: [
-      {
-        type: "Action.Execute",
-        title: "Reply",
-        verb: "replyNote",
-        data: { taskId: opts.taskId, author: latest?.author ?? "Someone", folder: opts.folder, noteText: latest?.text ?? "" }
-      }
-    ]
-  };
+interface NoteCardData {
+  taskId: string;
+  folder: string;
+  thread: NoteThreadEntry[];
+  advance?: AdvanceAction;
+}
+
+interface ConfirmData {
+  taskId: string;
+  folder: string;
+  message: string;
+  advance?: AdvanceAction;
+}
+
+/* Result of a reply-to-note submitted from a DM card. On success carries the
+   refreshed note card data so the reply box stays open for the next message. */
+interface NoteReplyOutcome {
+  ok: boolean;
+  message: string;
+  note?: NoteCardData;
+}
+
+/* Result of a transition (advance/complete) submitted from a card. */
+interface TransitionOutcome {
+  ok: boolean;
+  message: string;
+  confirm?: ConfirmData;
+}
+
+const STATUS_DISPLAY: Record<TaskStatus, string> = {
+  OPEN: "open",
+  CLAIMED: "claimed",
+  NEEDS_REVIEW: "in review",
+  MERGE_DONE: "merge done",
+  MERGE_APPROVED: "merge approved",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+  ARCHIVED: "archived"
 };
 
-/* Card the note DM is refreshed to after a reply is posted — input gone. */
-const noteRepliedCard = (opts: { author: string; folder: string; noteText: string; reply: string }): Record<string, unknown> => ({
+/* Last few notes for a card thread, oldest → newest. */
+const threadFromTask = (task: LoanTask): NoteThreadEntry[] =>
+  (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
+
+/* Build note-card data from a task (used to refresh after a reply). */
+const noteCardDataFromTask = (task: LoanTask): NoteCardData => {
+  const advance = botPrimaryAdvance(task);
+  return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), ...(advance ? { advance } : {}) };
+};
+
+/* The contextual "move it forward" button (Mark Merge Done / Approve Merge /
+   Complete). Empty when there's no forward step. */
+const advanceButton = (taskId: string, advance?: AdvanceAction): Record<string, unknown>[] =>
+  advance
+    ? [{ type: "Action.Execute", title: advance.label, verb: "transitionTask", data: { taskId, targetStatus: advance.status } }]
+    : [];
+
+/* DM card for a review-note conversation: the recent thread (oldest → newest),
+   an inline reply box that posts straight back as another note, and a contextual
+   advance/complete button. The reply box persists so users can send several
+   messages in a row. */
+const noteCard = (data: NoteCardData): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
-    { type: "TextBlock", text: `${opts.author} left a note on ${opts.folder}`, weight: "Bolder", wrap: true },
-    { type: "TextBlock", text: opts.noteText, wrap: true, spacing: "Small", isSubtle: true },
-    { type: "TextBlock", text: `You replied: ${opts.reply}`, wrap: true, spacing: "Small" }
+    { type: "TextBlock", text: `Conversation on ${data.folder}`, weight: "Bolder", wrap: true },
+    ...data.thread.map((entry) => ({
+      type: "TextBlock",
+      text: `**${entry.author}:** ${entry.text}`,
+      wrap: true,
+      spacing: "Small"
+    })),
+    { type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }
+  ],
+  actions: [
+    { type: "Action.Execute", title: "Reply", verb: "replyNote", data: { taskId: data.taskId, folder: data.folder } },
+    ...advanceButton(data.taskId, data.advance)
   ]
+});
+
+/* Full-details DM card sent to whoever claims a task. */
+const detailCard = (opts: { taskId: string; title: string; detail: string; openUrl?: string; advance?: AdvanceAction }): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [
+    { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
+    { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small" }
+  ],
+  actions: [
+    ...advanceButton(opts.taskId, opts.advance),
+    ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
+  ]
+});
+
+/* Card a card is refreshed to after a successful transition — confirms the move
+   and offers the next forward step if there is one. */
+const transitionConfirmCard = (data: ConfirmData): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [{ type: "TextBlock", text: data.message, weight: "Bolder", wrap: true }],
+  actions: advanceButton(data.taskId, data.advance)
 });
 
 /* Adaptive Card shown on a freshly created task: headline + detail + a
@@ -454,7 +517,9 @@ class LoanTasksBot extends ActivityHandler {
        claim. Returns a normalized outcome the bot renders back into the card. */
     private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>,
     /* Resolve a reply submitted from a note DM card into a new review note. */
-    private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined) => Promise<NoteReplyOutcome>
+    private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined) => Promise<NoteReplyOutcome>,
+    /* Resolve an advance/complete button into a status transition. */
+    private readonly onTransition: (taskId: string, targetStatus: string, aadObjectId: string | undefined) => Promise<TransitionOutcome>
   ) {
     super();
 
@@ -505,19 +570,24 @@ class LoanTasksBot extends ActivityHandler {
         return cardMessageResponse("Type a reply first, then tap Reply.");
       }
       const outcome = await this.onNoteReply(taskId, replyText, from?.aadObjectId);
-      if (!outcome.ok) {
+      if (!outcome.ok || !outcome.note) {
         return cardMessageResponse(outcome.message);
       }
-      // Refresh the card to confirm; echo the author/note via the action data
-      // so the confirmation keeps context.
-      return cardRefreshResponse(
-        noteRepliedCard({
-          author: typeof data.author === "string" ? data.author : "Someone",
-          folder: typeof data.folder === "string" ? data.folder : "the task",
-          noteText: typeof data.noteText === "string" ? data.noteText : "",
-          reply: replyText
-        })
-      );
+      // Refresh to a live note card (updated thread + reply box) so the user can
+      // keep sending messages without waiting for a response.
+      return cardRefreshResponse(noteCard(outcome.note));
+    }
+
+    if (verb === "transitionTask") {
+      const targetStatus = typeof data.targetStatus === "string" ? data.targetStatus : undefined;
+      if (!taskId || !targetStatus) {
+        return cardMessageResponse("Sorry, I couldn't tell which task that was.");
+      }
+      const outcome = await this.onTransition(taskId, targetStatus, from?.aadObjectId);
+      if (!outcome.ok || !outcome.confirm) {
+        return cardMessageResponse(outcome.message);
+      }
+      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
     }
 
     return cardMessageResponse("Sorry, I didn't recognise that action.");
@@ -1042,6 +1112,7 @@ export class TeamsBotClient {
   private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
   private noteAdder?: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>;
+  private taskTransitioner?: (taskId: string, status: TaskStatus, user: UserIdentity) => Promise<LoanTask>;
 
   constructor(
     private readonly appId: string | undefined,
@@ -1079,7 +1150,8 @@ export class TeamsBotClient {
           return this.taskCreator(input, user);
         },
         async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName),
-        async (taskId, text, aadObjectId) => this.handleNoteReply(taskId, text, aadObjectId)
+        async (taskId, text, aadObjectId) => this.handleNoteReply(taskId, text, aadObjectId),
+        async (taskId, targetStatus, aadObjectId) => this.handleTransition(taskId, targetStatus, aadObjectId)
       );
     }
   }
@@ -1109,6 +1181,15 @@ export class TeamsBotClient {
     this.noteAdder = addNote;
   }
 
+  /* Wire the advance/complete buttons on cards to the task service. */
+  setTransitionHandler(
+    resolveUser: (aadObjectId: string) => Promise<UserIdentity | undefined>,
+    transition: (taskId: string, status: TaskStatus, user: UserIdentity) => Promise<LoanTask>
+  ): void {
+    this.userResolver = resolveUser;
+    this.taskTransitioner = transition;
+  }
+
   private async handleNoteReply(taskId: string, text: string, aadObjectId: string | undefined): Promise<NoteReplyOutcome> {
     if (!this.noteAdder || !this.userResolver) {
       return { ok: false, message: "Replies aren't wired up on the server yet." };
@@ -1121,33 +1202,57 @@ export class TeamsBotClient {
       return { ok: false, message: "You're not set up in Hot Task yet — ask an admin." };
     }
     try {
-      await this.noteAdder(taskId, text, user);
-      return { ok: true, message: "Reply posted." };
+      const task = await this.noteAdder(taskId, text, user);
+      return { ok: true, message: "Reply posted.", note: noteCardDataFromTask(task) };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "Couldn't post that reply." };
     }
   }
 
-  /* DM an interactive note card to specific users — the note text plus an
-     inline reply box. Mirrors sendToDmUsers but sends a card attachment. */
-  async sendNoteCardToUsers(
-    userIds: string[],
-    note: { taskId: string; folder: string; thread: NoteThreadEntry[] }
-  ): Promise<void> {
-    if (!this.adapter || userIds.length === 0) {
-      return;
+  private async handleTransition(taskId: string, targetStatus: string, aadObjectId: string | undefined): Promise<TransitionOutcome> {
+    if (!this.taskTransitioner || !this.userResolver) {
+      return { ok: false, message: "Actions aren't wired up on the server yet." };
     }
+    if (!aadObjectId) {
+      return { ok: false, message: "Couldn't identify you in Teams — use the web app instead." };
+    }
+    const user = await this.userResolver(aadObjectId);
+    if (!user) {
+      return { ok: false, message: "You're not set up in Hot Task yet — ask an admin." };
+    }
+    try {
+      const task = await this.taskTransitioner(taskId, targetStatus as TaskStatus, user);
+      const advance = botPrimaryAdvance(task);
+      return {
+        ok: true,
+        message: "Done.",
+        confirm: {
+          taskId: task.id,
+          folder: task.folderName,
+          message: `${task.folderName} is now ${STATUS_DISPLAY[task.status] ?? task.status}.`,
+          ...(advance ? { advance } : {})
+        }
+      };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Couldn't update that task." };
+    }
+  }
+
+  /* DM references for a set of user ids (AAD oid / Teams id / dm:<id> key). */
+  private async dmReferencesFor(userIds: string[]): Promise<StoredReference[]> {
     const unique = Array.from(new Set(userIds.map((id) => id.trim()).filter((id) => id.length > 0)));
     if (unique.length === 0) {
-      return;
+      return [];
     }
-    const references = (await this.store.read()).filter((entry) => {
+    return (await this.store.read()).filter((entry) => {
       if (entry.scope !== "DM") {
         return false;
       }
       return unique.some((userId) => entry.userAadObjectId === userId || entry.userId === userId || entry.key === `dm:${userId}`);
     });
-    const card = CardFactory.adaptiveCard(noteCard(note));
+  }
+
+  private async sendCardToReferences(references: StoredReference[], card: ReturnType<typeof CardFactory.adaptiveCard>): Promise<void> {
     await Promise.all(
       references.map((entry) =>
         this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
@@ -1155,6 +1260,26 @@ export class TeamsBotClient {
         })
       )
     );
+  }
+
+  /* DM an interactive note card to specific users — the recent thread plus an
+     inline reply box and advance button. Mirrors sendToDmUsers with a card. */
+  async sendNoteCardToUsers(userIds: string[], note: NoteCardData): Promise<void> {
+    if (!this.adapter || userIds.length === 0) {
+      return;
+    }
+    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(noteCard(note)));
+  }
+
+  /* DM a full-details card (e.g. to whoever just claimed a task). */
+  async sendDetailCardToUsers(
+    userIds: string[],
+    detail: { taskId: string; title: string; detail: string; openUrl?: string; advance?: AdvanceAction }
+  ): Promise<void> {
+    if (!this.adapter || userIds.length === 0) {
+      return;
+    }
+    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(detailCard(detail)));
   }
 
   private async handleClaim(taskId: string, aadObjectId: string | undefined, _displayName: string): Promise<ClaimOutcome> {

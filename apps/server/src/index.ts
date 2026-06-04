@@ -66,6 +66,10 @@ const bootstrap = async (): Promise<void> => {
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
     async (taskId, text, user) => service.addReviewNote(taskId, text, user)
   );
+  botClient.setTransitionHandler(
+    async (aadObjectId) => userStore.getIdentity(aadObjectId),
+    async (taskId, status, user) => service.transitionStatus(taskId, status, user)
+  );
 
   app.use(cors());
   app.use(express.json());

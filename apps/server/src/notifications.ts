@@ -1,4 +1,4 @@
-import { NotificationEvent, URGENCY_TIMEFRAMES, formatNewTaskHeadline } from "@loan-tasks/shared";
+import { NotificationEvent, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatWallDate } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -85,7 +85,41 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
-    if ((event.target === "DM" || event.target === "DM_NOTE") && !config.enableDmNotifications) {
+    if ((event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM") && !config.enableDmNotifications) {
+      return;
+    }
+
+    if (event.target === "DM_CLAIM") {
+      // Full-details card to whoever claimed the task, with an advance/complete
+      // button and a deep link. Falls back to a plain DM if no recipient.
+      const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
+      const lines =
+        event.task.taskType === "OOO"
+          ? [
+              `Type: Out of Office`,
+              `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
+              `Details: ${event.task.folderName}`
+            ]
+          : [
+              `Type: ${event.task.taskType}`,
+              `How Bad: ${howBad}`,
+              `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
+              `Due: ${formatWallDate(event.task.dueAt)}`,
+              ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
+              ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
+            ];
+      const advance = botPrimaryAdvance(event.task);
+      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
+          taskId: event.task.id,
+          title: `You claimed ${event.task.folderName}`,
+          detail: lines.join("\n"),
+          ...(teamsTaskDeepLink(event.task.id) ? { openUrl: teamsTaskDeepLink(event.task.id) as string } : {}),
+          ...(advance ? { advance } : {})
+        });
+        return;
+      }
+      await this.botClient.sendToDms(`${prefix} You claimed ${event.task.folderName}`);
       return;
     }
 
@@ -99,10 +133,12 @@ export class TeamsNotificationProvider implements NotificationProvider {
         const thread = (event.task.reviewNotes ?? [])
           .slice(-5)
           .map((entry) => ({ author: entry.by.displayName, text: entry.text }));
+        const advance = botPrimaryAdvance(event.task);
         await this.botClient.sendNoteCardToUsers(event.recipientUserIds, {
           taskId: event.task.id,
           folder: event.task.folderName,
-          thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }]
+          thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }],
+          ...(advance ? { advance } : {})
         });
         return;
       }

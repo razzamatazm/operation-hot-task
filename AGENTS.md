@@ -276,14 +276,19 @@ Primary goals:
       `page.subPageId`) and expands + scrolls to that task. Requires
       `TEAMS_APP_ID`; the button is omitted when it's unset.
   - Task claimed/unclaimed: posted as a **reply in the task's existing thread**
-    (not a new full-channel broadcast); claimer also gets a DM on claim. Falls
-    back to a fresh channel post if the root message id is unknown (e.g. the
-    bot restarted, or the task predates threading).
+    (not a new full-channel broadcast). Falls back to a fresh channel post if
+    the root message id is unknown (e.g. the bot restarted, or the task predates
+    threading).
+  - On claim, the claimer also gets a **full-details DM card** (`DM_CLAIM`):
+    type, How Bad, urgency time-frame, due, notes, Humperdink link, an **Open in
+    Hot Task** deep link, and a contextual **advance/complete** button.
   - `Merge Done` and `Completed`: DM task creator
   - `Merge Approved`: DM task assignee
   - Notes: DM counterpart user as an **interactive note card** — shows the
     recent conversation (last ~5 notes, oldest → newest) with an inline reply
-    box; tapping **Reply** posts the text straight back
+    box and a contextual advance/complete button. The reply box **persists**
+    after sending (card refreshes to the updated thread), so a user can send
+    several messages in a row. Tapping **Reply** posts the text straight back
     as another review note (which in turn DMs the original author, closing the
     loop). Routed via the `DM_NOTE` target; falls back to a plain DM when there's
     no targeted recipient. Reply resolves the Teams user (`from.aadObjectId`) to
@@ -293,6 +298,12 @@ Primary goals:
   stored identity, claims the task, then refreshes the card (button removed) and
   threads the "grabbed this one" reply. Unknown/inactive users get a toast and
   no claim.
+- **Advance/Complete** buttons (note + claim cards) call `botPrimaryAdvance` for
+  the next forward step (Mark Merge Done → Approve Merge → Complete for Loan
+  Docs; Complete otherwise), then transition via the task service and refresh to
+  a confirmation card that offers the *next* step — so a user can step a task all
+  the way through from one card. Permission is enforced at transition time
+  (toast on failure); the button is status-driven, not role-filtered.
 - Copy is intentionally personable/casual (e.g. "tossed a new file check on the
   pile", "grabbed this one — on it now"), low on emoji.
 - Bot v1 scope:
