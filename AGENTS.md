@@ -255,8 +255,10 @@ Primary goals:
   - Teams bot channel posts
   - Teams activity feed notifications
 - Channel-post target is **admin-selectable** in the Admin tab ("Notification
-  Channel"): the bot lists every channel it's been added to, and the admin picks
-  which one group notifications go to. The choice persists in
+  Channel"): the bot lists every channel it's been added to (labelled
+  "Team / Channel" from `channelData`, captured on @mention; falls back to the
+  channel name, then the raw conversation id), and the admin picks which one
+  group notifications go to. The choice persists in
   `apps/server/data/admin-settings.json` (`notificationChannelId`) via
   `GET/PUT /api/admin/channels`. When unset (default), notifications broadcast
   to **every** channel the bot is in; if the saved channel no longer matches a
