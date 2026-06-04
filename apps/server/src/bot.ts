@@ -1113,6 +1113,7 @@ export class TeamsBotClient {
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
   private noteAdder?: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>;
   private taskTransitioner?: (taskId: string, status: TaskStatus, user: UserIdentity) => Promise<LoanTask>;
+  private notificationChannelResolver?: () => Promise<string | undefined>;
 
   constructor(
     private readonly appId: string | undefined,
@@ -1435,12 +1436,47 @@ export class TeamsBotClient {
     );
   }
 
+  /* Resolve which channel group notifications target (an admin setting). When
+     it returns undefined, notifications broadcast to every channel the bot is
+     in (legacy behaviour). */
+  setNotificationChannelResolver(resolver: () => Promise<string | undefined>): void {
+    this.notificationChannelResolver = resolver;
+  }
+
+  /* Captured CHANNEL references, narrowed to the admin-selected channel when one
+     is set (and present). If the selection no longer matches any captured
+     channel, fall back to all so notifications aren't silently dropped. */
+  private async targetChannelReferences(): Promise<StoredReference[]> {
+    const channels = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
+    const selectedId = this.notificationChannelResolver ? await this.notificationChannelResolver() : undefined;
+    if (!selectedId) {
+      return channels;
+    }
+    const matched = channels.filter((entry) => entry.reference.conversation?.id === selectedId);
+    return matched.length > 0 ? matched : channels;
+  }
+
+  /* List captured channels for the admin picker. Name falls back to the id when
+     Teams didn't include a display name on the reference. */
+  async listChannels(): Promise<Array<{ id: string; name: string }>> {
+    const channels = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const entry of channels) {
+      const id = entry.reference.conversation?.id;
+      if (!id) {
+        continue;
+      }
+      byId.set(id, { id, name: entry.reference.conversation?.name ?? id });
+    }
+    return [...byId.values()];
+  }
+
   async sendToChannels(title: string, text: string): Promise<void> {
     if (!this.adapter) {
       return;
     }
 
-    const references = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
+    const references = await this.targetChannelReferences();
     const card = CardFactory.heroCard(title, text);
 
     await Promise.all(
@@ -1460,7 +1496,7 @@ export class TeamsBotClient {
       return;
     }
 
-    const references = (await this.store.read()).filter((entry) => entry.scope === "CHANNEL");
+    const references = await this.targetChannelReferences();
     const card = CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }));
     const posts: StoredThread["posts"] = [];
 

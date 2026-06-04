@@ -29,7 +29,9 @@ Verified against the repo and local run on `2026-05-04`.
 - Current data files:
   - Tasks/history: `apps/server/data/tasks.json`
   - Bot references: `apps/server/data/bot-references.json`
+  - Bot task threads (root message ids for threading): `apps/server/data/bot-task-threads.json`
   - Activity feed state: `apps/server/data/activity-feed-state.json`
+  - Admin settings (selected notification channel): `apps/server/data/admin-settings.json`
 
 ## Repo Runbook
 - Install: `npm install`
@@ -252,7 +254,13 @@ Primary goals:
   - Teams bot direct messages
   - Teams bot channel posts
   - Teams activity feed notifications
-- Dedicated Tasks channel is the channel-post target
+- Channel-post target is **admin-selectable** in the Admin tab ("Notification
+  Channel"): the bot lists every channel it's been added to, and the admin picks
+  which one group notifications go to. The choice persists in
+  `apps/server/data/admin-settings.json` (`notificationChannelId`) via
+  `GET/PUT /api/admin/channels`. When unset (default), notifications broadcast
+  to **every** channel the bot is in; if the saved channel no longer matches a
+  captured one, it falls back to broadcasting so nothing is dropped.
 - Routing:
   - New task created: channel post as an Adaptive Card with a one-tap **Claim**
     button and an **Open in Hot Task** deep link, plus in-app event. The card's

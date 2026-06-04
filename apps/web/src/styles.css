@@ -1923,6 +1923,31 @@ button.btn-good:hover {
   font-style: italic;
   margin-top: 12px;
 }
+.admin-channel-row {
+  margin-top: 12px;
+}
+.admin-channel-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+  max-width: 420px;
+}
+.admin-channel-row select {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: normal;
+}
 .admin-empty {
   text-align: center;
   color: var(--muted);
