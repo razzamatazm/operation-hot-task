@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
-import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, InvokeResponse, MessageFactory, TurnContext } from "botbuilder";
+import { ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
 
@@ -1145,7 +1145,34 @@ class LoanTasksBot extends ActivityHandler {
     const reference = TurnContext.getConversationReference(context.activity);
     const conversationType = context.activity.conversation?.conversationType;
     const scope = conversationType === "channel" ? "CHANNEL" : "DM";
-    await this.onReference(reference, scope, channelDisplayName(context.activity));
+    const displayName = scope === "CHANNEL" ? await this.resolveChannelLabel(context) : undefined;
+    await this.onReference(reference, scope, displayName);
+  }
+
+  /* Build the "Team / Channel" label for the picker. channelData carries the
+     team name but usually omits the channel name on message activities, so ask
+     the Teams connector for the channel list (no extra Graph permission) and
+     match the one we're in. Falls back to the channelData label, then just the
+     team name, if the connector call fails. */
+  private async resolveChannelLabel(context: TurnContext): Promise<string | undefined> {
+    const fallback = channelDisplayName(context.activity);
+    const channelData = context.activity.channelData as
+      | { team?: { name?: string }; channel?: { id?: string } }
+      | undefined;
+    const channelId = channelData?.channel?.id ?? baseChannelId(context.activity.conversation?.id ?? "");
+    const teamName = channelData?.team?.name;
+    if (!channelId) {
+      return fallback;
+    }
+    try {
+      const channels = await TeamsInfo.getTeamChannels(context);
+      const match = channels.find((c) => c.id === channelId || baseChannelId(c.id ?? "") === baseChannelId(channelId));
+      const channelName = match?.name;
+      const parts = [teamName, channelName].filter((p): p is string => Boolean(p && p.trim()));
+      return parts.length > 0 ? parts.join(" / ") : fallback;
+    } catch {
+      return fallback;
+    }
   }
 }
 
