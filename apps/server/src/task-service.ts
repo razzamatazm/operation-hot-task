@@ -11,6 +11,7 @@ import {
   canUnclaimTask,
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
+  firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
   isWithinBusinessHours,
@@ -188,7 +189,7 @@ export class TaskService {
         type: "TASK_CLAIMED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `${user.displayName} claimed ${updated.folderName}`,
+        message: `${firstName(user.displayName)} claimed ${updated.folderName}`,
         target: "DM",
         recipientUserIds: [task.createdBy.id]
       });

@@ -1,4 +1,4 @@
-import { NotificationEvent, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatWallDate } from "@loan-tasks/shared";
+import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatWallDate } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -157,12 +157,21 @@ export class TeamsNotificationProvider implements NotificationProvider {
           .slice(-5)
           .map((entry) => ({ author: entry.by.displayName, text: entry.text }));
         const advance = botPrimaryAdvance(event.task);
-        await this.botClient.sendNoteCardToUsers(event.recipientUserIds, {
-          taskId: event.task.id,
-          folder: event.task.folderName,
-          thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }],
-          ...(advance ? { advance } : {})
-        });
+        // Teams shows activity.summary in the feed/notification preview; without
+        // it the bot DM reads "Sent a card". Surface the note's first line.
+        const firstLine = event.message.split("\n")[0]?.trim() ?? event.message.trim();
+        const preview = firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine;
+        const summary = `${event.actor.displayName} sent a note: ${preview}`;
+        await this.botClient.sendNoteCardToUsers(
+          event.recipientUserIds,
+          {
+            taskId: event.task.id,
+            folder: event.task.folderName,
+            thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }],
+            ...(advance ? { advance } : {})
+          },
+          summary
+        );
         return;
       }
       await this.botClient.sendToDms(`${prefix} ${event.actor.displayName} left a note: ${event.message} (Folder: ${event.task.folderName})`);
@@ -170,11 +179,20 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "DM") {
+      // Friendly type label instead of the raw "[LOI]" tag, e.g.
+      // "LOI Check - Suzie claimed 2021 Broadway RWC LLC - Adams". Append the
+      // folder only when the message doesn't already name it (some messages —
+      // "Got the green light", "Heads up — this one's overdue" — need the
+      // context; the claim message already carries the folder).
+      const label = TASK_TYPE_LABELS[event.task.taskType];
+      const folder = event.task.folderName;
+      const namesFolder = folder ? event.message.includes(folder) : true;
+      const dmText = namesFolder ? `${label} - ${event.message}` : `${label} - ${event.message} (${folder})`;
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
-        await this.botClient.sendToDmUsers(event.recipientUserIds, `${prefix} ${event.message} (Folder: ${event.task.folderName})`);
+        await this.botClient.sendToDmUsers(event.recipientUserIds, dmText);
         return;
       }
-      await this.botClient.sendToDms(`${prefix} ${event.message} (Folder: ${event.task.folderName})`);
+      await this.botClient.sendToDms(dmText);
       return;
     }
 
