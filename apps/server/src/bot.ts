@@ -504,6 +504,10 @@ const cardMessageResponse = (text: string): InvokeResponse => ({
    same channel shows up multiple times in the picker. */
 const baseChannelId = (id: string): string => id.split(";")[0] ?? id;
 
+/* Flatten markdown links (`[text](url)` → `text`) for a card's summary, the
+   plain text Teams shows in the channel list / notification instead of "Card". */
+const plainSummary = (title: string): string => title.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
 /* Collapse captured channel references to one per real channel, preferring the
    unsuffixed root reference over a `;messageid=…` thread capture, so a single
    channel never receives duplicate broadcasts. */
@@ -1593,6 +1597,8 @@ export class TeamsBotClient {
     }
     const references = await this.targetChannelReferences();
     const activity = MessageFactory.attachment(CardFactory.heroCard(title, text));
+    // Without a summary, Teams shows "Card" in the channel list / notifications.
+    activity.summary = plainSummary(title);
     for (const entry of references) {
       await this.createChannelThread(entry, activity);
     }
@@ -1608,6 +1614,8 @@ export class TeamsBotClient {
     const activity = MessageFactory.attachment(
       CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }))
     );
+    // Channel-list preview / notification text — otherwise Teams just says "Card".
+    activity.summary = plainSummary(title);
     const posts: StoredThread["posts"] = [];
     for (const entry of references) {
       const post = await this.createChannelThread(entry, activity);
