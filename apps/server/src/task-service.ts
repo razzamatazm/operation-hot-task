@@ -380,8 +380,14 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    const recipients = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id) && id !== user.id);
-    if (recipients.length > 0) {
+    // Note-card recipients are ALL participants (creator + assignee), including
+    // the author — their own DM card stays in sync when they post from the app.
+    // The notification layer skips creating/pinging the author's card.
+    const participants = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id));
+    const noteRecipients = Array.from(new Set(participants));
+    // Activity-feed pings only go to the OTHER party (don't alert yourself).
+    const feedRecipients = noteRecipients.filter((id) => id !== user.id);
+    if (noteRecipients.length > 0) {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
         task: updated,
@@ -390,15 +396,17 @@ export class TaskService {
         // reply box that posts straight back as another note.
         message: text.trim(),
         target: "DM_NOTE",
-        recipientUserIds: recipients
+        recipientUserIds: noteRecipients
       });
+    }
+    if (feedRecipients.length > 0) {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
         message: `New note on ${updated.folderName} from ${user.displayName}`,
         target: "ACTIVITY_FEED",
-        recipientUserIds: recipients
+        recipientUserIds: feedRecipients
       });
     }
     await this.evaluateActivitySignals({ now: new Date(now) });
