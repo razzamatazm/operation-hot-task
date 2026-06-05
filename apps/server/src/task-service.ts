@@ -347,6 +347,18 @@ export class TaskService {
       });
     }
 
+    if (next === "CANCELLED") {
+      // Silently edit the channel card to its terminal cancelled state (covers
+      // both a creator's card-tap Cancel and a cancel from the web app).
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.folderName} cancelled`,
+        target: "CHANNEL_CANCELLED"
+      });
+    }
+
     if (next === "MERGE_APPROVED" && updated.assignee) {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
