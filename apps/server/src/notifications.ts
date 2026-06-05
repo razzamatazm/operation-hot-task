@@ -162,16 +162,26 @@ export class TeamsNotificationProvider implements NotificationProvider {
         const firstLine = event.message.split("\n")[0]?.trim() ?? event.message.trim();
         const preview = firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine;
         const summary = `${event.actor.displayName} sent a note: ${preview}`;
-        await this.botClient.sendNoteCardToUsers(
-          event.recipientUserIds,
-          {
-            taskId: event.task.id,
-            folder: event.task.folderName,
-            thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }],
-            ...(advance ? { advance } : {})
-          },
-          summary
-        );
+        const baseNote = {
+          taskId: event.task.id,
+          folder: event.task.folderName,
+          thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }]
+        };
+        // "Complete" is the assignee's action — don't surface it to the creator
+        // on their note card. Other advances (Loan Docs merge stages) stay
+        // status-only and are enforced when tapped. Recipients are only the
+        // creator/assignee, so an id check is enough here.
+        const completeIsAssigneeOnly = advance?.status === "COMPLETED";
+        const assigneeId = event.task.assignee?.id;
+        const canSeeAdvance = (recipientId: string): boolean => !completeIsAssigneeOnly || recipientId === assigneeId;
+        const withAdvance = event.recipientUserIds.filter((id) => advance && canSeeAdvance(id));
+        const withoutAdvance = event.recipientUserIds.filter((id) => !advance || !canSeeAdvance(id));
+        if (withAdvance.length > 0 && advance) {
+          await this.botClient.sendNoteCardToUsers(withAdvance, { ...baseNote, advance }, summary);
+        }
+        if (withoutAdvance.length > 0) {
+          await this.botClient.sendNoteCardToUsers(withoutAdvance, baseNote, summary);
+        }
         return;
       }
       await this.botClient.sendToDms(`${prefix} ${event.actor.displayName} left a note: ${event.message} (Folder: ${event.task.folderName})`);
