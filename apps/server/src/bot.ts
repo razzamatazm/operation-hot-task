@@ -1367,19 +1367,24 @@ export class TeamsBotClient {
     }
   }
 
-  private async sendCardToReferences(references: StoredReference[], card: ReturnType<typeof CardFactory.adaptiveCard>): Promise<void> {
-    await Promise.all(
-      references.map((entry) => this.proactiveSend(entry.reference, { type: "message", attachments: [card] }))
-    );
+  /* `summary` sets activity.summary — the text Teams shows in the activity feed
+     / notification preview. Without it a card DM reads "Sent a card". */
+  private async sendCardToReferences(
+    references: StoredReference[],
+    card: ReturnType<typeof CardFactory.adaptiveCard>,
+    summary?: string
+  ): Promise<void> {
+    const activity: Partial<Activity> = { type: "message", attachments: [card], ...(summary?.trim() ? { summary: summary.trim() } : {}) };
+    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, activity)));
   }
 
   /* DM an interactive note card to specific users — the recent thread plus an
      inline reply box and advance button. Mirrors sendToDmUsers with a card. */
-  async sendNoteCardToUsers(userIds: string[], note: NoteCardData): Promise<void> {
+  async sendNoteCardToUsers(userIds: string[], note: NoteCardData, summary?: string): Promise<void> {
     if (!this.adapter || userIds.length === 0) {
       return;
     }
-    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(noteCard(note)));
+    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(noteCard(note)), summary);
   }
 
   /* DM a full-details card (e.g. to whoever just claimed a task). */
@@ -1390,7 +1395,8 @@ export class TeamsBotClient {
     if (!this.adapter || userIds.length === 0) {
       return;
     }
-    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(detailCard(detail)));
+    // The card title (e.g. "You claimed <folder>") doubles as the feed preview.
+    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(detailCard(detail)), detail.title);
   }
 
   private async handleClaim(taskId: string, aadObjectId: string | undefined, _displayName: string): Promise<ClaimOutcome> {

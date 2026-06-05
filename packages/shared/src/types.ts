@@ -32,6 +32,21 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
   `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
+/* Friendly, human-facing type name (e.g. "LOI Check") for notification copy and
+   the web UI. Replaces the raw "[LOI]" tag in DMs/cards. */
+export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
+  LOI: "LOI Check",
+  BUDDY_CHAT: "Buddy Chat",
+  VALUE: "Value Check",
+  FRAUD: "Fraud Check",
+  LOAN_DOCS: "Loan Docs",
+  OOO: "Out of Office"
+};
+
+/* First word of a display name — "Suzie Lim" → "Suzie". Used in compact
+   notification copy. */
+export const firstName = (displayName: string): string => displayName.trim().split(/\s+/)[0] ?? displayName;
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 /* Format a calendar date as "Jun 4, 2026" without any timezone shift. Accepts
