@@ -78,6 +78,7 @@ az webapp config appsettings set \
     BUSINESS_END_MINUTE=30 \
     ARCHIVE_RETENTION_DAYS=90 \
     ENABLE_DM_NOTIFICATIONS=true \
+    ENABLE_ACTIVITY_FEED_NOTIFICATIONS=false \
   --output table
 
 # Artifacts are prebuilt and node_modules ships in the package, so startup
