@@ -94,17 +94,34 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "CHANNEL_REOPENED") {
-      // A task went back to OPEN (unclaimed or re-opened) — flip its channel
-      // card back to the claimable state so the Claim button returns.
+      // A task went back to OPEN (unclaimed or re-opened). Design A: re-alert the
+      // channel with a FRESH claimable card as a new thread (so a "notify on new
+      // messages, not replies" team setting still pings), and point the old card
+      // at it. The headline uses the creator's name so it reads like a new task.
       const card = this.buildChannelCard(event.task);
-      await this.botClient.markTaskOpen(event.task.id, card.title, card.detail, card.openUrl);
+      await this.botClient.repostReopenedTask(event.task.id, {
+        title: card.title,
+        detail: card.detail,
+        folder: event.task.folderName,
+        ...(card.openUrl ? { openUrl: card.openUrl } : {})
+      });
       return;
     }
 
     if (event.target === "CHANNEL_CLAIMED") {
-      // Update every recorded root card to its claimed state (button removed),
-      // so a web claim disables the card too — not just a tap on the card.
+      // Silently edit every recorded root card to its claimed state (button
+      // removed) — a web claim disables the card too, with no channel re-ping.
       await this.botClient.markTaskClaimed(event.task.id, event.message, event.actor.displayName);
+      return;
+    }
+
+    if (event.target === "CHANNEL_COMPLETED") {
+      // Silently edit the root card to the terminal completed state.
+      await this.botClient.markTaskCompleted(
+        event.task.id,
+        event.task.folderName,
+        event.task.assignee?.displayName
+      );
       return;
     }
 
@@ -120,7 +137,43 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
-    if ((event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM") && !config.enableDmNotifications) {
+    if (
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED") &&
+      !config.enableDmNotifications
+    ) {
+      return;
+    }
+
+    if (event.target === "DM_CHAT_SEED") {
+      // On claim, open the note-conversation card for BOTH parties so the chat
+      // surface exists before the first note. Seeds with existing notes, or an
+      // intro line when there are none. Reposts at the bottom (reposition) so a
+      // re-claim moves a stale card down.
+      if (!Array.isArray(event.recipientUserIds) || event.recipientUserIds.length === 0) {
+        return;
+      }
+      const advance = botPrimaryAdvance(event.task);
+      const assigneeId = event.task.assignee?.id;
+      const completeIsAssigneeOnly = advance?.status === "COMPLETED";
+      const existing = (event.task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
+      const seeded =
+        existing.length > 0
+          ? existing
+          : [{ author: "Hot Task", text: `${event.actor.displayName} claimed this — reply here to chat about it.` }];
+      const recipients = Array.from(new Set(event.recipientUserIds)).map((userId) => ({
+        userId,
+        showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
+        createIfMissing: true,
+        reposition: true,
+        summary: `Chat opened for ${event.task.folderName}`
+      }));
+      await this.botClient.syncNoteCards({
+        taskId: event.task.id,
+        folder: event.task.folderName,
+        thread: seeded,
+        ...(advance ? { advance } : {}),
+        recipients
+      });
       return;
     }
 
@@ -190,6 +243,10 @@ export class TeamsNotificationProvider implements NotificationProvider {
           userId,
           showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
           createIfMissing: userId !== authorId,
+          // The other party's card moves to the bottom so a new note isn't
+          // stranded above older lifecycle DMs; the author's card updates in
+          // place (no self-ping, no needless repost).
+          reposition: userId !== authorId,
           ...(userId !== authorId ? { summary: summaryText } : {})
         }));
         await this.botClient.syncNoteCards({

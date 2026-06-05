@@ -168,13 +168,8 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    await this.notify({
-      type: "TASK_CLAIMED",
-      task: updated,
-      actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} grabbed this one — on it now`,
-      target: "CHANNEL_THREAD"
-    });
+    // No channel thread-reply on claim (Design A) — the root card silently flips
+    // to its claimed state via CHANNEL_CLAIMED below, so nobody is re-pinged.
     await this.notify({
       type: "TASK_CLAIMED",
       task: updated,
@@ -203,6 +198,16 @@ export class TaskService {
       message: `${user.displayName} grabbed ${updated.folderName}`,
       target: "CHANNEL_CLAIMED"
     });
+    // Open the conversation surface for BOTH parties so they can chat right away
+    // (the note card otherwise only appears once the first note is posted).
+    await this.notify({
+      type: "TASK_CLAIMED",
+      task: updated,
+      actor: { id: user.id, displayName: user.displayName },
+      message: `Chat opened for ${updated.folderName}`,
+      target: "DM_CHAT_SEED",
+      recipientUserIds: [updated.createdBy.id, user.id]
+    });
     await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
@@ -227,14 +232,8 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    await this.notify({
-      type: "TASK_UNCLAIMED",
-      task: updated,
-      actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} let this one go — back up for grabs`,
-      target: "CHANNEL_THREAD"
-    });
-    // Flip the root channel card back to claimable so the Claim button returns.
+    // Design A: no thread-reply. Re-post a fresh claimable card as a new thread
+    // (re-alerts the channel) and point the old card at it.
     await this.notify({
       type: "TASK_UNCLAIMED",
       task: updated,
@@ -334,6 +333,17 @@ export class TaskService {
         message: next === "COMPLETED" ? `Done and dusted 🎉` : `Merge done — almost home`,
         target: "DM",
         recipientUserIds: [updated.createdBy.id]
+      });
+    }
+
+    if (next === "COMPLETED") {
+      // Silently edit the channel card to its terminal completed state.
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.folderName} completed`,
+        target: "CHANNEL_COMPLETED"
       });
     }
 
