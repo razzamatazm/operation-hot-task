@@ -1606,7 +1606,7 @@ export class TeamsBotClient {
 
   /* Post a freshly created task as an Adaptive Card with a one-tap Claim
      button, recording each channel thread so later updates can reply/update. */
-  async postTaskCard(taskId: string, title: string, detail: string, openUrl?: string): Promise<void> {
+  async postTaskCard(taskId: string, title: string, detail: string, openUrl?: string, summary?: string): Promise<void> {
     if (!this.adapter) {
       return;
     }
@@ -1614,8 +1614,9 @@ export class TeamsBotClient {
     const activity = MessageFactory.attachment(
       CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }))
     );
-    // Channel-list preview / notification text — otherwise Teams just says "Card".
-    activity.summary = plainSummary(title);
+    // Short channel-list preview / notification text (otherwise Teams says
+    // "Card"); the full headline + folder lives in the card body.
+    activity.summary = summary?.trim() || plainSummary(title);
     const posts: StoredThread["posts"] = [];
     for (const entry of references) {
       const post = await this.createChannelThread(entry, activity);

@@ -79,7 +79,10 @@ export class TeamsNotificationProvider implements NotificationProvider {
         cardTitle = `${prefix} ${formatNewTaskHeadline(event.actor.displayName, event.task.taskType)}: ${fileName}`;
         cardDetail = detail;
       }
-      await this.botClient.postTaskCard(event.task.id, cardTitle, cardDetail, teamsTaskDeepLink(event.task.id));
+      // Short preview for the channel list ("Tyler needs an LOI checked" /
+      // "Tyler is out of office") — no type tag or folder name.
+      const summary = formatNewTaskHeadline(event.actor.displayName, event.task.taskType);
+      await this.botClient.postTaskCard(event.task.id, cardTitle, cardDetail, teamsTaskDeepLink(event.task.id), summary);
       await this.webhookIfBroadcasting({
         title: isOoo ? event.message : `${prefix} ${event.message}`,
         text: cardDetail
