@@ -26,7 +26,7 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
   VALUE: "needs a Value Check",
   FRAUD: "needs a Fraud Check",
   LOAN_DOCS: "needs a set of loan docs done",
-  OOO: "is out of office"
+  OOO: "needs OOO Coverage"
 };
 
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
