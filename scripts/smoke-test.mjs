@@ -436,6 +436,26 @@ const run = async () => {
     expectStatus(updatePointsArchived.status, 400, "cannot update points after archive", updatePointsArchived.json);
     pushPass("Poops updates remain blocked for closed statuses");
 
+    // Completion belongs to the assignee, not the creator. When someone else
+    // claims a task, the creator must not be able to complete it.
+    const completeRuleTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Complete Rule", taskType: "LOI", notes: "who completes" }
+    });
+    const completeRuleId = completeRuleTask.json.task.id;
+    await request(server.baseUrl, "POST", `/tasks/${completeRuleId}/claim`, { user: users.fileChecker });
+    const creatorCompleteDenied = await request(server.baseUrl, "POST", `/tasks/${completeRuleId}/transition`, {
+      user: users.creator,
+      body: { status: "COMPLETED" }
+    });
+    expectStatus(creatorCompleteDenied.status, 400, "creator cannot complete another user's task", creatorCompleteDenied.json);
+    const assigneeComplete = await request(server.baseUrl, "POST", `/tasks/${completeRuleId}/transition`, {
+      user: users.fileChecker,
+      body: { status: "COMPLETED" }
+    });
+    expectStatus(assigneeComplete.status, 200, "assignee can complete", assigneeComplete.json);
+    pushPass("only the assignee can complete a task");
+
     const history = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}/history`, {
       user: users.creator
     });

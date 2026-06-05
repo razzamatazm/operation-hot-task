@@ -304,10 +304,12 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
   }
 
   if (task.status === "CLAIMED" || task.status === "MERGE_APPROVED" || task.status === "NEEDS_REVIEW") {
-    const isCreator = task.createdBy.id === user.id;
+    // Completion belongs to whoever did the work (the assignee). The creator
+    // requested the task and can review / re-open / cancel, but doesn't close it
+    // out. Admins can always step in.
     const isAssignee = task.assignee?.id === user.id;
     const isAdmin = hasRole(user, "ADMIN");
-    return isCreator || isAssignee || isAdmin;
+    return isAssignee || isAdmin;
   }
 
   return false;
