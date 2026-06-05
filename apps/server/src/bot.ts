@@ -1476,11 +1476,16 @@ export class TeamsBotClient {
         const prior = posts.find((post) => post.reference.conversation?.id === conversationId);
         if (prior && recipient.reposition) {
           // Move the card to the bottom of the chat (so it isn't stranded above
-          // newer lifecycle DMs): delete the old message and post a fresh one,
-          // repairing the stored id.
-          await this.proactiveDelete(entry.reference, prior.activityId);
+          // newer lifecycle DMs). Post the fresh card FIRST, then delete the old
+          // one — so a failed repost never strands the user with no card; it
+          // just degrades to an in-place refresh of the existing card.
           const activityId = await this.proactiveSend(entry.reference, activity);
-          prior.activityId = activityId ?? prior.activityId;
+          if (activityId) {
+            await this.proactiveDelete(entry.reference, prior.activityId);
+            prior.activityId = activityId;
+          } else {
+            await this.proactiveUpdate(entry.reference, prior.activityId, activity);
+          }
         } else if (prior) {
           const updated = await this.proactiveUpdate(entry.reference, prior.activityId, activity);
           if (!updated) {
