@@ -1,4 +1,4 @@
-import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatWallDate } from "@loan-tasks/shared";
+import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -51,42 +51,53 @@ export class TeamsNotificationProvider implements NotificationProvider {
     await sendWebhook(payload);
   }
 
+  /* Build the claimable channel card (title + detail + list preview) from a
+     task. Uses the creator's name for the headline so it reads the same on a
+     re-open as it did at creation, regardless of who triggered the change. */
+  private buildChannelCard(task: NotificationEvent["task"]): { title: string; detail: string; summary: string; openUrl?: string } {
+    const openUrl = teamsTaskDeepLink(task.id);
+    const summary = formatNewTaskHeadline(task.createdBy.displayName, task.taskType);
+    if (task.taskType === "OOO") {
+      return {
+        title: formatOooHeadline(task.createdBy.displayName, task.startDate ?? task.dueAt, task.returnDate ?? task.dueAt),
+        detail: task.folderName ? `Details: ${task.folderName}` : "Coverage needed",
+        summary,
+        ...(openUrl ? { openUrl } : {})
+      };
+    }
+    const howBad = task.points > 0 ? "💩".repeat(task.points) : "—";
+    // The file name in the headline links to Humperdink when present.
+    const fileName = task.humperdinkLink ? `[${task.folderName}](${task.humperdinkLink})` : task.folderName;
+    return {
+      title: `${summary}: ${fileName}`,
+      detail: `How Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
+      summary,
+      ...(openUrl ? { openUrl } : {})
+    };
+  }
+
   async notify(event: NotificationEvent): Promise<void> {
-    // Type tag only — urgency now rides the detail block as a time-frame.
-    const prefix = `[${event.task.taskType}]`;
+    // Friendly type label ("LOI Check") instead of a raw "[LOI]" tag.
+    const typeLabel = TASK_TYPE_LABELS[event.task.taskType];
     const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
-    // Folder lives in the card title (as a Humperdink link when present), so the
-    // detail block carries only How Bad + Urgency.
     const detail = `How Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`;
 
     if (event.target === "CHANNEL") {
       // Created tasks post as an Adaptive Card carrying a one-tap Claim button
       // plus an "Open in Hot Task" deep link; the returned message id is
-      // recorded so later updates can thread under it.
-      const isOoo = event.task.taskType === "OOO";
-      let cardTitle: string;
-      let cardDetail: string;
-      if (isOoo) {
-        // OOO carries its own coverage sentence (with the absence window); the
-        // detail shows the vacation description rather than poops/urgency.
-        cardTitle = event.message;
-        cardDetail = event.task.folderName ? `Details: ${event.task.folderName}` : "Coverage needed";
-      } else {
-        // The file name in the headline links to Humperdink when present.
-        const fileName = event.task.humperdinkLink
-          ? `[${event.task.folderName}](${event.task.humperdinkLink})`
-          : event.task.folderName;
-        cardTitle = `${prefix} ${formatNewTaskHeadline(event.actor.displayName, event.task.taskType)}: ${fileName}`;
-        cardDetail = detail;
-      }
-      // Short preview for the channel list ("Tyler needs an LOI checked" /
-      // "Tyler is out of office") — no type tag or folder name.
-      const summary = formatNewTaskHeadline(event.actor.displayName, event.task.taskType);
-      await this.botClient.postTaskCard(event.task.id, cardTitle, cardDetail, teamsTaskDeepLink(event.task.id), summary);
-      await this.webhookIfBroadcasting({
-        title: isOoo ? event.message : `${prefix} ${event.message}`,
-        text: cardDetail
-      });
+      // recorded so later updates can reply/refresh in place. The headline
+      // ("Tyler needs an LOI checked") already names the type, so no tag.
+      const card = this.buildChannelCard(event.task);
+      await this.botClient.postTaskCard(event.task.id, card.title, card.detail, card.openUrl, card.summary);
+      await this.webhookIfBroadcasting({ title: card.summary, text: card.detail });
+      return;
+    }
+
+    if (event.target === "CHANNEL_REOPENED") {
+      // A task went back to OPEN (unclaimed or re-opened) — flip its channel
+      // card back to the claimable state so the Claim button returns.
+      const card = this.buildChannelCard(event.task);
+      await this.botClient.markTaskOpen(event.task.id, card.title, card.detail, card.openUrl);
       return;
     }
 
@@ -98,11 +109,12 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "CHANNEL_THREAD") {
-      // Follow-ups (claim / unclaim) reply inside the task's existing thread
-      // instead of broadcasting a fresh card to the whole channel.
-      await this.botClient.replyInThread(event.task.id, event.message, `${prefix} ${event.message}`);
+      // Follow-ups (claim / unclaim) reply inside the task's existing thread.
+      // The card above already names the type, so the reply carries no prefix;
+      // the fallback (fresh post when no thread exists) gets the friendly label.
+      await this.botClient.replyInThread(event.task.id, event.message, `${typeLabel} - ${event.message}`);
       await this.webhookIfBroadcasting({
-        title: `${prefix} ${event.message}`,
+        title: `${typeLabel} - ${event.message}`,
         text: detail
       });
       return;
@@ -124,7 +136,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
               `Details: ${event.task.folderName}`
             ]
           : [
-              `Type: ${event.task.taskType}`,
+              `Type: ${typeLabel}`,
               `How Bad: ${howBad}`,
               `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
               `Due: ${formatWallDate(event.task.dueAt)}`,
@@ -142,7 +154,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         });
         return;
       }
-      await this.botClient.sendToDms(`${prefix} You claimed ${event.task.folderName}`);
+      await this.botClient.sendToDms(`${typeLabel} - You claimed ${event.task.folderName}`);
       return;
     }
 
@@ -184,7 +196,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         }
         return;
       }
-      await this.botClient.sendToDms(`${prefix} ${event.actor.displayName} left a note: ${event.message} (Folder: ${event.task.folderName})`);
+      await this.botClient.sendToDms(`${typeLabel} - ${event.actor.displayName} left a note: ${event.message} (Folder: ${event.task.folderName})`);
       return;
     }
 
@@ -217,6 +229,6 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
-    console.log(`[notify:${event.target}] ${prefix} ${event.message}`);
+    console.log(`[notify:${event.target}] ${typeLabel} - ${event.message}`);
   }
 }
