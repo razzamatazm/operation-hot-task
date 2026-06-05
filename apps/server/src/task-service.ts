@@ -182,6 +182,26 @@ export class TaskService {
       target: "DM_CLAIM",
       recipientUserIds: [user.id]
     });
+    // Tell the creator their task got picked up (unless they claimed it).
+    if (task.createdBy.id !== user.id) {
+      await this.notify({
+        type: "TASK_CLAIMED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${user.displayName} claimed ${updated.folderName}`,
+        target: "DM",
+        recipientUserIds: [task.createdBy.id]
+      });
+    }
+    // Update the channel card to its claimed state for everyone — fires for web
+    // claims too, not just taps on the card's own Claim button.
+    await this.notify({
+      type: "TASK_CLAIMED",
+      task: updated,
+      actor: { id: user.id, displayName: user.displayName },
+      message: `${user.displayName} grabbed ${updated.folderName}`,
+      target: "CHANNEL_CLAIMED"
+    });
     await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
