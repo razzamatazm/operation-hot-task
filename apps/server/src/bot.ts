@@ -1355,24 +1355,28 @@ export class TeamsBotClient {
 
   /* In-place update of a previously sent activity (e.g. flipping a task card to
      its claimed state) via the connector REST API, for the same reason as
-     proactiveSend. Best-effort. */
+     proactiveSend. Returns whether the update landed so callers can recover
+     from a stale activity id (e.g. one left over from a previous deploy).
+     Best-effort: never throws. */
   private async proactiveUpdate(
     reference: Partial<ConversationReference>,
     activityId: string,
     activity: Partial<Activity>
-  ): Promise<void> {
+  ): Promise<boolean> {
     const serviceUrl = reference.serviceUrl;
     const conversationId = reference.conversation?.id;
     if (!this.adapter || !serviceUrl || !conversationId || !activityId) {
-      return;
+      return false;
     }
     try {
       const client = this.adapter.createConnectorClient(serviceUrl);
       const outgoing = TurnContext.applyConversationReference({ ...activity }, reference) as Activity;
       outgoing.id = activityId;
       await client.conversations.updateActivity(conversationId, activityId, outgoing);
+      return true;
     } catch (error) {
       console.error("bot_update_task_card_failed", error);
+      return false;
     }
   }
 
@@ -1410,7 +1414,16 @@ export class TeamsBotClient {
       }
       const prior = posts.find((post) => post.reference.conversation?.id === conversationId);
       if (prior) {
-        await this.proactiveUpdate(entry.reference, prior.activityId, activity);
+        const updated = await this.proactiveUpdate(entry.reference, prior.activityId, activity);
+        if (!updated) {
+          // Stale id (e.g. the card was deleted, or it predates a redeploy) —
+          // repost fresh and repair the stored id so the note isn't lost and
+          // future updates target the live message.
+          const activityId = await this.proactiveSend(entry.reference, activity);
+          if (activityId) {
+            prior.activityId = activityId;
+          }
+        }
       } else {
         const activityId = await this.proactiveSend(entry.reference, activity);
         if (activityId) {

@@ -136,7 +136,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
               `Details: ${event.task.folderName}`
             ]
           : [
-              `Type: ${event.task.taskType}`,
+              `Type: ${typeLabel}`,
               `How Bad: ${howBad}`,
               `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
               `Due: ${formatWallDate(event.task.dueAt)}`,
