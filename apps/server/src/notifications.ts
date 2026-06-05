@@ -173,27 +173,32 @@ export class TeamsNotificationProvider implements NotificationProvider {
         // it the bot DM reads "Sent a card". Surface the note's first line.
         const firstLine = event.message.split("\n")[0]?.trim() ?? event.message.trim();
         const preview = firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine;
-        const summary = `${event.actor.displayName} sent a note: ${preview}`;
-        const baseNote = {
+        const summaryText = `${event.actor.displayName} sent a note: ${preview}`;
+        const resolvedThread = thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }];
+        // Recipients are the task's participants (creator + assignee), including
+        // the note's author so their own DM card stays in sync when they post
+        // from the web app. Per recipient:
+        //  - showAdvance: "Complete" is the assignee's action, so only the
+        //    assignee sees it (other advances stay status-only, enforced on tap).
+        //  - createIfMissing: don't spawn (and self-ping) a fresh card for the
+        //    author of this note; only update theirs if it already exists.
+        //  - summary: only ping non-authors.
+        const authorId = event.actor.id;
+        const assigneeId = event.task.assignee?.id;
+        const completeIsAssigneeOnly = advance?.status === "COMPLETED";
+        const recipients = event.recipientUserIds.map((userId) => ({
+          userId,
+          showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
+          createIfMissing: userId !== authorId,
+          ...(userId !== authorId ? { summary: summaryText } : {})
+        }));
+        await this.botClient.syncNoteCards({
           taskId: event.task.id,
           folder: event.task.folderName,
-          thread: thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }]
-        };
-        // "Complete" is the assignee's action — don't surface it to the creator
-        // on their note card. Other advances (Loan Docs merge stages) stay
-        // status-only and are enforced when tapped. Recipients are only the
-        // creator/assignee, so an id check is enough here.
-        const completeIsAssigneeOnly = advance?.status === "COMPLETED";
-        const assigneeId = event.task.assignee?.id;
-        const canSeeAdvance = (recipientId: string): boolean => !completeIsAssigneeOnly || recipientId === assigneeId;
-        const withAdvance = event.recipientUserIds.filter((id) => advance && canSeeAdvance(id));
-        const withoutAdvance = event.recipientUserIds.filter((id) => !advance || !canSeeAdvance(id));
-        if (withAdvance.length > 0 && advance) {
-          await this.botClient.sendNoteCardToUsers(withAdvance, { ...baseNote, advance }, summary);
-        }
-        if (withoutAdvance.length > 0) {
-          await this.botClient.sendNoteCardToUsers(withoutAdvance, baseNote, summary);
-        }
+          thread: resolvedThread,
+          ...(advance ? { advance } : {}),
+          recipients
+        });
         return;
       }
       await this.botClient.sendToDms(`${typeLabel} - ${event.actor.displayName} left a note: ${event.message} (Folder: ${event.task.folderName})`);

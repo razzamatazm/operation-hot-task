@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
+import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -384,10 +384,14 @@ const STATUS_DISPLAY: Record<TaskStatus, string> = {
 const threadFromTask = (task: LoanTask): NoteThreadEntry[] =>
   (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
 
-/* Build note-card data from a task (used to refresh after a reply). */
-const noteCardDataFromTask = (task: LoanTask): NoteCardData => {
+/* Build note-card data from a task (used to refresh after a reply). The
+   advance/Complete button is only offered to a viewer allowed to perform it
+   (e.g. Complete is the assignee's action, not the creator's) — without this
+   the reply-box refresh would re-add Complete for anyone. */
+const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
   const advance = botPrimaryAdvance(task);
-  return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), ...(advance ? { advance } : {}) };
+  const showAdvance = advance && (!viewer || canTransitionStatus(task, advance.status, viewer).ok);
+  return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), ...(showAdvance && advance ? { advance } : {}) };
 };
 
 /* The contextual "move it forward" button (Mark Merge Done / Approve Merge /
@@ -1277,7 +1281,7 @@ export class TeamsBotClient {
     }
     try {
       const task = await this.noteAdder(taskId, text, user);
-      return { ok: true, message: "Reply posted.", note: noteCardDataFromTask(task) };
+      return { ok: true, message: "Reply posted.", note: noteCardDataFromTask(task, user) };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "Couldn't post that reply." };
     }
@@ -1391,48 +1395,67 @@ export class TeamsBotClient {
     await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, activity)));
   }
 
-  /* DM the interactive note-conversation card to specific users. Keeps ONE card
-     per task per DM: if we've already posted one to a recipient, update it in
-     place (so a note added from the web app refreshes the existing card instead
-     of stacking a new one); otherwise post a fresh card and remember its id. */
-  async sendNoteCardToUsers(userIds: string[], note: NoteCardData, summary?: string): Promise<void> {
-    if (!this.adapter || userIds.length === 0) {
+  /* Sync the interactive note-conversation card to each participant's DM. Keeps
+     ONE card per task per DM: an existing card is updated in place (so a note
+     added from the web app — or by the participant themselves — refreshes the
+     card instead of stacking a new one); a participant with no card yet gets a
+     fresh one only when `createIfMissing` is set (we don't self-ping the author
+     of the note). `showAdvance` gates the Complete/advance button per recipient
+     (it's the assignee's action, not the creator's). One read-modify-write of
+     the store covers all recipients to avoid races. */
+  async syncNoteCards(opts: {
+    taskId: string;
+    folder: string;
+    thread: NoteThreadEntry[];
+    advance?: AdvanceAction;
+    recipients: Array<{ userId: string; showAdvance: boolean; createIfMissing: boolean; summary?: string }>;
+  }): Promise<void> {
+    if (!this.adapter || opts.recipients.length === 0) {
       return;
     }
-    const references = await this.dmReferencesFor(userIds);
-    if (references.length === 0) {
-      return;
-    }
-    const card = CardFactory.adaptiveCard(noteCard(note));
-    const activity: Partial<Activity> = { type: "message", attachments: [card], ...(summary?.trim() ? { summary: summary.trim() } : {}) };
-    const existing = await this.noteCards.get(note.taskId);
+    const existing = await this.noteCards.get(opts.taskId);
     const posts: StoredThread["posts"] = existing?.posts ? [...existing.posts] : [];
-    for (const entry of references) {
-      const conversationId = entry.reference.conversation?.id;
-      if (!conversationId) {
-        continue;
-      }
-      const prior = posts.find((post) => post.reference.conversation?.id === conversationId);
-      if (prior) {
-        const updated = await this.proactiveUpdate(entry.reference, prior.activityId, activity);
-        if (!updated) {
-          // Stale id (e.g. the card was deleted, or it predates a redeploy) —
-          // repost fresh and repair the stored id so the note isn't lost and
-          // future updates target the live message.
+    for (const recipient of opts.recipients) {
+      const references = await this.dmReferencesFor([recipient.userId]);
+      const card = CardFactory.adaptiveCard(
+        noteCard({
+          taskId: opts.taskId,
+          folder: opts.folder,
+          thread: opts.thread,
+          ...(recipient.showAdvance && opts.advance ? { advance: opts.advance } : {})
+        })
+      );
+      const activity: Partial<Activity> = {
+        type: "message",
+        attachments: [card],
+        ...(recipient.summary?.trim() ? { summary: recipient.summary.trim() } : {})
+      };
+      for (const entry of references) {
+        const conversationId = entry.reference.conversation?.id;
+        if (!conversationId) {
+          continue;
+        }
+        const prior = posts.find((post) => post.reference.conversation?.id === conversationId);
+        if (prior) {
+          const updated = await this.proactiveUpdate(entry.reference, prior.activityId, activity);
+          if (!updated) {
+            // Stale id (card deleted, or predates a redeploy) — repost fresh and
+            // repair the stored id so the note isn't lost.
+            const activityId = await this.proactiveSend(entry.reference, activity);
+            if (activityId) {
+              prior.activityId = activityId;
+            }
+          }
+        } else if (recipient.createIfMissing) {
           const activityId = await this.proactiveSend(entry.reference, activity);
           if (activityId) {
-            prior.activityId = activityId;
+            posts.push({ reference: entry.reference, activityId });
           }
-        }
-      } else {
-        const activityId = await this.proactiveSend(entry.reference, activity);
-        if (activityId) {
-          posts.push({ reference: entry.reference, activityId });
         }
       }
     }
     if (posts.length > 0) {
-      await this.noteCards.save({ taskId: note.taskId, posts });
+      await this.noteCards.save({ taskId: opts.taskId, posts });
     }
   }
 
