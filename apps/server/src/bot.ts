@@ -1176,6 +1176,10 @@ export class TeamsBotClient {
   private readonly bot?: LoanTasksBot;
   private readonly store: ReferenceStore;
   private readonly threads: ThreadStore;
+  /* Per-task DM note-conversation cards, keyed by taskId with one post per
+     recipient DM. Lets a note posted from the web app update the existing DM
+     card in place instead of sending a brand-new card each time. */
+  private readonly noteCards: ThreadStore;
   private taskCreator?: BotTaskCreator;
   private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
@@ -1195,6 +1199,7 @@ export class TeamsBotClient {
   ) {
     this.store = new ReferenceStore(dataFile);
     this.threads = new ThreadStore(path.join(path.dirname(dataFile), "bot-task-threads.json"));
+    this.noteCards = new ThreadStore(path.join(path.dirname(dataFile), "bot-note-cards.json"));
 
     if (appId && appPassword) {
       this.adapter = new BotFrameworkAdapter({
@@ -1329,18 +1334,22 @@ export class TeamsBotClient {
      (it's the same primitive createChannelThread uses for new channel posts),
      so all proactive sends go through it. Best-effort: logs and swallows errors
      so a failed notification never breaks the action that triggered it. */
-  private async proactiveSend(reference: Partial<ConversationReference>, activity: Partial<Activity>): Promise<void> {
+  private async proactiveSend(reference: Partial<ConversationReference>, activity: Partial<Activity>): Promise<string | undefined> {
     const serviceUrl = reference.serviceUrl;
     const conversationId = reference.conversation?.id;
     if (!this.adapter || !serviceUrl || !conversationId) {
-      return;
+      return undefined;
     }
     try {
       const client = this.adapter.createConnectorClient(serviceUrl);
       const outgoing = TurnContext.applyConversationReference({ ...activity }, reference) as Activity;
-      await client.conversations.sendToConversation(conversationId, outgoing);
+      // The created activity id lets callers update this message later (e.g.
+      // keep a note conversation to a single, in-place-updated DM card).
+      const res = await client.conversations.sendToConversation(conversationId, outgoing);
+      return res?.id;
     } catch (error) {
       console.error("bot_proactive_send_failed", error);
+      return undefined;
     }
   }
 
@@ -1378,13 +1387,40 @@ export class TeamsBotClient {
     await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, activity)));
   }
 
-  /* DM an interactive note card to specific users — the recent thread plus an
-     inline reply box and advance button. Mirrors sendToDmUsers with a card. */
+  /* DM the interactive note-conversation card to specific users. Keeps ONE card
+     per task per DM: if we've already posted one to a recipient, update it in
+     place (so a note added from the web app refreshes the existing card instead
+     of stacking a new one); otherwise post a fresh card and remember its id. */
   async sendNoteCardToUsers(userIds: string[], note: NoteCardData, summary?: string): Promise<void> {
     if (!this.adapter || userIds.length === 0) {
       return;
     }
-    await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(noteCard(note)), summary);
+    const references = await this.dmReferencesFor(userIds);
+    if (references.length === 0) {
+      return;
+    }
+    const card = CardFactory.adaptiveCard(noteCard(note));
+    const activity: Partial<Activity> = { type: "message", attachments: [card], ...(summary?.trim() ? { summary: summary.trim() } : {}) };
+    const existing = await this.noteCards.get(note.taskId);
+    const posts: StoredThread["posts"] = existing?.posts ? [...existing.posts] : [];
+    for (const entry of references) {
+      const conversationId = entry.reference.conversation?.id;
+      if (!conversationId) {
+        continue;
+      }
+      const prior = posts.find((post) => post.reference.conversation?.id === conversationId);
+      if (prior) {
+        await this.proactiveUpdate(entry.reference, prior.activityId, activity);
+      } else {
+        const activityId = await this.proactiveSend(entry.reference, activity);
+        if (activityId) {
+          posts.push({ reference: entry.reference, activityId });
+        }
+      }
+    }
+    if (posts.length > 0) {
+      await this.noteCards.save({ taskId: note.taskId, posts });
+    }
   }
 
   /* DM a full-details card (e.g. to whoever just claimed a task). */
@@ -1440,6 +1476,13 @@ export class TeamsBotClient {
     await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }));
   }
 
+  /* Flip a task's channel card(s) back to the claimable state (Claim button
+     restored) — used when a task is unclaimed or re-opened so the original
+     channel post reflects that it's up for grabs again. */
+  async markTaskOpen(taskId: string, title: string, detail: string, openUrl?: string): Promise<void> {
+    await this.updateTaskCard(taskId, adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }));
+  }
+
   /* Replace the recorded root task card(s) in-place via updateActivity, so a
      claim made from one card disables the button for everyone, everywhere the
      card was posted — not just the client that tapped it. Best-effort: a
@@ -1463,6 +1506,7 @@ export class TeamsBotClient {
   async init(): Promise<void> {
     await this.store.init();
     await this.threads.init();
+    await this.noteCards.init();
   }
 
   isEnabled(): boolean {

@@ -234,6 +234,14 @@ export class TaskService {
       message: `${user.displayName} let this one go — back up for grabs`,
       target: "CHANNEL_THREAD"
     });
+    // Flip the root channel card back to claimable so the Claim button returns.
+    await this.notify({
+      type: "TASK_UNCLAIMED",
+      task: updated,
+      actor: { id: user.id, displayName: user.displayName },
+      message: `${updated.folderName} is back up for grabs`,
+      target: "CHANNEL_REOPENED"
+    });
     await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
@@ -290,6 +298,19 @@ export class TaskService {
       message: `${user.displayName} moved ${updated.folderName} to ${next}`,
       target: "IN_APP"
     });
+
+    // Re-open (back to OPEN with no assignee) restores the claimable channel
+    // card. When an assignee is retained the task returns to CLAIMED, so the
+    // card stays in its claimed state and needs no flip.
+    if (updated.status === "OPEN") {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.folderName} is back up for grabs`,
+        target: "CHANNEL_REOPENED"
+      });
+    }
 
     if (next === "NEEDS_REVIEW") {
       const recipients = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id) && id !== user.id);
