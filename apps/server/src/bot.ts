@@ -22,6 +22,9 @@ interface StoredReference {
 interface StoredThread {
   taskId: string;
   posts: Array<{ reference: Partial<ConversationReference>; activityId: string }>;
+  /* The claimable-card content, kept so the user-specific refresh can rebuild
+     the creator's Cancel view (and the OPEN base card) without re-deriving it. */
+  card?: { title: string; detail: string; openUrl?: string; creatorUserIds?: string[] };
 }
 
 type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "points" | "notes" | "startDate" | "returnDate" | "humperdinkLink">;
@@ -450,22 +453,58 @@ const transitionConfirmCard = (data: ConfirmData): Record<string, unknown> => ({
   actions: advanceButton(data.taskId, data.advance)
 });
 
+/* A `refresh` block makes Teams auto-fetch a user-specific view for the listed
+   user MRIs (the creator) — they get the creator card (Cancel) while everyone
+   else keeps the base Claim card. Omitted when we don't know the creator's MRI
+   (they've never messaged the bot), so the card simply stays Claim-for-all. */
+const refreshBlock = (taskId: string, creatorUserIds: string[]): Record<string, unknown> | undefined =>
+  creatorUserIds.length > 0
+    ? { action: { type: "Action.Execute", title: "Refresh", verb: "refreshTaskCard", data: { taskId } }, userIds: creatorUserIds }
+    : undefined;
+
 /* Adaptive Card shown on a freshly created task: headline + detail + a
    single one-tap Claim button (universal Action.Execute, handled by
-   onInvokeActivity). */
-const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string }): Record<string, unknown> => ({
-  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-  type: "AdaptiveCard",
-  version: "1.4",
-  body: [
-    { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
-    { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true }
-  ],
-  actions: [
-    { type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } },
-    ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
-  ]
-});
+   onInvokeActivity). `creatorUserIds` (Teams MRIs) opt the creator into a
+   user-specific Cancel view via the refresh block. */
+const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds?: string[] }): Record<string, unknown> => {
+  const refresh = refreshBlock(opts.taskId, opts.creatorUserIds ?? []);
+  return {
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    type: "AdaptiveCard",
+    version: "1.4",
+    ...(refresh ? { refresh } : {}),
+    body: [
+      { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
+      { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true }
+    ],
+    actions: [
+      { type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } },
+      ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
+    ]
+  };
+};
+
+/* The creator's user-specific view of an OPEN task card: same headline/detail,
+   but Cancel instead of Claim (the creator manages, doesn't claim, their own
+   task). Keeps the refresh block so the view stays current. */
+const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds: string[] }): Record<string, unknown> => {
+  const refresh = refreshBlock(opts.taskId, opts.creatorUserIds);
+  return {
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    type: "AdaptiveCard",
+    version: "1.4",
+    ...(refresh ? { refresh } : {}),
+    body: [
+      { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
+      { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true },
+      { type: "TextBlock", text: "Your task — cancel it if it's no longer needed.", wrap: true, spacing: "Small", isSubtle: true }
+    ],
+    actions: [
+      { type: "Action.Execute", title: "Cancel Task", verb: "cancelTask", data: { taskId: opts.taskId } },
+      ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
+    ]
+  };
+};
 
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card. */
@@ -491,6 +530,14 @@ const completedCard = (folder: string, assignee?: string): Record<string, unknow
     { type: "TextBlock", text: `✅ Completed — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" },
     ...(assignee ? [{ type: "TextBlock", text: `by ${assignee}`, wrap: true, spacing: "Small", isSubtle: true }] : [])
   ]
+});
+
+/* Terminal cancelled state for the root card. */
+const cancelledCard = (folder: string): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [{ type: "TextBlock", text: `🚫 Cancelled — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" }]
 });
 
 /* The old root card is silently edited to this pointer when a task is re-opened
@@ -575,7 +622,10 @@ class LoanTasksBot extends ActivityHandler {
     /* Resolve a reply submitted from a note DM card into a new review note. */
     private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined) => Promise<NoteReplyOutcome>,
     /* Resolve an advance/complete button into a status transition. */
-    private readonly onTransition: (taskId: string, targetStatus: string, aadObjectId: string | undefined) => Promise<TransitionOutcome>
+    private readonly onTransition: (taskId: string, targetStatus: string, aadObjectId: string | undefined) => Promise<TransitionOutcome>,
+    /* Resolve a user-specific card refresh into the card that viewer should see
+       (creator → Cancel while OPEN; everyone else → current base state). */
+    private readonly onRefreshCard: (taskId: string, aadObjectId: string | undefined) => Promise<Record<string, unknown> | undefined>
   ) {
     super();
 
@@ -644,6 +694,30 @@ class LoanTasksBot extends ActivityHandler {
         return cardMessageResponse(outcome.message);
       }
       return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+    }
+
+    if (verb === "cancelTask") {
+      // Creator tapped Cancel on their user-specific card view.
+      if (!taskId) {
+        return cardMessageResponse("Sorry, I couldn't tell which task that was.");
+      }
+      const outcome = await this.onTransition(taskId, "CANCELLED", from?.aadObjectId);
+      if (!outcome.ok || !outcome.confirm) {
+        return cardMessageResponse(outcome.message);
+      }
+      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+    }
+
+    if (verb === "refreshTaskCard") {
+      // Teams auto-refresh (or a manual refresh) of a user-specific view.
+      if (!taskId) {
+        return super.onInvokeActivity(context);
+      }
+      const card = await this.onRefreshCard(taskId, from?.aadObjectId);
+      if (!card) {
+        return super.onInvokeActivity(context);
+      }
+      return cardRefreshResponse(card);
     }
 
     return cardMessageResponse("Sorry, I didn't recognise that action.");
@@ -1210,6 +1284,7 @@ export class TeamsBotClient {
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
   private noteAdder?: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>;
   private taskTransitioner?: (taskId: string, status: TaskStatus, user: UserIdentity) => Promise<LoanTask>;
+  private taskLookup?: (taskId: string) => Promise<LoanTask | undefined>;
   private notificationChannelResolver?: () => Promise<string | undefined>;
 
   constructor(
@@ -1250,9 +1325,16 @@ export class TeamsBotClient {
         },
         async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName),
         async (taskId, text, aadObjectId) => this.handleNoteReply(taskId, text, aadObjectId),
-        async (taskId, targetStatus, aadObjectId) => this.handleTransition(taskId, targetStatus, aadObjectId)
+        async (taskId, targetStatus, aadObjectId) => this.handleTransition(taskId, targetStatus, aadObjectId),
+        async (taskId, aadObjectId) => this.handleRefreshCard(taskId, aadObjectId)
       );
     }
+  }
+
+  /* Look up a task by id — used by the user-specific card refresh to decide the
+     creator's view from live state. */
+  setTaskLookup(lookup: (taskId: string) => Promise<LoanTask | undefined>): void {
+    this.taskLookup = lookup;
   }
 
   setTaskCreator(taskCreator: BotTaskCreator): void {
@@ -1568,6 +1650,58 @@ export class TeamsBotClient {
     await this.updateTaskCard(taskId, completedCard(folder, assignee));
   }
 
+  /* Silently edit the channel card(s) to the terminal "cancelled" state — for a
+     creator's card-tap Cancel and for a cancel from the web app alike. */
+  async markTaskCancelled(taskId: string, folder: string): Promise<void> {
+    await this.updateTaskCard(taskId, cancelledCard(folder));
+  }
+
+  /* Build the card a user sees when Teams auto-refreshes the user-specific view
+     (or someone manually refreshes). The creator sees Cancel while a task is
+     OPEN; everyone else — and all non-OPEN states — see the current base state.
+     Returns undefined when we have nothing recorded (the invoke then no-ops). */
+  private async handleRefreshCard(taskId: string, aadObjectId: string | undefined): Promise<Record<string, unknown> | undefined> {
+    const thread = await this.threads.get(taskId);
+    const content = thread?.card;
+    if (!content) {
+      return undefined;
+    }
+    const creatorUserIds = content.creatorUserIds ?? [];
+    const task = this.taskLookup ? await this.taskLookup(taskId) : undefined;
+    const base = adaptiveTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds });
+    if (!task) {
+      return base;
+    }
+    const isCreator = Boolean(aadObjectId) && task.createdBy.id === aadObjectId;
+    const withRefresh = (card: Record<string, unknown>): Record<string, unknown> => {
+      const refresh = refreshBlock(taskId, creatorUserIds);
+      return refresh ? { ...card, refresh } : card;
+    };
+    if (task.status === "OPEN") {
+      // The whole point: the creator gets Cancel, everyone else gets Claim.
+      return isCreator
+        ? creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds })
+        : base;
+    }
+    if (task.status === "COMPLETED") {
+      return withRefresh(completedCard(task.folderName, task.assignee?.displayName));
+    }
+    if (task.status === "CANCELLED") {
+      return withRefresh(cancelledCard(task.folderName));
+    }
+    if (task.status === "ARCHIVED") {
+      return withRefresh(completedCard(task.folderName, task.assignee?.displayName));
+    }
+    // In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state.
+    return withRefresh(
+      claimedCard({
+        ok: true,
+        message: `${task.assignee?.displayName ?? "Someone"} grabbed ${task.folderName}`,
+        ...(task.assignee?.displayName ? { assignee: task.assignee.displayName } : {})
+      })
+    );
+  }
+
   /* Re-open: rather than silently flipping the existing (now-buried) card back
      to claimable, post a FRESH claimable card as a new top-level thread so the
      channel re-alerts like a new task (Design A). The old card is edited to a
@@ -1576,15 +1710,15 @@ export class TeamsBotClient {
      a new one (no channel reference). */
   async repostReopenedTask(
     taskId: string,
-    card: { title: string; detail: string; openUrl?: string; folder: string }
+    card: { title: string; detail: string; openUrl?: string; folder: string; creatorAadObjectId?: string }
   ): Promise<void> {
     if (!this.adapter) {
       return;
     }
     const references = await this.targetChannelReferences();
-    const activity = MessageFactory.attachment(
-      CardFactory.adaptiveCard(adaptiveTaskCard({ title: card.title, detail: card.detail, taskId, ...(card.openUrl ? { openUrl: card.openUrl } : {}) }))
-    );
+    const creatorUserIds = await this.resolveCreatorUserIds(card.creatorAadObjectId);
+    const claimable = adaptiveTaskCard({ title: card.title, detail: card.detail, taskId, ...(card.openUrl ? { openUrl: card.openUrl } : {}), creatorUserIds });
+    const activity = MessageFactory.attachment(CardFactory.adaptiveCard(claimable));
     activity.summary = plainSummary(card.title);
     const posts: StoredThread["posts"] = [];
     for (const entry of references) {
@@ -1593,15 +1727,16 @@ export class TeamsBotClient {
         posts.push(post);
       }
     }
+    const storedCard = { title: card.title, detail: card.detail, ...(card.openUrl ? { openUrl: card.openUrl } : {}), creatorUserIds };
     if (posts.length === 0) {
       // No new thread could be posted — fall back to flipping the old card back
       // to claimable so the Claim button at least returns somewhere.
-      await this.updateTaskCard(taskId, adaptiveTaskCard({ title: card.title, detail: card.detail, taskId, ...(card.openUrl ? { openUrl: card.openUrl } : {}) }));
+      await this.updateTaskCard(taskId, claimable);
       return;
     }
     // Point the old card(s) at the new post, then make the new post the record.
     await this.updateTaskCard(taskId, reopenedPointerCard(card.folder));
-    await this.threads.save({ taskId, posts });
+    await this.threads.save({ taskId, posts, card: storedCard });
   }
 
   /* Replace the recorded root task card(s) in-place via updateActivity, so a
@@ -1616,7 +1751,11 @@ export class TeamsBotClient {
     if (!thread || thread.posts.length === 0) {
       return;
     }
-    const attachment = CardFactory.adaptiveCard(card);
+    // Re-attach the user-specific refresh block so the creator's Cancel view
+    // keeps tracking state changes (a base-card update also refreshes the
+    // user-specific card). No-op when we have no creator MRI.
+    const refresh = refreshBlock(taskId, thread.card?.creatorUserIds ?? []);
+    const attachment = CardFactory.adaptiveCard(refresh ? { ...card, refresh } : card);
     await Promise.all(
       thread.posts.map((post) =>
         this.proactiveUpdate(post.reference, post.activityId, { type: "message", attachments: [attachment] })
@@ -1804,15 +1943,39 @@ export class TeamsBotClient {
     }
   }
 
+  /* The creator's Teams MRI(s) (29:…) captured from their DM reference, used to
+     opt them into a user-specific Cancel view. Empty when they've never messaged
+     the bot — the card then stays Claim-for-all (graceful degradation). */
+  private async resolveCreatorUserIds(creatorAadObjectId?: string): Promise<string[]> {
+    if (!creatorAadObjectId) {
+      return [];
+    }
+    const refs = await this.store.read();
+    const ids = refs
+      .filter((entry) => entry.scope === "DM" && entry.userAadObjectId === creatorAadObjectId)
+      .map((entry) => entry.userId)
+      .filter((id): id is string => Boolean(id));
+    return Array.from(new Set(ids));
+  }
+
   /* Post a freshly created task as an Adaptive Card with a one-tap Claim
-     button, recording each channel thread so later updates can reply/update. */
-  async postTaskCard(taskId: string, title: string, detail: string, openUrl?: string, summary?: string): Promise<void> {
+     button, recording each channel thread so later updates can reply/update.
+     `creatorAadObjectId` opts the creator into the user-specific Cancel view. */
+  async postTaskCard(
+    taskId: string,
+    title: string,
+    detail: string,
+    openUrl?: string,
+    summary?: string,
+    creatorAadObjectId?: string
+  ): Promise<void> {
     if (!this.adapter) {
       return;
     }
     const references = await this.targetChannelReferences();
+    const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
     const activity = MessageFactory.attachment(
-      CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }))
+      CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds }))
     );
     // Short channel-list preview / notification text (otherwise Teams says
     // "Card"); the full headline + folder lives in the card body.
@@ -1825,7 +1988,7 @@ export class TeamsBotClient {
       }
     }
     if (posts.length > 0) {
-      await this.threads.save({ taskId, posts });
+      await this.threads.save({ taskId, posts, card: { title, detail, ...(openUrl ? { openUrl } : {}), creatorUserIds } });
     }
   }
 

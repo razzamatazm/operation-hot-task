@@ -74,6 +74,8 @@ const bootstrap = async (): Promise<void> => {
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
     async (taskId, status, user) => service.transitionStatus(taskId, status, user)
   );
+  // Lets the user-specific card refresh read live task state (creator → Cancel).
+  botClient.setTaskLookup(async (taskId) => service.getTask(taskId));
 
   app.use(cors());
   app.use(express.json());

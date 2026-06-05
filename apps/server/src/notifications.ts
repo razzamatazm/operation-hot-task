@@ -88,7 +88,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // recorded so later updates can reply/refresh in place. The headline
       // ("Tyler needs an LOI checked") already names the type, so no tag.
       const card = this.buildChannelCard(event.task);
-      await this.botClient.postTaskCard(event.task.id, card.title, card.detail, card.openUrl, card.summary);
+      await this.botClient.postTaskCard(event.task.id, card.title, card.detail, card.openUrl, card.summary, event.task.createdBy.id);
       await this.webhookIfBroadcasting({ title: card.summary, text: card.detail });
       return;
     }
@@ -103,6 +103,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         title: card.title,
         detail: card.detail,
         folder: event.task.folderName,
+        creatorAadObjectId: event.task.createdBy.id,
         ...(card.openUrl ? { openUrl: card.openUrl } : {})
       });
       return;
@@ -122,6 +123,12 @@ export class TeamsNotificationProvider implements NotificationProvider {
         event.task.folderName,
         event.task.assignee?.displayName
       );
+      return;
+    }
+
+    if (event.target === "CHANNEL_CANCELLED") {
+      // Silently edit the root card to the terminal cancelled state.
+      await this.botClient.markTaskCancelled(event.task.id, event.task.folderName);
       return;
     }
 
