@@ -1321,13 +1321,55 @@ export class TeamsBotClient {
     });
   }
 
+  /* Proactively send an activity to a stored conversation reference.
+
+     The adapter's continueConversationAsync path returns "NotImplemented" for
+     this bot's auth config — in prod every DM, thread reply, and card update
+     failed that way. createConnectorClient + the conversations REST API works
+     (it's the same primitive createChannelThread uses for new channel posts),
+     so all proactive sends go through it. Best-effort: logs and swallows errors
+     so a failed notification never breaks the action that triggered it. */
+  private async proactiveSend(reference: Partial<ConversationReference>, activity: Partial<Activity>): Promise<void> {
+    const serviceUrl = reference.serviceUrl;
+    const conversationId = reference.conversation?.id;
+    if (!this.adapter || !serviceUrl || !conversationId) {
+      return;
+    }
+    try {
+      const client = this.adapter.createConnectorClient(serviceUrl);
+      const outgoing = TurnContext.applyConversationReference({ ...activity }, reference) as Activity;
+      await client.conversations.sendToConversation(conversationId, outgoing);
+    } catch (error) {
+      console.error("bot_proactive_send_failed", error);
+    }
+  }
+
+  /* In-place update of a previously sent activity (e.g. flipping a task card to
+     its claimed state) via the connector REST API, for the same reason as
+     proactiveSend. Best-effort. */
+  private async proactiveUpdate(
+    reference: Partial<ConversationReference>,
+    activityId: string,
+    activity: Partial<Activity>
+  ): Promise<void> {
+    const serviceUrl = reference.serviceUrl;
+    const conversationId = reference.conversation?.id;
+    if (!this.adapter || !serviceUrl || !conversationId || !activityId) {
+      return;
+    }
+    try {
+      const client = this.adapter.createConnectorClient(serviceUrl);
+      const outgoing = TurnContext.applyConversationReference({ ...activity }, reference) as Activity;
+      outgoing.id = activityId;
+      await client.conversations.updateActivity(conversationId, activityId, outgoing);
+    } catch (error) {
+      console.error("bot_update_task_card_failed", error);
+    }
+  }
+
   private async sendCardToReferences(references: StoredReference[], card: ReturnType<typeof CardFactory.adaptiveCard>): Promise<void> {
     await Promise.all(
-      references.map((entry) =>
-        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
-          await context.sendActivity({ attachments: [card] });
-        })
-      )
+      references.map((entry) => this.proactiveSend(entry.reference, { type: "message", attachments: [card] }))
     );
   }
 
@@ -1407,13 +1449,7 @@ export class TeamsBotClient {
     const attachment = CardFactory.adaptiveCard(card);
     await Promise.all(
       thread.posts.map((post) =>
-        this.adapter!.continueConversationAsync(this.appId!, post.reference, async (context) => {
-          try {
-            await context.updateActivity({ type: "message", id: post.activityId, attachments: [attachment] });
-          } catch (error) {
-            console.error("bot_update_task_card_failed", error);
-          }
-        })
+        this.proactiveUpdate(post.reference, post.activityId, { type: "message", attachments: [attachment] })
       )
     );
   }
@@ -1474,13 +1510,7 @@ export class TeamsBotClient {
     }
 
     const references = (await this.store.read()).filter((entry) => entry.scope === "DM");
-    await Promise.all(
-      references.map((entry) =>
-        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
-          await context.sendActivity(MessageFactory.text(text));
-        })
-      )
-    );
+    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, MessageFactory.text(text))));
   }
 
   async sendToDmUsers(userIds: string[], text: string): Promise<void> {
@@ -1500,13 +1530,7 @@ export class TeamsBotClient {
       return unique.some((userId) => entry.userAadObjectId === userId || entry.userId === userId || entry.key === `dm:${userId}`);
     });
 
-    await Promise.all(
-      references.map((entry) =>
-        this.adapter!.continueConversationAsync(this.appId!, entry.reference, async (context) => {
-          await context.sendActivity(MessageFactory.text(text));
-        })
-      )
-    );
+    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, MessageFactory.text(text))));
   }
 
   /* Resolve which channel group notifications target (an admin setting). When
@@ -1661,12 +1685,6 @@ export class TeamsBotClient {
 
     // post.reference already targets the thread (its conversation id carries the
     // root message id from createConversation), so a plain reply lands in-thread.
-    await Promise.all(
-      posts.map((post) =>
-        this.adapter!.continueConversationAsync(this.appId!, post.reference, async (context) => {
-          await context.sendActivity(MessageFactory.text(text));
-        })
-      )
-    );
+    await Promise.all(posts.map((post) => this.proactiveSend(post.reference, MessageFactory.text(text))));
   }
 }
