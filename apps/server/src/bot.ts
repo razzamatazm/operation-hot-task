@@ -481,6 +481,27 @@ const claimedCard = (outcome: ClaimOutcome): Record<string, unknown> => ({
   ]
 });
 
+/* Terminal state the root card is silently edited to when a task completes —
+   no buttons, just a record that it's done. */
+const completedCard = (folder: string, assignee?: string): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [
+    { type: "TextBlock", text: `✅ Completed — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" },
+    ...(assignee ? [{ type: "TextBlock", text: `by ${assignee}`, wrap: true, spacing: "Small", isSubtle: true }] : [])
+  ]
+});
+
+/* The old root card is silently edited to this pointer when a task is re-opened
+   into a fresh thread, so the stale card doesn't keep showing a Claim button. */
+const reopenedPointerCard = (folder: string): Record<string, unknown> => ({
+  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+  type: "AdaptiveCard",
+  version: "1.4",
+  body: [{ type: "TextBlock", text: `↩︎ Reopened — ${folder} is back up for grabs (see latest post)`, wrap: true, isSubtle: true }]
+});
+
 /* Replace the tapped card with a refreshed Adaptive Card. */
 const cardRefreshResponse = (card: Record<string, unknown>): InvokeResponse => ({
   status: 200,
@@ -1386,6 +1407,23 @@ export class TeamsBotClient {
 
   /* `summary` sets activity.summary — the text Teams shows in the activity feed
      / notification preview. Without it a card DM reads "Sent a card". */
+  /* Delete a previously-sent activity via the connector REST API — used to move
+     a note card to the bottom of a chat (delete here, repost fresh). Teams lets
+     a bot delete its own messages. Best-effort: never throws. */
+  private async proactiveDelete(reference: Partial<ConversationReference>, activityId: string): Promise<void> {
+    const serviceUrl = reference.serviceUrl;
+    const conversationId = reference.conversation?.id;
+    if (!this.adapter || !serviceUrl || !conversationId || !activityId) {
+      return;
+    }
+    try {
+      const client = this.adapter.createConnectorClient(serviceUrl);
+      await client.conversations.deleteActivity(conversationId, activityId);
+    } catch (error) {
+      console.error("bot_note_card_delete_failed", error);
+    }
+  }
+
   private async sendCardToReferences(
     references: StoredReference[],
     card: ReturnType<typeof CardFactory.adaptiveCard>,
@@ -1408,7 +1446,7 @@ export class TeamsBotClient {
     folder: string;
     thread: NoteThreadEntry[];
     advance?: AdvanceAction;
-    recipients: Array<{ userId: string; showAdvance: boolean; createIfMissing: boolean; summary?: string }>;
+    recipients: Array<{ userId: string; showAdvance: boolean; createIfMissing: boolean; reposition?: boolean; summary?: string }>;
   }): Promise<void> {
     if (!this.adapter || opts.recipients.length === 0) {
       return;
@@ -1436,7 +1474,14 @@ export class TeamsBotClient {
           continue;
         }
         const prior = posts.find((post) => post.reference.conversation?.id === conversationId);
-        if (prior) {
+        if (prior && recipient.reposition) {
+          // Move the card to the bottom of the chat (so it isn't stranded above
+          // newer lifecycle DMs): delete the old message and post a fresh one,
+          // repairing the stored id.
+          await this.proactiveDelete(entry.reference, prior.activityId);
+          const activityId = await this.proactiveSend(entry.reference, activity);
+          prior.activityId = activityId ?? prior.activityId;
+        } else if (prior) {
           const updated = await this.proactiveUpdate(entry.reference, prior.activityId, activity);
           if (!updated) {
             // Stale id (card deleted, or predates a redeploy) — repost fresh and
@@ -1507,16 +1552,51 @@ export class TeamsBotClient {
   }
 
   /* Update a task's channel card(s) to the claimed state. Called for every
-     claim (web or card tap) so the Claim button disappears everywhere. */
+     claim (web or card tap) so the Claim button disappears everywhere. A silent
+     in-place edit — no new channel message, so nobody is re-pinged. */
   async markTaskClaimed(taskId: string, message: string, assignee: string): Promise<void> {
     await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }));
   }
 
-  /* Flip a task's channel card(s) back to the claimable state (Claim button
-     restored) — used when a task is unclaimed or re-opened so the original
-     channel post reflects that it's up for grabs again. */
-  async markTaskOpen(taskId: string, title: string, detail: string, openUrl?: string): Promise<void> {
-    await this.updateTaskCard(taskId, adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}) }));
+  /* Silently edit the channel card(s) to the terminal "completed" state. */
+  async markTaskCompleted(taskId: string, folder: string, assignee?: string): Promise<void> {
+    await this.updateTaskCard(taskId, completedCard(folder, assignee));
+  }
+
+  /* Re-open: rather than silently flipping the existing (now-buried) card back
+     to claimable, post a FRESH claimable card as a new top-level thread so the
+     channel re-alerts like a new task (Design A). The old card is edited to a
+     pointer, and the task's recorded thread is replaced so later claim/complete
+     edits target the new card. Falls back to an in-place flip if we can't post
+     a new one (no channel reference). */
+  async repostReopenedTask(
+    taskId: string,
+    card: { title: string; detail: string; openUrl?: string; folder: string }
+  ): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+    const references = await this.targetChannelReferences();
+    const activity = MessageFactory.attachment(
+      CardFactory.adaptiveCard(adaptiveTaskCard({ title: card.title, detail: card.detail, taskId, ...(card.openUrl ? { openUrl: card.openUrl } : {}) }))
+    );
+    activity.summary = plainSummary(card.title);
+    const posts: StoredThread["posts"] = [];
+    for (const entry of references) {
+      const post = await this.createChannelThread(entry, activity);
+      if (post) {
+        posts.push(post);
+      }
+    }
+    if (posts.length === 0) {
+      // No new thread could be posted — fall back to flipping the old card back
+      // to claimable so the Claim button at least returns somewhere.
+      await this.updateTaskCard(taskId, adaptiveTaskCard({ title: card.title, detail: card.detail, taskId, ...(card.openUrl ? { openUrl: card.openUrl } : {}) }));
+      return;
+    }
+    // Point the old card(s) at the new post, then make the new post the record.
+    await this.updateTaskCard(taskId, reopenedPointerCard(card.folder));
+    await this.threads.save({ taskId, posts });
   }
 
   /* Replace the recorded root task card(s) in-place via updateActivity, so a
