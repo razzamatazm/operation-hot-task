@@ -162,7 +162,7 @@ export interface NotificationEvent {
   task: LoanTask;
   actor: Pick<UserIdentity, "id" | "displayName">;
   message: string;
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "CHANNEL" | "CHANNEL_THREAD" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   createdAt: string;
 }

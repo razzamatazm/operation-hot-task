@@ -1364,16 +1364,15 @@ export class TeamsBotClient {
     }
     try {
       const task = await this.taskClaimer(taskId, user);
+      // claimTask fires a CHANNEL_CLAIMED notification → markTaskClaimed updates
+      // every recorded root card. The invoke response below still refreshes the
+      // tapper's own client immediately.
       const outcome: ClaimOutcome = {
         ok: true,
         message: `${user.displayName} grabbed ${task.folderName}`,
         status: task.status,
         assignee: user.displayName
       };
-      // The invoke response only refreshes the card for the tapper's client.
-      // Update every recorded root message so the Claim button disappears for
-      // the whole channel (and across channels the task fanned out to).
-      await this.updateTaskCard(taskId, claimedCard(outcome));
       return outcome;
     } catch (error) {
       const reason = error instanceof Error ? error.message : "";
@@ -1385,6 +1384,12 @@ export class TeamsBotClient {
       }
       return { ok: false, message: reason || "Couldn't claim that task." };
     }
+  }
+
+  /* Update a task's channel card(s) to the claimed state. Called for every
+     claim (web or card tap) so the Claim button disappears everywhere. */
+  async markTaskClaimed(taskId: string, message: string, assignee: string): Promise<void> {
+    await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }));
   }
 
   /* Replace the recorded root task card(s) in-place via updateActivity, so a

@@ -90,6 +90,13 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
+    if (event.target === "CHANNEL_CLAIMED") {
+      // Update every recorded root card to its claimed state (button removed),
+      // so a web claim disables the card too — not just a tap on the card.
+      await this.botClient.markTaskClaimed(event.task.id, event.message, event.actor.displayName);
+      return;
+    }
+
     if (event.target === "CHANNEL_THREAD") {
       // Follow-ups (claim / unclaim) reply inside the task's existing thread
       // instead of broadcasting a fresh card to the whole channel.
