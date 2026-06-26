@@ -268,3 +268,21 @@ it first.
 5. Keep mono for non-prose, DM Sans for prose, Bricolage for headings.
 6. Update [AGENTS.md](AGENTS.md) when the change reflects a confirmed
    product decision (not just visual polish).
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live in this repo's GitHub Issues, managed via the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical triage roles map 1:1 to label strings (`needs-triage`,
+`needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`).
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root.
+See `docs/agents/domain.md`.
