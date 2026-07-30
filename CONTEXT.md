@@ -81,3 +81,25 @@ The single unified list, sorted by status then due, with no sections — the
 Assigner / Assignee columns carry whose-court on every row. The user-selectable
 counterpart to Grouped view.
 _Avoid_: sections (the flat list intentionally has none)
+
+### Loan model
+
+See [ADR-0001](docs/adr/0001-loan-entity.md) for the full decision.
+
+**Loan**:
+A first-class, reusable record (name + optional Humperdink link) that
+non-OOO tasks link to instead of duplicating loan info as free text. OOO
+tasks never have a Loan — their Folder Name is a Vacation Description, not
+a loan reference.
+
+**Live reference**:
+A task's displayed loan name/link is read from its linked Loan record, not
+copied at creation time. Editing a Loan updates every task linked to it,
+including historical ones.
+
+**Loan merge**:
+When two Loan records are found to share the same Humperdink link (the
+canonical unique key for a Loan once it has one), they're auto-merged: the
+newer record's tasks repoint to the original, and the newer name is kept
+as an alias. Triggered automatically, surfaced with a visible notice —
+never a silent, unnoticed change.
