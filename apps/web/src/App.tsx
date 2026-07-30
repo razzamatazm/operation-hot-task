@@ -42,17 +42,6 @@ const URGENCY_LABELS: Record<UrgencyLevel, string> = {
   RED: "Urgent Now"
 };
 
-/* Left stripe = status (not urgency).
-   OPEN → red ("needs a claim"), in-flight → orange ("warming"),
-   COMPLETED/CANCELLED/ARCHIVED carry their own closed-status stripes. */
-const STATUS_STRIPE_CLASS: Partial<Record<TaskStatus, string>> = {
-  OPEN: "task-card-stripe-open",
-  CLAIMED: "task-card-stripe-progress",
-  NEEDS_REVIEW: "task-card-stripe-progress",
-  MERGE_DONE: "task-card-stripe-progress",
-  MERGE_APPROVED: "task-card-stripe-progress"
-};
-
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -98,19 +87,6 @@ const formatPtDateOnly = (iso: string): string => {
   });
 };
 
-const formatRelativeDue = (iso: string, overdue: boolean): string => {
-  const diffMs = new Date(iso).getTime() - Date.now();
-  const abs = Math.abs(diffMs);
-  const min = Math.round(abs / 60000);
-  const hr = Math.round(abs / 3600000);
-  const day = Math.round(abs / 86400000);
-  let span: string;
-  if (min < 60) span = `${min}m`;
-  else if (hr < 24) span = `${hr}h`;
-  else span = `${day}d`;
-  return overdue ? `${span} overdue` : `due in ${span}`;
-};
-
 /* For closed tasks the deadline is moot — show how long ago it landed.
    Falls back to "done" when no completedAt is recorded. */
 const formatRelativeCompleted = (iso?: string): string => {
@@ -130,21 +106,96 @@ const applyTheme = (theme?: string): void => {
   document.documentElement.setAttribute("data-theme", normalized);
 };
 
-/* ── Status banner helpers ─────────────────────────────────── */
-/* Single perspective-free banner per status. The Assigner / Assignee
-   columns carry "whose court" — the banner is just the task state. */
-/* Multi-word labels embed a newline so `.status-banner-label`'s
-   `white-space: pre-line` stacks them across two lines, keeping the
-   status column narrow and the rows tidy. */
-const STATUS_BANNER: Record<string, { label: string; className: string }> = {
-  OPEN: { label: "OPEN", className: "status-banner status-open" },
-  CLAIMED: { label: "IN\nPROGRESS", className: "status-banner status-claimed" },
-  NEEDS_REVIEW: { label: "IN\nREVIEW", className: "status-banner status-claimed" },
-  MERGE_DONE: { label: "MERGE\nDONE", className: "status-banner status-merge" },
-  MERGE_APPROVED: { label: "MERGE\nAPPROVED", className: "status-banner status-merge" },
-  COMPLETED: { label: "COMPLETED!", className: "status-banner status-completed" },
-  CANCELLED: { label: "CANCELLED", className: "status-banner status-cancelled" },
-  ARCHIVED: { label: "ARCHIVED", className: "status-banner status-archived" }
+/* ── Grouped ("courts") view helpers ──────────────────────── */
+/* Two-letter initials for the compact avatar chips, "Suzie Lim" → "SL". */
+const initialsOf = (name?: string): string => {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  const letters = parts.map((p) => p[0] ?? "").join("");
+  return (letters.slice(0, 2) || "?").toUpperCase();
+};
+
+/* Whose court is the ball in? Drives the grouped buckets. Mirrors the
+   collapsed-row primary-action ladder so the section a task lands in and the
+   button it offers agree. Permission edge cases (e.g. a creator can't COMPLETE
+   a NEEDS_REVIEW task) are still gated by the action ladder itself — a "you"
+   card may carry no quick button and be acted on from the expanded body. */
+type Court = "you" | "pool" | "them" | "done";
+const courtOf = (task: LoanTask, user: UserIdentity): Court => {
+  if (CLOSED_STATUSES.includes(task.status)) return "done";
+  if (task.status === "OPEN") {
+    // An OPEN task you created isn't "up for grabs" for you — you're waiting on
+    // someone else to claim it, so it belongs in your "In flight" court.
+    return task.createdBy.id === user.id ? "them" : "pool";
+  }
+  const isAssignee = task.assignee?.id === user.id;
+  const isCreator = task.createdBy.id === user.id;
+  if (task.status === "CLAIMED" && isAssignee) return "you";
+  if (task.status === "MERGE_DONE" && isCreator) return "you";
+  if (task.status === "MERGE_APPROVED" && isAssignee) return "you";
+  // Review is the creator's move (AGENTS.md: review transitions are done by the
+  // assignee or creator and "do not require admin"), so an admin who isn't a
+  // party to the task doesn't get every in-review task dumped in their court.
+  if (task.status === "NEEDS_REVIEW" && isCreator) return "you";
+  return "them";
+};
+
+/* Latest review-note timestamp from someone other than `userId` — the basis
+   for the unread-note signal (red dot) and the Message-pull court override.
+   Empty string when there is no such note. */
+const latestNoteFromOther = (task: LoanTask, userId: string): string => {
+  let latest = "";
+  for (const n of task.reviewNotes ?? []) {
+    if (n.by.id !== userId && n.at > latest) latest = n.at;
+  }
+  return latest;
+};
+
+/* Calm, real coarse distance for a not-imminent deadline — hour/day grain,
+   no ticking minutes, capped at ">1w" so a quiet task reads as a real distance
+   instead of shouting a precise number (and never as an urgency category). */
+const coarseDue = (dueIso: string, nowMs: number): string => {
+  const h = (new Date(dueIso).getTime() - nowMs) / 3600000;
+  if (h >= 24 * 7) return ">1w";
+  if (h >= 48) return `${Math.round(h / 24)}d`;
+  return `${Math.round(h)}h`;
+};
+
+/* Live "2h 14m" / "38m" / "2d" countdown, sign flips on overdue. */
+const liveCountdown = (dueIso: string, nowMs: number): { overdue: boolean; text: string } => {
+  const diff = new Date(dueIso).getTime() - nowMs;
+  const abs = Math.abs(diff);
+  const m = Math.floor(abs / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  let text: string;
+  if (d >= 2) text = `${d}d`;
+  else if (h >= 1) text = `${h}h ${String(m % 60).padStart(2, "0")}m`;
+  else text = `${m}m`;
+  return { overdue: diff < 0, text };
+};
+
+/* The label-over-value "DUE IN / 6h" cell shown in a grouped row. Closed
+   tasks read "✓ Nm ago"; OOO reads its return date. Within 4h (or overdue) we
+   show the live ticking value; further out we fall back to a calm coarse
+   distance so quiet tasks don't shout a precise number. */
+const groupedDue = (
+  task: LoanTask,
+  nowMs: number
+): { label: string; value: string; overdue: boolean; done: boolean } => {
+  if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
+    const stamp = task.completedAt ?? task.archivedAt;
+    return { label: "", value: `✓ ${formatRelativeCompleted(stamp).replace(/^done\s*/, "")}`.trim(), overdue: false, done: true };
+  }
+  if (task.taskType === "OOO") {
+    return { label: "RETURNS", value: formatPtDateOnly(task.dueAt), overdue: false, done: false };
+  }
+  const cd = liveCountdown(task.dueAt, nowMs);
+  if (cd.overdue) return { label: "OVERDUE BY", value: cd.text, overdue: true, done: false };
+  if (new Date(task.dueAt).getTime() - nowMs <= 4 * 3600000) {
+    return { label: "DUE IN", value: cd.text, overdue: false, done: false };
+  }
+  return { label: "DUE IN", value: coarseDue(task.dueAt, nowMs), overdue: false, done: false };
 };
 
 const firstName = (displayName: string | undefined): string => {
@@ -153,16 +204,13 @@ const firstName = (displayName: string | undefined): string => {
 };
 
 /* LOAN_DOCS has multiple stages between claim and complete. Stage suffix
-   rides on the title as a hyphen suffix so the status banner stays terse. */
+   rides on the title as a hyphen suffix so the type label stays terse. */
 const stageSuffix = (task: LoanTask): string => {
   if (task.taskType !== "LOAN_DOCS") return "";
   if (task.status === "MERGE_DONE") return " - Merge Done";
   if (task.status === "MERGE_APPROVED") return " - Merge Approved";
   return "";
 };
-
-const resolveBanner = (task: LoanTask): { label: string; className: string } =>
-  STATUS_BANNER[task.status] ?? { label: "OPEN", className: "status-banner status-open" };
 
 /* ── Poop score control ───────────────────────────────────── */
 const PoopDisplay = ({
@@ -219,6 +267,57 @@ const PoopDisplay = ({
   );
 };
 
+/* ── Small neutral avatar (expanded strip + notes thread) ──── */
+/* Mono treatment: initials in a neutral circle, no per-user color. */
+const ExpandAvatar = ({ name }: { name?: string }) => (
+  <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
+);
+
+/* ── Status timeline (expanded body) ──────────────────────── */
+/* Vertical rail of the task's lifecycle. NEEDS_REVIEW sits on the CLAIMED
+   step (and tags it); ARCHIVED reads as COMPLETED. The current in-flight
+   step carries a "NOW" (or "NEEDS REVIEW") chip. */
+const TIMELINE_LABELS: Record<string, string> = {
+  OPEN: "Opened",
+  CLAIMED: "Claimed",
+  MERGE_DONE: "Merge done",
+  MERGE_APPROVED: "Merge approved",
+  COMPLETED: "Completed",
+  NEEDS_REVIEW: "Needs review"
+};
+const Timeline = ({ task }: { task: LoanTask }) => {
+  const flow: TaskStatus[] =
+    task.taskType === "LOAN_DOCS"
+      ? ["OPEN", "CLAIMED", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED"]
+      : ["OPEN", "CLAIMED", "COMPLETED"];
+  const effective: TaskStatus =
+    task.status === "NEEDS_REVIEW" ? "CLAIMED" : task.status === "ARCHIVED" ? "COMPLETED" : task.status;
+  const idx = flow.indexOf(effective);
+  return (
+    <div className="timeline">
+      {flow.map((s, i) => {
+        const done = i <= idx;
+        const current = i === idx && !CLOSED_STATUSES.includes(task.status);
+        const dotColor = done
+          ? s === "COMPLETED" && task.status === "COMPLETED"
+            ? "var(--good)"
+            : "var(--brand)"
+          : "var(--line)";
+        return (
+          <div key={s} className="tl-item">
+            <span className="tl-dot" style={{ background: dotColor }} />
+            <div className="tl-body">
+              <b style={{ color: done ? "var(--ink)" : "var(--muted)" }}>{TIMELINE_LABELS[s]}</b>
+              {current && task.status === "NEEDS_REVIEW" && <span className="tag tag-warn">NEEDS REVIEW</span>}
+              {current && task.status !== "NEEDS_REVIEW" && <span className="tag tag-brand">NOW</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 /* ── Task Card ────────────────────────────────────────────── */
 const TaskCard = ({
   task,
@@ -229,12 +328,12 @@ const TaskCard = ({
   onAddReviewNote,
   onUpdatePoints,
   showActions,
-  variant,
   seenNoteAt,
   onMarkNoteSeen,
   pulsing,
   expandOverride,
-  onSetExpand
+  onSetExpand,
+  now
 }: {
   task: LoanTask;
   user: UserIdentity;
@@ -244,15 +343,15 @@ const TaskCard = ({
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   showActions: boolean;
-  variant: "own" | "watching" | "available" | "completed";
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
   pulsing?: boolean;
   /* Per-user persisted manual open/close. undefined = follow the default. */
   expandOverride?: boolean;
   onSetExpand?: (taskId: string, open: boolean) => void;
+  /* Ticking clock (ms) for the row's live countdown. */
+  now?: number;
 }) => {
-  const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
@@ -265,13 +364,10 @@ const TaskCard = ({
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
   /* Latest note from the OTHER party — drives unread/force-open behavior. */
-  const latestOtherNoteAt = useMemo(() => {
-    let latest = "";
-    for (const n of task.reviewNotes ?? []) {
-      if (n.by.id !== user.id && n.at > latest) latest = n.at;
-    }
-    return latest;
-  }, [task.reviewNotes, user.id]);
+  const latestOtherNoteAt = useMemo(
+    () => latestNoteFromOther(task, user.id),
+    [task.reviewNotes, user.id]
+  );
   const hasUnreadNote = !!latestOtherNoteAt && latestOtherNoteAt > (seenNoteAt ?? "");
   /* Accordion default-open rule:
        - OPEN (up for grabs) → open for everyone
@@ -312,12 +408,10 @@ const TaskCard = ({
   const handleSubmitNote = async () => {
     if (!noteText.trim()) return;
     await onAddReviewNote(task.id, noteText.trim());
-    setNoteOpen(false);
     setNoteText("");
     acknowledgeUnread();
   };
 
-  const banner = resolveBanner(task);
   const isClosed = CLOSED_STATUSES.includes(task.status);
   const isObserver = !isCreator && !isAssignee;
   /* "Celebrating" = the creator just hit a completion milestone
@@ -338,17 +432,17 @@ const TaskCard = ({
   /* Mini = closed bottom-bucket row. Celebrating COMPLETED renders as a
      full-size pulsing card at the top until the creator archives it. */
   const mini = isClosed && !isCelebrating;
+  /* The grouped ("courts") row is deliberately mono: the court section already
+     says "whose court" and the row's own thin stripe encodes overdue, so we
+     carry only the dim, mini, and celebrating-pulse signals — no colored status
+     stripe, closed backdrop, or own/watching accents. */
   const cardClass = [
     "task-card",
-    !isClosed && task.taskType !== "OOO" ? STATUS_STRIPE_CLASS[task.status] ?? "" : "",
+    "task-card-grouped-wrap",
+    expanded ? "task-card-grouped-open" : "",
     dimmed ? "task-card-dimmed" : "",
     mini ? "task-card-mini" : "",
-    pulsing ? "task-card-celebrating" : "",
-    !isClosed && !dimmed && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
-    !isClosed && !dimmed && variant === "own" ? "task-card-own" : "",
-    task.status === "COMPLETED" ? "task-card-completed" : "",
-    task.status === "CANCELLED" ? "task-card-cancelled" : "",
-    task.status === "ARCHIVED" ? "task-card-archived" : ""
+    pulsing ? "task-card-celebrating" : ""
   ].filter(Boolean).join(" ");
 
   const handleHeaderClick = () => {
@@ -363,11 +457,6 @@ const TaskCard = ({
   };
   const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
 
-  const dueDisplay = task.status === "COMPLETED" || task.status === "ARCHIVED"
-    ? formatRelativeCompleted(task.completedAt)
-    : task.taskType === "OOO"
-      ? `Return ${formatPtDateOnly(task.dueAt)}`
-      : formatRelativeDue(task.dueAt, overdue);
   const dueTitle = task.status === "COMPLETED" || task.status === "ARCHIVED"
     ? (task.completedAt ? `Completed ${formatDate(task.completedAt)}` : undefined)
     : task.taskType === "OOO"
@@ -399,211 +488,235 @@ const TaskCard = ({
     ? `btn-sm task-card-quick-action${primaryAction.kind === "good" ? " btn-good" : primaryAction.kind === "ghost" ? " btn-ghost" : primaryAction.kind === "danger" ? " btn-danger" : ""}`
     : "";
 
-  const assignerIsMe = isCreator;
-  const assigneeIsMe = isAssignee;
-  const assigneeMissing = !task.assignee;
-  const assignerLabel = assignerIsMe ? "ME" : firstName(task.createdBy.displayName).toUpperCase();
-  const assigneeLabel = assigneeMissing
-    ? task.status === "OPEN" ? "PENDING" : "—"
-    : assigneeIsMe ? "ME" : firstName(task.assignee?.displayName).toUpperCase();
-  const assignerValueClass = `task-card-people-value${assignerIsMe ? " task-card-people-me" : ""}`;
-  const assigneeValueClass = `task-card-people-value${assigneeIsMe || assigneeMissing ? " task-card-people-me" : ""}`;
+  /* Expanded body, rendered below the collapsed row when open.
+     Mirrors the design's accordion: a slim metadata strip up top, then a
+     220px / 1fr split — Timeline + actions on the left, the conversation
+     thread on the right. */
+  const notesLabel = getNotesFieldLabel(task.taskType);
+  const replyTarget = isCreator
+    ? task.assignee ? firstName(task.assignee.displayName) : "the pool"
+    : firstName(task.createdBy.displayName);
+  const canPostNote =
+    showActions &&
+    !CLOSED_STATUSES.includes(task.status) &&
+    (isCreator || isAssignee || user.roles.includes("ADMIN"));
+  const renderExpanded = () => (
+    <div className="task-card-expanded">
+      {/* Meta facts live in one slim strip up top — the columns below
+          belong to the lifecycle (timeline) and the conversation. */}
+      <div className="expand-strip">
+        <span className="strip-item">
+          <label>Assigner</label>
+          <span className="v"><ExpandAvatar name={task.createdBy.displayName} />{task.createdBy.displayName}</span>
+        </span>
+        <span className="strip-item">
+          <label>Assignee</label>
+          <span className="v">
+            {task.assignee ? (
+              <><ExpandAvatar name={task.assignee.displayName} />{task.assignee.displayName}</>
+            ) : (
+              <span className="v-pending">Pending</span>
+            )}
+          </span>
+        </span>
+        <span className="strip-item">
+          <label>Created</label>
+          <span className="v">{formatDate(task.createdAt)}</span>
+        </span>
+        {task.taskType === "OOO" ? (
+          <span className="strip-item">
+            <label>Returns</label>
+            <span className="v">{task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
+          </span>
+        ) : (
+          <span className="strip-item">
+            <label>Due</label>
+            <span className={`v${overdue ? " v-due-late" : ""}`}>{formatDate(task.dueAt)}</span>
+          </span>
+        )}
+      </div>
+
+      <div className="expand-cols">
+        <div className="expand-meta">
+          <Timeline task={task} />
+          {showActions && cancelStage === "confirming" && (
+            <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
+              <span>Cancel this task?</span>
+              <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
+                Yes, cancel
+              </button>
+              <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
+                Keep
+              </button>
+            </div>
+          )}
+          {showActions && cancelStage === "done" && (
+            <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
+          )}
+          {showActions && cancelStage === "idle" && (
+            <div className="task-card-actions expand-actions">
+              {task.status === "OPEN" && isCreator && (
+                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+                  Cancel Task
+                </button>
+              )}
+              {canUnclaim(task, user) && (
+                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
+                  Unclaim
+                </button>
+              )}
+              {task.status === "CLAIMED" && isCreator && !isAssignee && (
+                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+                  Cancel
+                </button>
+              )}
+              {task.status === "MERGE_DONE" && isAssignee && (
+                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
+                  Undo Merge Done
+                </button>
+              )}
+              {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
+                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+                  Cancel
+                </button>
+              )}
+              {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
+                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+                  Cancel
+                </button>
+              )}
+              {task.status === "COMPLETED" && isCreator && (
+                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
+                  Archive
+                </button>
+              )}
+              {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
+                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
+                  Re-open
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="thread">
+          <div className="thread-head">{notesLabel}</div>
+          <div className="note-brief"><b>{task.createdBy.displayName}:</b> {task.notes}</div>
+          {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
+            <div className="msgs" ref={reviewListRef}>
+              {task.reviewNotes.map((note, i) => (
+                <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
+                  <ExpandAvatar name={note.by.displayName} />
+                  <div>
+                    <div className="msg-meta">
+                      <span className="msg-author">{note.by.displayName}</span>
+                      <span className="msg-time">{formatDate(note.at)}</span>
+                    </div>
+                    <div className="msg-text">{note.text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {canPostNote && (
+            <div className="composer">
+              <textarea
+                rows={1}
+                placeholder={`Reply to ${replyTarget}…`}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}
+              />
+              <button type="button" className="btn-sm" onClick={() => void handleSubmitNote()} disabled={!noteText.trim()}>Send</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  /* Grouped-row people values: Owner = assignee (or "Unclaimed"), From =
+     creator. Shown as avatar chip + first name. */
+  const ownerName = task.assignee?.displayName;
+  const due = groupedDue(task, now ?? Date.now());
+  const groupedOverdue = due.overdue;
 
   return (
     <div className={cardClass} id={`task-${task.id}`}>
       <div
-          className={`task-card-collapsed${expanded ? " task-card-collapsed-open" : ""}${mini ? " task-card-collapsed-mini" : ""}`}
-          role="button"
-          tabIndex={0}
-          aria-expanded={expanded}
-          onClick={handleHeaderClick}
-          onKeyDown={handleHeaderKey}
-          title={urgencyTitle}
-        >
-          <span className={banner.className}>
-            <span className="status-banner-label">
-              {banner.label}
-              {hasUnreadNote && (
-                <span className="task-card-unread-dot" aria-label="New note" title="New note" />
-              )}
-            </span>
+        className={`task-card-grouped${mini ? " task-card-grouped-mini" : ""}${groupedOverdue ? " task-card-grouped-overdue" : ""}`}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={handleHeaderClick}
+        onKeyDown={handleHeaderKey}
+        title={urgencyTitle}
+      >
+        <span className="task-card-grouped-stripe" aria-hidden="true" />
+        <span className="task-card-grouped-people">
+          <span className="task-card-grouped-person">
+            <span className="task-card-grouped-role">Owner</span>
+            {task.assignee ? (
+              <>
+                <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(ownerName)}</span>
+                <span className="task-card-grouped-name" title={ownerName}>{firstName(ownerName)}</span>
+              </>
+            ) : (
+              <>
+                <span className="task-card-grouped-avatar task-card-grouped-avatar-none" aria-hidden="true" />
+                <span className="task-card-grouped-name task-card-grouped-name-none">Unclaimed</span>
+              </>
+            )}
           </span>
-          <span className="task-card-people task-card-people-assigner">
-            <span className="task-card-people-label">Assigner</span>
-            <span className={assignerValueClass} title={task.createdBy.displayName}>
-              {assignerLabel}
-            </span>
+          <span className="task-card-grouped-person task-card-grouped-person-from">
+            <span className="task-card-grouped-role">From</span>
+            <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
+            <span className="task-card-grouped-name" title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
           </span>
-          <span className="task-card-people task-card-people-assignee">
-            <span className="task-card-people-label">Assignee</span>
-            <span className={assigneeValueClass} title={task.assignee?.displayName ?? "Unassigned"}>
-              {assigneeLabel}
-            </span>
+        </span>
+        <span className="task-card-collapsed-title">
+          <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
+            {TASK_TYPE_LABELS[task.taskType]}
+            {stageSuffix(task) && <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>}
+            {!mini && (
+              <PoopDisplay
+                count={task.points ?? 0}
+                canEdit={isCreator && !isClosed}
+                onChange={(n) => { void onUpdatePoints(task.id, n); }}
+              />
+            )}
+            {hasUnreadNote && (
+              <span className="task-card-unread-dot" aria-label="New note" title="New note" />
+            )}
           </span>
-          <span className="task-card-collapsed-title">
-            <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
-              {TASK_TYPE_LABELS[task.taskType]}
-              {stageSuffix(task) && (
-                <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>
-              )}
-            </span>
-            <span className="task-card-collapsed-folder">
-              {task.taskType !== "OOO" && task.humperdinkLink ? (
-                <a
-                  href={task.humperdinkLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`Open Humperdink link for ${task.folderName}`}
-                  title="Open Humperdink link"
-                  onClick={stopBubble}
-                >
-                  <span>{task.folderName}</span>
-                  <span className="external-link-icon" aria-hidden="true">↗</span>
-                </a>
-              ) : (
+          <span className="task-card-collapsed-folder">
+            {task.taskType !== "OOO" && task.humperdinkLink ? (
+              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
                 <span>{task.folderName}</span>
-              )}
-            </span>
+                <span className="external-link-icon" aria-hidden="true">↗</span>
+              </a>
+            ) : (
+              <span>{task.folderName}</span>
+            )}
           </span>
-          {mini ? (
-            <span className="task-card-collapsed-cell-empty" aria-hidden="true" />
-          ) : (
-            <PoopDisplay
-              count={task.points ?? 0}
-              canEdit={isCreator && !isClosed}
-              onChange={(n) => { void onUpdatePoints(task.id, n); }}
-            />
-          )}
-          <span
-            className={`task-card-collapsed-due${overdue ? " task-card-collapsed-due-overdue" : ""}`}
-            title={dueTitle}
+        </span>
+        <span className={`task-card-grouped-due${groupedOverdue ? " task-card-grouped-due-overdue" : ""}${due.done ? " task-card-grouped-due-done" : ""}`} title={dueTitle}>
+          {due.label && <span className="task-card-grouped-due-label">{due.label}</span>}
+          <span className="task-card-grouped-due-value">{due.value}</span>
+        </span>
+        {!mini && primaryAction ? (
+          <button
+            type="button"
+            className={quickActionClass}
+            onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
           >
-            {dueDisplay}
-          </span>
-          {primaryAction ? (
-            <button
-              type="button"
-              className={quickActionClass}
-              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
-            >
-              {primaryAction.label}
-            </button>
-          ) : (
-            <span className="task-card-quick-action-empty" aria-hidden="true" />
-          )}
-        </div>
-      {expanded && (
-        <div className="task-card-expanded">
-          <div className="task-card-left">
-            <div className="task-card-meta">
-              <div>Created: {formatDate(task.createdAt)}</div>
-              {task.taskType === "OOO" && (
-                <div>
-                  Out: {task.startDate ? formatWallDate(task.startDate) : "—"} →{" "}
-                  {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}
-                </div>
-              )}
-              {task.taskType !== "OOO" && <div>Urgency: {URGENCY_LABELS[task.urgency]}</div>}
-              {task.assignee && !isAssignee && <div>Assignee: {task.assignee.displayName}</div>}
-            </div>
-            {showActions && cancelStage === "confirming" && (
-              <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
-                <span>Cancel this task?</span>
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
-                  Yes, cancel
-                </button>
-                <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
-                  Keep
-                </button>
-              </div>
-            )}
-            {showActions && cancelStage === "done" && (
-              <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
-            )}
-            {showActions && cancelStage === "idle" && (
-              <div className="task-card-actions">
-                {task.status === "OPEN" && isCreator && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                    Cancel Task
-                  </button>
-                )}
-                {canUnclaim(task, user) && (
-                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
-                    Unclaim
-                  </button>
-                )}
-                {task.status === "CLAIMED" && isCreator && !isAssignee && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                    Cancel
-                  </button>
-                )}
-                {task.status === "MERGE_DONE" && isAssignee && (
-                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
-                    Undo Merge Done
-                  </button>
-                )}
-                {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                    Cancel
-                  </button>
-                )}
-                {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                    Cancel
-                  </button>
-                )}
-                {task.status === "COMPLETED" && isCreator && (
-                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
-                    Archive
-                  </button>
-                )}
-                {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
-                  <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
-                    Re-open
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="task-card-right">
-            <div className="task-card-notes">{task.notes}</div>
-            {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
-              <div className="task-card-review">
-                <strong>Notes Thread</strong>
-                <div className="task-card-review-list" ref={reviewListRef}>
-                  {task.reviewNotes.map((note, i) => (
-                    <div key={i} className="review-thread-entry">
-                      <span className="review-thread-author">{note.by.displayName}</span>
-                      <span className="review-thread-time">{formatDate(note.at)}</span>
-                      <p>{note.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {showActions && !CLOSED_STATUSES.includes(task.status) && (isCreator || isAssignee || user.roles.includes("ADMIN")) && !noteOpen && (
-              <button type="button" className="btn-sm btn-ghost review-reply-btn" onClick={() => { setNoteOpen(true); setNoteText(""); }}>
-                Add Note
-              </button>
-            )}
-            {noteOpen && (
-              <div className="review-note-input">
-                <textarea
-                  rows={2}
-                  placeholder="Add a note..."
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  autoFocus
-                />
-                <div className="review-note-actions">
-                  <button type="button" className="btn-sm btn-ghost" onClick={() => setNoteOpen(false)}>Cancel</button>
-                  <button type="button" className="btn-sm" onClick={handleSubmitNote} disabled={!noteText.trim()}>Add Note</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+            {primaryAction.label}
+          </button>
+        ) : (
+          <span className="task-card-quick-action-empty" aria-hidden="true" />
+        )}
+      </div>
+      {expanded && renderExpanded()}
     </div>
   );
 };
@@ -619,12 +732,12 @@ const CardList = ({
   onUpdatePoints,
   showActions,
   emptyMessage,
-  variant,
   seenNotesAt,
   onMarkNoteSeen,
   pulsingIds,
   expandOverrides,
-  onSetExpand
+  onSetExpand,
+  now
 }: {
   tasks: LoanTask[];
   user: UserIdentity;
@@ -635,14 +748,14 @@ const CardList = ({
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   showActions: boolean;
   emptyMessage: string;
-  variant?: (task: LoanTask) => "own" | "watching" | "available" | "completed";
   seenNotesAt?: Record<string, string>;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
   pulsingIds?: Set<string>;
   expandOverrides?: Record<string, boolean>;
   onSetExpand?: (taskId: string, open: boolean) => void;
+  now?: number;
 }) => (
-  <div className="card-list">
+  <div className="card-list card-list-grouped">
     {tasks.length === 0 ? (
       <div className="empty-card">{emptyMessage}</div>
     ) : (
@@ -657,8 +770,8 @@ const CardList = ({
           onAddReviewNote={onAddReviewNote}
           onUpdatePoints={onUpdatePoints}
           showActions={showActions}
-          variant={variant ? variant(task) : "own"}
           pulsing={pulsingIds?.has(task.id) ?? false}
+          {...(now !== undefined ? { now } : {})}
           {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
           {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
           {...(expandOverrides?.[task.id] !== undefined ? { expandOverride: expandOverrides[task.id] } : {})}
@@ -1148,6 +1261,34 @@ export const App = () => {
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
 
+  /* Grouped ("courts") view toggle — buckets tasks by whose court the ball is
+     in instead of one flat list. App-wide viewing preference, persisted so it
+     survives reloads. Defaults on. */
+  const GROUPED_KEY = "loan-tasks:grouped";
+  const [grouped, setGrouped] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(GROUPED_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(GROUPED_KEY, grouped ? "true" : "false");
+    } catch {
+      /* storage unavailable — degrade silently */
+    }
+  }, [grouped]);
+
+  /* Ticking clock for the live countdowns. Both views (flat and courts) use the
+     same compact row, so this runs always. 30s cadence matches the granularity
+     of the "Xh Ym" / "Nm" labels. */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, []);
+
   /* Per-user "I've seen the latest note from someone else" map, keyed by
      task id → ISO timestamp of the latest non-self note already viewed.
      Persisted in localStorage so it survives reloads. */
@@ -1512,6 +1653,105 @@ export const App = () => {
 
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
 
+  /* Re-bucket an already-filtered task list (CANCELLED dropped, TTL applied)
+     into the grouped view's courts. A completion the viewer created pins to a
+     "Just finished" section at the very top (kept until they archive it) and
+     is held out of Done so it isn't listed twice; everyone else's completions
+     fall into Done. Active courts sort soonest-due first, Done newest-first. */
+  type CourtSection = { key: string; title: string; tasks: LoanTask[] };
+  const buildCourtSections = (list: LoanTask[]): CourtSection[] => {
+    const celebrating: LoanTask[] = [];
+    const you: LoanTask[] = [];
+    const pool: LoanTask[] = [];
+    const them: LoanTask[] = [];
+    const done: LoanTask[] = [];
+    for (const t of list) {
+      // "Finished" celebrates only truly-done work the viewer created. A
+      // LOAN_DOCS task at MERGE_DONE still needs the creator's Approve, so it
+      // falls through to its court ("Needs you") instead of being mislabeled as
+      // finished — the brief green pulse still fires via pulsingIds.
+      if (t.createdBy.id === user.id && t.status === "COMPLETED") {
+        celebrating.push(t);
+        continue;
+      }
+      let court = courtOf(t, user);
+      // Message pull (CONTEXT.md): an unread reply from the other party
+      // temporarily pulls a task into the recipient's "Needs you", even when
+      // they don't own the current section. Reuses the red-dot unread signal
+      // (seenNotesAt) so a Party's bucket and red dot agree. Only ever ADDS a
+      // court — never removes one — and only for a Party (creator/assignee);
+      // an Observer has no move, so an unread note doesn't pull them in.
+      if (court === "them" || court === "pool") {
+        const isParty = t.createdBy.id === user.id || t.assignee?.id === user.id;
+        const latestOther = latestNoteFromOther(t, user.id);
+        if (isParty && latestOther && latestOther > (seenNotesAt[t.id] ?? "")) {
+          court = "you";
+        }
+      }
+      if (court === "you") you.push(t);
+      else if (court === "pool") pool.push(t);
+      else if (court === "them") them.push(t);
+      else done.push(t);
+    }
+    const byDue = (a: LoanTask, b: LoanTask): number => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
+    const byRecent = (a: LoanTask, b: LoanTask): number =>
+      new Date(b.completedAt ?? b.updatedAt).getTime() - new Date(a.completedAt ?? a.updatedAt).getTime();
+    you.sort(byDue);
+    pool.sort(byDue);
+    them.sort(byDue);
+    done.sort(byRecent);
+    celebrating.sort(byRecent);
+    const sections: CourtSection[] = [];
+    if (celebrating.length) sections.push({ key: "celebrating", title: "Finished", tasks: celebrating });
+    sections.push({ key: "you", title: "Needs you", tasks: you });
+    sections.push({ key: "pool", title: "Up for grabs", tasks: pool });
+    sections.push({ key: "them", title: "In flight", tasks: them });
+    sections.push({ key: "done", title: "Done", tasks: done });
+    return sections;
+  };
+
+  const renderTaskList = (list: LoanTask[], emptyMessage: string) => {
+    const cardProps = {
+      user,
+      onClaim,
+      onUnclaim,
+      onTransition,
+      onAddReviewNote,
+      onUpdatePoints,
+      showActions: true,
+      seenNotesAt,
+      onMarkNoteSeen: markNoteSeen,
+      pulsingIds,
+      expandOverrides,
+      onSetExpand: setExpandOverride
+    };
+    /* The toggle only controls court bucketing — both views render the same
+       compact row, so a task looks identical either way. Flat view is the
+       whole list in one CardList; grouped view splits it into court sections. */
+    if (!grouped) {
+      return <CardList tasks={list} emptyMessage={emptyMessage} now={now} {...cardProps} />;
+    }
+    const sections = buildCourtSections(list).filter((s) => s.tasks.length > 0);
+    if (sections.length === 0) {
+      return <div className="empty-card">{emptyMessage}</div>;
+    }
+    return (
+      <div className="courts">
+        {sections.map((s) => (
+          <section className="court" key={s.key} data-court={s.key}>
+            <div className="section-head">
+              <h2>
+                {s.title}
+                <span className="section-count">{s.tasks.length}</span>
+              </h2>
+            </div>
+            <CardList tasks={s.tasks} emptyMessage="" now={now} {...cardProps} />
+          </section>
+        ))}
+      </div>
+    );
+  };
+
   /* ── Metrics computations (admin only) ──────────────────── */
   const claimsLeaderboard = useMemo(() => {
     if (!isAdmin) return [];
@@ -1554,13 +1794,6 @@ export const App = () => {
     }));
   }, [tasks, isAdmin]);
 
-  const variantForTask = (task: LoanTask): "own" | "watching" | "available" | "completed" => {
-    if (CLOSED_STATUSES.includes(task.status)) return "completed";
-    if (task.assignee?.id === user.id) return "own";
-    if (task.createdBy.id === user.id) return "watching";
-    return "available";
-  };
-
   return (
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────── */}
@@ -1584,6 +1817,22 @@ export const App = () => {
             </svg>
             New Task
           </button>
+          {(activeTab === "active" || activeTab === "all") && (
+            <div className="group-toggle">
+              <span className="group-toggle-label">Grouped</span>
+              <button
+                type="button"
+                className={`group-switch${grouped ? " group-switch-on" : ""}`}
+                role="switch"
+                aria-checked={grouped}
+                aria-label="Group tasks by whose court the ball is in"
+                title={grouped ? "Grouped into courts — click for a flat list" : "Flat list — click to group into courts"}
+                onClick={() => setGrouped((g) => !g)}
+              >
+                <span className="group-switch-knob" />
+              </button>
+            </div>
+          )}
         </div>
         {IS_DEV ? (
           <label className="user-picker">
@@ -1756,27 +2005,7 @@ export const App = () => {
       )}
 
       {/* ── Unified task grid ──────────────────────── */}
-      {activeTab === "active" && (
-        <>
-          <CardList
-            tasks={unifiedTasks}
-            user={user}
-            onClaim={onClaim}
-            onUnclaim={onUnclaim}
-            onTransition={onTransition}
-            onAddReviewNote={onAddReviewNote}
-            onUpdatePoints={onUpdatePoints}
-            showActions={true}
-            emptyMessage="No tasks yet."
-            variant={variantForTask}
-            seenNotesAt={seenNotesAt}
-            onMarkNoteSeen={markNoteSeen}
-            pulsingIds={pulsingIds}
-            expandOverrides={expandOverrides}
-            onSetExpand={setExpandOverride}
-          />
-        </>
-      )}
+      {activeTab === "active" && renderTaskList(unifiedTasks, "No tasks yet.")}
 
       {/* ── All Tasks (admin) ────────────────────────── */}
       {activeTab === "all" && isAdmin && (
@@ -1785,23 +2014,7 @@ export const App = () => {
             <h2>All Tasks (admin)</h2>
             <span className="section-count">{allTasksAdmin.length} total · no age cutoff</span>
           </div>
-          <CardList
-            tasks={allTasksAdmin}
-            user={user}
-            onClaim={onClaim}
-            onUnclaim={onUnclaim}
-            onTransition={onTransition}
-            onAddReviewNote={onAddReviewNote}
-            onUpdatePoints={onUpdatePoints}
-            showActions={true}
-            emptyMessage="No tasks yet."
-            variant={variantForTask}
-            seenNotesAt={seenNotesAt}
-            onMarkNoteSeen={markNoteSeen}
-            pulsingIds={pulsingIds}
-            expandOverrides={expandOverrides}
-            onSetExpand={setExpandOverride}
-          />
+          {renderTaskList(allTasksAdmin, "No tasks yet.")}
         </>
       )}
 
