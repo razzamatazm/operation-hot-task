@@ -15,3 +15,6 @@ teams-app/*.zip
 
 # TS incremental build info
 *.tsbuildinfo
+
+# SKI voice widget local runtime state (transcripts, commands)
+.ski/
