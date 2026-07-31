@@ -460,6 +460,20 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* Add a note to a COMPLETED task (issue #45). Server-atomic append that keeps
+     the task COMPLETED — the card's "Add a note" affordance posts here instead
+     of round-tripping the task through OPEN. */
+  router.post("/tasks/:taskId/completed-note", async (req, res) => {
+    try {
+      const { text } = reviewNoteSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.addCompletedNote(req.params.taskId, text, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to add note");
+    }
+  });
+
   /* Share a task directly with one person from the dashboard (issue #41). DMs
      the target a bot card that deep-links to the task; the creator/assignee are
      not pinged. Validates the task and the target user both exist. */

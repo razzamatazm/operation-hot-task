@@ -545,6 +545,7 @@ const TaskCard = ({
   onTransition,
   onRelease,
   onAddReviewNote,
+  onAddCompletedNote,
   onUpdatePoints,
   onFilterLoan,
   onShare,
@@ -564,6 +565,9 @@ const TaskCard = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
+  /* Append a note to an already-COMPLETED task (#45). Server keeps the task
+     COMPLETED — no visible reopen. */
+  onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
   /* Point a specific person at this task (issue #41). Resolves with whether the
@@ -589,6 +593,12 @@ const TaskCard = ({
      is open (null = none). The server also rejects a blank note. */
   const [fraudNote, setFraudNote] = useState("");
   const [openFraudNote, setOpenFraudNote] = useState<TaskStatus | null>(null);
+  /* "Add a note" on a COMPLETED card (#45): the button reveals an inline field
+     whose text posts to the server-atomic completed-note endpoint (task stays
+     COMPLETED). `completedNoteOpen` toggles the field; `completedNote` is the
+     draft. */
+  const [completedNoteOpen, setCompletedNoteOpen] = useState(false);
+  const [completedNote, setCompletedNote] = useState("");
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -599,6 +609,10 @@ const TaskCard = ({
   }, [cancelStage]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
+  /* Who may attach a review note: the task's creator, its assignee, or an admin.
+     Mirrors the server's canAddNote so UI and API agree; reused by the active
+     composer (canPostNote) and the completed-card "Add a note" gate (#45). */
+  const canNoteTask = isCreator || isAssignee || user.roles.includes("ADMIN");
   /* Latest note from the OTHER party — drives unread/force-open behavior. */
   const latestOtherNoteAt = useMemo(
     () => latestNoteFromOther(task, user.id),
@@ -649,6 +663,16 @@ const TaskCard = ({
     await onAddReviewNote(task.id, noteText.trim());
     setNoteText("");
     acknowledgeUnread();
+  };
+
+  /* Submit the COMPLETED-card note (#45). One gesture: post, clear, close the
+     field; the task stays COMPLETED (the server handles the atomic append). */
+  const submitCompletedNote = async () => {
+    if (!completedNote.trim()) return;
+    acknowledgeUnread();
+    await onAddCompletedNote(task.id, completedNote.trim());
+    setCompletedNote("");
+    setCompletedNoteOpen(false);
   };
 
   /* Share: point one person at this task. Candidates exclude the current user
@@ -762,7 +786,7 @@ const TaskCard = ({
   const canPostNote =
     showActions &&
     !CLOSED_STATUSES.includes(task.status) &&
-    (isCreator || isAssignee || user.roles.includes("ADMIN"));
+    canNoteTask;
 
   /* Fire a FRAUD move. Plain transition and release are one-tap; a note-required
      move (Send Outstanding Items / Send Back) sends only with a non-blank note
@@ -931,6 +955,19 @@ const TaskCard = ({
                   Re-open
                 </button>
               )}
+              {/* Add a note to a COMPLETED task (#45): reveal an inline field
+                  that posts to the completed-note endpoint (task stays
+                  COMPLETED). Every task type; creator/assignee/admin. */}
+              {task.status === "COMPLETED" && canNoteTask && (
+                <button
+                  type="button"
+                  className="btn-sm btn-ghost"
+                  aria-expanded={completedNoteOpen}
+                  onClick={() => { acknowledgeUnread(); setCompletedNote(""); setCompletedNoteOpen((open) => !open); }}
+                >
+                  Add a note
+                </button>
+              )}
               {/* A reopened task remembers the closed status it came from.
                   "Restore" sends it straight back there (COMPLETED or ARCHIVED),
                   available to whoever reopened it — creator, assignee, or admin —
@@ -951,6 +988,32 @@ const TaskCard = ({
                   onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
                   link={shareLink}
                 />
+              )}
+              {/* Inline note field for the "Add a note" affordance (#45). Full
+                  width below the action buttons; Enter (no shift) or Add posts,
+                  Esc / Cancel dismisses. */}
+              {task.status === "COMPLETED" && completedNoteOpen && (
+                <div className="task-card-note-add">
+                  <textarea
+                    rows={2}
+                    placeholder="Add a note to this completed task…"
+                    value={completedNote}
+                    onChange={(e) => setCompletedNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitCompletedNote(); }
+                      if (e.key === "Escape") { setCompletedNoteOpen(false); setCompletedNote(""); }
+                    }}
+                    autoFocus
+                  />
+                  <div className="task-card-note-add-actions">
+                    <button type="button" className="btn-sm btn-good" onClick={() => void submitCompletedNote()} disabled={!completedNote.trim()}>
+                      Add note
+                    </button>
+                    <button type="button" className="btn-sm btn-ghost" onClick={() => { setCompletedNoteOpen(false); setCompletedNote(""); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -1101,6 +1164,7 @@ const CardList = ({
   onTransition,
   onRelease,
   onAddReviewNote,
+  onAddCompletedNote,
   onUpdatePoints,
   onFilterLoan,
   onShare,
@@ -1121,6 +1185,7 @@ const CardList = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
+  onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
@@ -1148,6 +1213,7 @@ const CardList = ({
           onTransition={onTransition}
           onRelease={onRelease}
           onAddReviewNote={onAddReviewNote}
+          onAddCompletedNote={onAddCompletedNote}
           onUpdatePoints={onUpdatePoints}
           {...(onFilterLoan ? { onFilterLoan } : {})}
           onShare={onShare}
@@ -2188,6 +2254,18 @@ export const App = () => {
     }
   };
 
+  /* Add a note to a COMPLETED task (#45). Hits the server-atomic endpoint that
+     appends the note while keeping the task COMPLETED — no visible reopen. */
+  const onAddCompletedNote = async (taskId: string, text: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/completed-note`, { method: "POST", body: JSON.stringify({ text }) }, user);
+      await refresh();
+      showToast("Note added", { variant: "success" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add note");
+    }
+  };
+
   /* Edit a Loan's name/link (the app's first post-creation edit surface).
      Server propagates to every linked task; we refresh tasks + loans so the
      live reference is reflected everywhere. */
@@ -2352,6 +2430,7 @@ export const App = () => {
       onTransition,
       onRelease,
       onAddReviewNote,
+      onAddCompletedNote,
       onUpdatePoints,
       onFilterLoan: (loanId: string) => setLoanFilterId(loanId),
       onShare,
