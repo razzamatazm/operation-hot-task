@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, getNotesFieldLabel } from "@loan-tasks/shared";
+import { CreateTaskInput, FraudCardAction, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -348,6 +348,9 @@ interface NoteCardData {
   folder: string;
   thread: NoteThreadEntry[];
   advance?: AdvanceAction;
+  /* Fraud two-phase buttons. Its presence (even as []) marks the card as a fraud
+     card, so `noteCard` uses this button set instead of the generic advance. */
+  fraudActions?: FraudCardAction[];
 }
 
 interface ConfirmData {
@@ -378,6 +381,10 @@ const STATUS_DISPLAY: Record<TaskStatus, string> = {
   NEEDS_REVIEW: "in review",
   MERGE_DONE: "merge done",
   MERGE_APPROVED: "merge approved",
+  // FRAUD two-phase completion (#39). Reads naturally in the DM confirm line
+  // "<folder> is now <label>." (e.g. "…is now awaiting outstanding items.").
+  AWAITING_ITEMS: "awaiting outstanding items",
+  PENDING_APPROVAL: "pending final approval",
   COMPLETED: "completed",
   CANCELLED: "cancelled",
   ARCHIVED: "archived"
@@ -392,6 +399,13 @@ const threadFromTask = (task: LoanTask): NoteThreadEntry[] =>
    (e.g. Complete is the assignee's action, not the creator's) — without this
    the reply-box refresh would re-add Complete for anyone. */
 const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
+  // FRAUD cards carry the role-aware two-phase button set (keyed off the viewer)
+  // instead of the generic single advance. The key is always present for a fraud
+  // task (empty when this viewer has no action in this state) so `noteCard`
+  // routes to the fraud button set and never re-adds the generic advance.
+  if (task.taskType === "FRAUD") {
+    return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), fraudActions: fraudCardActions(task, viewer?.id) };
+  }
   const advance = botPrimaryAdvance(task);
   const showAdvance = advance && (!viewer || canTransitionStatus(task, advance.status, viewer).ok);
   return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), ...(showAdvance && advance ? { advance } : {}) };
@@ -403,6 +417,31 @@ const advanceButton = (taskId: string, advance?: AdvanceAction): Record<string, 
   advance
     ? [{ type: "Action.Execute", title: advance.label, verb: "transitionTask", data: { taskId, targetStatus: advance.status } }]
     : [];
+
+/* Render the fraud button set. A note-required action opens an inline note input
+   (Action.ShowCard) whose submit carries the note as the transition's
+   reviewNotes — the server rejects a blank note, and the submit handler guards
+   it too. Plain transitions and release are one-tap Action.Execute. */
+const fraudActionButtons = (taskId: string, actions: FraudCardAction[]): Record<string, unknown>[] =>
+  actions.map((action) => {
+    if (action.kind === "release") {
+      return { type: "Action.Execute", title: action.label, verb: "releaseTask", data: { taskId } };
+    }
+    if (action.kind === "transition") {
+      return { type: "Action.Execute", title: action.label, verb: "transitionTask", data: { taskId, targetStatus: action.targetStatus } };
+    }
+    return {
+      type: "Action.ShowCard",
+      title: action.label,
+      card: {
+        $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+        type: "AdaptiveCard",
+        version: "1.4",
+        body: [{ type: "Input.Text", id: "fraudNote", placeholder: "Describe what's outstanding…", isMultiline: true }],
+        actions: [{ type: "Action.Execute", title: action.label, verb: "transitionWithNote", data: { taskId, targetStatus: action.targetStatus } }]
+      }
+    };
+  });
 
 /* DM card for a review-note conversation: the recent thread (oldest → newest),
    an inline reply box that posts straight back as another note, and a contextual
@@ -424,7 +463,9 @@ const noteCard = (data: NoteCardData): Record<string, unknown> => ({
   ],
   actions: [
     { type: "Action.Execute", title: "Reply", verb: "replyNote", data: { taskId: data.taskId, folder: data.folder } },
-    ...advanceButton(data.taskId, data.advance)
+    // A fraud card (fraudActions present, even when empty) drives its own
+    // role-aware button set; every other card keeps the single advance button.
+    ...(data.fraudActions !== undefined ? fraudActionButtons(data.taskId, data.fraudActions) : advanceButton(data.taskId, data.advance))
   ]
 });
 
@@ -644,8 +685,12 @@ class LoanTasksBot extends ActivityHandler {
     private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>,
     /* Resolve a reply submitted from a note DM card into a new review note. */
     private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined) => Promise<NoteReplyOutcome>,
-    /* Resolve an advance/complete button into a status transition. */
-    private readonly onTransition: (taskId: string, targetStatus: string, aadObjectId: string | undefined) => Promise<TransitionOutcome>,
+    /* Resolve an advance/complete button into a status transition. `reviewNotes`
+       rides along for note-required fraud moves (Send Outstanding Items / Send
+       Back) and is ignored by plain transitions. */
+    private readonly onTransition: (taskId: string, targetStatus: string, aadObjectId: string | undefined, reviewNotes?: string) => Promise<TransitionOutcome>,
+    /* Resolve a "Release for any fraud checker" tap into an in-place unassign. */
+    private readonly onRelease: (taskId: string, aadObjectId: string | undefined) => Promise<TransitionOutcome>,
     /* Resolve a user-specific card refresh into the card that viewer should see
        (creator → Cancel while OPEN; everyone else → current base state). */
     private readonly onRefreshCard: (taskId: string, aadObjectId: string | undefined) => Promise<Record<string, unknown> | undefined>
@@ -713,6 +758,36 @@ class LoanTasksBot extends ActivityHandler {
         return cardMessageResponse("Sorry, I couldn't tell which task that was.");
       }
       const outcome = await this.onTransition(taskId, targetStatus, from?.aadObjectId);
+      if (!outcome.ok || !outcome.confirm) {
+        return cardMessageResponse(outcome.message);
+      }
+      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+    }
+
+    if (verb === "transitionWithNote") {
+      // Note-required fraud move (Send Outstanding Items / Send Back): the note
+      // rides in as the transition's reviewNotes. The server rejects a blank
+      // note; guard here too so the tapper gets a clear toast instead.
+      const targetStatus = typeof data.targetStatus === "string" ? data.targetStatus : undefined;
+      const note = typeof data.fraudNote === "string" ? data.fraudNote.trim() : "";
+      if (!taskId || !targetStatus) {
+        return cardMessageResponse("Sorry, I couldn't tell which task that was.");
+      }
+      if (!note) {
+        return cardMessageResponse("Add a note describing what's outstanding first, then submit.");
+      }
+      const outcome = await this.onTransition(taskId, targetStatus, from?.aadObjectId, note);
+      if (!outcome.ok || !outcome.confirm) {
+        return cardMessageResponse(outcome.message);
+      }
+      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+    }
+
+    if (verb === "releaseTask") {
+      if (!taskId) {
+        return cardMessageResponse("Sorry, I couldn't tell which task that was.");
+      }
+      const outcome = await this.onRelease(taskId, from?.aadObjectId);
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
@@ -1306,7 +1381,8 @@ export class TeamsBotClient {
   private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
   private noteAdder?: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>;
-  private taskTransitioner?: (taskId: string, status: TaskStatus, user: UserIdentity) => Promise<LoanTask>;
+  private taskTransitioner?: (taskId: string, status: TaskStatus, user: UserIdentity, reviewNotes?: string) => Promise<LoanTask>;
+  private taskReleaser?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private taskLookup?: (taskId: string) => Promise<LoanTask | undefined>;
   private notificationChannelResolver?: () => Promise<string | undefined>;
 
@@ -1348,7 +1424,8 @@ export class TeamsBotClient {
         },
         async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName),
         async (taskId, text, aadObjectId) => this.handleNoteReply(taskId, text, aadObjectId),
-        async (taskId, targetStatus, aadObjectId) => this.handleTransition(taskId, targetStatus, aadObjectId),
+        async (taskId, targetStatus, aadObjectId, reviewNotes) => this.handleTransition(taskId, targetStatus, aadObjectId, reviewNotes),
+        async (taskId, aadObjectId) => this.handleRelease(taskId, aadObjectId),
         async (taskId, aadObjectId) => this.handleRefreshCard(taskId, aadObjectId)
       );
     }
@@ -1385,13 +1462,23 @@ export class TeamsBotClient {
     this.noteAdder = addNote;
   }
 
-  /* Wire the advance/complete buttons on cards to the task service. */
+  /* Wire the advance/complete buttons on cards to the task service. `reviewNotes`
+     carries the outstanding-items note for note-required fraud moves. */
   setTransitionHandler(
     resolveUser: (aadObjectId: string) => Promise<UserIdentity | undefined>,
-    transition: (taskId: string, status: TaskStatus, user: UserIdentity) => Promise<LoanTask>
+    transition: (taskId: string, status: TaskStatus, user: UserIdentity, reviewNotes?: string) => Promise<LoanTask>
   ): void {
     this.userResolver = resolveUser;
     this.taskTransitioner = transition;
+  }
+
+  /* Wire the "Release for any fraud checker" button to the task service. */
+  setReleaseHandler(
+    resolveUser: (aadObjectId: string) => Promise<UserIdentity | undefined>,
+    release: (taskId: string, user: UserIdentity) => Promise<LoanTask>
+  ): void {
+    this.userResolver = resolveUser;
+    this.taskReleaser = release;
   }
 
   private async handleNoteReply(taskId: string, text: string, aadObjectId: string | undefined): Promise<NoteReplyOutcome> {
@@ -1413,7 +1500,7 @@ export class TeamsBotClient {
     }
   }
 
-  private async handleTransition(taskId: string, targetStatus: string, aadObjectId: string | undefined): Promise<TransitionOutcome> {
+  private async handleTransition(taskId: string, targetStatus: string, aadObjectId: string | undefined, reviewNotes?: string): Promise<TransitionOutcome> {
     if (!this.taskTransitioner || !this.userResolver) {
       return { ok: false, message: "Actions aren't wired up on the server yet." };
     }
@@ -1425,21 +1512,56 @@ export class TeamsBotClient {
       return { ok: false, message: "You're not set up in Hot Task yet — ask an admin." };
     }
     try {
-      const task = await this.taskTransitioner(taskId, targetStatus as TaskStatus, user);
-      const advance = botPrimaryAdvance(task);
+      const task = await this.taskTransitioner(taskId, targetStatus as TaskStatus, user, reviewNotes);
+      return { ok: true, message: "Done.", confirm: this.confirmFor(task, user) };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Couldn't update that task." };
+    }
+  }
+
+  private async handleRelease(taskId: string, aadObjectId: string | undefined): Promise<TransitionOutcome> {
+    if (!this.taskReleaser || !this.userResolver) {
+      return { ok: false, message: "Actions aren't wired up on the server yet." };
+    }
+    if (!aadObjectId) {
+      return { ok: false, message: "Couldn't identify you in Teams — use the web app instead." };
+    }
+    const user = await this.userResolver(aadObjectId);
+    if (!user) {
+      return { ok: false, message: "You're not set up in Hot Task yet — ask an admin." };
+    }
+    try {
+      const task = await this.taskReleaser(taskId, user);
       return {
         ok: true,
         message: "Done.",
         confirm: {
           taskId: task.id,
           folder: task.folderName,
-          message: `${task.folderName} is now ${STATUS_DISPLAY[task.status] ?? task.status}.`,
-          ...(advance ? { advance } : {})
+          message: `${task.folderName} is up for grabs — any fraud checker can approve it now.`
         }
       };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Couldn't update that task." };
+      return { ok: false, message: error instanceof Error ? error.message : "Couldn't release that task." };
     }
+  }
+
+  /* Build the confirm card shown after a card-tap transition. The forward button
+     is offered only when the acting user can actually take the next step (a
+     FRAUD hand-off passes the task to the *other* party, so the tapper sees no
+     stray next button). */
+  private confirmFor(task: LoanTask, user: UserIdentity): ConfirmData {
+    const advance = botPrimaryAdvance(task);
+    // FRAUD only: a hand-off passes the task to the other party, so gate the
+    // forward button to whoever can actually take the next step. Non-FRAUD flows
+    // keep their prior behaviour (advance shown whenever there's a next step).
+    const showAdvance = advance && (task.taskType !== "FRAUD" || canTransitionStatus(task, advance.status, user).ok);
+    return {
+      taskId: task.id,
+      folder: task.folderName,
+      message: `${task.folderName} is now ${STATUS_DISPLAY[task.status] ?? task.status}.`,
+      ...(showAdvance && advance ? { advance } : {})
+    };
   }
 
   /* DM references for a set of user ids (AAD oid / Teams id / dm:<id> key). */
@@ -1551,7 +1673,7 @@ export class TeamsBotClient {
     folder: string;
     thread: NoteThreadEntry[];
     advance?: AdvanceAction;
-    recipients: Array<{ userId: string; showAdvance: boolean; createIfMissing: boolean; reposition?: boolean; summary?: string }>;
+    recipients: Array<{ userId: string; showAdvance: boolean; createIfMissing: boolean; reposition?: boolean; summary?: string; fraudActions?: FraudCardAction[] }>;
   }): Promise<void> {
     if (!this.adapter || opts.recipients.length === 0) {
       return;
@@ -1565,7 +1687,13 @@ export class TeamsBotClient {
           taskId: opts.taskId,
           folder: opts.folder,
           thread: opts.thread,
-          ...(recipient.showAdvance && opts.advance ? { advance: opts.advance } : {})
+          // A fraud recipient always carries fraudActions (possibly empty) so the
+          // card renders the role-aware button set, never the generic advance.
+          ...(recipient.fraudActions !== undefined
+            ? { fraudActions: recipient.fraudActions }
+            : recipient.showAdvance && opts.advance
+              ? { advance: opts.advance }
+              : {})
         })
       );
       const activity: Partial<Activity> = {

@@ -131,7 +131,7 @@ export const updatePointsSchema = z.object({
 });
 
 export const transitionSchema = z.object({
-  status: z.enum(["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED", "CANCELLED", "ARCHIVED"]),
+  status: z.enum(["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED", "CANCELLED", "ARCHIVED"]),
   reviewNotes: z.string().min(1).max(1000).optional()
 });
 

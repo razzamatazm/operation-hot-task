@@ -11,6 +11,28 @@ const LOAN_DOCS_FLOW: TaskStatus[] = [
 
 const STANDARD_FLOW: TaskStatus[] = ["OPEN", "CLAIMED", "COMPLETED", "ARCHIVED"];
 
+/* FRAUD checks get a two-phase completion (#39). After claiming, the fraud
+   checker's initial pass sends outstanding items (CLAIMED → AWAITING_ITEMS);
+   the requester then submits those items back (AWAITING_ITEMS →
+   PENDING_APPROVAL); finally the fraud checker approves (PENDING_APPROVAL →
+   COMPLETED). AWAITING_ITEMS and PENDING_APPROVAL are NON-closed, so notes keep
+   flowing during the back-and-forth. Only FRAUD tasks travel this flow; every
+   other task type stays on STANDARD_FLOW / LOAN_DOCS_FLOW, byte-for-byte as
+   before. See AGENTS.md → Status Model. */
+export const FRAUD_FLOW: TaskStatus[] = [
+  "OPEN",
+  "CLAIMED",
+  "AWAITING_ITEMS",
+  "PENDING_APPROVAL",
+  "COMPLETED",
+  "ARCHIVED"
+];
+
+/* The ordered status flow a task travels, selected by task type. Parallels the
+   LOAN_DOCS / FRAUD / STANDARD split so callers never re-derive it inline. */
+export const flowFor = (task: LoanTask): TaskStatus[] =>
+  task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : task.taskType === "FRAUD" ? FRAUD_FLOW : STANDARD_FLOW;
+
 /* The terminal/closed statuses — a task here is done being worked. Canonical
    list so the web view, workflow rules, and services agree on what "closed"
    means. */
@@ -23,7 +45,15 @@ const ALWAYS_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   COMPLETED: ["NEEDS_REVIEW", "OPEN"],
   ARCHIVED: ["OPEN"],
   MERGE_DONE: ["CLAIMED", "CANCELLED"],
-  MERGE_APPROVED: ["CANCELLED"]
+  MERGE_APPROVED: ["CANCELLED"],
+  // FRAUD-only two-phase completion. AWAITING_ITEMS can be reopened back to
+  // CLAIMED (fraud checker redoes the initial pass) or cancelled;
+  // PENDING_APPROVAL can be bounced back to AWAITING_ITEMS (checker wants more)
+  // or cancelled. The forward steps (CLAIMED → AWAITING_ITEMS → PENDING_APPROVAL
+  // → COMPLETED) come from FRAUD_FLOW, not this map. Only FRAUD tasks reach these
+  // statuses, so every other flow is untouched.
+  AWAITING_ITEMS: ["CLAIMED", "CANCELLED"],
+  PENDING_APPROVAL: ["AWAITING_ITEMS", "CANCELLED"]
 };
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -216,7 +246,7 @@ export const computeDefaultDueAt = (
 };
 
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
-  const flow = task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : STANDARD_FLOW;
+  const flow = flowFor(task);
   const index = flow.indexOf(task.status);
   return index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
 };
@@ -227,15 +257,30 @@ const ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
   COMPLETED: "Complete"
 };
 
+/* FRAUD's forward action label is keyed by the *current* status, not the target
+   (its COMPLETED step reads "Approve", which would collide with the standard
+   "Complete" if keyed by target). CLAIMED → "Send Outstanding Items"; then
+   "Submit for Approval"; then "Approve". */
+const FRAUD_ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
+  CLAIMED: "Send Outstanding Items",
+  AWAITING_ITEMS: "Submit for Approval",
+  PENDING_APPROVAL: "Approve"
+};
+
 /* The single "move it forward" action to offer on a bot card (Mark Merge Done →
-   Approve Merge → Complete for Loan Docs; Complete for everyone else). Returns
-   undefined when there's no forward step worth a button (open/closed tasks).
-   Status-only — the actual transition still enforces the caller's permission. */
+   Approve Merge → Complete for Loan Docs; Send Outstanding Items → Submit for
+   Approval → Approve for Fraud; Complete for everyone else). Returns undefined
+   when there's no forward step worth a button (open/closed tasks). Status-only —
+   the actual transition still enforces the caller's permission. */
 export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: string } | undefined => {
   if (task.status === "OPEN" || task.status === "COMPLETED" || task.status === "CANCELLED" || task.status === "ARCHIVED") {
     return undefined;
   }
   const forward = nextForwardStatus(task);
+  if (task.taskType === "FRAUD") {
+    const label = FRAUD_ADVANCE_LABELS[task.status];
+    return forward && forward !== "ARCHIVED" && label ? { status: forward, label } : undefined;
+  }
   const target = forward && forward !== "ARCHIVED" ? forward : task.status === "NEEDS_REVIEW" ? "COMPLETED" : undefined;
   if (!target) {
     return undefined;
@@ -262,7 +307,7 @@ export const restoreTargetStatus = (task: LoanTask): TaskStatus | undefined => {
 };
 
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
-  const flow = task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : STANDARD_FLOW;
+  const flow = flowFor(task);
   const index = flow.indexOf(task.status);
 
   const nextCandidate = index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
@@ -275,6 +320,13 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
 const hasRole = (user: UserIdentity, role: "FILE_CHECKER" | "ADMIN"): boolean => user.roles.includes(role);
 
 export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
+  // FRAUD "release for any fraud checker" support: a PENDING_APPROVAL task whose
+  // original checker has been unassigned can be picked up by any FILE_CHECKER, so
+  // final approval isn't blocked on one person. Any other status still requires
+  // OPEN below.
+  if (task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" && !task.assignee) {
+    return hasRole(user, "FILE_CHECKER");
+  }
   if (task.status !== "OPEN") {
     return false;
   }
@@ -326,7 +378,15 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
     return false;
   }
 
-  if (task.status === "CLAIMED" || task.status === "MERGE_APPROVED" || task.status === "NEEDS_REVIEW") {
+  // PENDING_APPROVAL is the FRAUD final-approval state; approving it to COMPLETED
+  // uses the same gate as any other completion (plus the FILE_CHECKER check
+  // above).
+  if (
+    task.status === "CLAIMED" ||
+    task.status === "MERGE_APPROVED" ||
+    task.status === "NEEDS_REVIEW" ||
+    task.status === "PENDING_APPROVAL"
+  ) {
     // Completion belongs to whoever did the work (the assignee). The creator
     // requested the task and can review / re-open / cancel, but doesn't close it
     // out. Admins can always step in.
@@ -336,6 +396,33 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
   }
 
   return false;
+};
+
+/* FRAUD-only: the fraud checker's own moves — sending outstanding items
+   (CLAIMED → AWAITING_ITEMS), bouncing an approval request back
+   (PENDING_APPROVAL → AWAITING_ITEMS), and reopening the initial pass
+   (AWAITING_ITEMS → CLAIMED). Mirrors the completion gate: the assignee (the
+   fraud checker) or an admin, and — because it's a FRAUD task — FILE_CHECKER is
+   required. Non-FRAUD tasks never reach these statuses. */
+export const canFraudCheckerAct = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.taskType !== "FRAUD" || !hasRole(user, "FILE_CHECKER")) {
+    return false;
+  }
+  const isAssignee = task.assignee?.id === user.id;
+  const isAdmin = hasRole(user, "ADMIN");
+  return isAssignee || isAdmin;
+};
+
+/* FRAUD-only: submitting the outstanding items back for approval
+   (AWAITING_ITEMS → PENDING_APPROVAL) is the requester's move — the task
+   creator, or an admin stepping in. */
+export const canSubmitForApproval = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.taskType !== "FRAUD") {
+    return false;
+  }
+  const isCreator = task.createdBy.id === user.id;
+  const isAdmin = hasRole(user, "ADMIN");
+  return isCreator || isAdmin;
 };
 
 /* Restore returns a reopened task to the exact closed status it held before the
@@ -387,6 +474,23 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
     }
   }
 
+  // FRAUD: moving *into* AWAITING_ITEMS is the fraud checker's move — whether
+  // that's the initial pass (CLAIMED → AWAITING_ITEMS) or a bounce-back from
+  // PENDING_APPROVAL. Same for reopening the initial pass (AWAITING_ITEMS →
+  // CLAIMED).
+  if (next === "AWAITING_ITEMS" && !canFraudCheckerAct(task, user)) {
+    return { ok: false, reason: "Only the fraud checker (assignee) or an admin can send outstanding items" };
+  }
+
+  if (next === "CLAIMED" && task.status === "AWAITING_ITEMS" && !canFraudCheckerAct(task, user)) {
+    return { ok: false, reason: "Only the fraud checker (assignee) or an admin can reopen the initial pass" };
+  }
+
+  // FRAUD: submitting the outstanding items for approval is the requester's move.
+  if (next === "PENDING_APPROVAL" && !canSubmitForApproval(task, user)) {
+    return { ok: false, reason: "Only the task creator or an admin can submit for approval" };
+  }
+
   if (next === "COMPLETED" && !canCompleteTask(task, user)) {
     return { ok: false, reason: "User cannot complete this task" };
   }
@@ -395,7 +499,11 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
 };
 
 export const isOverdue = (task: LoanTask, now: Date): boolean => {
-  if (["COMPLETED", "ARCHIVED", "CANCELLED"].includes(task.status)) {
+  // AWAITING_ITEMS (FRAUD) is a wait-on-the-requester hold: the clock belongs to
+  // the requester, not the checker, so it never reads as overdue and stays fully
+  // silent (shouldSendReminder short-circuits on isOverdue). PENDING_APPROVAL is
+  // an active checker obligation and uses the normal overdue engine.
+  if (["COMPLETED", "ARCHIVED", "CANCELLED", "AWAITING_ITEMS"].includes(task.status)) {
     return false;
   }
 

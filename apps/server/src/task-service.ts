@@ -11,6 +11,7 @@ import {
   canUnclaimTask,
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
+  computeDueAtFromUrgency,
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
@@ -26,7 +27,11 @@ import { NotificationProvider } from "./notifications.js";
 import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
 
-const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED"];
+// PENDING_APPROVAL (FRAUD final-approval) is an active checker obligation: it
+// takes the normal reminder engine (a fresh end-of-day clock set on entry), so
+// it belongs here. AWAITING_ITEMS is deliberately absent — it's a wait on the
+// requester and stays fully silent (isOverdue already returns false for it).
+const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "PENDING_APPROVAL"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
 
@@ -176,9 +181,15 @@ export class TaskService {
     }
 
     const now = new Date().toISOString();
+    // A released FRAUD task (PENDING_APPROVAL with no assignee) is claimed for
+    // final approval, NOT reopened — the new checker just becomes the assignee
+    // and can Approve directly, so the status must stay PENDING_APPROVAL rather
+    // than snap back to CLAIMED. Every other claim starts the work at CLAIMED.
+    const claimedStatus: TaskStatus =
+      task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" ? "PENDING_APPROVAL" : "CLAIMED";
     const updated: LoanTask = {
       ...task,
-      status: "CLAIMED",
+      status: claimedStatus,
       assignee: { id: user.id, displayName: user.displayName },
       updatedAt: now
     };
@@ -265,6 +276,51 @@ export class TaskService {
     return updated;
   }
 
+  /* FRAUD "Release for any fraud checker" — the creator (or an admin) hands a
+     PENDING_APPROVAL task back to the pool when the original checker is OOO.
+     Unassign IN PLACE: status stays PENDING_APPROVAL, only the assignee is
+     cleared, so canClaimTask then lets any FILE_CHECKER pick it up and approve
+     directly. Private, like the rest of the two-phase back-and-forth — no
+     channel post. */
+  async releaseForAnyChecker(taskId: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    const isCreator = task.createdBy.id === user.id;
+    const isAdmin = user.roles.includes("ADMIN");
+    if (!isCreator && !isAdmin) {
+      throw new Error("Only the task creator or an admin can release for any fraud checker");
+    }
+    if (task.taskType !== "FRAUD" || task.status !== "PENDING_APPROVAL") {
+      throw new Error("Only a fraud task awaiting approval can be released for any checker");
+    }
+    if (!task.assignee) {
+      // Already in the pool — a double-tap is a harmless no-op.
+      return task;
+    }
+
+    const now = new Date().toISOString();
+    const { assignee: _assignee, ...withoutAssignee } = task;
+    const updated: LoanTask = {
+      ...withoutAssignee,
+      updatedAt: now
+    };
+
+    const event = this.makeHistory(task.id, user, "TASK_RELEASED", `Released for any fraud checker by ${user.displayName}`);
+    await this.store.upsertTask(updated, event);
+    this.events.broadcast({ type: "task.changed", payload: updated });
+
+    await this.notify({
+      type: "TASK_STATUS_CHANGED",
+      task: updated,
+      actor: { id: user.id, displayName: user.displayName },
+      message: `${updated.folderName} is up for grabs — final approval needed`,
+      target: "IN_APP"
+    });
+    await this.evaluateActivitySignals({ now: new Date(now) });
+
+    return updated;
+  }
+
   async transitionStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes?: string): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
     const access = canTransitionStatus(task, next, user);
@@ -273,12 +329,41 @@ export class TaskService {
       throw new Error(access.reason ?? "Transition blocked");
     }
 
+    // FRAUD hand-back: entering AWAITING_ITEMS — the checker's initial pass
+    // (CLAIMED → AWAITING_ITEMS) or a bounce-back (PENDING_APPROVAL →
+    // AWAITING_ITEMS) — cannot go out empty. The outstanding-items note rides in
+    // on the transition's reviewNotes field (a note + transition in one gesture)
+    // and seeds the conversation thread.
+    const outstandingNote = next === "AWAITING_ITEMS" ? reviewNotes?.trim() : undefined;
+    if (next === "AWAITING_ITEMS" && !outstandingNote) {
+      throw new Error("Sending outstanding items requires a note describing what's needed");
+    }
+
     const now = new Date().toISOString();
     const updated: LoanTask = {
       ...task,
       status: next,
       updatedAt: now,
     };
+    if (outstandingNote) {
+      // Record the outstanding-items note on the task so the thread has a seed
+      // (surfaced on the DM note card below).
+      updated.reviewNotes = [
+        ...(task.reviewNotes ?? []),
+        { text: outstandingNote, by: { id: user.id, displayName: user.displayName }, at: now }
+      ];
+    }
+    if (next === "PENDING_APPROVAL") {
+      // Final approval gets a fresh, gentle clock: discard the task's original
+      // dueAt/urgency and recompute end-of-current-business-day (the YELLOW
+      // path). The normal reminder engine (PENDING_APPROVAL is in
+      // ACTIVE_STATUSES) then takes over — quiet the rest of today, hourly next
+      // business morning. Clear any stale reminder stamp so the new clock starts
+      // clean.
+      updated.urgency = "YELLOW";
+      updated.dueAt = computeDueAtFromUrgency("YELLOW", new Date(now), this.appConfig);
+      delete updated.lastReminderAt;
+    }
     if (next === "COMPLETED") {
       updated.completedAt = now;
     }
@@ -392,6 +477,51 @@ export class TaskService {
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
         message: `Got the green light`,
+        target: "DM",
+        recipientUserIds: [updated.assignee.id]
+      });
+    }
+
+    // FRAUD entry to AWAITING_ITEMS (private — no channel post): exactly one
+    // lifecycle DM to the creator that the ball is now in their court, plus the
+    // outstanding-items note itself as a DM note card so the two participants
+    // have somewhere to chat. Never repeated; the reminder engine stays silent
+    // here (AWAITING_ITEMS is not in ACTIVE_STATUSES and never reads overdue).
+    if (next === "AWAITING_ITEMS") {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `Fraud check came back with outstanding items — it's in your court`,
+        target: "DM",
+        recipientUserIds: [updated.createdBy.id]
+      });
+      if (outstandingNote) {
+        const noteRecipients = Array.from(
+          new Set([updated.createdBy.id, updated.assignee?.id].filter((id): id is string => Boolean(id)))
+        );
+        if (noteRecipients.length > 0) {
+          await this.notify({
+            type: "TASK_STATUS_CHANGED",
+            task: updated,
+            actor: { id: user.id, displayName: user.displayName },
+            message: outstandingNote,
+            target: "DM_NOTE",
+            recipientUserIds: noteRecipients
+          });
+        }
+      }
+    }
+
+    // FRAUD entry to PENDING_APPROVAL (private — no channel post): exactly one DM
+    // to the checker (assignee) that the items are back for review. The fresh
+    // end-of-day clock (set above) then hands off to the normal reminder engine.
+    if (next === "PENDING_APPROVAL" && updated.assignee) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `Items are back — ready for your final review`,
         target: "DM",
         recipientUserIds: [updated.assignee.id]
       });

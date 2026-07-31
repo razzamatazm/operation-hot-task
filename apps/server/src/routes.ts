@@ -415,6 +415,18 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* FRAUD "Release for any fraud checker": creator/admin hands a
+     PENDING_APPROVAL task back to the pool (unassign in place). */
+  router.post("/tasks/:taskId/release", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      const task = await service.releaseForAnyChecker(req.params.taskId, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to release task");
+    }
+  });
+
   router.post("/tasks/:taskId/transition", async (req, res) => {
     try {
       const { status, reviewNotes } = transitionSchema.parse(req.body);

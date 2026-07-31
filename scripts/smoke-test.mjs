@@ -626,12 +626,90 @@ const run = async () => {
     });
     expectStatus(fraudClaimAllowed.status, 200, "fraud claim by file checker", fraudClaimAllowed.json);
 
+    // FRAUD two-phase completion (#39): the checker sends outstanding items,
+    // the requester (creator = admin here) submits them for approval, then the
+    // checker approves to the terminal COMPLETED.
+    // Hand-back cannot go out empty — AWAITING_ITEMS requires an outstanding-items note.
+    const fraudSendItemsNoNote = await request(server.baseUrl, "POST", `/tasks/${fraudId}/transition`, {
+      user: users.fileChecker,
+      body: { status: "AWAITING_ITEMS" }
+    });
+    expectStatus(fraudSendItemsNoNote.status, 400, "fraud hand-back requires a note", fraudSendItemsNoNote.json);
+
+    const fraudSendItems = await request(server.baseUrl, "POST", `/tasks/${fraudId}/transition`, {
+      user: users.fileChecker,
+      body: { status: "AWAITING_ITEMS", reviewNotes: "Need 2023 tax returns and a photo ID" }
+    });
+    expectStatus(fraudSendItems.status, 200, "fraud send outstanding items by file checker", fraudSendItems.json);
+    assert.ok(
+      (fraudSendItems.json.task.reviewNotes ?? []).some((note) => note.text === "Need 2023 tax returns and a photo ID"),
+      "outstanding-items note is recorded on the task"
+    );
+
+    const fraudSubmitByChecker = await request(server.baseUrl, "POST", `/tasks/${fraudId}/transition`, {
+      user: users.fileChecker,
+      body: { status: "PENDING_APPROVAL" }
+    });
+    expectStatus(fraudSubmitByChecker.status, 400, "fraud submit-for-approval denied for checker", fraudSubmitByChecker.json);
+
+    const fraudSubmitForApproval = await request(server.baseUrl, "POST", `/tasks/${fraudId}/transition`, {
+      user: users.admin,
+      body: { status: "PENDING_APPROVAL" }
+    });
+    expectStatus(fraudSubmitForApproval.status, 200, "fraud submit for approval by requester", fraudSubmitForApproval.json);
+
     const fraudCompleteAllowed = await request(server.baseUrl, "POST", `/tasks/${fraudId}/transition`, {
       user: users.fileChecker,
       body: { status: "COMPLETED" }
     });
-    expectStatus(fraudCompleteAllowed.status, 200, "fraud complete by file checker", fraudCompleteAllowed.json);
-    pushPass("fraud permissions enforced and file checker path works");
+    expectStatus(fraudCompleteAllowed.status, 200, "fraud approve by file checker", fraudCompleteAllowed.json);
+    pushPass("fraud two-phase completion enforced and file checker path works");
+
+    // FRAUD "Release for any fraud checker" (#39): a PENDING_APPROVAL task whose
+    // original checker is OOO can be released to the pool by the creator, then
+    // claimed + approved by any other FILE_CHECKER.
+    const releaseFraud = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Fraud Release", taskType: "FRAUD", notes: "release path" }
+    });
+    const releaseFraudId = releaseFraud.json.task.id;
+    await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/claim`, { user: users.fileChecker });
+    await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/transition`, {
+      user: users.fileChecker,
+      body: { status: "AWAITING_ITEMS", reviewNotes: "Need proof of funds" }
+    });
+    await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/transition`, {
+      user: users.creator,
+      body: { status: "PENDING_APPROVAL" }
+    });
+
+    // Release is a creator/admin action — the assignee alone cannot self-release.
+    const releaseDenied = await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/release`, {
+      user: users.fileChecker
+    });
+    expectStatus(releaseDenied.status, 400, "release denied for non creator/admin", releaseDenied.json);
+
+    const released = await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/release`, {
+      user: users.creator
+    });
+    expectStatus(released.status, 200, "creator releases for any fraud checker", released.json);
+    assert.equal(released.json.task.status, "PENDING_APPROVAL", "released task stays in PENDING_APPROVAL");
+    assert.equal(released.json.task.assignee, undefined, "release clears the assignee");
+
+    // A different FILE_CHECKER (admin) claims the released task — status stays
+    // PENDING_APPROVAL (not reopened) — and approves directly to COMPLETED.
+    const reclaim = await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/claim`, {
+      user: users.admin
+    });
+    expectStatus(reclaim.status, 200, "another file checker claims the released task", reclaim.json);
+    assert.equal(reclaim.json.task.status, "PENDING_APPROVAL", "claiming a released task keeps PENDING_APPROVAL");
+    assert.equal(reclaim.json.task.assignee.id, users.admin.id, "claimer becomes the new assignee");
+    const reclaimApprove = await request(server.baseUrl, "POST", `/tasks/${releaseFraudId}/transition`, {
+      user: users.admin,
+      body: { status: "COMPLETED" }
+    });
+    expectStatus(reclaimApprove.status, 200, "new checker approves the released task", reclaimApprove.json);
+    pushPass("fraud release-for-any-checker unassigns in place, then any checker claims + approves");
 
     const loanDocsTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,

@@ -83,7 +83,11 @@ const bootstrap = async (): Promise<void> => {
   );
   botClient.setTransitionHandler(
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
-    async (taskId, status, user) => service.transitionStatus(taskId, status, user)
+    async (taskId, status, user, reviewNotes) => service.transitionStatus(taskId, status, user, reviewNotes)
+  );
+  botClient.setReleaseHandler(
+    async (aadObjectId) => userStore.getIdentity(aadObjectId),
+    async (taskId, user) => service.releaseForAnyChecker(taskId, user)
   );
   // Lets the user-specific card refresh read live task state (creator → Cancel).
   botClient.setTaskLookup(async (taskId) => service.getTask(taskId));

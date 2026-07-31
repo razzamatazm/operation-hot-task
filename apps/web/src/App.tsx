@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, CreateTaskInput, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus, searchLoans } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, fraudCardActions, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus, searchLoans } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -129,6 +129,19 @@ const courtOf = (task: LoanTask, user: UserIdentity): Court => {
   }
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
+  // FRAUD two-phase (#39): the ball alternates between the requester (creator)
+  // and the fraud checker (assignee). CLAIMED (checker's initial pass) falls
+  // through to the generic assignee-owns-CLAIMED rule below. AWAITING_ITEMS is
+  // the requester's move (gather the outstanding items back). PENDING_APPROVAL
+  // is the checker's move (approve or send back) — unless it's been released
+  // (no assignee), when it's up for grabs by any fraud checker.
+  if (task.taskType === "FRAUD") {
+    if (task.status === "AWAITING_ITEMS") return isCreator ? "you" : "them";
+    if (task.status === "PENDING_APPROVAL") {
+      if (!task.assignee) return isCreator ? "them" : "pool";
+      return isAssignee ? "you" : "them";
+    }
+  }
   if (task.status === "CLAIMED" && isAssignee) return "you";
   if (task.status === "MERGE_DONE" && isCreator) return "you";
   if (task.status === "MERGE_APPROVED" && isAssignee) return "you";
@@ -209,12 +222,21 @@ const firstName = (displayName: string | undefined): string => {
   return displayName.split(/\s+/)[0] ?? displayName;
 };
 
-/* LOAN_DOCS has multiple stages between claim and complete. Stage suffix
-   rides on the title as a hyphen suffix so the type label stays terse. */
+/* LOAN_DOCS and FRAUD have multiple stages between claim and complete. Stage
+   suffix rides on the title as a hyphen suffix so the type label stays terse.
+   For FRAUD it also disambiguates a released final-approval task sitting in the
+   pool ("Final Approval Needed") from a fresh unclaimed check. */
 const stageSuffix = (task: LoanTask): string => {
-  if (task.taskType !== "LOAN_DOCS") return "";
-  if (task.status === "MERGE_DONE") return " - Merge Done";
-  if (task.status === "MERGE_APPROVED") return " - Merge Approved";
+  if (task.taskType === "LOAN_DOCS") {
+    if (task.status === "MERGE_DONE") return " - Merge Done";
+    if (task.status === "MERGE_APPROVED") return " - Merge Approved";
+    return "";
+  }
+  if (task.taskType === "FRAUD") {
+    if (task.status === "AWAITING_ITEMS") return " - Outstanding Items";
+    if (task.status === "PENDING_APPROVAL") return task.assignee ? " - Final Approval" : " - Final Approval Needed";
+    return "";
+  }
   return "";
 };
 
@@ -288,6 +310,10 @@ const TIMELINE_LABELS: Record<string, string> = {
   CLAIMED: "Claimed",
   MERGE_DONE: "Merge done",
   MERGE_APPROVED: "Merge approved",
+  // FRAUD two-phase (#39): outstanding items sent to the requester, then the
+  // requester submits them back for the checker's final approval.
+  AWAITING_ITEMS: "Outstanding items",
+  PENDING_APPROVAL: "Final approval",
   COMPLETED: "Completed",
   NEEDS_REVIEW: "Needs review"
 };
@@ -295,7 +321,9 @@ const Timeline = ({ task }: { task: LoanTask }) => {
   const flow: TaskStatus[] =
     task.taskType === "LOAN_DOCS"
       ? ["OPEN", "CLAIMED", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED"]
-      : ["OPEN", "CLAIMED", "COMPLETED"];
+      : task.taskType === "FRAUD"
+        ? ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED"]
+        : ["OPEN", "CLAIMED", "COMPLETED"];
   const effective: TaskStatus =
     task.status === "NEEDS_REVIEW" ? "CLAIMED" : task.status === "ARCHIVED" ? "COMPLETED" : task.status;
   const idx = flow.indexOf(effective);
@@ -331,6 +359,7 @@ const TaskCard = ({
   onClaim,
   onUnclaim,
   onTransition,
+  onRelease,
   onAddReviewNote,
   onUpdatePoints,
   onFilterLoan,
@@ -349,6 +378,7 @@ const TaskCard = ({
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
+  onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
@@ -369,6 +399,12 @@ const TaskCard = ({
   now?: number;
 }) => {
   const [noteText, setNoteText] = useState("");
+  /* FRAUD note-required moves (Send Outstanding Items / Send Back) reveal an
+     inline textarea whose text posts as the transition's reviewNotes. `fraudNote`
+     holds the draft; `openFraudNote` is the target status of the move whose box
+     is open (null = none). The server also rejects a blank note. */
+  const [fraudNote, setFraudNote] = useState("");
+  const [openFraudNote, setOpenFraudNote] = useState<TaskStatus | null>(null);
   /* Share picker (issue #41): chosen person + optional note + send status +
      copy-link flash. "undelivered" = share recorded but the target has no bot
      reference, so the DM couldn't reach them. */
@@ -522,11 +558,25 @@ const TaskCard = ({
       : `Due ${formatDate(task.dueAt)}`;
   const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
 
+  /* FRAUD two-phase role-aware buttons (#39), shared with the bot cards so both
+     surfaces show the same set. Empty for non-FRAUD. `fraudQuick` is the single
+     plain forward move (Submit for Approval / Approve) promoted to the collapsed
+     quick-action slot; note-required moves (Send Outstanding Items / Send Back)
+     and Release live in the expanded body where the note box fits. */
+  const fraudActions = fraudCardActions(task, user.id);
+  const fraudQuick = fraudActions.find((a) => a.kind === "transition");
+  // A released final-approval task (unassigned PENDING_APPROVAL) is claimable
+  // by any fraud checker via the same claim path as an OPEN task.
+  const isReleasedForClaim = task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" && !task.assignee;
+
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
   let primaryAction: QuickAction | null = null;
   if (showActions) {
-    if (task.status === "OPEN" && !isCreator && canClaimTask(task, user)) {
+    if ((task.status === "OPEN" || isReleasedForClaim) && !isCreator && canClaimTask(task, user)) {
       primaryAction = { label: "Claim", kind: "good", run: () => { void onClaim(task.id); } };
+    } else if (fraudQuick && fraudQuick.targetStatus) {
+      const target = fraudQuick.targetStatus;
+      primaryAction = { label: fraudQuick.label, kind: "good", run: () => { void onTransition(task.id, target); } };
     } else if (task.status === "CLAIMED" && isAssignee && task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: "Mark Merge Done", kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
     } else if (task.status === "CLAIMED" && isAssignee && transitions.includes("COMPLETED")) {
@@ -558,6 +608,27 @@ const TaskCard = ({
     showActions &&
     !CLOSED_STATUSES.includes(task.status) &&
     (isCreator || isAssignee || user.roles.includes("ADMIN"));
+
+  /* Fire a FRAUD move. Plain transition and release are one-tap; a note-required
+     move (Send Outstanding Items / Send Back) sends only with a non-blank note
+     (the server also rejects blank) and posts the text as the transition's
+     reviewNotes. */
+  const runFraudAction = (action: FraudCardAction): void => {
+    acknowledgeUnread();
+    if (action.kind === "release") {
+      void onRelease(task.id);
+    } else if (action.kind === "transition" && action.targetStatus) {
+      void onTransition(task.id, action.targetStatus);
+    }
+  };
+  const submitFraudNote = (target: TaskStatus): void => {
+    if (!fraudNote.trim()) return;
+    acknowledgeUnread();
+    void onTransition(task.id, target, fraudNote.trim());
+    setFraudNote("");
+    setOpenFraudNote(null);
+  };
+
   const renderExpanded = () => (
     <div className="task-card-expanded">
       {/* Meta facts live in one slim strip up top — the columns below
@@ -613,6 +684,58 @@ const TaskCard = ({
           )}
           {showActions && cancelStage === "idle" && (
             <div className="task-card-actions expand-actions">
+              {/* FRAUD two-phase forward moves (#39). The plain quick move also
+                  rides the collapsed row; the note-required moves (Send
+                  Outstanding Items / Send Back) reveal an inline note that posts
+                  as the transition's reviewNotes, and Release hands the task to
+                  the checker pool. Same set the bot DM cards render. */}
+              {fraudActions.length > 0 && (
+                <div className="task-card-fraud">
+                  {fraudActions.map((action) => {
+                    const noteRequired = action.kind === "transitionWithNote";
+                    const noteOpen = noteRequired && openFraudNote === action.targetStatus;
+                    return (
+                      <div key={action.label} className="task-card-fraud-action">
+                        <button
+                          type="button"
+                          className={`btn-sm ${action.kind === "release" ? "btn-ghost" : "btn-good"}`}
+                          aria-expanded={noteRequired ? noteOpen : undefined}
+                          onClick={() => {
+                            if (noteRequired && action.targetStatus) {
+                              setFraudNote("");
+                              setOpenFraudNote(noteOpen ? null : action.targetStatus);
+                            } else {
+                              runFraudAction(action);
+                            }
+                          }}
+                        >
+                          {action.label}
+                        </button>
+                        {noteOpen && action.targetStatus && (
+                          <div className="task-card-fraud-note">
+                            <textarea
+                              rows={2}
+                              placeholder="Describe what's outstanding…"
+                              value={fraudNote}
+                              onChange={(e) => setFraudNote(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
+                              autoFocus
+                            />
+                            <div className="task-card-fraud-note-actions">
+                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim()}>
+                                Send
+                              </button>
+                              <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {task.status === "OPEN" && isCreator && (
                 <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
                   Cancel Task
@@ -844,6 +967,7 @@ const CardList = ({
   onClaim,
   onUnclaim,
   onTransition,
+  onRelease,
   onAddReviewNote,
   onUpdatePoints,
   onFilterLoan,
@@ -863,6 +987,7 @@ const CardList = ({
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
+  onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
@@ -889,6 +1014,7 @@ const CardList = ({
           onClaim={onClaim}
           onUnclaim={onUnclaim}
           onTransition={onTransition}
+          onRelease={onRelease}
           onAddReviewNote={onAddReviewNote}
           onUpdatePoints={onUpdatePoints}
           {...(onFilterLoan ? { onFilterLoan } : {})}
@@ -1838,6 +1964,18 @@ export const App = () => {
     }
   };
 
+  /* FRAUD "release for any fraud checker" (#39): the requester hands a
+     PENDING_APPROVAL task back to the checker pool (server unassigns it, keeps
+     it PENDING_APPROVAL) so final approval isn't stuck on one checker. */
+  const onRelease = async (taskId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/release`, { method: "POST" }, user);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to release task");
+    }
+  };
+
   const onAddReviewNote = async (taskId: string, text: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/review-note`, { method: "POST", body: JSON.stringify({ text }) }, user);
@@ -2009,6 +2147,7 @@ export const App = () => {
       onClaim,
       onUnclaim,
       onTransition,
+      onRelease,
       onAddReviewNote,
       onUpdatePoints,
       onFilterLoan: (loanId: string) => setLoanFilterId(loanId),

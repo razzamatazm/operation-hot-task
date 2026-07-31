@@ -1,4 +1,4 @@
-import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate } from "@loan-tasks/shared";
+import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -178,12 +178,16 @@ export class TeamsNotificationProvider implements NotificationProvider {
         existing.length > 0
           ? existing
           : [{ author: "Hot Task", text: `${event.actor.displayName} claimed this — reply here to chat about it.` }];
+      const isFraud = event.task.taskType === "FRAUD";
       const recipients = Array.from(new Set(event.recipientUserIds)).map((userId) => ({
         userId,
         showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
         createIfMissing: true,
         reposition: true,
-        summary: `Chat opened for ${event.task.folderName}`
+        summary: `Chat opened for ${event.task.folderName}`,
+        // FRAUD cards carry the role-aware two-phase button set instead of the
+        // generic advance (empty for a participant with no move in this state).
+        ...(isFraud ? { fraudActions: fraudCardActions(event.task, userId) } : {})
       }));
       await this.botClient.syncNoteCards({
         taskId: event.task.id,
@@ -253,7 +257,10 @@ export class TeamsNotificationProvider implements NotificationProvider {
               ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
               ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
             ];
-      const advance = botPrimaryAdvance(event.task);
+      // FRAUD's forward move is note-required (Send Outstanding Items) and lives
+      // on the two-phase chat card (DM_CHAT_SEED), so the plain detail card omits
+      // it — a buttonless advance here would post a blank note the server rejects.
+      const advance = event.task.taskType === "FRAUD" ? undefined : botPrimaryAdvance(event.task);
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
         await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
           taskId: event.task.id,
@@ -296,6 +303,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         const authorId = event.actor.id;
         const assigneeId = event.task.assignee?.id;
         const completeIsAssigneeOnly = advance?.status === "COMPLETED";
+        const isFraud = event.task.taskType === "FRAUD";
         const recipients = event.recipientUserIds.map((userId) => ({
           userId,
           showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
@@ -304,7 +312,9 @@ export class TeamsNotificationProvider implements NotificationProvider {
           // stranded above older lifecycle DMs; the author's card updates in
           // place (no self-ping, no needless repost).
           reposition: userId !== authorId,
-          ...(userId !== authorId ? { summary: summaryText } : {})
+          ...(userId !== authorId ? { summary: summaryText } : {}),
+          // FRAUD cards carry the role-aware two-phase button set per recipient.
+          ...(isFraud ? { fraudActions: fraudCardActions(event.task, userId) } : {})
         }));
         await this.botClient.syncNoteCards({
           taskId: event.task.id,

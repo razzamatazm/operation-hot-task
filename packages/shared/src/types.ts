@@ -87,6 +87,14 @@ export const TASK_STATUSES = [
   "NEEDS_REVIEW",
   "MERGE_DONE",
   "MERGE_APPROVED",
+  // FRAUD-only two-phase completion (#39). After the fraud checker's initial
+  // pass, the task lands on AWAITING_ITEMS (checker has sent outstanding items,
+  // waiting on the requester) and then PENDING_APPROVAL (requester submitted the
+  // items, waiting on the checker's final approval). Both are NON-closed, so
+  // notes keep flowing; only PENDING_APPROVAL → COMPLETED closes the task. Never
+  // reached by non-FRAUD task types. See workflow.ts FRAUD_FLOW.
+  "AWAITING_ITEMS",
+  "PENDING_APPROVAL",
   "COMPLETED",
   "CANCELLED",
   "ARCHIVED"
