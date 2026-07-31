@@ -1,6 +1,6 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, fraudCardActions, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus, searchLoans } from "@loan-tasks/shared";
-import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
@@ -352,6 +352,133 @@ const Timeline = ({ task }: { task: LoanTask }) => {
   );
 };
 
+/* ── Share popover ───────────────────────────────────────────
+   A compact "Share" button that opens an anchored panel with the people-picker,
+   optional note, Copy link, and the delivery feedback from #41. Collapses the
+   share UI behind a button so it stops dominating the card (#52). Self-contained
+   so the create-task flow (#46) can reuse it. Dismisses on outside-click or Esc.
+   Delivery semantics are unchanged — `onShare` still resolves with whether the
+   DM reached the recipient. */
+const SharePopover = ({
+  candidates,
+  onShare,
+  link
+}: {
+  /* People the picker offers — pre-filtered by the caller (excludes creator,
+     assignee, and self per #41). */
+  candidates: Array<{ id: string; displayName: string }>;
+  /* Fire the share. Resolves with whether the DM actually reached them; rejects
+     on request failure so the panel can show inline status. */
+  onShare: (targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  /* Copy-link target (in-app deep link). null/undefined hides the Copy link
+     button — e.g. when there's no task id yet. */
+  link?: string | null;
+}) => {
+  const [open, setOpen] = useState(false);
+  /* Chosen person + optional note + send status + copy-link flash.
+     "undelivered" = share recorded but the target has no bot reference, so the
+     DM couldn't reach them. */
+  const [targetId, setTargetId] = useState("");
+  const [note, setNote] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "done" | "undelivered" | "error">("idle");
+  const [copied, setCopied] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const selectId = useId();
+
+  /* Dismiss on an outside mousedown while open. Esc is handled on the panel. */
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const handleShare = async () => {
+    if (!targetId) return;
+    setState("sending");
+    try {
+      const { delivered } = await onShare(targetId, note.trim() || undefined);
+      setState(delivered ? "done" : "undelivered");
+      setTargetId("");
+      setNote("");
+    } catch {
+      setState("error");
+    }
+  };
+
+  /* Copy the in-app deep link (`#task-<id>` anchor scrolls the row into view).
+     The person-picker above is the real deliverable; this is the lightweight
+     "share link". */
+  const handleCopy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
+  };
+
+  return (
+    <div className="share-pop" ref={wrapRef}>
+      <button
+        type="button"
+        className="btn-sm btn-ghost share-pop-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        Share
+      </button>
+      {open && (
+        <div
+          className="share-pop-panel"
+          role="dialog"
+          aria-label="Share this task"
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } }}
+        >
+          <label className="share-pop-label" htmlFor={selectId}>Share</label>
+          <select
+            id={selectId}
+            value={targetId}
+            onChange={(e) => { setTargetId(e.target.value); setState("idle"); }}
+            autoFocus
+          >
+            <option value="">Choose a person…</option>
+            {candidates.map((p) => (
+              <option key={p.id} value={p.id}>{p.displayName}</option>
+            ))}
+          </select>
+          <input
+            className="share-pop-note"
+            type="text"
+            value={note}
+            placeholder="Add a note (optional)"
+            maxLength={280}
+            onChange={(e) => { setNote(e.target.value); if (state !== "sending") setState("idle"); }}
+          />
+          <div className="share-pop-actions">
+            <button type="button" className="btn-sm" disabled={!targetId || state === "sending"} onClick={() => void handleShare()}>
+              {state === "sending" ? "Sharing…" : "Share"}
+            </button>
+            {link && (
+              <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopy()}>
+                {copied ? "Copied ✓" : "Copy link"}
+              </button>
+            )}
+          </div>
+          {state === "done" && <span className="share-pop-status" role="status">Sent a heads-up ✓</span>}
+          {state === "undelivered" && <span className="share-pop-status share-pop-warn" role="status">Couldn't reach them — have them message the bot first.</span>}
+          {state === "error" && <span className="share-pop-status share-pop-error" role="status">Couldn't share — try again</span>}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Task Card ────────────────────────────────────────────── */
 const TaskCard = ({
   task,
@@ -405,13 +532,6 @@ const TaskCard = ({
      is open (null = none). The server also rejects a blank note. */
   const [fraudNote, setFraudNote] = useState("");
   const [openFraudNote, setOpenFraudNote] = useState<TaskStatus | null>(null);
-  /* Share picker (issue #41): chosen person + optional note + send status +
-     copy-link flash. "undelivered" = share recorded but the target has no bot
-     reference, so the DM couldn't reach them. */
-  const [shareTargetId, setShareTargetId] = useState("");
-  const [shareNote, setShareNote] = useState("");
-  const [shareState, setShareState] = useState<"idle" | "sending" | "done" | "undelivered" | "error">("idle");
-  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -480,31 +600,9 @@ const TaskCard = ({
   const shareCandidates = directory.filter(
     (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
   );
-  const handleShare = async () => {
-    if (!shareTargetId) return;
-    setShareState("sending");
-    try {
-      const { delivered } = await onShare(task.id, shareTargetId, shareNote.trim() || undefined);
-      setShareState(delivered ? "done" : "undelivered");
-      setShareTargetId("");
-      setShareNote("");
-    } catch {
-      setShareState("error");
-    }
-  };
-  /* Copy an in-app deep link to this task (the `#task-<id>` anchor matches the
-     card's element id, so it scrolls the row into view). The person-picker
-     above is the real deliverable; this is the lightweight "share link". */
-  const handleCopyShareLink = async () => {
-    const link = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
-    try {
-      await navigator.clipboard.writeText(link);
-      setShareLinkCopied(true);
-      setTimeout(() => setShareLinkCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable — ignore */
-    }
-  };
+  /* In-app deep link to this task (the `#task-<id>` anchor matches the card's
+     element id, so it scrolls the row into view) — the Copy link target. */
+  const shareLink = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
 
   const isClosed = CLOSED_STATUSES.includes(task.status);
   const isObserver = !isCreator && !isAssignee;
@@ -788,42 +886,15 @@ const TaskCard = ({
               )}
             </div>
           )}
-          {/* Share (issue #41): DM a specific person a deep link to this task,
-              outside the normal creator/assignee flow. Hidden when there's
-              nobody else in the directory to point at. */}
+          {/* Share (issues #41, #52): collapsed behind a button — DM a specific
+              person a deep link to this task, outside the normal creator/assignee
+              flow. Hidden when there's nobody else in the directory to point at. */}
           {showActions && shareCandidates.length > 0 && (
-            <div className="task-card-share">
-              <label className="task-card-share-label" htmlFor={`share-${task.id}`}>Make sure someone sees this</label>
-              <div className="task-card-share-row">
-                <select
-                  id={`share-${task.id}`}
-                  value={shareTargetId}
-                  onChange={(e) => { setShareTargetId(e.target.value); setShareState("idle"); }}
-                >
-                  <option value="">Choose a person…</option>
-                  {shareCandidates.map((p) => (
-                    <option key={p.id} value={p.id}>{p.displayName}</option>
-                  ))}
-                </select>
-                <button type="button" className="btn-sm" disabled={!shareTargetId || shareState === "sending"} onClick={() => void handleShare()}>
-                  {shareState === "sending" ? "Sharing…" : "Share"}
-                </button>
-                <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopyShareLink()}>
-                  {shareLinkCopied ? "Copied ✓" : "Copy link"}
-                </button>
-              </div>
-              <input
-                className="task-card-share-note"
-                type="text"
-                value={shareNote}
-                placeholder="Add a note (optional)"
-                maxLength={280}
-                onChange={(e) => { setShareNote(e.target.value); if (shareState !== "sending") setShareState("idle"); }}
-              />
-              {shareState === "done" && <span className="task-card-share-status" role="status">Sent a heads-up ✓</span>}
-              {shareState === "undelivered" && <span className="task-card-share-status task-card-share-warn" role="status">Couldn't reach them — have them message the bot first.</span>}
-              {shareState === "error" && <span className="task-card-share-status task-card-share-error" role="status">Couldn't share — try again</span>}
-            </div>
+            <SharePopover
+              candidates={shareCandidates}
+              onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
+              link={shareLink}
+            />
           )}
         </div>
 

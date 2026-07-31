@@ -1150,44 +1150,58 @@ button.btn-good:hover {
 
 /* Share affordance (issue #41): a person-picker + Share/Copy-link row in the
    expanded body. All color comes from theme tokens so it works in every theme. */
-.task-card-share {
+/* Share popover (#41 content, collapsed behind a button per #52). A compact
+   ghost trigger opens an anchored panel that floats over the meta column. */
+.share-pop {
+  position: relative;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--line-soft);
+}
+.share-pop-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 260px;
+  max-width: min(260px, 80vw);
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md), 0 12px 32px -14px rgba(0, 0, 0, 0.35);
+  animation: slideDown 0.14s ease-out;
 }
-.task-card-share-label {
+.share-pop-label {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.task-card-share-row {
+.share-pop-panel select,
+.share-pop-note {
+  width: 100%;
+}
+.share-pop-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
 }
-.task-card-share-row select {
-  flex: 1 1 140px;
-  min-width: 0;
-}
-.task-card-share-note {
-  width: 100%;
-}
-.task-card-share-status {
+.share-pop-status {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.64rem;
   letter-spacing: 0.04em;
   color: var(--good);
 }
-.task-card-share-status.task-card-share-warn {
+.share-pop-status.share-pop-warn {
   color: var(--hot);
 }
-.task-card-share-status.task-card-share-error {
+.share-pop-status.share-pop-error {
   color: var(--bad);
 }
 
