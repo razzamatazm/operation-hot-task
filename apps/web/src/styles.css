@@ -1192,6 +1192,28 @@ button.btn-good:hover {
   color: var(--bad);
   background: var(--bad-bg);
 }
+.checklist-delete {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.checklist-delete:hover {
+  color: var(--bad);
+  background: var(--bad-bg);
+}
+.checklist-delete:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 .checklist-item-notes {
   display: flex;
   flex-direction: column;

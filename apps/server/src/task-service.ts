@@ -10,11 +10,14 @@ import {
   UserIdentity,
   addChecklistItem,
   canClaimTask,
+  canDeleteChecklistItem,
   canEditChecklist,
   checklistSeat,
+  commitChecklistItems,
   canTransitionStatus,
   canUnclaimTask,
   editChecklistItemText,
+  removeChecklistItem,
   setChecklistItemChecked,
   setChecklistItemCheckerNote,
   setChecklistItemNote,
@@ -364,6 +367,15 @@ export class TaskService {
     if (next === "AWAITING_ITEMS") {
       updated.checklistPass = (task.checklistPass ?? 0) + 1;
     }
+    // FRAUD gated deletion (#66): entering AWAITING_ITEMS (checker's initial
+    // send or a bounce-back) or PENDING_APPROVAL (creator's submit) is a
+    // hand-off to the other party — commit every existing item so nothing added
+    // before this round-trip can be deleted anymore. Freshly-added items after
+    // the hand-off start as drafts again and stay deletable by their adder until
+    // the next hand-off.
+    if ((next === "AWAITING_ITEMS" || next === "PENDING_APPROVAL") && (task.checklist?.length ?? 0) > 0) {
+      updated.checklist = commitChecklistItems(task.checklist ?? []);
+    }
     if (outstandingNote) {
       // Record the outstanding-items note on the task so the thread has a seed
       // (surfaced on the DM note card below).
@@ -591,8 +603,10 @@ export class TaskService {
      FRAUD structured checklist (#44). Focused, atomic operations mirroring the
      completed-note pattern: each enforces the turn/permission rule
      (canEditChecklist), applies a pure checklist transform, records a single
-     history event, persists, and broadcasts. No-deletion is structural — there
-     is no delete op at all. The checked/stale invariant lives in the pure
+     history event, persists, and broadcasts. Deletion is GATED (#66):
+     removeChecklistItem lets the adding seat drop a fresh, not-yet-handed-off
+     item (see canDeleteChecklistItem); committed items are permanently locked.
+     The checked/stale invariant lives in the pure
      editChecklistItemText. The approval gate stays where #50 put it (the
      PENDING_APPROVAL → COMPLETED completion gate); this file only adds the item
      mechanics and the pass counter (bumped in transitionStatus).
@@ -627,6 +641,27 @@ export class TaskService {
     this.requireItem(task, itemId);
     const next = editChecklistItemText(task.checklist ?? [], itemId, trimmed);
     return this.persistChecklist(task, next, user, `Edited checklist item`);
+  }
+
+  /* Delete an outstanding-items entry (#66). Gated, not free: only the seat that
+     added the item, only on that seat's active editing turn, and only while the
+     item is still a fresh draft (not yet handed off) — the full invariant lives
+     in the shared canDeleteChecklistItem and is enforced here server-side, not
+     just in the UI. Committed items and the other seat's items are rejected. */
+  async removeChecklistItem(taskId: string, itemId: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    if (task.taskType !== "FRAUD") {
+      throw new Error("Checklists are only on fraud checks");
+    }
+    const item = (task.checklist ?? []).find((entry) => entry.id === itemId);
+    if (!item) {
+      throw new Error("Checklist item not found");
+    }
+    if (!canDeleteChecklistItem(task, user, item)) {
+      throw new Error("You can't delete this checklist item");
+    }
+    const next = removeChecklistItem(task.checklist ?? [], itemId);
+    return this.persistChecklist(task, next, user, `Removed checklist item: ${item.text}`);
   }
 
   /* Toggle an item's resolved (checked) state, optionally recording the
