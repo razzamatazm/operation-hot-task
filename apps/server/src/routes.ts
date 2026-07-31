@@ -10,7 +10,19 @@ import { TeamsBotClient } from "./bot.js";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { SettingsStore } from "./settings-store.js";
 import { LoanService } from "./loan-service.js";
-import { createLoanSchema, createTaskSchema, reviewNoteSchema, transitionSchema, updateLoanSchema, updatePointsSchema } from "./validation.js";
+import {
+  checklistItemCheckedSchema,
+  checklistItemCheckerNoteSchema,
+  checklistItemNoteSchema,
+  checklistItemTextSchema,
+  checklistSubmissionNotesSchema,
+  createLoanSchema,
+  createTaskSchema,
+  reviewNoteSchema,
+  transitionSchema,
+  updateLoanSchema,
+  updatePointsSchema
+} from "./validation.js";
 
 const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
 
@@ -471,6 +483,78 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to add note");
+    }
+  });
+
+  /* FRAUD structured outstanding-items checklist (#44). Focused, atomic
+     endpoints mirroring the completed-note pattern — each enforces the
+     turn/permission rule and the no-deletion / checked-stale invariants
+     server-side (there is deliberately no delete endpoint). submit / approve /
+     bounce-back ride the existing /transition endpoint (the pass counter bumps
+     there). */
+  router.post("/tasks/:taskId/checklist/items", async (req, res) => {
+    try {
+      const { text } = checklistItemTextSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.addChecklistItem(req.params.taskId, text, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to add checklist item");
+    }
+  });
+
+  router.post("/tasks/:taskId/checklist/items/:itemId/text", async (req, res) => {
+    try {
+      const { text } = checklistItemTextSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.editChecklistItemText(req.params.taskId, req.params.itemId, text, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to edit checklist item");
+    }
+  });
+
+  router.post("/tasks/:taskId/checklist/items/:itemId/checked", async (req, res) => {
+    try {
+      const { checked, note } = checklistItemCheckedSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.setChecklistItemChecked(req.params.taskId, req.params.itemId, checked, note, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to update checklist item");
+    }
+  });
+
+  router.post("/tasks/:taskId/checklist/items/:itemId/note", async (req, res) => {
+    try {
+      const { note } = checklistItemNoteSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.setChecklistItemNote(req.params.taskId, req.params.itemId, note, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to set checklist item note");
+    }
+  });
+
+  router.post("/tasks/:taskId/checklist/items/:itemId/checker-note", async (req, res) => {
+    try {
+      const { checkerNote } = checklistItemCheckerNoteSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.setChecklistItemCheckerNote(req.params.taskId, req.params.itemId, checkerNote, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to set checker note");
+    }
+  });
+
+  router.post("/tasks/:taskId/checklist/submission-notes", async (req, res) => {
+    try {
+      const { submissionNotes } = checklistSubmissionNotesSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.setChecklistSubmissionNotes(req.params.taskId, submissionNotes, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to set submission notes");
     }
   });
 

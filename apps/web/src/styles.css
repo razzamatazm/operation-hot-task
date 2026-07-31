@@ -1050,6 +1050,266 @@ button.btn-good:hover {
   gap: 8px;
 }
 
+/* ── FRAUD outstanding-items checklist (#44) ──────────────────
+   The structured handoff on a fraud check's expanded body. Ledger feel:
+   hairline-ruled rows, mono labels/badges, a hand-rolled square checkbox in
+   the app's button idiom. Colors go through theme tokens only, so it works in
+   light / dark / contrast without per-theme overrides. */
+.checklist {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.checklist-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.checklist-title {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-secondary);
+}
+.checklist-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.checklist-turn {
+  margin-left: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--brand);
+  background: var(--brand-soft);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.checklist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.checklist-item {
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.checklist-item:first-child {
+  border-top: none;
+}
+.checklist-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.checklist-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--panel);
+  cursor: pointer;
+}
+.checklist-check:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.checklist-check-on {
+  background: var(--good);
+  border-color: var(--good);
+  color: #fff;
+}
+.checklist-item-text {
+  flex: 1 1 auto;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.86rem;
+  color: var(--ink);
+  cursor: text;
+}
+.checklist-item-text:disabled {
+  cursor: default;
+}
+.checklist-item-done .checklist-item-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.checklist-item-input {
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.86rem;
+}
+.checklist-item-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: var(--focus-ring);
+}
+.checklist-badges {
+  display: inline-flex;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+.checklist-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.56rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.checklist-badge-creator {
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+.checklist-badge-stale {
+  color: var(--bad);
+  background: var(--bad-bg);
+}
+.checklist-item-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0 26px;
+}
+.checklist-note {
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+.checklist-note:disabled {
+  cursor: default;
+}
+.checklist-note-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.56rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 5px;
+}
+.checklist-note-creator .checklist-note-label {
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+.checklist-note-checker .checklist-note-label {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.checklist-note-add {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  cursor: pointer;
+}
+.checklist-note-add:hover {
+  color: var(--brand);
+}
+.checklist-note-edit {
+  display: flex;
+}
+.checklist-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-soft);
+}
+.checklist-empty {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.checklist-submission {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+.checklist-submission-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.checklist-submission-value {
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.82rem;
+  color: var(--ink);
+  cursor: text;
+}
+.checklist-submission-value:hover:not(.checklist-submission-readonly) {
+  border-color: var(--line-soft);
+}
+.checklist-submission-readonly {
+  cursor: default;
+}
+.checklist-submission-input {
+  width: 100%;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.checklist-submission-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: var(--focus-ring);
+}
+
 /* ── Status banner (muted, text-only) ─────────────────────── */
 .status-banner {
   display: inline-flex;

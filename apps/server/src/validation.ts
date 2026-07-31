@@ -138,3 +138,25 @@ export const transitionSchema = z.object({
 export const reviewNoteSchema = z.object({
   text: z.string().min(1).max(1000)
 });
+
+/* FRAUD structured checklist (#44) — one focused schema per atomic op. */
+export const checklistItemTextSchema = z.object({
+  text: z.string().min(1).max(500)
+});
+
+export const checklistItemCheckedSchema = z.object({
+  checked: z.boolean(),
+  note: z.string().max(1000).optional()
+});
+
+export const checklistItemNoteSchema = z.object({
+  note: z.string().max(1000)
+});
+
+export const checklistItemCheckerNoteSchema = z.object({
+  checkerNote: z.string().max(1000)
+});
+
+export const checklistSubmissionNotesSchema = z.object({
+  submissionNotes: z.string().max(2000)
+});

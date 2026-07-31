@@ -1,3 +1,5 @@
+import type { ChecklistItem } from "./checklist.js";
+
 export const TASK_TYPES = ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
@@ -176,6 +178,19 @@ export interface LoanTask {
   reopenedFrom?: TaskStatus;
   lastReminderAt?: string;
   reviewNotes?: ReviewNote[];
+  /** FRAUD only (#44): structured outstanding-items checklist that replaces the
+      old free-text handoff. Built by the checker, resolved by the creator,
+      approved by the checker. Absent on non-FRAUD tasks. */
+  checklist?: ChecklistItem[];
+  /** FRAUD only (#44): creator→checker free-text context for the submission,
+      separate from the per-item checklist notes. Surfaced near the submit
+      action. */
+  submissionNotes?: string;
+  /** FRAUD only (#44): the outstanding-items pass counter. Starts at 1 when the
+      checker first sends items (CLAIMED → AWAITING_ITEMS) and increments on
+      each bounce-back (PENDING_APPROVAL → AWAITING_ITEMS). New items record the
+      pass they were added on (`ChecklistItem.addedOnPass`). */
+  checklistPass?: number;
 }
 
 export interface TaskHistoryEvent {
