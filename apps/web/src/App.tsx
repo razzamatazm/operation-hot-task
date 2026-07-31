@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, fraudCardActions, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus, searchLoans } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
 
@@ -374,6 +374,25 @@ const ShareIcon = () => (
     <circle cx="18" cy="19" r="3" />
     <line x1="8.6" y1="10.7" x2="15.4" y2="6.3" />
     <line x1="8.6" y1="13.3" x2="15.4" y2="17.7" />
+  </svg>
+);
+
+/* Funnel glyph for the per-row "filter to this loan" affordance (#57). Inline
+   SVG in the ShareIcon idiom — no icon library ships. Sized via `.icon-filter`;
+   color follows `currentColor`. */
+const FilterIcon = () => (
+  <svg
+    className="icon-filter"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M3 5h18l-7 8v6l-4 2v-8z" />
   </svg>
 );
 
@@ -1028,24 +1047,27 @@ const TaskCard = ({
             )}
           </span>
           <span className="task-card-collapsed-folder">
-            {task.taskType !== "OOO" && task.loanId && onFilterLoan ? (
-              // The loan name filters the list to that loan (+ its editable
-              // header); the ↗ still opens the Humperdink link when present.
+            {task.taskType !== "OOO" && task.humperdinkLink ? (
+              // The loan name opens the Humperdink link directly (#57); the
+              // ↗ marks it as an external link.
+              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
+                {task.folderName}
+                <span className="external-link-icon" aria-hidden="true">↗</span>
+              </a>
+            ) : (
+              // No stored link → the name is inert plain text (#57).
+              <span>{task.folderName}</span>
+            )}
+            {task.taskType !== "OOO" && task.loanId && onFilterLoan && (
               <button
                 type="button"
-                className="loan-name-link"
+                className="loan-filter-btn"
+                aria-label={`Filter list to loan: ${task.folderName}`}
                 title={`Filter to loan: ${task.folderName}`}
                 onClick={(e) => { stopBubble(e); onFilterLoan(task.loanId!); }}
               >
-                {task.folderName}
+                <FilterIcon />
               </button>
-            ) : (
-              <span>{task.folderName}</span>
-            )}
-            {task.taskType !== "OOO" && task.humperdinkLink && (
-              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
-                <span className="external-link-icon" aria-hidden="true">↗</span>
-              </a>
             )}
           </span>
         </span>
@@ -1713,6 +1735,12 @@ export const App = () => {
   /* Create-form loan typeahead: which suggestion list is open + which loan
      (if any) the typed Folder Name resolved to. */
   const [loanSuggestOpen, setLoanSuggestOpen] = useState(false);
+  /* The text the user actually typed into Folder Name (issue #55). Kept
+     separate from `form.folderName` so keyboard arrow-autofill can preview a
+     highlighted loan's name in the field without reshuffling the match list. */
+  const [loanQuery, setLoanQuery] = useState("");
+  /* Highlighted suggestion index for keyboard nav, or -1 for none (#55). */
+  const [loanHighlight, setLoanHighlight] = useState(-1);
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
 
@@ -1924,6 +1952,40 @@ export const App = () => {
     // the same share DM #41 sends, fired right after the task is persisted.
     shareWithUserId: ""
   });
+
+  const { showToast } = useToast();
+
+  /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
+     by a task the current user created (merged loans share one id, so they
+     count automatically). Drives the empty-query, open-on-focus view. */
+  const myLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
+
+  /* Current typeahead suggestions: empty query → my most-recently-used loans;
+     typing → all users' loans ranked by match (#55). Excludes an option that
+     exactly equals what's already typed. */
+  const loanMatches = useMemo(
+    () =>
+      loanTypeaheadSuggestions(loanQuery, loans, myLoanIds, 6).filter(
+        (m) => m.loan.name.trim().toLowerCase() !== loanQuery.trim().toLowerCase()
+      ),
+    [loanQuery, loans, myLoanIds]
+  );
+
+  /* Commit a loan pick from the typeahead (mouse click or keyboard Enter):
+     link the task to the existing loan and confirm with a transient toast
+     (#56) instead of an inline hint that reflowed the form. */
+  const selectLoan = (loan: Loan): void => {
+    setForm((c) => ({
+      ...c,
+      folderName: loan.name,
+      loanId: loan.id,
+      humperdinkLink: loan.humperdinkLink ?? c.humperdinkLink
+    }));
+    setLoanQuery(loan.name);
+    setLoanSuggestOpen(false);
+    setLoanHighlight(-1);
+    showToast("Linked to an existing loan", { variant: "success" });
+  };
 
   const isAdmin = user.roles.includes("ADMIN");
 
@@ -2467,48 +2529,65 @@ export const App = () => {
                     value={form.folderName}
                     autoComplete="off"
                     placeholder="Search existing loans or type a new name"
+                    role="combobox"
+                    aria-expanded={loanSuggestOpen && loanMatches.length > 0}
+                    aria-autocomplete="list"
+                    aria-activedescendant={loanHighlight >= 0 ? `loan-opt-${loanHighlight}` : undefined}
                     onChange={(e) => {
                       const v = e.target.value;
-                      // Typing diverges from any prior selection → treat as a new loan.
+                      // Typing diverges from any prior selection → treat as a new
+                      // loan, and re-scope the match list to the typed query.
                       setForm((c) => ({ ...c, folderName: v, loanId: "" }));
+                      setLoanQuery(v);
                       setLoanSuggestOpen(true);
+                      setLoanHighlight(-1);
                     }}
-                    onFocus={() => setLoanSuggestOpen(true)}
+                    onFocus={() => { setLoanQuery(form.folderName); setLoanSuggestOpen(true); setLoanHighlight(-1); }}
                     onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                        if (loanMatches.length === 0) return;
+                        e.preventDefault();
+                        if (!loanSuggestOpen) setLoanSuggestOpen(true);
+                        const next = nextHighlightIndex(loanHighlight, e.key === "ArrowDown" ? 1 : -1, loanMatches.length);
+                        setLoanHighlight(next);
+                        // Autofill the field with the highlighted loan's name;
+                        // selection (link + toast) waits for Enter.
+                        const preview = loanMatches[next];
+                        if (preview) setForm((c) => ({ ...c, folderName: preview.loan.name, loanId: "" }));
+                      } else if (e.key === "Enter" && loanSuggestOpen && loanHighlight >= 0 && loanMatches[loanHighlight]) {
+                        e.preventDefault();
+                        selectLoan(loanMatches[loanHighlight]!.loan);
+                      } else if (e.key === "Escape" && loanSuggestOpen) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLoanSuggestOpen(false);
+                        setLoanHighlight(-1);
+                      }
+                    }}
                     required
                   />
-                  {loanSuggestOpen && (() => {
-                    const matches = searchLoans(form.folderName, loans, 6)
-                      .filter((m) => m.loan.name.trim().toLowerCase() !== form.folderName.trim().toLowerCase());
-                    if (matches.length === 0) return null;
-                    return (
-                      <ul className="loan-typeahead-list" role="listbox">
-                        {matches.map((m) => (
-                          <li key={m.loan.id}>
-                            <button
-                              type="button"
-                              className="loan-typeahead-option"
-                              // onMouseDown fires before the input's onBlur so the pick registers.
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                setForm((c) => ({
-                                  ...c,
-                                  folderName: m.loan.name,
-                                  loanId: m.loan.id,
-                                  humperdinkLink: m.loan.humperdinkLink ?? c.humperdinkLink
-                                }));
-                                setLoanSuggestOpen(false);
-                              }}
-                            >
-                              <span className="loan-typeahead-name">{m.loan.name}</span>
-                              {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    );
-                  })()}
-                  {form.loanId && <span className="loan-typeahead-hint">Linked to an existing loan</span>}
+                  {loanSuggestOpen && loanMatches.length > 0 && (
+                    <ul className="loan-typeahead-list" role="listbox">
+                      {loanMatches.map((m, i) => (
+                        <li key={m.loan.id}>
+                          <button
+                            type="button"
+                            id={`loan-opt-${i}`}
+                            role="option"
+                            aria-selected={i === loanHighlight}
+                            className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
+                            onMouseEnter={() => setLoanHighlight(i)}
+                            // onMouseDown fires before the input's onBlur so the pick registers.
+                            onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
+                          >
+                            <span className="loan-typeahead-name">{m.loan.name}</span>
+                            {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </span>
               )}
             </label>

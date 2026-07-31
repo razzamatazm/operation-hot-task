@@ -117,6 +117,54 @@ export const searchLoans = (query: string, loans: Loan[], limit = 8): LoanMatch[
     .slice(0, limit);
 };
 
+/* Derive the set of loan ids that are "mine" — a loan is mine if any task I
+   created links it (issue #55). Loans folded together via a shared Humperdink
+   link/alias share one canonical id, so a task I created that references the
+   merged loan counts it as mine automatically (no owner field on Loan). */
+export const deriveMyLoanIds = (
+  tasks: Array<{ loanId?: string; createdBy: { id: string } }>,
+  userId: string
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const task of tasks) {
+    if (task.loanId && task.createdBy.id === userId) ids.add(task.loanId);
+  }
+  return ids;
+};
+
+/* Suggestions for the create-form Folder Name typeahead (issue #55). Two modes:
+   - Empty query (open-on-focus shortlist): scope to the current user's loans
+     (`myLoanIds`), most-recently-used first.
+   - Typed query: search ALL users' loans, ranked by match score then MRU.
+   Delegates ranking to `searchLoans` in both modes; only the candidate set
+   differs. */
+export const loanTypeaheadSuggestions = (
+  query: string,
+  loans: Loan[],
+  myLoanIds: Set<string>,
+  limit = 8
+): LoanMatch[] => {
+  if (normalizeLoanName(query).length === 0) {
+    const mine = loans.filter((loan) => myLoanIds.has(loan.id));
+    return searchLoans("", mine, limit);
+  }
+  return searchLoans(query, loans, limit);
+};
+
+/* Move the keyboard highlight over a suggestion list of `count` items (issue
+   #55). `current` is the highlighted index or -1 for none. ArrowDown/ArrowUp
+   wrap around the ends; from "none" ArrowDown lands on the first item and
+   ArrowUp on the last. Returns -1 when the list is empty. */
+export const nextHighlightIndex = (
+  current: number,
+  direction: 1 | -1,
+  count: number
+): number => {
+  if (count <= 0) return -1;
+  if (current < 0) return direction === 1 ? 0 : count - 1;
+  return (current + direction + count) % count;
+};
+
 /* Find an existing loan a new (name, link) should fold into rather than
    creating a duplicate. Link is the canonical key: an exact normalized-link
    match wins outright. Otherwise fall back to an exact normalized-name match.
