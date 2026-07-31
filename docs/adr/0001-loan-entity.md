@@ -33,6 +33,8 @@ tying tasks for the same loan together — see
 - If two Loan records are later found to share the same Humperdink link,
   they are **auto-merged silently with a visible notice**: the newer
   record's tasks repoint to the original, name is kept as an alias.
+  (See the 2026-07-31 addendum: the "visible notice" is now a transient
+  toast rather than a persistent chip.)
 - No dedicated Loans tab. Clicking a loan's name on any task filters the
   task list to that loan; that filtered view gets a small editable header
   (name + link) — the app's first post-creation edit capability, scoped to
@@ -54,3 +56,15 @@ tying tasks for the same loan together — see
 - Requires the app's first post-creation edit surface and its first
   fuzzy-match/dedup logic — both new patterns, not extensions of existing
   ones.
+
+## Addendum (2026-07-31): auto-merge notice is a transient toast
+
+The "auto-merged silently with a visible notice" decision above originally
+shipped as a persistent, manually-dismissible chip (`.loan-merge-notice`).
+With the shared toast host in place (#60), the auto-merge notice now surfaces
+as a **normal auto-dismiss toast** (`variant: "info"`, default duration) via
+the toast-migration wave. This softens the original "persistent visible
+notice" intent to a transient one — a deliberate choice: the merge is
+already reflected in the filtered loan view the user lands on, so the notice
+only needs to explain *why*, not persist. The underlying merge behavior
+(repoint tasks, keep name as alias) is unchanged.

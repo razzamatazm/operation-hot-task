@@ -1790,13 +1790,6 @@ export const App = () => {
   /* Selectable people for the share picker (issue #41). Active users, id + name. */
   const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
-  /* Non-blocking notice for a loan auto-merge (ADR-0001 item 3: merges happen
-     "silently with a visible notice"). Cleared on the next successful edit. */
-  const [loanNotice, setLoanNotice] = useState<string | null>(null);
-  /* Transient outcome of a "share on create" (issue #46). The create form
-     closes on submit, so the share result is surfaced here as a top-level
-     notice chip rather than inline in the (now-hidden) form. */
-  const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   /* Create-form loan typeahead: which suggestion list is open + which loan
      (if any) the typed Folder Name resolved to. */
@@ -2177,32 +2170,33 @@ export const App = () => {
       setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0, shareWithUserId: "" }));
       setLoanSuggestOpen(false);
       setError(null);
-      // Clear any lingering share notice so it never misattributes to the task
-      // just created; the share block below re-sets it only when a share fires.
-      setShareNotice(null);
       setFormOpen(false);
       // "Make sure X sees this" (issue #46): the share has to fire AFTER the task
       // is persisted, so it's a follow-up call to #41's endpoint using the new
       // task id — deliberately decoupled so a failed/undelivered share never
       // blocks task creation. `delivered` tells us if the DM actually landed.
+      // The outcome surfaces as a shared toast (post-create form is closed).
       if (shareWithUserId) {
         const target = directory.find((u) => u.id === shareWithUserId);
         const targetName = target ? firstName(target.displayName) : "them";
         try {
           const { delivered } = await onShare(task.id, shareWithUserId);
-          setShareNotice(
-            delivered
-              ? `Sent ${targetName} a heads-up about this task ✓`
-              : `Task created, but we couldn't reach ${targetName} — have them message the bot first.`
-          );
+          if (delivered) {
+            showToast(`Sent ${targetName} a heads-up about this task ✓`, { variant: "success" });
+          } else {
+            showToast(
+              `Task created, but we couldn't reach ${targetName} — have them message the bot first.`,
+              { variant: "warn" }
+            );
+          }
         } catch {
-          setShareNotice(`Task created, but sharing with ${targetName} failed.`);
+          showToast(`Task created, but sharing with ${targetName} failed.`, { variant: "error" });
         }
       }
       await refresh();
       await loadLoans();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create task");
+      showToast(err instanceof Error ? err.message : "Failed to create task", { variant: "error" });
     }
   };
 
@@ -2211,7 +2205,7 @@ export const App = () => {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/claim`, { method: "POST" }, user);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to claim task");
+      showToast(err instanceof Error ? err.message : "Failed to claim task", { variant: "error" });
     }
   };
 
@@ -2220,7 +2214,7 @@ export const App = () => {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/unclaim`, { method: "POST" }, user);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to unclaim task");
+      showToast(err instanceof Error ? err.message : "Failed to unclaim task", { variant: "error" });
     }
   };
 
@@ -2229,7 +2223,7 @@ export const App = () => {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status, ...(reviewNotes ? { reviewNotes } : {}) }) }, user);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update task");
+      showToast(err instanceof Error ? err.message : "Failed to update task", { variant: "error" });
     }
   };
 
@@ -2241,7 +2235,7 @@ export const App = () => {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/release`, { method: "POST" }, user);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to release task");
+      showToast(err instanceof Error ? err.message : "Failed to release task", { variant: "error" });
     }
   };
 
@@ -2250,7 +2244,7 @@ export const App = () => {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/review-note`, { method: "POST", body: JSON.stringify({ text }) }, user);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add review note");
+      showToast(err instanceof Error ? err.message : "Failed to add review note", { variant: "error" });
     }
   };
 
@@ -2262,7 +2256,7 @@ export const App = () => {
       await refresh();
       showToast("Note added", { variant: "success" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add note");
+      showToast(err instanceof Error ? err.message : "Failed to add note", { variant: "error" });
     }
   };
 
@@ -2284,16 +2278,18 @@ export const App = () => {
       setLoanFilterId(loan.id);
       setError(null);
       // ADR-0001: a shared Humperdink link auto-merges the two loans; surface
-      // that so the edit doesn't silently fold this record into another.
-      setLoanNotice(
-        merged
-          ? `Merged with "${merged.intoLoanName}", an existing loan sharing this Humperdink link.`
-          : null
-      );
+      // that so the edit doesn't silently fold this record into another. The
+      // notice is a transient auto-dismiss toast (ADR-0001 addendum 2026-07-31).
+      if (merged) {
+        showToast(
+          `Merged with "${merged.intoLoanName}", an existing loan sharing this Humperdink link.`,
+          { variant: "info" }
+        );
+      }
       await refresh();
       await loadLoans();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update loan");
+      showToast(err instanceof Error ? err.message : "Failed to update loan", { variant: "error" });
     }
   };
 
@@ -2302,7 +2298,7 @@ export const App = () => {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/points`, { method: "POST", body: JSON.stringify({ points }) }, user);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update poops");
+      showToast(err instanceof Error ? err.message : "Failed to update poops", { variant: "error" });
     }
   };
 
@@ -2320,7 +2316,7 @@ export const App = () => {
       setError(null);
       return { delivered: res.delivered };
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to share task");
+      showToast(err instanceof Error ? err.message : "Failed to share task", { variant: "error" });
       throw err;
     }
   };
@@ -2568,24 +2564,6 @@ export const App = () => {
       </header>
 
       {error && <p className="error-bar">{error}</p>}
-      {loanNotice && (
-        <p className="notif-chip loan-merge-notice" role="status">
-          <span className="notif-dot" />
-          {loanNotice}
-          <button type="button" className="loan-merge-notice-dismiss" aria-label="Dismiss notice" onClick={() => setLoanNotice(null)}>
-            ×
-          </button>
-        </p>
-      )}
-      {shareNotice && (
-        <p className="notif-chip loan-merge-notice" role="status">
-          <span className="notif-dot" />
-          {shareNotice}
-          <button type="button" className="loan-merge-notice-dismiss" aria-label="Dismiss notice" onClick={() => setShareNotice(null)}>
-            ×
-          </button>
-        </p>
-      )}
 
       {formOpen && (
         <div
