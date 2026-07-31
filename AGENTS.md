@@ -120,6 +120,9 @@ Primary goals:
   - Admins
 - File checkers are a subset of loan officers
 - Only file checkers can claim and complete Fraud Check tasks
+- Fraud Check tasks run a two-phase completion (see Status Model → Fraud
+  lifecycle): the checker (assignee) sends outstanding items and approves; the
+  requester (creator) submits items back and can release for any fraud checker
 - `Cancelled` can be set by task creator or admin
 - `Claimed -> Needs Review` can be done by assignee or creator
 - `Needs Review -> Claimed` and `Needs Review -> Completed` do not require admin
@@ -166,8 +169,64 @@ Primary goals:
   - `Cancelled`
   - `Completed`
   - `Archived`
+- FRAUD-only statuses (two-phase completion, see below):
+  - `Awaiting Items` (`AWAITING_ITEMS`)
+  - `Pending Approval` (`PENDING_APPROVAL`)
 - Loan Docs lifecycle:
   - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
+- Fraud lifecycle (two-phase completion):
+  - Fraud checks run a two-phase back-and-forth between the requester (creator)
+    and the fraud checker (assignee), driven by `FRAUD_FLOW`:
+    `Open -> Claimed -> Awaiting Items -> Pending Approval -> Completed -> Archived`.
+  - Two new **non-closed** statuses sit between claim and completion:
+    - `Awaiting Items`: the checker's initial pass is done and the ball is in the
+      **requester's** court to gather the outstanding items. This is the phase
+      users see as **Outstanding Items**.
+    - `Pending Approval`: the requester has submitted the items back and the ball
+      is in the **checker's** court for final approval. Users see this as
+      **Final Approval**.
+    Both are non-closed, so review notes keep flowing throughout the exchange.
+    Only `Pending Approval -> Completed` (the checker's **Approve**) closes the
+    task. Non-FRAUD task types never enter these statuses.
+  - Forward moves and who can make them:
+    - `Claimed -> Awaiting Items` — **checker only** (assignee or admin); the
+      "Send Outstanding Items" action.
+    - `Awaiting Items -> Pending Approval` — **requester only** (creator or
+      admin); the "Submit for Approval" action.
+    - `Pending Approval -> Completed` — **checker only** (assignee/admin,
+      FILE_CHECKER); the "Approve" action, gated by the normal completion rule.
+  - Backward / recovery moves:
+    - `Pending Approval -> Awaiting Items` — checker "Send Back" (wants more).
+    - `Awaiting Items -> Claimed` — checker reopens the initial pass.
+    - Either non-closed status can be `Cancelled` by the creator or an admin.
+  - **Note-required hand-back:** any move *into* `Awaiting Items` (the initial
+    "Send Outstanding Items" or a "Send Back") must carry a non-empty note
+    describing what's outstanding. The note rides in on the transition as
+    `reviewNotes` (note + transition in one gesture), is recorded on the task,
+    and seeds the DM conversation thread. The server rejects an empty note.
+  - **Reminder rules:**
+    - `Awaiting Items` is a wait on the requester and is **fully silent** — it is
+      never overdue and is excluded from the reminder engine. The checker is not
+      pinged while the requester holds the ball.
+    - Entering `Pending Approval` sets a **fresh end-of-day (`Yellow`) clock**
+      (recomputed `dueAt`, cleared reminder stamp), then hands off to the normal
+      reminder engine (quiet the rest of today, hourly the next business
+      morning) so final approval doesn't inherit the task's original urgency.
+  - **Release for any fraud checker:** if the assigned checker is unavailable,
+    the requester (or an admin) can release a `Pending Approval` task back to the
+    pool via `POST /api/tasks/:taskId/release`. This unassigns **in place** —
+    status stays `Pending Approval`, only the assignee is cleared — so any
+    FILE_CHECKER can then claim it and Approve directly (the claim keeps the
+    `Pending Approval` status rather than snapping back to `Claimed`). A
+    double-release is a harmless no-op.
+  - **Private to the participants:** the entire two-phase exchange is private —
+    no channel posts. Entering `Awaiting Items` sends exactly one lifecycle DM to
+    the creator plus the outstanding-items note as a DM note card; entering
+    `Pending Approval` sends exactly one DM to the checker. Release notifies
+    in-app only.
+  - **Scoring at final completion only:** poop points are awarded only when the
+    task reaches the final `Completed` (the checker's Approve). The intermediate
+    non-closed phases never score.
 - Reopen / Restore:
   - Reopening a closed task (`Completed` or `Archived` -> `Open`, which lands
     on `Claimed` when an assignee is retained) records the prior closed status
@@ -251,7 +310,7 @@ Primary goals:
 - Active tab includes bottom-section recent activity
 - Show the most recent `30` tasks
 - Ordering:
-  - Active statuses first: `Open`, `Claimed`, `Needs Review`, `Merge Done`, `Merge Approved`
+  - Active statuses first: `Open`, `Claimed`, `Needs Review`, `Merge Done`, `Merge Approved`, `Awaiting Items`, `Pending Approval`
   - Closed statuses second: `Completed`, `Cancelled`, `Archived`
   - Within each group: newest `createdAt` first
 - Table columns:
@@ -331,6 +390,14 @@ Primary goals:
   a confirmation card that offers the *next* step — so a user can step a task all
   the way through from one card. Permission is enforced at transition time
   (toast on failure); the button is status-driven, not role-filtered.
+- **Fraud two-phase buttons** are the exception: FRAUD tasks render a shared,
+  **role-aware** button set (`fraudCardActions` in `packages/shared/src/fraud.ts`)
+  on both the bot DM cards and the web courts view, so both surfaces show the
+  same actions to the same viewer — checker: "Send Outstanding Items" (note) then
+  "Approve" / "Send Back" (note); requester: "Submit for Approval" and "Release
+  for any fraud checker". Note-required moves open an inline note box whose text
+  posts as the transition's `reviewNotes`. The user-facing phase names are
+  **Outstanding Items** and **Final Approval** across both surfaces.
 - Copy is intentionally personable/casual (e.g. "tossed a new file check on the
   pile", "grabbed this one — on it now"), low on emoji.
 - Bot v1 scope:
@@ -390,6 +457,8 @@ Primary goals:
   - `GET /api/tasks/:taskId/history`
   - `POST /api/tasks/:taskId/claim`
   - `POST /api/tasks/:taskId/unclaim`
+  - `POST /api/tasks/:taskId/release` (FRAUD: release a `Pending Approval` task
+    back to the checker pool — creator/admin only)
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`
   - `POST /api/tasks/:taskId/review-note`
