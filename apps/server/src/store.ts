@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { LoanTask, TaskHistoryEvent } from "@loan-tasks/shared";
+import { Loan, LoanTask, TaskHistoryEvent } from "@loan-tasks/shared";
 
 interface DataShape {
   tasks: LoanTask[];
@@ -127,5 +127,77 @@ export class TaskStore {
       loanName: folderName,
       points
     };
+  }
+}
+
+interface LoanDataShape {
+  loans: Loan[];
+}
+
+const LOAN_INITIAL: LoanDataShape = { loans: [] };
+
+/* File-backed store for the Loan entity (ADR-0001), mirroring TaskStore's
+   read-modify-write-through-a-chain pattern ahead of the eventual Azure SQL
+   migration. */
+export class LoanStore {
+  private readonly filePath: string;
+  private chain: Promise<void> = Promise.resolve();
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+  }
+
+  async init(): Promise<void> {
+    const dir = path.dirname(this.filePath);
+    await fs.mkdir(dir, { recursive: true });
+    try {
+      await fs.access(this.filePath);
+    } catch {
+      await fs.writeFile(this.filePath, JSON.stringify(LOAN_INITIAL, null, 2), "utf8");
+    }
+  }
+
+  private async read(): Promise<LoanDataShape> {
+    const raw = await fs.readFile(this.filePath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<LoanDataShape>;
+    return { loans: Array.isArray(parsed.loans) ? parsed.loans : [] };
+  }
+
+  private async write(data: LoanDataShape): Promise<void> {
+    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
+  }
+
+  async all(): Promise<Loan[]> {
+    const data = await this.read();
+    return data.loans;
+  }
+
+  async find(loanId: string): Promise<Loan | undefined> {
+    const data = await this.read();
+    return data.loans.find((loan) => loan.id === loanId);
+  }
+
+  async upsert(loan: Loan): Promise<void> {
+    await this.enqueue(async () => {
+      const data = await this.read();
+      const index = data.loans.findIndex((entry) => entry.id === loan.id);
+      if (index >= 0) {
+        data.loans[index] = loan;
+      } else {
+        data.loans.push(loan);
+      }
+      await this.write(data);
+    });
+  }
+
+  async replaceAll(loans: Loan[]): Promise<void> {
+    await this.enqueue(async () => {
+      await this.write({ loans });
+    });
+  }
+
+  private async enqueue(operation: () => Promise<void>): Promise<void> {
+    this.chain = this.chain.then(operation, operation);
+    return this.chain;
   }
 }

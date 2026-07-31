@@ -27,6 +27,13 @@ export const config = {
   port: parseNumber(process.env.PORT, 4100),
   host: process.env.HOST ?? "127.0.0.1",
   dataFile: resolveServerPath(process.env.DATA_FILE, "data/tasks.json"),
+  /* Loans live beside the tasks file. When LOANS_FILE is unset we derive
+     loans.json from the (possibly overridden) DATA_FILE directory, so a
+     custom DATA_FILE (smoke tests, alt deploys) keeps its loans isolated
+     rather than leaking into the repo's committed data dir. */
+  loansFile: process.env.LOANS_FILE
+    ? resolveServerPath(process.env.LOANS_FILE, "data/loans.json")
+    : path.join(path.dirname(resolveServerPath(process.env.DATA_FILE, "data/tasks.json")), "loans.json"),
   frontendDist: resolveServerPath(process.env.FRONTEND_DIST, "../web/dist"),
   businessTimezone: process.env.BUSINESS_TIMEZONE ?? DEFAULT_CONFIG.businessTimezone,
   businessStartHour: parseNumber(process.env.BUSINESS_START_HOUR, DEFAULT_CONFIG.businessStartHour),

@@ -33,6 +33,7 @@ const humperdinkLinkSchema = z
   .optional();
 
 export const createTaskSchema = z.object({
+  loanId: z.string().min(1).optional(),
   folderName: z.string().min(1).optional(),
   loanName: z.string().min(1).optional(),
   taskType: z.enum(["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]),
@@ -48,10 +49,11 @@ export const createTaskSchema = z.object({
   const hasFolderName = Boolean(value.folderName?.trim());
   const hasLoanName = Boolean(value.loanName?.trim());
   const hasServerLocation = Boolean(value.serverLocation?.trim());
-  if (!hasFolderName && !hasLoanName && !hasServerLocation) {
+  const hasLoanId = Boolean(value.loanId?.trim());
+  if (!hasFolderName && !hasLoanName && !hasServerLocation && !hasLoanId) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "folderName, loanName, or serverLocation is required"
+      message: "folderName, loanName, serverLocation, or loanId is required"
     });
   }
 
@@ -107,6 +109,22 @@ export const createTaskSchema = z.object({
     }
   }
 });
+
+export const createLoanSchema = z.object({
+  name: z.string().min(1),
+  humperdinkLink: humperdinkLinkSchema
+});
+
+/* Loan edit: at least one editable field must be present. An empty-string
+   link explicitly clears it. */
+export const updateLoanSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    humperdinkLink: humperdinkLinkSchema
+  })
+  .refine((value) => value.name !== undefined || value.humperdinkLink !== undefined, {
+    message: "Provide a name and/or humperdinkLink to update"
+  });
 
 export const updatePointsSchema = z.object({
   points: z.number().int().min(0).max(5)

@@ -676,6 +676,161 @@ button.btn-good:hover {
   text-decoration: none;
 }
 
+/* Loan name in the collapsed row: clicking filters the list to that loan. */
+.loan-name-link {
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  color: var(--ink-secondary);
+  background: none;
+  border: none;
+  border-bottom: 1px dotted var(--line);
+  padding: 0;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loan-name-link:hover {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+/* Create-form loan typeahead */
+.loan-typeahead {
+  position: relative;
+  display: block;
+}
+
+.loan-typeahead-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.loan-typeahead-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.82rem;
+}
+
+.loan-typeahead-option:hover {
+  background: var(--row-hover);
+}
+
+.loan-typeahead-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loan-typeahead-link {
+  color: var(--brand);
+}
+
+.loan-typeahead-hint {
+  display: block;
+  margin-top: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--good);
+}
+
+/* Loan filter header (editable, ADR-0001) */
+.loan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.loan-header-eyebrow {
+  display: block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.loan-header-view,
+.loan-header-edit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.loan-header-name {
+  margin: 0;
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.loan-header-link {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+.loan-header-name-input,
+.loan-header-link-input {
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--ink);
+}
+
+.loan-header-link-input {
+  min-width: 220px;
+}
+
+.loan-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .task-card-collapsed-due {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.72rem;
@@ -1383,6 +1538,27 @@ button.btn-good:hover {
   border-radius: 50%;
   background: var(--brand);
   flex-shrink: 0;
+}
+
+/* Loan auto-merge notice (ADR-0001): non-blocking, dismissible. */
+.loan-merge-notice {
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.8rem;
+}
+
+.loan-merge-notice-dismiss {
+  padding: 0 4px;
+  margin-left: 2px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.loan-merge-notice-dismiss:hover {
+  color: var(--ink);
 }
 
 @keyframes fadeIn {

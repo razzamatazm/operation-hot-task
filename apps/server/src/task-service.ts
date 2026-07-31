@@ -21,6 +21,7 @@ import {
 } from "@loan-tasks/shared";
 import { ActivityFeedStateStore, ActivitySignalState, ActivitySignalType, KnownUserState } from "./activity-feed-state.js";
 import { v4 as uuid } from "uuid";
+import { LoanService } from "./loan-service.js";
 import { NotificationProvider } from "./notifications.js";
 import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
@@ -35,7 +36,8 @@ export class TaskService {
     private readonly notifier: NotificationProvider,
     private readonly events: SseHub,
     private readonly appConfig: AppConfig,
-    private readonly activityFeedState?: ActivityFeedStateStore
+    private readonly activityFeedState?: ActivityFeedStateStore,
+    private readonly loans?: LoanService
   ) {}
 
   async registerUser(user: UserIdentity): Promise<void> {
@@ -61,7 +63,7 @@ export class TaskService {
     const now = new Date();
     const isOoo = input.taskType === "OOO";
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
-    const folderName = input.folderName.trim();
+    const folderName = (input.folderName ?? "").trim();
     const points = clampPoints(input.points ?? 0);
     const dueAt = isOoo
       ? computeDueAtFromReturnDate(input.returnDate ?? "", this.appConfig)
@@ -81,10 +83,27 @@ export class TaskService {
       }
     }
 
+    // Non-OOO tasks are Loan-scoped (ADR-0001): resolve or create the Loan and
+    // link it. OOO tasks are never loan-related and carry no loanId/link.
+    let loanId: string | undefined;
+    let resolvedFolderName = folderName;
+    let resolvedLink = input.humperdinkLink?.trim();
+    if (!isOoo && this.loans) {
+      const loan = await this.loans.resolveForTask({
+        ...(input.loanId ? { loanId: input.loanId } : {}),
+        name: folderName,
+        ...(resolvedLink ? { humperdinkLink: resolvedLink } : {})
+      });
+      loanId = loan.id;
+      resolvedFolderName = loan.name;
+      resolvedLink = loan.humperdinkLink;
+    }
+
     const task: LoanTask = {
       id: uuid(),
-      folderName,
-      loanName: folderName,
+      ...(loanId ? { loanId } : {}),
+      folderName: resolvedFolderName,
+      loanName: resolvedFolderName,
       taskType: input.taskType,
       dueAt,
       urgency,
@@ -96,7 +115,7 @@ export class TaskService {
       createdBy: { id: user.id, displayName: user.displayName },
       ...(isOoo && startDate ? { startDate } : {}),
       ...(isOoo && returnDate ? { returnDate } : {}),
-      ...(input.humperdinkLink?.trim() ? { humperdinkLink: input.humperdinkLink.trim() } : {})
+      ...(!isOoo && resolvedLink ? { humperdinkLink: resolvedLink } : {})
     };
 
     const createdMessage = isOoo
