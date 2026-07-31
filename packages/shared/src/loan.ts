@@ -62,6 +62,22 @@ export const loanNameSimilarity = (a: string, b: string): number => {
 /* Default threshold above which two names are treated as the same loan. */
 export const LOAN_MATCH_THRESHOLD = 0.82;
 
+/* Ordered list of digit-runs in a name ("ABC Corp 1002 Rev 3" -> ["1002","3"],
+   "Johnson-4821" -> ["4821"], "Acme Corp" -> []). A loan's file/serial number
+   is identity, not spelling: two names that differ only in their digits name
+   two different loans, however similar the surrounding text. */
+export const loanDigitSignature = (name: string): string[] => name.match(/\d+/g) ?? [];
+
+/* True when two names carry the same ordered digit-runs (both empty counts).
+   The migration only fuzzy-merges names that agree here — so sequential/
+   numbered variants like "ABC Corp 1001" vs "ABC Corp 1002" are never merged,
+   while pure typo/spacing variants (no digit change) still can be. */
+const sameDigitSignature = (a: string, b: string): boolean => {
+  const da = loanDigitSignature(a);
+  const db = loanDigitSignature(b);
+  return da.length === db.length && da.every((digits, i) => digits === db[i]);
+};
+
 export interface LoanMatch {
   loan: Loan;
   score: number;
@@ -140,8 +156,10 @@ export interface LoanCluster {
 
 /* Fuzzy-dedup a flat list of (folderName, link) pairs into loan clusters for
    the one-time migration. Greedy single-pass clustering: each name joins the
-   first existing cluster it's similar enough to, else starts a new one. A
-   shared normalized link forces a merge regardless of name similarity. */
+   first existing cluster it's similar enough to, else starts a new one. Fuzzy
+   name matching is gated on an identical digit signature (see
+   `sameDigitSignature`) so numbered/serial variants stay distinct; only a
+   shared normalized link forces a merge regardless of name or number. */
 export const clusterLoanNames = (
   entries: Array<{ name: string; humperdinkLink?: string }>,
   threshold = LOAN_MATCH_THRESHOLD
@@ -156,8 +174,12 @@ export const clusterLoanNames = (
       target = clusters.find((c) => normalizeLinkKey(c.humperdinkLink) === linkKey);
     }
     if (!target) {
+      // Fuzzy-merge only genuine typo/spacing variants of the same text — never
+      // across a differing file/serial number, which denotes a distinct loan.
       target = clusters.find((c) =>
-        c.members.some((member) => loanNameSimilarity(member, name) >= threshold)
+        c.members.some(
+          (member) => sameDigitSignature(member, name) && loanNameSimilarity(member, name) >= threshold
+        )
       );
     }
     if (target) {

@@ -1374,6 +1374,9 @@ export const App = () => {
      editable header (ADR-0001: click a loan name to filter + edit). */
   const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /* Non-blocking notice for a loan auto-merge (ADR-0001 item 3: merges happen
+     "silently with a visible notice"). Cleared on the next successful edit. */
+  const [loanNotice, setLoanNotice] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   /* Create-form loan typeahead: which suggestion list is open + which loan
      (if any) the typed Folder Name resolved to. */
@@ -1750,13 +1753,23 @@ export const App = () => {
     try {
       const trimmedLink = humperdinkLink.trim();
       const normLink = trimmedLink && !/^https?:\/\//i.test(trimmedLink) ? `https://${trimmedLink}` : trimmedLink;
-      const { loan } = await apiRequest<{ loan: Loan }>(
+      const { loan, merged } = await apiRequest<{
+        loan: Loan;
+        merged?: { intoLoanId: string; intoLoanName: string; mergedName: string };
+      }>(
         `/loans/${loanId}`,
         { method: "PATCH", body: JSON.stringify({ name: name.trim(), humperdinkLink: normLink }) },
         user
       );
       setLoanFilterId(loan.id);
       setError(null);
+      // ADR-0001: a shared Humperdink link auto-merges the two loans; surface
+      // that so the edit doesn't silently fold this record into another.
+      setLoanNotice(
+        merged
+          ? `Merged with "${merged.intoLoanName}", an existing loan sharing this Humperdink link.`
+          : null
+      );
       await refresh();
       await loadLoans();
     } catch (err) {
@@ -2012,6 +2025,15 @@ export const App = () => {
       </header>
 
       {error && <p className="error-bar">{error}</p>}
+      {loanNotice && (
+        <p className="notif-chip loan-merge-notice" role="status">
+          <span className="notif-dot" />
+          {loanNotice}
+          <button type="button" className="loan-merge-notice-dismiss" aria-label="Dismiss notice" onClick={() => setLoanNotice(null)}>
+            ×
+          </button>
+        </p>
+      )}
 
       {formOpen && (
         <div

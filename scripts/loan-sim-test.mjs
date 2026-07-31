@@ -10,6 +10,7 @@ import path from "node:path";
 import { v4 as uuid } from "uuid";
 
 import {
+  LOAN_MATCH_THRESHOLD,
   clusterLoanNames,
   findLoanForCreate,
   loanNameSimilarity,
@@ -80,6 +81,33 @@ const run = async () => {
   const jones = clusters.find((c) => normalizeLoanName(c.name).startsWith("jones"));
   assert.equal(jones.humperdinkLink, "https://h.example/j");
   pass("clusterLoanNames fuzzy-dedups near-duplicate names into one loan");
+
+  // Numbered/serial variants must NOT fuzzy-merge: the digit run is loan
+  // identity, so names that differ only by file/serial number stay distinct —
+  // even though their string similarity is well above LOAN_MATCH_THRESHOLD.
+  const numbered = clusterLoanNames([
+    { name: "ABC Corp 1001" },
+    { name: "ABC Corp 1002" },
+    { name: "Loan 1001" },
+    { name: "Loan 1002" },
+    { name: "Smith Ln 12" },
+    { name: "Smith Ln 13" },
+    { name: "Johnson-4821" },
+    { name: "Johnson-4827" }
+  ]);
+  assert.equal(numbered.length, 8, `numbered variants stay distinct, got ${numbered.length} clusters`);
+  assert.ok(loanNameSimilarity("ABC Corp 1001", "ABC Corp 1002") >= LOAN_MATCH_THRESHOLD, "sanity: the pair is above threshold, so only the digit guard keeps them apart");
+  pass("clusterLoanNames never fuzzy-merges names whose serial/file numbers differ");
+
+  // A pure typo/spacing variant (identical digits, or none) still merges.
+  const typos = clusterLoanNames([
+    { name: "Acme  Corp" },
+    { name: "Acme Corp" },
+    { name: "ABC Corp 1001" },
+    { name: "ABC  Corp 1001" }
+  ]);
+  assert.equal(typos.length, 2, `typo variants merge (same digit signature), got ${typos.length} clusters`);
+  pass("clusterLoanNames still merges typo/spacing variants when digit signatures match");
 
   // ── searchLoans typeahead ranking ────────────────────────
   const now = new Date().toISOString();
@@ -165,6 +193,28 @@ const run = async () => {
     const loansTotal = (await loanStore.all()).length;
     assert.equal(loansTotal, 3, `expected 3 loans total (2 migrated + 1 pre-existing), got ${loansTotal}`);
     pass("migration backfills fuzzy-deduped loans, skips OOO/linked, and is idempotent");
+  });
+
+  // ── Migration keeps numbered loans separate end-to-end ───
+  await withTempDir(async ({ service, taskStore, loanStore }) => {
+    const t1 = makeTask({ folderName: "ABC Corp 1001" });
+    const t2 = makeTask({ folderName: "ABC Corp 1002" });
+    const t3 = makeTask({ folderName: "Loan 1001" });
+    const t4 = makeTask({ folderName: "Loan 1002" });
+    const t5 = makeTask({ folderName: "Acme  Corp" }); // typo variant of t6
+    const t6 = makeTask({ folderName: "Acme Corp" });
+    for (const t of [t1, t2, t3, t4, t5, t6]) await taskStore.upsertTask(t);
+
+    const res = await service.migrateExistingTasks();
+    // ABC 1001, ABC 1002, Loan 1001, Loan 1002 = 4 distinct; Acme pair = 1.
+    assert.equal(res.loansCreated, 5, `expected 5 loans, got ${res.loansCreated}`);
+
+    const idOf = async (id) => (await taskStore.findTask(id)).loanId;
+    assert.notEqual(await idOf(t1.id), await idOf(t2.id), "ABC Corp 1001/1002 migrate to separate loans");
+    assert.notEqual(await idOf(t3.id), await idOf(t4.id), "Loan 1001/1002 migrate to separate loans");
+    assert.equal(await idOf(t5.id), await idOf(t6.id), "Acme Corp typo variant still merges");
+    assert.equal((await loanStore.all()).length, 5, "five distinct loans persisted");
+    pass("migration keeps serial-numbered loans distinct while merging true typo variants");
   });
 
   for (const line of results) console.log(line);
