@@ -333,6 +333,8 @@ const TaskCard = ({
   onTransition,
   onAddReviewNote,
   onUpdatePoints,
+  onShare,
+  directory,
   showActions,
   seenNoteAt,
   onMarkNoteSeen,
@@ -348,6 +350,11 @@ const TaskCard = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
+  /* Point a specific person at this task (issue #41). Resolves on success,
+     rejects on failure so the card can show inline status. */
+  onShare: (taskId: string, targetUserId: string) => Promise<void>;
+  /* Selectable people for the share picker (active users, id + name). */
+  directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
@@ -359,6 +366,10 @@ const TaskCard = ({
   now?: number;
 }) => {
   const [noteText, setNoteText] = useState("");
+  /* Share picker (issue #41): chosen person + send status + copy-link flash. */
+  const [shareTargetId, setShareTargetId] = useState("");
+  const [shareState, setShareState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -419,6 +430,34 @@ const TaskCard = ({
     await onAddReviewNote(task.id, noteText.trim());
     setNoteText("");
     acknowledgeUnread();
+  };
+
+  /* Share: point one person at this task. Candidates are everyone in the
+     directory except the current user (sharing with yourself is a no-op). */
+  const shareCandidates = directory.filter((p) => p.id !== user.id);
+  const handleShare = async () => {
+    if (!shareTargetId) return;
+    setShareState("sending");
+    try {
+      await onShare(task.id, shareTargetId);
+      setShareState("done");
+      setShareTargetId("");
+    } catch {
+      setShareState("error");
+    }
+  };
+  /* Copy an in-app deep link to this task (the `#task-<id>` anchor matches the
+     card's element id, so it scrolls the row into view). The person-picker
+     above is the real deliverable; this is the lightweight "share link". */
+  const handleCopyShareLink = async () => {
+    const link = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
   };
 
   const isClosed = CLOSED_STATUSES.includes(task.status);
@@ -616,6 +655,34 @@ const TaskCard = ({
               )}
             </div>
           )}
+          {/* Share (issue #41): DM a specific person a deep link to this task,
+              outside the normal creator/assignee flow. Hidden when there's
+              nobody else in the directory to point at. */}
+          {showActions && shareCandidates.length > 0 && (
+            <div className="task-card-share">
+              <label className="task-card-share-label" htmlFor={`share-${task.id}`}>Make sure someone sees this</label>
+              <div className="task-card-share-row">
+                <select
+                  id={`share-${task.id}`}
+                  value={shareTargetId}
+                  onChange={(e) => { setShareTargetId(e.target.value); setShareState("idle"); }}
+                >
+                  <option value="">Choose a person…</option>
+                  {shareCandidates.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
+                  ))}
+                </select>
+                <button type="button" className="btn-sm" disabled={!shareTargetId || shareState === "sending"} onClick={() => void handleShare()}>
+                  {shareState === "sending" ? "Sharing…" : "Share"}
+                </button>
+                <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopyShareLink()}>
+                  {shareLinkCopied ? "Copied ✓" : "Copy link"}
+                </button>
+              </div>
+              {shareState === "done" && <span className="task-card-share-status" role="status">Sent a heads-up ✓</span>}
+              {shareState === "error" && <span className="task-card-share-status task-card-share-error" role="status">Couldn't share — try again</span>}
+            </div>
+          )}
         </div>
 
         <div className="thread">
@@ -749,6 +816,8 @@ const CardList = ({
   onTransition,
   onAddReviewNote,
   onUpdatePoints,
+  onShare,
+  directory,
   showActions,
   emptyMessage,
   seenNotesAt,
@@ -765,6 +834,8 @@ const CardList = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
+  onShare: (taskId: string, targetUserId: string) => Promise<void>;
+  directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   emptyMessage: string;
   seenNotesAt?: Record<string, string>;
@@ -788,6 +859,8 @@ const CardList = ({
           onTransition={onTransition}
           onAddReviewNote={onAddReviewNote}
           onUpdatePoints={onUpdatePoints}
+          onShare={onShare}
+          directory={directory}
           showActions={showActions}
           pulsing={pulsingIds?.has(task.id) ?? false}
           {...(now !== undefined ? { now } : {})}
@@ -1275,6 +1348,8 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
+  /* Selectable people for the share picker (issue #41). Active users, id + name. */
+  const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
@@ -1549,6 +1624,15 @@ export const App = () => {
   }, [user.id]);
 
   useEffect(() => {
+    /* Load the people directory for the share picker (issue #41). Same
+       gate as the task fetch: hold until a real identity resolves in prod. */
+    if (!IS_DEV && !user.id) return;
+    apiRequest<{ users: Array<{ id: string; displayName: string }> }>("/users/directory", { method: "GET" }, user)
+      .then((data) => setDirectory(data.users))
+      .catch(() => {});
+  }, [user.id]);
+
+  useEffect(() => {
     const source = new EventSource(`${API_BASE}/stream`);
     source.addEventListener("task.changed", (event) => {
       const incoming = JSON.parse((event as MessageEvent<string>).data) as LoanTask;
@@ -1629,6 +1713,18 @@ export const App = () => {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update poops");
+    }
+  };
+
+  /* Share a task with one person (issue #41). Rethrows so the card can flash
+     an inline success/error state next to the picker. */
+  const onShare = async (taskId: string, targetUserId: string): Promise<void> => {
+    try {
+      await apiRequest<{ ok: true }>(`/tasks/${taskId}/share`, { method: "POST", body: JSON.stringify({ targetUserId }) }, user);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to share task");
+      throw err;
     }
   };
 
@@ -1737,6 +1833,8 @@ export const App = () => {
       onTransition,
       onAddReviewNote,
       onUpdatePoints,
+      onShare,
+      directory,
       showActions: true,
       seenNotesAt,
       onMarkNoteSeen: markNoteSeen,

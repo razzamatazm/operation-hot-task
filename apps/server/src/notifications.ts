@@ -145,7 +145,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (
-      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED") &&
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE") &&
       !config.enableDmNotifications
     ) {
       return;
@@ -181,6 +181,40 @@ export class TeamsNotificationProvider implements NotificationProvider {
         ...(advance ? { advance } : {}),
         recipients
       });
+      return;
+    }
+
+    if (event.target === "DM_SHARE") {
+      // Someone pointed a specific person at this task from the dashboard. DM
+      // only the target (never the creator/assignee) a full-details card that
+      // deep-links straight to the task — no advance/claim button, since the
+      // target isn't necessarily going to work it. Falls back to a plain DM.
+      const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
+      const lines =
+        event.task.taskType === "OOO"
+          ? [
+              `Type: Out of Office`,
+              `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
+              `Details: ${event.task.folderName}`
+            ]
+          : [
+              `Type: ${typeLabel}`,
+              `How Bad: ${howBad}`,
+              `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
+              ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
+              ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
+            ];
+      const openUrl = teamsTaskDeepLink(event.task.id);
+      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
+          taskId: event.task.id,
+          title: `${event.actor.displayName} shared ${event.task.folderName} with you`,
+          detail: lines.join("\n"),
+          ...(openUrl ? { openUrl } : {})
+        });
+        return;
+      }
+      await this.botClient.sendToDms(`${typeLabel} - ${event.message}`);
       return;
     }
 

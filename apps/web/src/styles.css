@@ -948,6 +948,43 @@ button.btn-good:hover {
   padding-top: 6px;
 }
 
+/* Share affordance (issue #41): a person-picker + Share/Copy-link row in the
+   expanded body. All color comes from theme tokens so it works in every theme. */
+.task-card-share {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-card-share-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.task-card-share-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.task-card-share-row select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.task-card-share-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  color: var(--good);
+}
+.task-card-share-status.task-card-share-error {
+  color: var(--bad);
+}
+
 /* Two-step cancel: confirmation row replaces the actions block. */
 .task-card-cancel-confirm {
   display: flex;

@@ -669,6 +669,66 @@ const run = async () => {
     expectStatus(loanDocsArchive.status, 200, "loan docs archived", loanDocsArchive.json);
     pushPass("loan docs flow enforces merge stages");
 
+    // ── Share a task directly with a person (issue #41) ──────
+    const shareTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Share Me", taskType: "LOI", notes: "share test" }
+    });
+    const shareId = shareTask.json.task.id;
+
+    // Any authenticated user can read the minimal people directory (not admin-
+    // gated). It exposes id + displayName only, and includes known users.
+    const directoryDenied = await request(server.baseUrl, "GET", "/users/directory", {
+      user: users.creator
+    });
+    expectStatus(directoryDenied.status, 200, "non-admin can read people directory", directoryDenied.json);
+    assert.ok(Array.isArray(directoryDenied.json.users), "directory returns a users array");
+    assert.ok(
+      directoryDenied.json.users.some((u) => u.id === users.fileChecker.id),
+      "directory includes a known user"
+    );
+    assert.ok(
+      directoryDenied.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id"),
+      "directory entries expose only id + displayName"
+    );
+    pushPass("people directory is readable by any authenticated user, id + name only");
+
+    const shareOk = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: { targetUserId: users.fileChecker.id }
+    });
+    expectStatus(shareOk.status, 200, "share task with a known user", shareOk.json);
+    assert.equal(shareOk.json.ok, true, "share returns ok");
+    pushPass("share task with an existing user succeeds");
+
+    const shareRecorded = await request(server.baseUrl, "GET", `/tasks/${shareId}/history`, {
+      user: users.creator
+    });
+    assert.ok(
+      shareRecorded.json.history.some((event) => event.action === "TASK_SHARED"),
+      "share is recorded in task history"
+    );
+    pushPass("share is recorded in task history for audit");
+
+    const shareNoTarget = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: {}
+    });
+    expectStatus(shareNoTarget.status, 400, "share without targetUserId is rejected", shareNoTarget.json);
+
+    const shareUnknownUser = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: { targetUserId: "nobody-here" }
+    });
+    expectStatus(shareUnknownUser.status, 404, "share with unknown user is rejected", shareUnknownUser.json);
+
+    const shareUnknownTask = await request(server.baseUrl, "POST", "/tasks/nonexistent-task/share", {
+      user: users.creator,
+      body: { targetUserId: users.fileChecker.id }
+    });
+    expectStatus(shareUnknownTask.status, 404, "share of unknown task is rejected", shareUnknownTask.json);
+    pushPass("share validates target user and task existence");
+
     const integrationDisabled = await request(server.baseUrl, "POST", "/integrations/tasks", {
       body: {
         folderName: "Inbound disabled",
