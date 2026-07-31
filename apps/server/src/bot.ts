@@ -1614,6 +1614,14 @@ export class TeamsBotClient {
     }
   }
 
+  /* Whether we hold a DM conversation reference for this user — i.e. whether a
+     proactive DM to them would actually reach them. The share flow (issue #41)
+     uses this to report delivered-vs-not, since sendDetailCardToUsers silently
+     no-ops for a user who has never messaged the bot. */
+  async hasDmReference(userId: string): Promise<boolean> {
+    return (await this.dmReferencesFor([userId])).length > 0;
+  }
+
   /* DM a full-details card (e.g. to whoever just claimed a task). */
   async sendDetailCardToUsers(
     userIds: string[],

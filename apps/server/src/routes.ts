@@ -144,6 +144,22 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* Any authenticated user: minimal read-only people directory for the share
+     people-picker (issue #41). Returns only id + displayName for active users —
+     no roles, email, or status — so it's safe to expose beyond admins (the full
+     `/users` list below stays admin-only). */
+  router.get("/users/directory", async (req, res) => {
+    try {
+      await getActor(req);
+      const users = (await userStore.list())
+        .filter((user) => user.active !== false)
+        .map((user) => ({ id: user.id, displayName: user.displayName }));
+      res.json({ users });
+    } catch (error) {
+      sendError(res, error, "Failed to list users");
+    }
+  });
+
   /* Admin: list users + manage roles (onboarding + future admin UI). */
   router.get("/users", async (req, res) => {
     try {
@@ -372,6 +388,48 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to add review note");
+    }
+  });
+
+  /* Share a task directly with one person from the dashboard (issue #41). DMs
+     the target a bot card that deep-links to the task; the creator/assignee are
+     not pinged. Validates the task and the target user both exist. */
+  router.post("/tasks/:taskId/share", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const targetUserId =
+        typeof (req.body as { targetUserId?: unknown }).targetUserId === "string"
+          ? (req.body as { targetUserId: string }).targetUserId.trim()
+          : "";
+      const note =
+        typeof (req.body as { note?: unknown }).note === "string"
+          ? (req.body as { note: string }).note.trim()
+          : "";
+      if (!targetUserId) {
+        res.status(400).json({ error: "targetUserId is required" });
+        return;
+      }
+      const task = await service.getTask(req.params.taskId);
+      if (!task) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+      const target = await userStore.get(targetUserId);
+      if (!target || target.active === false) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      const { delivered } = await service.shareTask({
+        taskId: task.id,
+        target: { id: target.id, displayName: target.displayName },
+        sharedBy: actor,
+        ...(note ? { note } : {})
+      });
+      // The share always "succeeds" as an intent; `delivered` tells the UI
+      // whether the DM actually reached them (issue #41).
+      res.json({ ok: true, delivered });
+    } catch (error) {
+      sendError(res, error, "Failed to share task");
     }
   });
 
