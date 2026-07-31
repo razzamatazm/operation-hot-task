@@ -257,6 +257,14 @@ h1, h2, h3, h4 {
   grid-column: 1 / -1;
 }
 
+/* Muted "(optional)" hint inside a form label (issue #46). */
+.form-label-optional {
+  color: var(--muted);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .task-form .span-2 {
   grid-column: span 2;
 }

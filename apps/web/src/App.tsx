@@ -1666,6 +1666,10 @@ export const App = () => {
   /* Non-blocking notice for a loan auto-merge (ADR-0001 item 3: merges happen
      "silently with a visible notice"). Cleared on the next successful edit. */
   const [loanNotice, setLoanNotice] = useState<string | null>(null);
+  /* Transient outcome of a "share on create" (issue #46). The create form
+     closes on submit, so the share result is surfaced here as a top-level
+     notice chip rather than inline in the (now-hidden) form. */
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   /* Create-form loan typeahead: which suggestion list is open + which loan
      (if any) the typed Folder Name resolved to. */
@@ -1876,7 +1880,10 @@ export const App = () => {
     returnDate: "",
     notes: "",
     humperdinkLink: "",
-    points: 0
+    points: 0,
+    // "Make sure X sees this" at creation (issue #46): optional target who gets
+    // the same share DM #41 sends, fired right after the task is persisted.
+    shareWithUserId: ""
   });
 
   const isAdmin = user.roles.includes("ADMIN");
@@ -1995,12 +2002,36 @@ export const App = () => {
       ...(form.points > 0 ? { points: form.points } : {})
     };
 
+    // Snapshot the share target before the form state is cleared below.
+    const shareWithUserId = form.shareWithUserId;
+
     try {
-      await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0 }));
+      const { task } = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
+      setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0, shareWithUserId: "" }));
       setLoanSuggestOpen(false);
       setError(null);
+      // Clear any lingering share notice so it never misattributes to the task
+      // just created; the share block below re-sets it only when a share fires.
+      setShareNotice(null);
       setFormOpen(false);
+      // "Make sure X sees this" (issue #46): the share has to fire AFTER the task
+      // is persisted, so it's a follow-up call to #41's endpoint using the new
+      // task id — deliberately decoupled so a failed/undelivered share never
+      // blocks task creation. `delivered` tells us if the DM actually landed.
+      if (shareWithUserId) {
+        const target = directory.find((u) => u.id === shareWithUserId);
+        const targetName = target ? firstName(target.displayName) : "them";
+        try {
+          const { delivered } = await onShare(task.id, shareWithUserId);
+          setShareNotice(
+            delivered
+              ? `Sent ${targetName} a heads-up about this task ✓`
+              : `Task created, but we couldn't reach ${targetName} — have them message the bot first.`
+          );
+        } catch {
+          setShareNotice(`Task created, but sharing with ${targetName} failed.`);
+        }
+      }
       await refresh();
       await loadLoans();
     } catch (err) {
@@ -2366,6 +2397,15 @@ export const App = () => {
           </button>
         </p>
       )}
+      {shareNotice && (
+        <p className="notif-chip loan-merge-notice" role="status">
+          <span className="notif-dot" />
+          {shareNotice}
+          <button type="button" className="loan-merge-notice-dismiss" aria-label="Dismiss notice" onClick={() => setShareNotice(null)}>
+            ×
+          </button>
+        </p>
+      )}
 
       {formOpen && (
         <div
@@ -2521,6 +2561,25 @@ export const App = () => {
                     }
                   }}
                 />
+              </label>
+            )}
+            {/* "Make sure someone sees this" (issue #46): optional at-creation
+                share. Reuses #41's people directory + share endpoint; excludes
+                the creator. Hidden when nobody else is in the directory. */}
+            {directory.some((u) => u.id !== user.id) && (
+              <label className="span-full">
+                <span>Share Directly <span className="form-label-optional">- Optional</span></span>
+                <select
+                  value={form.shareWithUserId}
+                  onChange={(e) => setForm((c) => ({ ...c, shareWithUserId: e.target.value }))}
+                >
+                  <option value="">No one — just create it</option>
+                  {directory
+                    .filter((u) => u.id !== user.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>{u.displayName}</option>
+                    ))}
+                </select>
               </label>
             )}
             <div className="form-actions">
