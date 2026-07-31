@@ -463,6 +463,50 @@ export class TaskService {
     return updated;
   }
 
+  /* Share a task directly with one person (issue #41). Sends the TARGET a Teams
+     bot DM that deep-links to the task — deliberately outside the creator/
+     assignee notification flow, so nobody else is pinged. The share is recorded
+     in history for audit. Caller (route) validates that the target user exists.
+
+     Returns whether the DM will actually reach the target: a share to a user who
+     has never messaged the bot has no stored reference, so the DM is dropped.
+     We report that (`delivered: false`) rather than let it vanish silently, so
+     the UI can tell the sharer to have them message the bot first. The share
+     itself still "succeeds" — the history record + intent stand regardless. */
+  async shareTask(params: {
+    taskId: string;
+    target: { id: string; displayName: string };
+    sharedBy: UserIdentity;
+    note?: string;
+  }): Promise<{ task: LoanTask; delivered: boolean }> {
+    const task = await this.requireTask(params.taskId);
+    const note = params.note?.trim() || undefined;
+
+    const event = this.makeHistory(
+      task.id,
+      params.sharedBy,
+      "TASK_SHARED",
+      `Shared with ${params.target.displayName} by ${params.sharedBy.displayName}`
+    );
+    await this.store.appendHistory(event);
+
+    // Probe reachability up front so we can report it; the actual send below
+    // no-ops for an unreachable target, matching this result.
+    const delivered = await this.notifier.canReachDm(params.target.id);
+
+    await this.notify({
+      type: "TASK_STATUS_CHANGED",
+      task,
+      actor: { id: params.sharedBy.id, displayName: params.sharedBy.displayName },
+      message: `${firstName(params.sharedBy.displayName)} wants you to see ${task.folderName}`,
+      target: "DM_SHARE",
+      recipientUserIds: [params.target.id],
+      ...(note ? { note } : {})
+    });
+
+    return { task, delivered };
+  }
+
   async runMaintenance(): Promise<{ reminded: number; purged: number; autoArchived: number }> {
     const now = new Date();
     const tasks = await this.store.allTasks();

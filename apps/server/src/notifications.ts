@@ -6,6 +6,10 @@ import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
   notify(event: NotificationEvent): Promise<void>;
+  /* Whether a DM to this user would actually be delivered right now — a stored
+     bot reference exists AND DM notifications are enabled. Lets callers (issue
+     #41 share) report delivered-vs-not instead of dropping silently. */
+  canReachDm(userId: string): Promise<boolean>;
 }
 
 /* Teams deep link to the Hot Task tab, focused on a specific task via
@@ -74,6 +78,13 @@ export class TeamsNotificationProvider implements NotificationProvider {
       summary,
       ...(openUrl ? { openUrl } : {})
     };
+  }
+
+  async canReachDm(userId: string): Promise<boolean> {
+    if (!config.enableDmNotifications) {
+      return false;
+    }
+    return this.botClient.hasDmReference(userId);
   }
 
   async notify(event: NotificationEvent): Promise<void> {
@@ -145,7 +156,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (
-      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED") &&
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE") &&
       !config.enableDmNotifications
     ) {
       return;
@@ -181,6 +192,45 @@ export class TeamsNotificationProvider implements NotificationProvider {
         ...(advance ? { advance } : {}),
         recipients
       });
+      return;
+    }
+
+    if (event.target === "DM_SHARE") {
+      // Someone pointed a specific person at this task from the dashboard. DM
+      // only the target (never the creator/assignee) a full-details card that
+      // deep-links straight to the task — no advance/claim button, since the
+      // target isn't necessarily going to work it. Falls back to a plain DM.
+      const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
+      const lines =
+        event.task.taskType === "OOO"
+          ? [
+              `Type: Out of Office`,
+              `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
+              `Details: ${event.task.folderName}`
+            ]
+          : [
+              `Type: ${typeLabel}`,
+              `How Bad: ${howBad}`,
+              `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
+              ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
+              ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
+            ];
+      // The sharer's own note (when provided) leads the card body, above the
+      // task details, so the personal "hey, look at this" reads first.
+      if (event.note?.trim()) {
+        lines.unshift(`"${event.note.trim()}"`, "");
+      }
+      const openUrl = teamsTaskDeepLink(event.task.id);
+      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
+          taskId: event.task.id,
+          title: `${event.actor.displayName} shared ${event.task.folderName} with you`,
+          detail: lines.join("\n"),
+          ...(openUrl ? { openUrl } : {})
+        });
+        return;
+      }
+      await this.botClient.sendToDms(`${typeLabel} - ${event.message}`);
       return;
     }
 

@@ -334,6 +334,8 @@ const TaskCard = ({
   onAddReviewNote,
   onUpdatePoints,
   onFilterLoan,
+  onShare,
+  directory,
   showActions,
   seenNoteAt,
   onMarkNoteSeen,
@@ -350,6 +352,12 @@ const TaskCard = ({
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
+  /* Point a specific person at this task (issue #41). Resolves with whether the
+     DM actually reached them; rejects on request failure so the card can show
+     inline status. */
+  onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  /* Selectable people for the share picker (active users, id + name). */
+  directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
@@ -361,6 +369,13 @@ const TaskCard = ({
   now?: number;
 }) => {
   const [noteText, setNoteText] = useState("");
+  /* Share picker (issue #41): chosen person + optional note + send status +
+     copy-link flash. "undelivered" = share recorded but the target has no bot
+     reference, so the DM couldn't reach them. */
+  const [shareTargetId, setShareTargetId] = useState("");
+  const [shareNote, setShareNote] = useState("");
+  const [shareState, setShareState] = useState<"idle" | "sending" | "done" | "undelivered" | "error">("idle");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -421,6 +436,38 @@ const TaskCard = ({
     await onAddReviewNote(task.id, noteText.trim());
     setNoteText("");
     acknowledgeUnread();
+  };
+
+  /* Share: point one person at this task. Candidates exclude the current user
+     plus the creator and assignee — they already see the task, so the picker
+     only offers genuinely new recipients (issue #41). */
+  const shareCandidates = directory.filter(
+    (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
+  );
+  const handleShare = async () => {
+    if (!shareTargetId) return;
+    setShareState("sending");
+    try {
+      const { delivered } = await onShare(task.id, shareTargetId, shareNote.trim() || undefined);
+      setShareState(delivered ? "done" : "undelivered");
+      setShareTargetId("");
+      setShareNote("");
+    } catch {
+      setShareState("error");
+    }
+  };
+  /* Copy an in-app deep link to this task (the `#task-<id>` anchor matches the
+     card's element id, so it scrolls the row into view). The person-picker
+     above is the real deliverable; this is the lightweight "share link". */
+  const handleCopyShareLink = async () => {
+    const link = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
   };
 
   const isClosed = CLOSED_STATUSES.includes(task.status);
@@ -618,6 +665,43 @@ const TaskCard = ({
               )}
             </div>
           )}
+          {/* Share (issue #41): DM a specific person a deep link to this task,
+              outside the normal creator/assignee flow. Hidden when there's
+              nobody else in the directory to point at. */}
+          {showActions && shareCandidates.length > 0 && (
+            <div className="task-card-share">
+              <label className="task-card-share-label" htmlFor={`share-${task.id}`}>Make sure someone sees this</label>
+              <div className="task-card-share-row">
+                <select
+                  id={`share-${task.id}`}
+                  value={shareTargetId}
+                  onChange={(e) => { setShareTargetId(e.target.value); setShareState("idle"); }}
+                >
+                  <option value="">Choose a person…</option>
+                  {shareCandidates.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
+                  ))}
+                </select>
+                <button type="button" className="btn-sm" disabled={!shareTargetId || shareState === "sending"} onClick={() => void handleShare()}>
+                  {shareState === "sending" ? "Sharing…" : "Share"}
+                </button>
+                <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopyShareLink()}>
+                  {shareLinkCopied ? "Copied ✓" : "Copy link"}
+                </button>
+              </div>
+              <input
+                className="task-card-share-note"
+                type="text"
+                value={shareNote}
+                placeholder="Add a note (optional)"
+                maxLength={280}
+                onChange={(e) => { setShareNote(e.target.value); if (shareState !== "sending") setShareState("idle"); }}
+              />
+              {shareState === "done" && <span className="task-card-share-status" role="status">Sent a heads-up ✓</span>}
+              {shareState === "undelivered" && <span className="task-card-share-status task-card-share-warn" role="status">Couldn't reach them — have them message the bot first.</span>}
+              {shareState === "error" && <span className="task-card-share-status task-card-share-error" role="status">Couldn't share — try again</span>}
+            </div>
+          )}
         </div>
 
         <div className="thread">
@@ -763,6 +847,8 @@ const CardList = ({
   onAddReviewNote,
   onUpdatePoints,
   onFilterLoan,
+  onShare,
+  directory,
   showActions,
   emptyMessage,
   seenNotesAt,
@@ -780,6 +866,8 @@ const CardList = ({
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
+  onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   emptyMessage: string;
   seenNotesAt?: Record<string, string>;
@@ -804,6 +892,8 @@ const CardList = ({
           onAddReviewNote={onAddReviewNote}
           onUpdatePoints={onUpdatePoints}
           {...(onFilterLoan ? { onFilterLoan } : {})}
+          onShare={onShare}
+          directory={directory}
           showActions={showActions}
           pulsing={pulsingIds?.has(task.id) ?? false}
           {...(now !== undefined ? { now } : {})}
@@ -1373,6 +1463,8 @@ export const App = () => {
   /* When set, the task list is filtered to a single Loan and shows its
      editable header (ADR-0001: click a loan name to filter + edit). */
   const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
+  /* Selectable people for the share picker (issue #41). Active users, id + name. */
+  const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   /* Non-blocking notice for a loan auto-merge (ADR-0001 item 3: merges happen
      "silently with a visible notice"). Cleared on the next successful edit. */
@@ -1665,6 +1757,15 @@ export const App = () => {
   }, [user.id]);
 
   useEffect(() => {
+    /* Load the people directory for the share picker (issue #41). Same
+       gate as the task fetch: hold until a real identity resolves in prod. */
+    if (!IS_DEV && !user.id) return;
+    apiRequest<{ users: Array<{ id: string; displayName: string }> }>("/users/directory", { method: "GET" }, user)
+      .then((data) => setDirectory(data.users))
+      .catch(() => {});
+  }, [user.id]);
+
+  useEffect(() => {
     const source = new EventSource(`${API_BASE}/stream`);
     source.addEventListener("task.changed", (event) => {
       const incoming = JSON.parse((event as MessageEvent<string>).data) as LoanTask;
@@ -1786,6 +1887,25 @@ export const App = () => {
     }
   };
 
+  /* Share a task with one person (issue #41). Returns whether the DM actually
+     reached them (they may have no bot reference), so the card can distinguish
+     "sent ✓" from a "couldn't reach them" heads-up. Rethrows on request failure
+     so the card can flash an inline error next to the picker. */
+  const onShare = async (taskId: string, targetUserId: string, note?: string): Promise<{ delivered: boolean }> => {
+    try {
+      const res = await apiRequest<{ ok: true; delivered: boolean }>(
+        `/tasks/${taskId}/share`,
+        { method: "POST", body: JSON.stringify({ targetUserId, ...(note ? { note } : {}) }) },
+        user
+      );
+      setError(null);
+      return { delivered: res.delivered };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to share task");
+      throw err;
+    }
+  };
+
   /* Unified visible-task list. Closed tasks (COMPLETED / CANCELLED /
      ARCHIVED) older than CLOSED_TTL_DAYS drop off the bottom — admins can
      see everything ever via the All Tasks tab. CANCELLED rides the same
@@ -1892,6 +2012,8 @@ export const App = () => {
       onAddReviewNote,
       onUpdatePoints,
       onFilterLoan: (loanId: string) => setLoanFilterId(loanId),
+      onShare,
+      directory,
       showActions: true,
       seenNotesAt,
       onMarkNoteSeen: markNoteSeen,
