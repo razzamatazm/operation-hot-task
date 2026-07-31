@@ -168,6 +168,23 @@ Primary goals:
   - `Archived`
 - Loan Docs lifecycle:
   - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
+- Reopen / Restore:
+  - Reopening a closed task (`Completed` or `Archived` -> `Open`, which lands
+    on `Claimed` when an assignee is retained) records the prior closed status
+    on the task as `reopenedFrom`.
+  - A reopened task offers a **Restore** action that returns it to exactly that
+    prior closed status (`Completed` or `Archived`, never just `Open`). Restore
+    is permitted for whoever could reopen it — task creator or assignee (plus
+    admin) — and is intentionally NOT assignee-only the way `Complete` is, so a
+    creator who reopened their own task can close it back out without the
+    assignee acting.
+  - `reopenedFrom` is cleared as soon as the task reaches any closed status
+    again. Restore returns Loan Docs tasks straight to the single prior closed
+    status; intermediate merge-chain state is not restored.
+- Done-view retention (UI): `Cancelled` tasks stay visible in the web Done
+  view for the same closed-task retention window as `Completed` / `Archived`
+  (they no longer disappear immediately on cancel). This is a UI filter only;
+  the backend auto-archive/purge behavior is unchanged.
 
 ### Claiming Rules
 - Claiming is first-come-first-serve

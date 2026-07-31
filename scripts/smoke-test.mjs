@@ -502,6 +502,83 @@ const run = async () => {
     expectStatus(cancelByAdmin.status, 200, "cancel by admin", cancelByAdmin.json);
     pushPass("admin cancel permissions enforced");
 
+    // Restore: a reopened task offers a path back to the exact closed status it
+    // held before the reopen, available to whoever reopened it (creator or
+    // assignee) — NOT assignee-gated the way normal Complete is.
+    const restoreTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Restore To Completed", taskType: "LOI", notes: "restore completed" }
+    });
+    const restoreId = restoreTask.json.task.id;
+    await request(server.baseUrl, "POST", `/tasks/${restoreId}/claim`, { user: users.otherOfficer });
+    const restoreCompleted = await request(server.baseUrl, "POST", `/tasks/${restoreId}/transition`, {
+      user: users.otherOfficer,
+      body: { status: "COMPLETED" }
+    });
+    expectStatus(restoreCompleted.status, 200, "assignee completes restore task", restoreCompleted.json);
+    // Creator reopens their own completed task — it returns to CLAIMED (assignee
+    // retained) and remembers COMPLETED as the restore target.
+    const reopened = await request(server.baseUrl, "POST", `/tasks/${restoreId}/transition`, {
+      user: users.creator,
+      body: { status: "OPEN" }
+    });
+    expectStatus(reopened.status, 200, "creator reopens completed task", reopened.json);
+    assert.equal(reopened.json.task.status, "CLAIMED", "reopened task retains assignee as CLAIMED");
+    assert.equal(reopened.json.task.reopenedFrom, "COMPLETED", "reopen remembers prior closed status");
+    const reopenedDetails = await request(server.baseUrl, "GET", `/tasks/${restoreId}`);
+    assert.ok(
+      reopenedDetails.json.allowedTransitions.includes("COMPLETED"),
+      "restore target is offered as an allowed transition"
+    );
+    // A third party (neither creator nor assignee) cannot restore.
+    const restoreDenied = await request(server.baseUrl, "POST", `/tasks/${restoreId}/transition`, {
+      user: users.fileChecker,
+      body: { status: "COMPLETED" }
+    });
+    expectStatus(restoreDenied.status, 400, "restore denied for non creator/assignee", restoreDenied.json);
+    // The creator who reopened can restore it back to COMPLETED without the
+    // assignee having to act.
+    const restored = await request(server.baseUrl, "POST", `/tasks/${restoreId}/transition`, {
+      user: users.creator,
+      body: { status: "COMPLETED" }
+    });
+    expectStatus(restored.status, 200, "creator restores to completed", restored.json);
+    assert.equal(restored.json.task.status, "COMPLETED", "restore returns task to COMPLETED");
+    assert.equal(restored.json.task.reopenedFrom, undefined, "restore breadcrumb cleared once closed");
+    pushPass("reopened task can be restored to COMPLETED by whoever reopened it");
+
+    // Restoring an ARCHIVED task returns it to ARCHIVED (not just COMPLETED).
+    const restoreArchTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Restore To Archived", taskType: "LOI", notes: "restore archived" }
+    });
+    const restoreArchId = restoreArchTask.json.task.id;
+    await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/claim`, { user: users.otherOfficer });
+    await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
+      user: users.otherOfficer,
+      body: { status: "COMPLETED" }
+    });
+    await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
+      user: users.creator,
+      body: { status: "ARCHIVED" }
+    });
+    const reopenedArch = await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
+      user: users.creator,
+      body: { status: "OPEN" }
+    });
+    expectStatus(reopenedArch.status, 200, "creator reopens archived task", reopenedArch.json);
+    assert.equal(reopenedArch.json.task.reopenedFrom, "ARCHIVED", "reopen from archived remembers ARCHIVED");
+    // Admins can restore too (neither creator nor assignee here), matching the
+    // shared canRestoreTask rule.
+    const restoredArch = await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
+      user: users.admin,
+      body: { status: "ARCHIVED" }
+    });
+    expectStatus(restoredArch.status, 200, "admin restores to archived", restoredArch.json);
+    assert.equal(restoredArch.json.task.status, "ARCHIVED", "restore returns task to ARCHIVED");
+    assert.equal(restoredArch.json.task.reopenedFrom, undefined, "restore breadcrumb cleared after re-archive");
+    pushPass("reopened archived task restores to ARCHIVED (admin allowed), not COMPLETED");
+
     const creatorReviewTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
