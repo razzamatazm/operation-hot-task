@@ -173,6 +173,12 @@ Primary goals:
 - FRAUD-only statuses (two-phase completion, see below):
   - `Awaiting Items` (`AWAITING_ITEMS`)
   - `Pending Approval` (`PENDING_APPROVAL`)
+- **Notes after completion:** a `Completed` task can still receive a review note
+  (the card's "Add a note" affordance) without being reopened. The note is
+  appended to `reviewNotes` server-side while the status stays `Completed` — no
+  transient reopen, so `reopenedFrom`/`completedAt` are untouched and one
+  "note added" history event is recorded. Applies to every task type;
+  creator/assignee/admin only. `Cancelled`/`Archived` stay closed to notes.
 - Loan Docs lifecycle:
   - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
 - Fraud lifecycle (two-phase completion):
@@ -469,7 +475,10 @@ Primary goals:
     back to the checker pool — creator/admin only)
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`
-  - `POST /api/tasks/:taskId/review-note`
+  - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
+  - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
+    without reopening it — creator/assignee/admin; the card's "Add a note"
+    affordance)
 - Integration:
   - `POST /api/integrations/tasks` with `x-api-key` when enabled
 - Streaming:

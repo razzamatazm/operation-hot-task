@@ -1013,13 +1013,19 @@ button.btn-good:hover {
   gap: 6px;
   align-items: flex-start;
 }
-.task-card-fraud-note {
+/* Inline reveal-a-note editors: the FRAUD note-required moves and the #45
+   "Add a note" affordance on a COMPLETED card share one full-width
+   textarea-over-button-row look. */
+.task-card-fraud-note,
+.task-card-note-add {
+  flex-basis: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: 100%;
 }
-.task-card-fraud-note textarea {
+.task-card-fraud-note textarea,
+.task-card-note-add textarea {
   width: 100%;
   resize: vertical;
   min-height: 44px;
@@ -1032,12 +1038,14 @@ button.btn-good:hover {
   font-size: 0.82rem;
   line-height: 1.35;
 }
-.task-card-fraud-note textarea:focus {
+.task-card-fraud-note textarea:focus,
+.task-card-note-add textarea:focus {
   outline: none;
   border-color: var(--brand);
   box-shadow: var(--focus-ring);
 }
-.task-card-fraud-note-actions {
+.task-card-fraud-note-actions,
+.task-card-note-add-actions {
   display: flex;
   gap: 8px;
 }

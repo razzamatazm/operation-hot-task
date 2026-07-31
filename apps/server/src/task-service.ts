@@ -538,13 +538,51 @@ export class TaskService {
       throw new Error("Notes cannot be added to closed tasks");
     }
 
-    const isCreator = task.createdBy.id === user.id;
-    const isAssignee = task.assignee?.id === user.id;
-    const isAdmin = user.roles.includes("ADMIN");
-    if (!isCreator && !isAssignee && !isAdmin) {
+    if (!this.canAddNote(task, user)) {
       throw new Error("Only the creator, assignee, or admin can add review notes");
     }
 
+    return this.appendReviewNote(task, text, user);
+  }
+
+  /* Add a note to an already-COMPLETED task (issue #45 — the card's "Add a note"
+     affordance). Server-atomic: the note is appended while the task stays
+     COMPLETED, so there's no visible reopen round-trip and nothing to strand in
+     OPEN if a second call fails. Deliberately COMPLETED-only — CANCELLED /
+     ARCHIVED tasks stay closed to notes (addReviewNote's invariant), and a
+     still-active task uses the normal note composer. completedAt and any
+     reopenedFrom breadcrumb are untouched, so Restore semantics stay correct,
+     and a single REVIEW_NOTE_ADDED history event is recorded (not a reopen +
+     complete pair). Applies to every task type. */
+  async addCompletedNote(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    if (task.status !== "COMPLETED") {
+      throw new Error("A note can only be added here to a COMPLETED task");
+    }
+
+    if (!this.canAddNote(task, user)) {
+      throw new Error("Only the creator, assignee, or admin can add a note");
+    }
+
+    return this.appendReviewNote(task, text, user);
+  }
+
+  /* Who may attach a review note to a task: its creator, its assignee, or an
+     admin. Shared by the active-task composer and the completed-task affordance
+     so both gates agree. */
+  private canAddNote(task: LoanTask, user: UserIdentity): boolean {
+    const isCreator = task.createdBy.id === user.id;
+    const isAssignee = task.assignee?.id === user.id;
+    const isAdmin = user.roles.includes("ADMIN");
+    return isCreator || isAssignee || isAdmin;
+  }
+
+  /* Append a ReviewNote to the task and fan out the note notifications. Callers
+     own the status/permission guards; this only records the note (a single
+     REVIEW_NOTE_ADDED history event), broadcasts the change, and pings the
+     participants. Never mutates status, completedAt, or reopenedFrom. */
+  private async appendReviewNote(task: LoanTask, text: string, user: UserIdentity): Promise<LoanTask> {
     const now = new Date().toISOString();
     const updated: LoanTask = {
       ...task,
