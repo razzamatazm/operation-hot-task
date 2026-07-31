@@ -600,6 +600,29 @@ const dedupeChannelRefs = (refs: StoredReference[]): StoredReference[] => {
   return [...byBase.values()];
 };
 
+/* Collapse captured DM references to one per 1:1 conversation before a
+   proactive fan-out. A single user can hold two "DM" references for the same
+   chat — one captured before Teams populated `aadObjectId` (keyed
+   `dm:<teamsId>`) and one after (keyed `dm:<aadObjectId>`). Different keys, so
+   ReferenceStore.save never overwrote, but the same `conversation.id`, so both
+   satisfy a userId match and the message lands twice (issue #40). Unlike
+   channels, DMs carry no `;messageid=…` thread suffix, so dedupe on the exact
+   conversation id. Drop references with no conversation id (nothing to send
+   to). Mirrors dedupeChannelRefs. Exported for unit coverage. */
+export const dedupeDmRefs = (refs: StoredReference[]): StoredReference[] => {
+  const byConversation = new Map<string, StoredReference>();
+  for (const entry of refs) {
+    const id = entry.reference.conversation?.id;
+    if (!id) {
+      continue;
+    }
+    if (!byConversation.has(id)) {
+      byConversation.set(id, entry);
+    }
+  }
+  return [...byConversation.values()];
+};
+
 /* Friendly "Team / Channel" label from a channel activity's channelData, for
    the admin picker. Teams often omits channel.name for the default General
    channel, so fall back to just the team name. Returns undefined for DMs or
@@ -1819,7 +1842,7 @@ export class TeamsBotClient {
       return;
     }
 
-    const references = (await this.store.read()).filter((entry) => entry.scope === "DM");
+    const references = dedupeDmRefs((await this.store.read()).filter((entry) => entry.scope === "DM"));
     await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, MessageFactory.text(text))));
   }
 
@@ -1833,12 +1856,14 @@ export class TeamsBotClient {
       return;
     }
 
-    const references = (await this.store.read()).filter((entry) => {
-      if (entry.scope !== "DM") {
-        return false;
-      }
-      return unique.some((userId) => entry.userAadObjectId === userId || entry.userId === userId || entry.key === `dm:${userId}`);
-    });
+    const references = dedupeDmRefs(
+      (await this.store.read()).filter((entry) => {
+        if (entry.scope !== "DM") {
+          return false;
+        }
+        return unique.some((userId) => entry.userAadObjectId === userId || entry.userId === userId || entry.key === `dm:${userId}`);
+      })
+    );
 
     await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, MessageFactory.text(text))));
   }
