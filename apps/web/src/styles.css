@@ -975,11 +975,17 @@ button.btn-good:hover {
   flex: 1 1 140px;
   min-width: 0;
 }
+.task-card-share-note {
+  width: 100%;
+}
 .task-card-share-status {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.64rem;
   letter-spacing: 0.04em;
   color: var(--good);
+}
+.task-card-share-status.task-card-share-warn {
+  color: var(--hot);
 }
 .task-card-share-status.task-card-share-error {
   color: var(--bad);

@@ -401,6 +401,10 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
         typeof (req.body as { targetUserId?: unknown }).targetUserId === "string"
           ? (req.body as { targetUserId: string }).targetUserId.trim()
           : "";
+      const note =
+        typeof (req.body as { note?: unknown }).note === "string"
+          ? (req.body as { note: string }).note.trim()
+          : "";
       if (!targetUserId) {
         res.status(400).json({ error: "targetUserId is required" });
         return;
@@ -415,12 +419,15 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
         res.status(404).json({ error: "User not found" });
         return;
       }
-      await service.shareTask({
+      const { delivered } = await service.shareTask({
         taskId: task.id,
         target: { id: target.id, displayName: target.displayName },
-        sharedBy: actor
+        sharedBy: actor,
+        ...(note ? { note } : {})
       });
-      res.json({ ok: true });
+      // The share always "succeeds" as an intent; `delivered` tells the UI
+      // whether the DM actually reached them (issue #41).
+      res.json({ ok: true, delivered });
     } catch (error) {
       sendError(res, error, "Failed to share task");
     }

@@ -184,6 +184,9 @@ export interface NotificationEvent {
   message: string;
   target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
+  /* Free-text note from the actor, surfaced in the recipient's card (issue #41
+     share). Optional — only DM_SHARE uses it today. */
+  note?: string;
   createdAt: string;
 }
 

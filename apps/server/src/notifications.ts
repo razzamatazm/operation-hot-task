@@ -6,6 +6,10 @@ import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
   notify(event: NotificationEvent): Promise<void>;
+  /* Whether a DM to this user would actually be delivered right now — a stored
+     bot reference exists AND DM notifications are enabled. Lets callers (issue
+     #41 share) report delivered-vs-not instead of dropping silently. */
+  canReachDm(userId: string): Promise<boolean>;
 }
 
 /* Teams deep link to the Hot Task tab, focused on a specific task via
@@ -74,6 +78,13 @@ export class TeamsNotificationProvider implements NotificationProvider {
       summary,
       ...(openUrl ? { openUrl } : {})
     };
+  }
+
+  async canReachDm(userId: string): Promise<boolean> {
+    if (!config.enableDmNotifications) {
+      return false;
+    }
+    return this.botClient.hasDmReference(userId);
   }
 
   async notify(event: NotificationEvent): Promise<void> {
@@ -204,6 +215,11 @@ export class TeamsNotificationProvider implements NotificationProvider {
               ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
               ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
             ];
+      // The sharer's own note (when provided) leads the card body, above the
+      // task details, so the personal "hey, look at this" reads first.
+      if (event.note?.trim()) {
+        lines.unshift(`"${event.note.trim()}"`, "");
+      }
       const openUrl = teamsTaskDeepLink(event.task.id);
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
         await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
