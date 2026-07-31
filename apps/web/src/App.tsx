@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, formatWallDate, getNotesFieldLabel, nextFlowStatuses } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, CreateTaskInput, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -25,7 +25,6 @@ export const setAuthToken = (token: string | null): void => {
   authToken = token;
 };
 
-const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "ARCHIVED", "CANCELLED"];
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
   LOI: "LOI Check",
   BUDDY_CHAT: "Buddy Chat",
@@ -186,6 +185,13 @@ const groupedDue = (
   if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
     const stamp = task.completedAt ?? task.archivedAt;
     return { label: "", value: `✓ ${formatRelativeCompleted(stamp).replace(/^done\s*/, "")}`.trim(), overdue: false, done: true };
+  }
+  // Cancelled tasks are closed — the deadline is moot, so show when they were
+  // cancelled (mirrors the completed/archived stamp, with a ✕ instead of ✓)
+  // rather than a stale due countdown now that Cancelled rides the Done view.
+  if (task.status === "CANCELLED") {
+    const stamp = task.cancelledAt ?? task.updatedAt;
+    return { label: "", value: `✕ ${formatRelativeCompleted(stamp).replace(/^done\s*/, "")}`.trim(), overdue: false, done: true };
   }
   if (task.taskType === "OOO") {
     return { label: "RETURNS", value: formatPtDateOnly(task.dueAt), overdue: false, done: false };
@@ -404,6 +410,9 @@ const TaskCard = ({
   }, [reviewCount, expanded]);
   const overdue = isOverdue(task);
   const transitions = nextFlowStatuses(task).filter((s) => s !== "OPEN");
+  // Non-undefined only for a reopened task; the exact closed status to restore
+  // it to (COMPLETED/ARCHIVED). Permission mirrors the shared canRestoreTask.
+  const restoreTarget = restoreTargetStatus(task);
 
   const handleSubmitNote = async () => {
     if (!noteText.trim()) return;
@@ -593,6 +602,16 @@ const TaskCard = ({
               {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
                 <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
                   Re-open
+                </button>
+              )}
+              {/* A reopened task remembers the closed status it came from.
+                  "Restore" sends it straight back there (COMPLETED or ARCHIVED),
+                  available to whoever reopened it — creator, assignee, or admin —
+                  so a creator-only reopen doesn't need the assignee to close it
+                  out. Gated by the shared canRestoreTask so UI and API agree. */}
+              {restoreTarget && canRestoreTask(task, user) && (
+                <button type="button" className="btn-sm btn-good" onClick={() => { acknowledgeUnread(); onTransition(task.id, restoreTarget); }}>
+                  Restore
                 </button>
               )}
             </div>
@@ -1613,14 +1632,15 @@ export const App = () => {
     }
   };
 
-  /* Unified visible-task list. CANCELLED is filtered out (still counted
-     in admin Metrics). Closed tasks (COMPLETED / ARCHIVED) older than
-     CLOSED_TTL_DAYS drop off the bottom — admins can see everything
-     ever via the All Tasks tab. Fraud Check claims are gated to
-     FILE_CHECKERs in the workflow; the UI just hides the Claim button
-     for viewers who can't act. Sort: celebrating (creator-only
-     completion milestone) pinned to the very top → OPEN → in-flight →
-     closed mini rows, newest-first within each bucket. */
+  /* Unified visible-task list. Closed tasks (COMPLETED / CANCELLED /
+     ARCHIVED) older than CLOSED_TTL_DAYS drop off the bottom — admins can
+     see everything ever via the All Tasks tab. CANCELLED rides the same
+     retention window as the other closed statuses (it used to vanish
+     immediately) so a just-cancelled task stays visible in Done before being
+     pruned. Fraud Check claims are gated to FILE_CHECKERs in the workflow;
+     the UI just hides the Claim button for viewers who can't act. Sort:
+     celebrating (creator-only completion milestone) pinned to the very top →
+     OPEN → in-flight → closed mini rows, newest-first within each bucket. */
   const CLOSED_TTL_DAYS = 14;
   const buildSorted = (includeOldClosed: boolean): LoanTask[] => {
     const cutoff = Date.now() - CLOSED_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -1631,11 +1651,10 @@ export const App = () => {
       return 2;
     };
     return tasks
-      .filter((t) => t.status !== "CANCELLED")
       .filter((t) => {
         if (includeOldClosed) return true;
         if (!CLOSED_STATUSES.includes(t.status)) return true;
-        const stamp = t.completedAt ?? t.updatedAt;
+        const stamp = t.completedAt ?? t.cancelledAt ?? t.archivedAt ?? t.updatedAt;
         return new Date(stamp).getTime() >= cutoff;
       })
       .sort((a, b) => {

@@ -272,6 +272,9 @@ export class TaskService {
     if (next === "OPEN") {
       delete updated.completedAt;
       delete updated.archivedAt;
+      // Remember the closed status we're reopening from so "Restore" can send
+      // the task back to exactly COMPLETED or ARCHIVED (never just OPEN).
+      updated.reopenedFrom = task.status;
       if (task.assignee) {
         updated.status = "CLAIMED";
       }
@@ -281,6 +284,11 @@ export class TaskService {
         ...(task.reviewNotes ?? []),
         { text: reviewNotes, by: { id: user.id, displayName: user.displayName }, at: now }
       ];
+    }
+    // Once a task is closed again (restored, completed, cancelled, or archived)
+    // it's no longer "reopened" — drop the restore breadcrumb.
+    if (updated.status === "COMPLETED" || updated.status === "CANCELLED" || updated.status === "ARCHIVED") {
+      delete updated.reopenedFrom;
     }
 
     const detail = reviewNotes

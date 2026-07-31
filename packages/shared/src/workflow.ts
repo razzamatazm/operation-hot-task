@@ -11,6 +11,11 @@ const LOAN_DOCS_FLOW: TaskStatus[] = [
 
 const STANDARD_FLOW: TaskStatus[] = ["OPEN", "CLAIMED", "COMPLETED", "ARCHIVED"];
 
+/* The terminal/closed statuses — a task here is done being worked. Canonical
+   list so the web view, workflow rules, and services agree on what "closed"
+   means. */
+export const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "CANCELLED", "ARCHIVED"];
+
 const ALWAYS_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   OPEN: ["CANCELLED"],
   CLAIMED: ["NEEDS_REVIEW", "CANCELLED"],
@@ -239,6 +244,23 @@ export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: 
   return label ? { status: target, label } : undefined;
 };
 
+/* A reopened task remembers the closed status it came from in `reopenedFrom`.
+   That closed status is the target of the "Restore" action — the exact status
+   to return the task to. Only valid while the task sits in an active status;
+   returns undefined once the task is closed again (or was never reopened). */
+export const restoreTargetStatus = (task: LoanTask): TaskStatus | undefined => {
+  const from = task.reopenedFrom;
+  if (from !== "COMPLETED" && from !== "ARCHIVED") {
+    return undefined;
+  }
+  // Only meaningful while the task sits in an active status — once it's closed
+  // again the breadcrumb is stale (the service clears it, but guard anyway).
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return undefined;
+  }
+  return from;
+};
+
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
   const flow = task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : STANDARD_FLOW;
   const index = flow.indexOf(task.status);
@@ -246,7 +268,8 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
   const nextCandidate = index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
   const next = nextCandidate ? [nextCandidate] : [];
   const extra = ALWAYS_ALLOWED[task.status] ?? [];
-  return Array.from(new Set([...next, ...extra]));
+  const restore = restoreTargetStatus(task);
+  return Array.from(new Set([...next, ...extra, ...(restore ? [restore] : [])]));
 };
 
 const hasRole = (user: UserIdentity, role: "FILE_CHECKER" | "ADMIN"): boolean => user.roles.includes(role);
@@ -315,9 +338,33 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
   return false;
 };
 
+/* Restore returns a reopened task to the exact closed status it held before the
+   reopen. Unlike normal completion (assignee-only), it's available to whoever
+   could have reopened it — creator or assignee — plus admins, so a creator who
+   reopened their own task can close it back out without routing through the
+   assignee. */
+export const canRestoreTask = (task: LoanTask, user: UserIdentity): boolean => {
+  if (!restoreTargetStatus(task)) {
+    return false;
+  }
+  const isCreator = task.createdBy.id === user.id;
+  const isAssignee = task.assignee?.id === user.id;
+  const isAdmin = hasRole(user, "ADMIN");
+  return isCreator || isAssignee || isAdmin;
+};
+
 export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: UserIdentity): { ok: boolean; reason?: string } => {
   if (!nextFlowStatuses(task).includes(next)) {
     return { ok: false, reason: `Cannot move from ${task.status} to ${next}` };
+  }
+
+  // Restore is a first-class action distinct from the forward workflow: a
+  // reopened task moving back to its prior closed status uses restore
+  // permission (creator or assignee), not the assignee-only completion gate.
+  if (next === restoreTargetStatus(task)) {
+    return canRestoreTask(task, user)
+      ? { ok: true }
+      : { ok: false, reason: "Only the task creator, assignee, or an admin can restore a reopened task" };
   }
 
   if (next === "CANCELLED" && !canCancelTask(task, user)) {

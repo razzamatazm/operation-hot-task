@@ -114,7 +114,11 @@ Closed statuses (`COMPLETED` / `CANCELLED` / `ARCHIVED`) drop into the
 bottom of the grid as `.task-card-collapsed-mini` rows: half height
 (~28px min), no poop, no action column, no "Assigner/Assignee" labels
 above the values. Title font shrinks. Clicking still expands to reveal
-full actions (Re-open / Archive).
+full actions (Re-open / Archive). A task that was reopened back into an
+active status shows a **Restore** button in the expanded body (via
+`restoreTargetStatus`) that returns it to the exact closed status it came
+from — COMPLETED or ARCHIVED — for whoever reopened it (creator or
+assignee), not assignee-gated like Complete.
 
 ### Auto-expand and bucket sort
 
@@ -127,9 +131,11 @@ full actions (Re-open / Archive).
    until the creator archives it.
 2. `OPEN` — always undimmed (anyone may claim).
 3. In-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED`).
-4. Closed (`COMPLETED` / `ARCHIVED`) — render as mini rows. `CANCELLED`
-   is filtered out of the grid entirely (still counted in the admin
-   Metrics panel).
+4. Closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`) — render as mini rows.
+   All three share the `CLOSED_TTL_DAYS` retention window in `buildSorted`
+   (`App.tsx`): a just-closed task stays visible in Done, then drops off the
+   bottom once it ages past the cutoff. (Admin Metrics counts every status
+   from the raw task list, independent of this view filter.)
 
 Rows never auto-expand — every card renders collapsed, including on a
 new unread note (that only pulses the red dot). The

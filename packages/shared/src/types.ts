@@ -133,6 +133,11 @@ export interface LoanTask {
   archivedAt?: string;
   completedAt?: string;
   cancelledAt?: string;
+  /** When a closed task (COMPLETED/ARCHIVED) is reopened back into an active
+      status, the closed status it held immediately before the reopen. Drives
+      the "Restore" action, which returns the task to exactly that status.
+      Cleared as soon as the task reaches a closed status again. */
+  reopenedFrom?: TaskStatus;
   lastReminderAt?: string;
   reviewNotes?: ReviewNote[];
 }
