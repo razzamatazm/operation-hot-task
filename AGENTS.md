@@ -28,6 +28,7 @@ Verified against the repo and local run on `2026-05-04`.
   - `npm run test:smoke`
 - Current data files:
   - Tasks/history: `apps/server/data/tasks.json`
+  - Loans: `apps/server/data/loans.json` (ADR-0001; created on first boot)
   - Bot references: `apps/server/data/bot-references.json`
   - Bot task threads (root message ids for threading): `apps/server/data/bot-task-threads.json`
   - Activity feed state: `apps/server/data/activity-feed-state.json`
@@ -450,9 +451,16 @@ Primary goals:
 ## Current Backend Surface
 - Health:
   - `GET /api/health`
+- Loans (ADR-0001):
+  - `GET /api/loans` (list; `?q=` fuzzy search for the create-form typeahead)
+  - `POST /api/loans` (create; dedupes by canonical link / normalized name)
+  - `GET /api/loans/:loanId`
+  - `PATCH /api/loans/:loanId` (edit name/link; propagates to linked tasks;
+    auto-merges on a shared Humperdink link)
 - Tasks:
   - `GET /api/tasks`
-  - `POST /api/tasks`
+  - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or
+    `folderName`; `folderName`/`humperdinkLink` are a live cache of the Loan)
   - `GET /api/tasks/:taskId`
   - `GET /api/tasks/:taskId/history`
   - `POST /api/tasks/:taskId/claim`

@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, fraudCardActions, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, fraudCardActions, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus, searchLoans } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -362,6 +362,9 @@ const TaskCard = ({
   onRelease,
   onAddReviewNote,
   onUpdatePoints,
+  onFilterLoan,
+  onShare,
+  directory,
   showActions,
   seenNoteAt,
   onMarkNoteSeen,
@@ -378,6 +381,13 @@ const TaskCard = ({
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
+  onFilterLoan?: (loanId: string) => void;
+  /* Point a specific person at this task (issue #41). Resolves with whether the
+     DM actually reached them; rejects on request failure so the card can show
+     inline status. */
+  onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  /* Selectable people for the share picker (active users, id + name). */
+  directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
@@ -395,6 +405,13 @@ const TaskCard = ({
      is open (null = none). The server also rejects a blank note. */
   const [fraudNote, setFraudNote] = useState("");
   const [openFraudNote, setOpenFraudNote] = useState<TaskStatus | null>(null);
+  /* Share picker (issue #41): chosen person + optional note + send status +
+     copy-link flash. "undelivered" = share recorded but the target has no bot
+     reference, so the DM couldn't reach them. */
+  const [shareTargetId, setShareTargetId] = useState("");
+  const [shareNote, setShareNote] = useState("");
+  const [shareState, setShareState] = useState<"idle" | "sending" | "done" | "undelivered" | "error">("idle");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -455,6 +472,38 @@ const TaskCard = ({
     await onAddReviewNote(task.id, noteText.trim());
     setNoteText("");
     acknowledgeUnread();
+  };
+
+  /* Share: point one person at this task. Candidates exclude the current user
+     plus the creator and assignee — they already see the task, so the picker
+     only offers genuinely new recipients (issue #41). */
+  const shareCandidates = directory.filter(
+    (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
+  );
+  const handleShare = async () => {
+    if (!shareTargetId) return;
+    setShareState("sending");
+    try {
+      const { delivered } = await onShare(task.id, shareTargetId, shareNote.trim() || undefined);
+      setShareState(delivered ? "done" : "undelivered");
+      setShareTargetId("");
+      setShareNote("");
+    } catch {
+      setShareState("error");
+    }
+  };
+  /* Copy an in-app deep link to this task (the `#task-<id>` anchor matches the
+     card's element id, so it scrolls the row into view). The person-picker
+     above is the real deliverable; this is the lightweight "share link". */
+  const handleCopyShareLink = async () => {
+    const link = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
   };
 
   const isClosed = CLOSED_STATUSES.includes(task.status);
@@ -739,6 +788,43 @@ const TaskCard = ({
               )}
             </div>
           )}
+          {/* Share (issue #41): DM a specific person a deep link to this task,
+              outside the normal creator/assignee flow. Hidden when there's
+              nobody else in the directory to point at. */}
+          {showActions && shareCandidates.length > 0 && (
+            <div className="task-card-share">
+              <label className="task-card-share-label" htmlFor={`share-${task.id}`}>Make sure someone sees this</label>
+              <div className="task-card-share-row">
+                <select
+                  id={`share-${task.id}`}
+                  value={shareTargetId}
+                  onChange={(e) => { setShareTargetId(e.target.value); setShareState("idle"); }}
+                >
+                  <option value="">Choose a person…</option>
+                  {shareCandidates.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
+                  ))}
+                </select>
+                <button type="button" className="btn-sm" disabled={!shareTargetId || shareState === "sending"} onClick={() => void handleShare()}>
+                  {shareState === "sending" ? "Sharing…" : "Share"}
+                </button>
+                <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopyShareLink()}>
+                  {shareLinkCopied ? "Copied ✓" : "Copy link"}
+                </button>
+              </div>
+              <input
+                className="task-card-share-note"
+                type="text"
+                value={shareNote}
+                placeholder="Add a note (optional)"
+                maxLength={280}
+                onChange={(e) => { setShareNote(e.target.value); if (shareState !== "sending") setShareState("idle"); }}
+              />
+              {shareState === "done" && <span className="task-card-share-status" role="status">Sent a heads-up ✓</span>}
+              {shareState === "undelivered" && <span className="task-card-share-status task-card-share-warn" role="status">Couldn't reach them — have them message the bot first.</span>}
+              {shareState === "error" && <span className="task-card-share-status task-card-share-error" role="status">Couldn't share — try again</span>}
+            </div>
+          )}
         </div>
 
         <div className="thread">
@@ -832,13 +918,24 @@ const TaskCard = ({
             )}
           </span>
           <span className="task-card-collapsed-folder">
-            {task.taskType !== "OOO" && task.humperdinkLink ? (
-              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
-                <span>{task.folderName}</span>
-                <span className="external-link-icon" aria-hidden="true">↗</span>
-              </a>
+            {task.taskType !== "OOO" && task.loanId && onFilterLoan ? (
+              // The loan name filters the list to that loan (+ its editable
+              // header); the ↗ still opens the Humperdink link when present.
+              <button
+                type="button"
+                className="loan-name-link"
+                title={`Filter to loan: ${task.folderName}`}
+                onClick={(e) => { stopBubble(e); onFilterLoan(task.loanId!); }}
+              >
+                {task.folderName}
+              </button>
             ) : (
               <span>{task.folderName}</span>
+            )}
+            {task.taskType !== "OOO" && task.humperdinkLink && (
+              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
+                <span className="external-link-icon" aria-hidden="true">↗</span>
+              </a>
             )}
           </span>
         </span>
@@ -873,6 +970,9 @@ const CardList = ({
   onRelease,
   onAddReviewNote,
   onUpdatePoints,
+  onFilterLoan,
+  onShare,
+  directory,
   showActions,
   emptyMessage,
   seenNotesAt,
@@ -890,6 +990,9 @@ const CardList = ({
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
+  onFilterLoan?: (loanId: string) => void;
+  onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   emptyMessage: string;
   seenNotesAt?: Record<string, string>;
@@ -914,6 +1017,9 @@ const CardList = ({
           onRelease={onRelease}
           onAddReviewNote={onAddReviewNote}
           onUpdatePoints={onUpdatePoints}
+          {...(onFilterLoan ? { onFilterLoan } : {})}
+          onShare={onShare}
+          directory={directory}
           showActions={showActions}
           pulsing={pulsingIds?.has(task.id) ?? false}
           {...(now !== undefined ? { now } : {})}
@@ -926,6 +1032,84 @@ const CardList = ({
     )}
   </div>
 );
+
+/* Editable header shown above the task list when it's filtered to a single
+   Loan (ADR-0001). The app's only post-creation edit surface, scoped to the
+   Loan's name + Humperdink link. Any authenticated user may edit. */
+const LoanFilterHeader = ({
+  loan,
+  taskCount,
+  onSave,
+  onClear
+}: {
+  loan: Loan;
+  taskCount: number;
+  onSave: (loanId: string, name: string, humperdinkLink: string) => Promise<void>;
+  onClear: () => void;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(loan.name);
+  const [link, setLink] = useState(loan.humperdinkLink ?? "");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    // Re-sync when the underlying loan changes (e.g. after a save/merge).
+    setName(loan.name);
+    setLink(loan.humperdinkLink ?? "");
+    setEditing(false);
+  }, [loan.id, loan.name, loan.humperdinkLink]);
+
+  const save = async (): Promise<void> => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(loan.id, name, link);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="loan-header">
+      <div className="loan-header-main">
+        <span className="loan-header-eyebrow">Loan</span>
+        {editing ? (
+          <div className="loan-header-edit">
+            <input
+              className="loan-header-name-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              aria-label="Loan name"
+            />
+            <input
+              className="loan-header-link-input"
+              value={link}
+              placeholder="Humperdink link (optional)"
+              onChange={(e) => setLink(e.target.value)}
+              aria-label="Humperdink link"
+            />
+            <button type="button" className="btn-sm btn-good" disabled={saving} onClick={() => { void save(); }}>Save</button>
+            <button type="button" className="btn-sm btn-ghost" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        ) : (
+          <div className="loan-header-view">
+            <h2 className="loan-header-name">{loan.name}</h2>
+            {loan.humperdinkLink && (
+              <a className="loan-header-link" href={loan.humperdinkLink} target="_blank" rel="noreferrer">
+                Humperdink <span aria-hidden="true">↗</span>
+              </a>
+            )}
+            <button type="button" className="btn-sm btn-ghost" onClick={() => setEditing(true)}>Edit</button>
+          </div>
+        )}
+      </div>
+      <div className="loan-header-meta">
+        <span className="section-count">{taskCount} TASK{taskCount === 1 ? "" : "S"}</span>
+        <button type="button" className="btn-sm btn-ghost" onClick={onClear}>Clear filter</button>
+      </div>
+    </div>
+  );
+};
 
 /* ── Metrics Panel ────────────────────────────────────────── */
 const TYPE_BAR_CLASS: Record<TaskType, string> = {
@@ -1401,8 +1585,20 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  /* When set, the task list is filtered to a single Loan and shows its
+     editable header (ADR-0001: click a loan name to filter + edit). */
+  const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
+  /* Selectable people for the share picker (issue #41). Active users, id + name. */
+  const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  /* Non-blocking notice for a loan auto-merge (ADR-0001 item 3: merges happen
+     "silently with a visible notice"). Cleared on the next successful edit. */
+  const [loanNotice, setLoanNotice] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  /* Create-form loan typeahead: which suggestion list is open + which loan
+     (if any) the typed Folder Name resolved to. */
+  const [loanSuggestOpen, setLoanSuggestOpen] = useState(false);
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
 
@@ -1602,6 +1798,7 @@ export const App = () => {
 
   const [form, setForm] = useState({
     folderName: "",
+    loanId: "",
     taskType: "LOI" as TaskType,
     urgency: "GREEN" as UrgencyLevel,
     startDate: "",
@@ -1626,6 +1823,16 @@ export const App = () => {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks");
+    }
+  };
+
+  const loadLoans = async (): Promise<void> => {
+    try {
+      const data = await apiRequest<{ loans: Loan[] }>("/loans", { method: "GET" }, user);
+      setLoans(data.loans);
+    } catch {
+      /* Loan typeahead is a convenience — a failed load just means no
+         suggestions, so swallow rather than blocking the task view. */
     }
   };
 
@@ -1672,6 +1879,16 @@ export const App = () => {
        encoding error. Dev always has a real mock id, so it runs immediately. */
     if (!IS_DEV && !user.id) return;
     refresh().catch(() => {});
+    loadLoans().catch(() => {});
+  }, [user.id]);
+
+  useEffect(() => {
+    /* Load the people directory for the share picker (issue #41). Same
+       gate as the task fetch: hold until a real identity resolves in prod. */
+    if (!IS_DEV && !user.id) return;
+    apiRequest<{ users: Array<{ id: string; displayName: string }> }>("/users/directory", { method: "GET" }, user)
+      .then((data) => setDirectory(data.users))
+      .catch(() => {});
   }, [user.id]);
 
   useEffect(() => {
@@ -1693,10 +1910,15 @@ export const App = () => {
     event.preventDefault();
     const rawLink = form.humperdinkLink.trim();
     const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
+    // Only pass loanId when the typed name still matches the selected loan —
+    // editing the text after selecting means the user intends a new loan.
+    const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
+    const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
     const payload: CreateTaskInput = {
       folderName: form.folderName,
       taskType: form.taskType,
       notes: form.notes,
+      ...(keepLoanId ? { loanId: form.loanId } : {}),
       ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {})
@@ -1704,10 +1926,12 @@ export const App = () => {
 
     try {
       await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0 }));
+      setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0 }));
+      setLoanSuggestOpen(false);
       setError(null);
       setFormOpen(false);
       await refresh();
+      await loadLoans();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create task");
     }
@@ -1761,12 +1985,62 @@ export const App = () => {
     }
   };
 
+  /* Edit a Loan's name/link (the app's first post-creation edit surface).
+     Server propagates to every linked task; we refresh tasks + loans so the
+     live reference is reflected everywhere. */
+  const onSaveLoan = async (loanId: string, name: string, humperdinkLink: string): Promise<void> => {
+    try {
+      const trimmedLink = humperdinkLink.trim();
+      const normLink = trimmedLink && !/^https?:\/\//i.test(trimmedLink) ? `https://${trimmedLink}` : trimmedLink;
+      const { loan, merged } = await apiRequest<{
+        loan: Loan;
+        merged?: { intoLoanId: string; intoLoanName: string; mergedName: string };
+      }>(
+        `/loans/${loanId}`,
+        { method: "PATCH", body: JSON.stringify({ name: name.trim(), humperdinkLink: normLink }) },
+        user
+      );
+      setLoanFilterId(loan.id);
+      setError(null);
+      // ADR-0001: a shared Humperdink link auto-merges the two loans; surface
+      // that so the edit doesn't silently fold this record into another.
+      setLoanNotice(
+        merged
+          ? `Merged with "${merged.intoLoanName}", an existing loan sharing this Humperdink link.`
+          : null
+      );
+      await refresh();
+      await loadLoans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update loan");
+    }
+  };
+
   const onUpdatePoints = async (taskId: string, points: number): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/points`, { method: "POST", body: JSON.stringify({ points }) }, user);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update poops");
+    }
+  };
+
+  /* Share a task with one person (issue #41). Returns whether the DM actually
+     reached them (they may have no bot reference), so the card can distinguish
+     "sent ✓" from a "couldn't reach them" heads-up. Rethrows on request failure
+     so the card can flash an inline error next to the picker. */
+  const onShare = async (taskId: string, targetUserId: string, note?: string): Promise<{ delivered: boolean }> => {
+    try {
+      const res = await apiRequest<{ ok: true; delivered: boolean }>(
+        `/tasks/${taskId}/share`,
+        { method: "POST", body: JSON.stringify({ targetUserId, ...(note ? { note } : {}) }) },
+        user
+      );
+      setError(null);
+      return { delivered: res.delivered };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to share task");
+      throw err;
     }
   };
 
@@ -1876,6 +2150,9 @@ export const App = () => {
       onRelease,
       onAddReviewNote,
       onUpdatePoints,
+      onFilterLoan: (loanId: string) => setLoanFilterId(loanId),
+      onShare,
+      directory,
       showActions: true,
       seenNotesAt,
       onMarkNoteSeen: markNoteSeen,
@@ -2009,6 +2286,15 @@ export const App = () => {
       </header>
 
       {error && <p className="error-bar">{error}</p>}
+      {loanNotice && (
+        <p className="notif-chip loan-merge-notice" role="status">
+          <span className="notif-dot" />
+          {loanNotice}
+          <button type="button" className="loan-merge-notice-dismiss" aria-label="Dismiss notice" onClick={() => setLoanNotice(null)}>
+            ×
+          </button>
+        </p>
+      )}
 
       {formOpen && (
         <div
@@ -2023,7 +2309,58 @@ export const App = () => {
           <form className="task-form" onSubmit={onCreateTask}>
             <label>
               {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
-              <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
+              {form.taskType === "OOO" ? (
+                <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
+              ) : (
+                <span className="loan-typeahead">
+                  <input
+                    value={form.folderName}
+                    autoComplete="off"
+                    placeholder="Search existing loans or type a new name"
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      // Typing diverges from any prior selection → treat as a new loan.
+                      setForm((c) => ({ ...c, folderName: v, loanId: "" }));
+                      setLoanSuggestOpen(true);
+                    }}
+                    onFocus={() => setLoanSuggestOpen(true)}
+                    onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
+                    required
+                  />
+                  {loanSuggestOpen && (() => {
+                    const matches = searchLoans(form.folderName, loans, 6)
+                      .filter((m) => m.loan.name.trim().toLowerCase() !== form.folderName.trim().toLowerCase());
+                    if (matches.length === 0) return null;
+                    return (
+                      <ul className="loan-typeahead-list" role="listbox">
+                        {matches.map((m) => (
+                          <li key={m.loan.id}>
+                            <button
+                              type="button"
+                              className="loan-typeahead-option"
+                              // onMouseDown fires before the input's onBlur so the pick registers.
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setForm((c) => ({
+                                  ...c,
+                                  folderName: m.loan.name,
+                                  loanId: m.loan.id,
+                                  humperdinkLink: m.loan.humperdinkLink ?? c.humperdinkLink
+                                }));
+                                setLoanSuggestOpen(false);
+                              }}
+                            >
+                              <span className="loan-typeahead-name">{m.loan.name}</span>
+                              {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+                  {form.loanId && <span className="loan-typeahead-hint">Linked to an existing loan</span>}
+                </span>
+              )}
             </label>
             <label>
               Type
@@ -2163,7 +2500,26 @@ export const App = () => {
       )}
 
       {/* ── Unified task grid ──────────────────────── */}
-      {activeTab === "active" && renderTaskList(unifiedTasks, "No tasks yet.")}
+      {activeTab === "active" && (() => {
+        // A stale id (loan merged away) simply resolves to undefined → the
+        // list renders unfiltered with no header, which is harmless.
+        const activeLoan = loanFilterId ? loans.find((l) => l.id === loanFilterId) : undefined;
+        if (activeLoan) {
+          const filtered = unifiedTasks.filter((t) => t.loanId === activeLoan.id);
+          return (
+            <>
+              <LoanFilterHeader
+                loan={activeLoan}
+                taskCount={filtered.length}
+                onSave={onSaveLoan}
+                onClear={() => setLoanFilterId(null)}
+              />
+              {renderTaskList(filtered, "No tasks for this loan.")}
+            </>
+          );
+        }
+        return renderTaskList(unifiedTasks, "No tasks yet.");
+      })()}
 
       {/* ── All Tasks (admin) ────────────────────────── */}
       {activeTab === "all" && isAdmin && (

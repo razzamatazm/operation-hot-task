@@ -79,11 +79,18 @@ const expectStatus = (actual, expected, label, payload) => {
   }
 };
 
-const createServer = async (port, extraEnv = {}) => {
+const createServer = async (port, extraEnv = {}, { botReferences } = {}) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "loan-smoke-"));
   const dataFile = path.join(tempDir, "tasks.json");
   const botRefs = path.join(tempDir, "bot-references.json");
   const activityStateFile = path.join(tempDir, "activity-feed-state.json");
+
+  // Optionally pre-seed stored bot DM references so the share flow can report
+  // delivered=true for a "bot-onboarded" user (issue #41). Written before the
+  // server starts so its reference-store init leaves the seed intact.
+  if (botReferences) {
+    await fs.writeFile(botRefs, JSON.stringify(botReferences), "utf8");
+  }
 
   const logs = [];
   const child = spawn(process.execPath, ["apps/server/dist/index.js"], {
@@ -747,6 +754,79 @@ const run = async () => {
     expectStatus(loanDocsArchive.status, 200, "loan docs archived", loanDocsArchive.json);
     pushPass("loan docs flow enforces merge stages");
 
+    // ── Share a task directly with a person (issue #41) ──────
+    const shareTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Share Me", taskType: "LOI", notes: "share test" }
+    });
+    const shareId = shareTask.json.task.id;
+
+    // Any authenticated user can read the minimal people directory (not admin-
+    // gated). It exposes id + displayName only, and includes known users.
+    const directoryDenied = await request(server.baseUrl, "GET", "/users/directory", {
+      user: users.creator
+    });
+    expectStatus(directoryDenied.status, 200, "non-admin can read people directory", directoryDenied.json);
+    assert.ok(Array.isArray(directoryDenied.json.users), "directory returns a users array");
+    assert.ok(
+      directoryDenied.json.users.some((u) => u.id === users.fileChecker.id),
+      "directory includes a known user"
+    );
+    assert.ok(
+      directoryDenied.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id"),
+      "directory entries expose only id + displayName"
+    );
+    pushPass("people directory is readable by any authenticated user, id + name only");
+
+    const shareOk = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: { targetUserId: users.fileChecker.id }
+    });
+    expectStatus(shareOk.status, 200, "share task with a known user", shareOk.json);
+    assert.equal(shareOk.json.ok, true, "share returns ok");
+    // This server has no stored bot references, so the DM can't reach the
+    // target — the share still succeeds but reports delivered=false so the UI
+    // can tell the sharer to have them message the bot first (issue #41).
+    assert.equal(shareOk.json.delivered, false, "share to a user with no bot reference reports not-delivered");
+    pushPass("share reports delivered=false when the target has no bot reference");
+
+    // Optional note is accepted (issue #41 = people-picker + optional note).
+    const shareWithNote = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: { targetUserId: users.fileChecker.id, note: "take a look when you get a sec" }
+    });
+    expectStatus(shareWithNote.status, 200, "share with an optional note", shareWithNote.json);
+    assert.equal(shareWithNote.json.ok, true, "share-with-note returns ok");
+    pushPass("share accepts an optional note");
+
+    const shareRecorded = await request(server.baseUrl, "GET", `/tasks/${shareId}/history`, {
+      user: users.creator
+    });
+    assert.ok(
+      shareRecorded.json.history.some((event) => event.action === "TASK_SHARED"),
+      "share is recorded in task history"
+    );
+    pushPass("share is recorded in task history for audit");
+
+    const shareNoTarget = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: {}
+    });
+    expectStatus(shareNoTarget.status, 400, "share without targetUserId is rejected", shareNoTarget.json);
+
+    const shareUnknownUser = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
+      user: users.creator,
+      body: { targetUserId: "nobody-here" }
+    });
+    expectStatus(shareUnknownUser.status, 404, "share with unknown user is rejected", shareUnknownUser.json);
+
+    const shareUnknownTask = await request(server.baseUrl, "POST", "/tasks/nonexistent-task/share", {
+      user: users.creator,
+      body: { targetUserId: users.fileChecker.id }
+    });
+    expectStatus(shareUnknownTask.status, 404, "share of unknown task is rejected", shareUnknownTask.json);
+    pushPass("share validates target user and task existence");
+
     const integrationDisabled = await request(server.baseUrl, "POST", "/integrations/tasks", {
       body: {
         folderName: "Inbound disabled",
@@ -881,6 +961,43 @@ const run = async () => {
   } finally {
     if (partialServer) {
       await partialServer.stop();
+    }
+  }
+
+  // Share reports delivered=true when the target has a stored bot DM reference
+  // (issue #41). Seed a reference for the target before the server starts.
+  let deliveredServer;
+  try {
+    deliveredServer = await createServer(
+      BASE_PORT + 3,
+      {},
+      {
+        botReferences: [
+          {
+            key: `dm:${users.fileChecker.id}`,
+            scope: "DM",
+            userAadObjectId: users.fileChecker.id,
+            reference: {}
+          }
+        ]
+      }
+    );
+    const created = await request(deliveredServer.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Delivered Share", taskType: "LOI", notes: "delivered test" }
+    });
+    const deliveredShare = await request(deliveredServer.baseUrl, "POST", `/tasks/${created.json.task.id}/share`, {
+      user: users.creator,
+      body: { targetUserId: users.fileChecker.id, note: "eyes on this please" }
+    });
+    expectStatus(deliveredShare.status, 200, "share to a bot-onboarded user", deliveredShare.json);
+    assert.equal(deliveredShare.json.delivered, true, "share to a user with a bot reference reports delivered");
+    pushPass("share reports delivered=true when the target has a bot reference");
+  } catch (error) {
+    pushFail(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (deliveredServer) {
+      await deliveredServer.stop();
     }
   }
 

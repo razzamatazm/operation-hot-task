@@ -116,8 +116,36 @@ export interface ReviewNote {
   at: string;
 }
 
+/* A loan is a first-class, linkable entity (ADR-0001). Name + optional
+   Humperdink link live here, not duplicated on every task. The Humperdink
+   link is the canonical unique key when present. `aliases` records names
+   folded in by an auto-merge on a shared link. */
+export interface Loan {
+  id: string;
+  name: string;
+  humperdinkLink?: string;
+  aliases?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLoanInput {
+  name: string;
+  humperdinkLink?: string;
+}
+
+export interface UpdateLoanInput {
+  name?: string;
+  humperdinkLink?: string;
+}
+
 export interface LoanTask {
   id: string;
+  /** Live reference to the owning Loan (ADR-0001). Present on every non-OOO
+      task; absent on OOO (never loan-related). `folderName`/`humperdinkLink`
+      below are a denormalized cache of the linked Loan, kept in sync so all
+      existing reads and notification copy keep working. */
+  loanId?: string;
   folderName: string;
   /** @deprecated Compatibility alias for one release window. */
   loanName?: string;
@@ -160,6 +188,9 @@ export interface TaskHistoryEvent {
 }
 
 export interface CreateTaskInput {
+  /** When set, links the new task to this existing Loan (typeahead select).
+      When absent, a Loan is resolved/created from `folderName` server-side. */
+  loanId?: string;
   folderName: string;
   /** @deprecated Compatibility alias for one release window. */
   loanName?: string;
@@ -190,8 +221,11 @@ export interface NotificationEvent {
   task: LoanTask;
   actor: Pick<UserIdentity, "id" | "displayName">;
   message: string;
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
+  /* Free-text note from the actor, surfaced in the recipient's card (issue #41
+     share). Optional — only DM_SHARE uses it today. */
+  note?: string;
   createdAt: string;
 }
 

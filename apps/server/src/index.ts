@@ -7,7 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildRouter } from "./routes.js";
 import { SseHub } from "./sse.js";
-import { TaskStore } from "./store.js";
+import { LoanStore, TaskStore } from "./store.js";
+import { LoanService } from "./loan-service.js";
 import { UserStore } from "./user-store.js";
 import { TeamsNotificationProvider } from "./notifications.js";
 import { SettingsStore } from "./settings-store.js";
@@ -28,6 +29,8 @@ const bootstrap = async (): Promise<void> => {
   const app = express();
   const store = new TaskStore(appConfig.dataFile);
   await store.init();
+  const loanStore = new LoanStore(appConfig.loansFile);
+  await loanStore.init();
   const userStore = new UserStore(appConfig.usersFile);
   await userStore.init();
 
@@ -60,7 +63,15 @@ const bootstrap = async (): Promise<void> => {
   };
 
   const notifier = new TeamsNotificationProvider(botClient, activityFeedClient, settingsStore);
-  const service = new TaskService(store, notifier, sse, rules, activityFeedState);
+  const loanService = new LoanService(loanStore, store, sse);
+  // One-time, idempotent migration (ADR-0001): back existing non-OOO tasks
+  // with Loan records + loanId. Safe to run every boot — only touches tasks
+  // that still lack a loanId.
+  const migrated = await loanService.migrateExistingTasks();
+  if (migrated.loansCreated > 0 || migrated.tasksLinked > 0) {
+    console.log(`loan_migration loans_created=${migrated.loansCreated} tasks_linked=${migrated.tasksLinked}`);
+  }
+  const service = new TaskService(store, notifier, sse, rules, activityFeedState, loanService);
   botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
   botClient.setClaimHandler(
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
@@ -84,7 +95,7 @@ const bootstrap = async (): Promise<void> => {
   app.use(cors());
   app.use(express.json());
 
-  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient, settingsStore));
+  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient, settingsStore, loanService));
   botClient.register(app);
 
   const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);

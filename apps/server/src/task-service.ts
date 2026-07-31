@@ -22,6 +22,7 @@ import {
 } from "@loan-tasks/shared";
 import { ActivityFeedStateStore, ActivitySignalState, ActivitySignalType, KnownUserState } from "./activity-feed-state.js";
 import { v4 as uuid } from "uuid";
+import { LoanService } from "./loan-service.js";
 import { NotificationProvider } from "./notifications.js";
 import { SseHub } from "./sse.js";
 import { TaskStore } from "./store.js";
@@ -40,7 +41,8 @@ export class TaskService {
     private readonly notifier: NotificationProvider,
     private readonly events: SseHub,
     private readonly appConfig: AppConfig,
-    private readonly activityFeedState?: ActivityFeedStateStore
+    private readonly activityFeedState?: ActivityFeedStateStore,
+    private readonly loans?: LoanService
   ) {}
 
   async registerUser(user: UserIdentity): Promise<void> {
@@ -66,7 +68,7 @@ export class TaskService {
     const now = new Date();
     const isOoo = input.taskType === "OOO";
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
-    const folderName = input.folderName.trim();
+    const folderName = (input.folderName ?? "").trim();
     const points = clampPoints(input.points ?? 0);
     const dueAt = isOoo
       ? computeDueAtFromReturnDate(input.returnDate ?? "", this.appConfig)
@@ -86,10 +88,27 @@ export class TaskService {
       }
     }
 
+    // Non-OOO tasks are Loan-scoped (ADR-0001): resolve or create the Loan and
+    // link it. OOO tasks are never loan-related and carry no loanId/link.
+    let loanId: string | undefined;
+    let resolvedFolderName = folderName;
+    let resolvedLink = input.humperdinkLink?.trim();
+    if (!isOoo && this.loans) {
+      const loan = await this.loans.resolveForTask({
+        ...(input.loanId ? { loanId: input.loanId } : {}),
+        name: folderName,
+        ...(resolvedLink ? { humperdinkLink: resolvedLink } : {})
+      });
+      loanId = loan.id;
+      resolvedFolderName = loan.name;
+      resolvedLink = loan.humperdinkLink;
+    }
+
     const task: LoanTask = {
       id: uuid(),
-      folderName,
-      loanName: folderName,
+      ...(loanId ? { loanId } : {}),
+      folderName: resolvedFolderName,
+      loanName: resolvedFolderName,
       taskType: input.taskType,
       dueAt,
       urgency,
@@ -101,7 +120,7 @@ export class TaskService {
       createdBy: { id: user.id, displayName: user.displayName },
       ...(isOoo && startDate ? { startDate } : {}),
       ...(isOoo && returnDate ? { returnDate } : {}),
-      ...(input.humperdinkLink?.trim() ? { humperdinkLink: input.humperdinkLink.trim() } : {})
+      ...(!isOoo && resolvedLink ? { humperdinkLink: resolvedLink } : {})
     };
 
     const createdMessage = isOoo
@@ -572,6 +591,50 @@ export class TaskService {
     await this.evaluateActivitySignals({ now: new Date(now) });
 
     return updated;
+  }
+
+  /* Share a task directly with one person (issue #41). Sends the TARGET a Teams
+     bot DM that deep-links to the task — deliberately outside the creator/
+     assignee notification flow, so nobody else is pinged. The share is recorded
+     in history for audit. Caller (route) validates that the target user exists.
+
+     Returns whether the DM will actually reach the target: a share to a user who
+     has never messaged the bot has no stored reference, so the DM is dropped.
+     We report that (`delivered: false`) rather than let it vanish silently, so
+     the UI can tell the sharer to have them message the bot first. The share
+     itself still "succeeds" — the history record + intent stand regardless. */
+  async shareTask(params: {
+    taskId: string;
+    target: { id: string; displayName: string };
+    sharedBy: UserIdentity;
+    note?: string;
+  }): Promise<{ task: LoanTask; delivered: boolean }> {
+    const task = await this.requireTask(params.taskId);
+    const note = params.note?.trim() || undefined;
+
+    const event = this.makeHistory(
+      task.id,
+      params.sharedBy,
+      "TASK_SHARED",
+      `Shared with ${params.target.displayName} by ${params.sharedBy.displayName}`
+    );
+    await this.store.appendHistory(event);
+
+    // Probe reachability up front so we can report it; the actual send below
+    // no-ops for an unreachable target, matching this result.
+    const delivered = await this.notifier.canReachDm(params.target.id);
+
+    await this.notify({
+      type: "TASK_STATUS_CHANGED",
+      task,
+      actor: { id: params.sharedBy.id, displayName: params.sharedBy.displayName },
+      message: `${firstName(params.sharedBy.displayName)} wants you to see ${task.folderName}`,
+      target: "DM_SHARE",
+      recipientUserIds: [params.target.id],
+      ...(note ? { note } : {})
+    });
+
+    return { task, delivered };
   }
 
   async runMaintenance(): Promise<{ reminded: number; purged: number; autoArchived: number }> {
