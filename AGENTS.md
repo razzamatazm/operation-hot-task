@@ -206,11 +206,48 @@ Primary goals:
     - `Pending Approval -> Awaiting Items` — checker "Send Back" (wants more).
     - `Awaiting Items -> Claimed` — checker reopens the initial pass.
     - Either non-closed status can be `Cancelled` by the creator or an admin.
+  - **Structured outstanding-items checklist (#44):** the outstanding-items
+    handoff is a structured `checklist: ChecklistItem[]` on the fraud check, not
+    free text. Each `ChecklistItem` has `{ id, text, checked, note?,
+    checkerNote?, addedBy: "checker" | "creator", addedOnPass, stale? }`. Rules:
+    - **One checked state = resolved.** A check means *collected* OR
+      *not-needed*; the per-item `note` explains a non-collection. No separate
+      waived/N-A state.
+    - **No deletions, ever.** There is no delete op (client or server). To drop
+      an item from consideration, check it off and note why.
+    - **Both roles add items** (enter-to-add). `addedBy` is derived server-side
+      from the actor's real seat, so creator-added items are reliably flagged.
+    - **Checker text-edit → uncheck + stale.** Editing a checked item's text
+      auto-clears the check and sets `stale` ("re-verify"), so a check never
+      vouches for a changed requirement; it can then be re-checked (which clears
+      `stale`).
+    - **Per-item notes.** `note` is the creator's exception; `checkerNote` is the
+      checker's rework note (set on review / bounce-back).
+    - **Ordering.** Unresolved (unchecked) items float to the top, checked settle
+      below; stable add-order within each group. No manual reorder in v1.
+    - **Pass counter.** `checklistPass` starts at 1 on the first "Send
+      Outstanding Items" and increments on each bounce-back; new items stamp the
+      current pass in `addedOnPass`.
+    - **Turn permissions** (server-enforced via `canEditChecklist`): `Claimed`
+      = the checker builds the list; `Awaiting Items` = the requester ticks /
+      notes / adds / sets submission notes, and the checker may also add items +
+      set checker notes; `Pending Approval` = the checker edits (→ stale), adds,
+      re-checks, and sets checker notes.
+    - **Approval gate = the checker.** In `Pending Approval` the checker can
+      Approve (allowed even with unresolved items — approve-with-exceptions) or
+      Send Back → `Awaiting Items` (pass++). Same `Pending Approval → Completed`
+      gate as before.
+    - A separate free-text `submissionNotes` field carries creator→checker
+      context for the whole submission, kept near the submit action, distinct
+      from the per-item notes.
   - **Note-required hand-back:** any move *into* `Awaiting Items` (the initial
-    "Send Outstanding Items" or a "Send Back") must carry a non-empty note
-    describing what's outstanding. The note rides in on the transition as
-    `reviewNotes` (note + transition in one gesture), is recorded on the task,
-    and seeds the DM conversation thread. The server rejects an empty note.
+    "Send Outstanding Items" or a "Send Back") must carry **either** a non-empty
+    checklist **or** a non-empty note describing what's outstanding — an empty
+    hand-back (no items, no note) is rejected. When present, the note rides in on
+    the transition as `reviewNotes` (note + transition in one gesture), is
+    recorded on the task, and seeds the DM conversation thread. (The checklist
+    is the primary surface; the note path stays for surfaces that can't build a
+    checklist, e.g. bot cards.)
   - **Reminder rules:**
     - `Awaiting Items` is a wait on the requester and is **fully silent** — it is
       never overdue and is excluded from the reminder engine. The checker is not
@@ -479,6 +516,21 @@ Primary goals:
   - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
     without reopening it — creator/assignee/admin; the card's "Add a note"
     affordance)
+  - FRAUD structured checklist (#44) — focused, atomic endpoints, each
+    server-enforcing the turn/permission + no-deletion / checked-stale
+    invariants (there is deliberately no delete endpoint):
+    - `POST /api/tasks/:taskId/checklist/items` (add an item)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/text` (edit text →
+      uncheck + stale)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/checked` (toggle resolved,
+      optional per-item creator note)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/note` (creator note)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/checker-note` (checker
+      note)
+    - `POST /api/tasks/:taskId/checklist/submission-notes` (creator→checker
+      submission context)
+    submit / approve / bounce-back ride the existing `/transition` endpoint (the
+    pass counter bumps there).
 - Integration:
   - `POST /api/integrations/tasks` with `x-api-key` when enabled
 - Streaming:

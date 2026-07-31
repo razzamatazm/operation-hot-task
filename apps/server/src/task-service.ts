@@ -1,14 +1,23 @@
 import {
   AppConfig,
+  ChecklistItem,
+  ChecklistOp,
   CreateTaskInput,
   LoanTask,
   NotificationEvent,
   TaskHistoryEvent,
   TaskStatus,
   UserIdentity,
+  addChecklistItem,
   canClaimTask,
+  canEditChecklist,
+  checklistSeat,
   canTransitionStatus,
   canUnclaimTask,
+  editChecklistItemText,
+  setChecklistItemChecked,
+  setChecklistItemCheckerNote,
+  setChecklistItemNote,
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
@@ -331,12 +340,15 @@ export class TaskService {
 
     // FRAUD hand-back: entering AWAITING_ITEMS — the checker's initial pass
     // (CLAIMED → AWAITING_ITEMS) or a bounce-back (PENDING_APPROVAL →
-    // AWAITING_ITEMS) — cannot go out empty. The outstanding-items note rides in
-    // on the transition's reviewNotes field (a note + transition in one gesture)
-    // and seeds the conversation thread.
+    // AWAITING_ITEMS) — cannot go out empty. With the structured checklist (#44)
+    // a non-empty checklist IS the payload, so it satisfies the requirement on
+    // its own; otherwise the outstanding-items free-text note (which rides in on
+    // reviewNotes and seeds the thread) is still required, preserving the #50
+    // note-only path (e.g. from a bot card that can't build a checklist).
     const outstandingNote = next === "AWAITING_ITEMS" ? reviewNotes?.trim() : undefined;
-    if (next === "AWAITING_ITEMS" && !outstandingNote) {
-      throw new Error("Sending outstanding items requires a note describing what's needed");
+    const hasChecklistItems = (task.checklist?.length ?? 0) > 0;
+    if (next === "AWAITING_ITEMS" && !outstandingNote && !hasChecklistItems) {
+      throw new Error("Sending outstanding items requires a note or at least one checklist item");
     }
 
     const now = new Date().toISOString();
@@ -345,6 +357,13 @@ export class TaskService {
       status: next,
       updatedAt: now,
     };
+    // FRAUD outstanding-items pass counter (#44): bump on every entry into
+    // AWAITING_ITEMS — the checker's first send lands it at 1, each later
+    // bounce-back increments it. New checklist items stamp this pass in
+    // `addedOnPass`, so the UI can flag "added this round."
+    if (next === "AWAITING_ITEMS") {
+      updated.checklistPass = (task.checklistPass ?? 0) + 1;
+    }
     if (outstandingNote) {
       // Record the outstanding-items note on the task so the thread has a seed
       // (surfaced on the DM note card below).
@@ -566,6 +585,129 @@ export class TaskService {
     }
 
     return this.appendReviewNote(task, text, user);
+  }
+
+  /* ------------------------------------------------------------------------
+     FRAUD structured checklist (#44). Focused, atomic operations mirroring the
+     completed-note pattern: each enforces the turn/permission rule
+     (canEditChecklist), applies a pure checklist transform, records a single
+     history event, persists, and broadcasts. No-deletion is structural — there
+     is no delete op at all. The checked/stale invariant lives in the pure
+     editChecklistItemText. The approval gate stays where #50 put it (the
+     PENDING_APPROVAL → COMPLETED completion gate); this file only adds the item
+     mechanics and the pass counter (bumped in transitionStatus).
+     ------------------------------------------------------------------------ */
+
+  /* Add an outstanding-items entry. `addedBy` is derived from the actor's real
+     role on the task (creator vs checker), not trusted from the client, so a
+     creator-added item is reliably flagged for the checker. Stamps the current
+     pass. */
+  async addChecklistItem(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertChecklistOp(task, user, "add");
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error("A checklist item needs some text");
+    }
+    const addedBy = checklistSeat(task, user);
+    const addedOnPass = task.checklistPass && task.checklistPass > 0 ? task.checklistPass : 1;
+    const next = addChecklistItem(task.checklist ?? [], { id: uuid(), text: trimmed, addedBy, addedOnPass });
+    return this.persistChecklist(task, next, user, `Added checklist item: ${trimmed}`);
+  }
+
+  /* Edit an item's text. Per the checked/stale invariant, editing a checked
+     item auto-clears the check and marks it stale (handled by the pure fn). */
+  async editChecklistItemText(taskId: string, itemId: string, text: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertChecklistOp(task, user, "editText");
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error("A checklist item needs some text");
+    }
+    this.requireItem(task, itemId);
+    const next = editChecklistItemText(task.checklist ?? [], itemId, trimmed);
+    return this.persistChecklist(task, next, user, `Edited checklist item`);
+  }
+
+  /* Toggle an item's resolved (checked) state, optionally recording the
+     creator's per-item note in the same gesture. */
+  async setChecklistItemChecked(
+    taskId: string,
+    itemId: string,
+    checked: boolean,
+    note: string | undefined,
+    user: UserIdentity
+  ): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertChecklistOp(task, user, "toggle");
+    this.requireItem(task, itemId);
+    const next = setChecklistItemChecked(task.checklist ?? [], itemId, checked, note?.trim());
+    return this.persistChecklist(task, next, user, checked ? "Resolved checklist item" : "Reopened checklist item");
+  }
+
+  /* Set the creator's per-item exception note. */
+  async setChecklistItemNote(taskId: string, itemId: string, note: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertChecklistOp(task, user, "creatorNote");
+    this.requireItem(task, itemId);
+    const next = setChecklistItemNote(task.checklist ?? [], itemId, note.trim());
+    return this.persistChecklist(task, next, user, "Set checklist item note");
+  }
+
+  /* Set the checker's per-item rework note. */
+  async setChecklistItemCheckerNote(taskId: string, itemId: string, checkerNote: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertChecklistOp(task, user, "checkerNote");
+    this.requireItem(task, itemId);
+    const next = setChecklistItemCheckerNote(task.checklist ?? [], itemId, checkerNote.trim());
+    return this.persistChecklist(task, next, user, "Set checklist item checker note");
+  }
+
+  /* Set the separate creator→checker submission-context free-text. */
+  async setChecklistSubmissionNotes(taskId: string, submissionNotes: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertChecklistOp(task, user, "submissionNotes");
+    const now = new Date().toISOString();
+    const updated: LoanTask = { ...task, submissionNotes: submissionNotes.trim(), updatedAt: now };
+    const event = this.makeHistory(task.id, user, "CHECKLIST_UPDATED", "Updated submission notes");
+    await this.store.upsertTask(updated, event);
+    this.events.broadcast({ type: "task.changed", payload: updated });
+    return updated;
+  }
+
+  /* Enforce the turn/permission gate for a checklist op; throws when the actor
+     may not act. Server-authoritative — the client's affordance gating is only
+     a hint. */
+  private assertChecklistOp(task: LoanTask, user: UserIdentity, op: ChecklistOp): void {
+    if (task.taskType !== "FRAUD") {
+      throw new Error("Checklists are only on fraud checks");
+    }
+    if (!canEditChecklist(task, user, op)) {
+      throw new Error("You can't change the checklist right now");
+    }
+  }
+
+  private requireItem(task: LoanTask, itemId: string): void {
+    if (!(task.checklist ?? []).some((item) => item.id === itemId)) {
+      throw new Error("Checklist item not found");
+    }
+  }
+
+  /* Persist a new checklist array on the task with one history event, broadcast
+     the change, and return the updated task. Never touches status — the
+     lifecycle transitions own that. */
+  private async persistChecklist(
+    task: LoanTask,
+    checklist: ChecklistItem[],
+    user: UserIdentity,
+    detail: string
+  ): Promise<LoanTask> {
+    const now = new Date().toISOString();
+    const updated: LoanTask = { ...task, checklist, updatedAt: now };
+    const event = this.makeHistory(task.id, user, "CHECKLIST_UPDATED", detail);
+    await this.store.upsertTask(updated, event);
+    this.events.broadcast({ type: "task.changed", payload: updated });
+    return updated;
   }
 
   /* Who may attach a review note to a task: its creator, its assignee, or an

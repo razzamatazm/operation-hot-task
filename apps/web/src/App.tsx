@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
 
@@ -536,6 +536,246 @@ const SharePopover = ({
   );
 };
 
+/* ── Fraud outstanding-items checklist (#44) ──────────────────
+   The structured handoff that replaces the old free-text outstanding-items
+   surface on FRAUD checks. The checker builds the list, the creator resolves
+   it (tick = collected OR not-needed, with an optional note), the checker
+   reviews and approves or bounces. Items are never deleted — an item leaves
+   consideration only by being checked off. Unresolved items float to the top.
+   Every affordance is gated by the shared canEditChecklist so the UI matches
+   the server's turn rules; the server is still the authority. */
+export interface ChecklistApi {
+  addItem: (taskId: string, text: string) => Promise<void>;
+  editText: (taskId: string, itemId: string, text: string) => Promise<void>;
+  toggle: (taskId: string, itemId: string, checked: boolean, note?: string) => Promise<void>;
+  setNote: (taskId: string, itemId: string, note: string) => Promise<void>;
+  setCheckerNote: (taskId: string, itemId: string, checkerNote: string) => Promise<void>;
+  setSubmissionNotes: (taskId: string, submissionNotes: string) => Promise<void>;
+}
+
+const CheckIcon = () => (
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+    <path d="M3 8.5l3.2 3.3L13 4.8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentity; api: ChecklistApi }) => {
+  const [newItem, setNewItem] = useState("");
+  /* One inline editor open at a time: which item + which field. */
+  const [active, setActive] = useState<{ id: string; kind: "text" | "note" | "checkerNote" } | null>(null);
+  const [draft, setDraft] = useState("");
+  const [subDraft, setSubDraft] = useState(task.submissionNotes ?? "");
+  const [subEditing, setSubEditing] = useState(false);
+
+  const items = task.checklist ?? [];
+  const sorted = sortChecklist(items);
+  const open = unresolvedCount(items);
+
+  const canAdd = canEditChecklist(task, user, "add");
+  const canToggle = canEditChecklist(task, user, "toggle");
+  const canEditText = canEditChecklist(task, user, "editText");
+  const canCreatorNote = canEditChecklist(task, user, "creatorNote");
+  const canCheckerNote = canEditChecklist(task, user, "checkerNote");
+  const canSubmissionNotes = canEditChecklist(task, user, "submissionNotes");
+
+  const openEditor = (id: string, kind: "text" | "note" | "checkerNote", seed: string) => {
+    setActive({ id, kind });
+    setDraft(seed);
+  };
+  const closeEditor = () => { setActive(null); setDraft(""); };
+  const saveEditor = async (item: ChecklistItem) => {
+    if (!active) return;
+    const value = draft.trim();
+    if (active.kind === "text") {
+      if (value && value !== item.text) await api.editText(task.id, item.id, value);
+    } else if (active.kind === "note") {
+      await api.setNote(task.id, item.id, value);
+    } else {
+      await api.setCheckerNote(task.id, item.id, value);
+    }
+    closeEditor();
+  };
+
+  const addItem = async () => {
+    const value = newItem.trim();
+    if (!value) return;
+    setNewItem("");
+    await api.addItem(task.id, value);
+  };
+
+  const saveSubmissionNotes = async () => {
+    setSubEditing(false);
+    if ((task.submissionNotes ?? "") !== subDraft.trim()) {
+      await api.setSubmissionNotes(task.id, subDraft.trim());
+    }
+  };
+
+  /* One-line turn cue so each party knows what the list wants from them. */
+  const turnCue =
+    task.status === "CLAIMED"
+      ? "Checker's pass — list what's outstanding"
+      : task.status === "AWAITING_ITEMS"
+        ? "Requester's turn — collect items, then submit"
+        : task.status === "PENDING_APPROVAL"
+          ? "Final review — approve or send back"
+          : null;
+
+  return (
+    <div className="checklist">
+      <div className="checklist-head">
+        <span className="checklist-title">Outstanding items</span>
+        <span className="checklist-count">{items.length === 0 ? "none yet" : `${open} open / ${items.length}`}</span>
+        {turnCue && <span className="checklist-turn">{turnCue}</span>}
+      </div>
+
+      {sorted.length > 0 && (
+        <ul className="checklist-items">
+          {sorted.map((item) => {
+            const editingText = active?.id === item.id && active.kind === "text";
+            const editingNote = active?.id === item.id && active.kind === "note";
+            const editingCheckerNote = active?.id === item.id && active.kind === "checkerNote";
+            return (
+              <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}`}>
+                <div className="checklist-item-main">
+                  <button
+                    type="button"
+                    className={`checklist-check${item.checked ? " checklist-check-on" : ""}`}
+                    role="checkbox"
+                    aria-checked={item.checked}
+                    aria-label={item.checked ? `Mark "${item.text}" unresolved` : `Mark "${item.text}" resolved`}
+                    disabled={!canToggle}
+                    onClick={() => { if (canToggle) void api.toggle(task.id, item.id, !item.checked); }}
+                  >
+                    {item.checked && <CheckIcon />}
+                  </button>
+
+                  {editingText ? (
+                    <input
+                      className="checklist-item-input"
+                      value={draft}
+                      autoFocus
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); }
+                        if (e.key === "Escape") closeEditor();
+                      }}
+                      onBlur={() => void saveEditor(item)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="checklist-item-text"
+                      disabled={!canEditText}
+                      title={canEditText ? "Edit item" : undefined}
+                      onClick={() => { if (canEditText) openEditor(item.id, "text", item.text); }}
+                    >
+                      {item.text}
+                    </button>
+                  )}
+
+                  <span className="checklist-badges">
+                    {item.addedBy === "creator" && <span className="checklist-badge checklist-badge-creator" title="Added by the requester">+requester</span>}
+                    {item.stale && <span className="checklist-badge checklist-badge-stale" title="Text changed after it was checked — re-verify">stale · re-verify</span>}
+                  </span>
+                </div>
+
+                {/* Per-item notes: the requester's exception note and the
+                    checker's rework note, each shown when present and editable
+                    by the owning role on their turn. */}
+                <div className="checklist-item-notes">
+                  {editingNote ? (
+                    <div className="checklist-note-edit">
+                      <input
+                        className="checklist-item-input"
+                        placeholder="Why it's not needed / how it was handled…"
+                        value={draft}
+                        autoFocus
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                        onBlur={() => void saveEditor(item)}
+                      />
+                    </div>
+                  ) : item.note ? (
+                    <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
+                      <span className="checklist-note-label">Requester</span> {item.note}
+                    </button>
+                  ) : canCreatorNote ? (
+                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
+                  ) : null}
+
+                  {editingCheckerNote ? (
+                    <div className="checklist-note-edit">
+                      <input
+                        className="checklist-item-input"
+                        placeholder="Why this isn't sufficient / needs rework…"
+                        value={draft}
+                        autoFocus
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                        onBlur={() => void saveEditor(item)}
+                      />
+                    </div>
+                  ) : item.checkerNote ? (
+                    <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
+                      <span className="checklist-note-label">Checker</span> {item.checkerNote}
+                    </button>
+                  ) : canCheckerNote ? (
+                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ checker note</button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {canAdd && (
+        <div className="checklist-add">
+          <input
+            className="checklist-item-input"
+            placeholder="Add an item, press Enter…"
+            value={newItem}
+            onChange={(e) => setNewItem(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addItem(); } }}
+          />
+          <button type="button" className="btn-sm" onClick={() => void addItem()} disabled={!newItem.trim()}>Add</button>
+        </div>
+      )}
+
+      {sorted.length === 0 && !canAdd && (
+        <div className="checklist-empty">No outstanding items yet.</div>
+      )}
+
+      {/* Separate creator→checker submission context, kept near the submit
+          action. Editable by the requester on their turn; read-only otherwise
+          when present. */}
+      {(canSubmissionNotes || task.submissionNotes) && (
+        <div className="checklist-submission">
+          <span className="checklist-submission-label">Notes for the checker</span>
+          {canSubmissionNotes && subEditing ? (
+            <textarea
+              className="checklist-submission-input"
+              rows={2}
+              autoFocus
+              placeholder="Anything the checker should know about this submission…"
+              value={subDraft}
+              onChange={(e) => setSubDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveSubmissionNotes(); } if (e.key === "Escape") { setSubEditing(false); setSubDraft(task.submissionNotes ?? ""); } }}
+              onBlur={() => void saveSubmissionNotes()}
+            />
+          ) : canSubmissionNotes ? (
+            <button type="button" className="checklist-submission-value" onClick={() => { setSubDraft(task.submissionNotes ?? ""); setSubEditing(true); }}>
+              {task.submissionNotes || "Add context for the checker…"}
+            </button>
+          ) : (
+            <div className="checklist-submission-value checklist-submission-readonly">{task.submissionNotes}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Task Card ────────────────────────────────────────────── */
 const TaskCard = ({
   task,
@@ -549,6 +789,7 @@ const TaskCard = ({
   onUpdatePoints,
   onFilterLoan,
   onShare,
+  checklist,
   directory,
   showActions,
   seenNoteAt,
@@ -569,6 +810,8 @@ const TaskCard = ({
      COMPLETED — no visible reopen. */
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
+  /* FRAUD structured checklist ops (#44). */
+  checklist: ChecklistApi;
   onFilterLoan?: (loanId: string) => void;
   /* Point a specific person at this task (issue #41). Resolves with whether the
      DM actually reached them; rejects on request failure so the card can show
@@ -789,9 +1032,11 @@ const TaskCard = ({
     canNoteTask;
 
   /* Fire a FRAUD move. Plain transition and release are one-tap; a note-required
-     move (Send Outstanding Items / Send Back) sends only with a non-blank note
-     (the server also rejects blank) and posts the text as the transition's
-     reviewNotes. */
+     move (Send Outstanding Items / Send Back) posts the (optional) note as the
+     transition's reviewNotes. With the structured checklist (#44) the note is
+     optional context — a non-empty checklist is the payload — so the move sends
+     even with an empty note as long as there are items. */
+  const fraudHasChecklist = (task.checklist?.length ?? 0) > 0;
   const runFraudAction = (action: FraudCardAction): void => {
     acknowledgeUnread();
     if (action.kind === "release") {
@@ -801,9 +1046,12 @@ const TaskCard = ({
     }
   };
   const submitFraudNote = (target: TaskStatus): void => {
-    if (!fraudNote.trim()) return;
+    const note = fraudNote.trim();
+    // The server rejects an empty hand-back with no note AND no checklist; the
+    // button mirrors that so the checklist path sends note-free.
+    if (!note && !fraudHasChecklist) return;
     acknowledgeUnread();
-    void onTransition(task.id, target, fraudNote.trim());
+    void onTransition(task.id, target, note || undefined);
     setFraudNote("");
     setOpenFraudNote(null);
   };
@@ -843,6 +1091,11 @@ const TaskCard = ({
           </span>
         )}
       </div>
+
+      {/* FRAUD structured outstanding-items checklist (#44) — the handoff
+          surface, full-width above the timeline/thread split. Non-FRAUD tasks
+          skip it entirely. */}
+      {task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />}
 
       <div className="expand-cols">
         <div className="expand-meta">
@@ -894,14 +1147,14 @@ const TaskCard = ({
                           <div className="task-card-fraud-note">
                             <textarea
                               rows={2}
-                              placeholder="Describe what's outstanding…"
+                              placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
                               value={fraudNote}
                               onChange={(e) => setFraudNote(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
                               autoFocus
                             />
                             <div className="task-card-fraud-note-actions">
-                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim()}>
+                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
                                 Send
                               </button>
                               <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
@@ -1168,6 +1421,7 @@ const CardList = ({
   onUpdatePoints,
   onFilterLoan,
   onShare,
+  checklist,
   directory,
   showActions,
   emptyMessage,
@@ -1189,6 +1443,7 @@ const CardList = ({
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  checklist: ChecklistApi;
   directory: Array<{ id: string; displayName: string }>;
   showActions: boolean;
   emptyMessage: string;
@@ -1217,6 +1472,7 @@ const CardList = ({
           onUpdatePoints={onUpdatePoints}
           {...(onFilterLoan ? { onFilterLoan } : {})}
           onShare={onShare}
+          checklist={checklist}
           directory={directory}
           showActions={showActions}
           pulsing={pulsingIds?.has(task.id) ?? false}
@@ -2260,6 +2516,29 @@ export const App = () => {
     }
   };
 
+  /* FRAUD structured checklist (#44). One handler per atomic endpoint; each
+     refreshes so the live task (and SSE-driven cards) reflect the change. Errors
+     surface as a toast — the server is the authority on turn/permission, so a
+     rejected op just tells the user it isn't their turn. Bundled into one object
+     so the card only takes a single prop. */
+  const runChecklist = async (path: string, body: unknown, fallback: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(path, { method: "POST", body: JSON.stringify(body) }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : fallback, { variant: "error" });
+    }
+  };
+  const checklistApi: ChecklistApi = {
+    addItem: (taskId, text) => runChecklist(`/tasks/${taskId}/checklist/items`, { text }, "Failed to add item"),
+    editText: (taskId, itemId, text) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/text`, { text }, "Failed to edit item"),
+    toggle: (taskId, itemId, checked, note) =>
+      runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { checked, ...(note !== undefined ? { note } : {}) }, "Failed to update item"),
+    setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note"),
+    setCheckerNote: (taskId, itemId, checkerNote) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { checkerNote }, "Failed to save note"),
+    setSubmissionNotes: (taskId, submissionNotes) => runChecklist(`/tasks/${taskId}/checklist/submission-notes`, { submissionNotes }, "Failed to save notes")
+  };
+
   /* Edit a Loan's name/link (the app's first post-creation edit surface).
      Server propagates to every linked task; we refresh tasks + loans so the
      live reference is reflected everywhere. */
@@ -2430,6 +2709,7 @@ export const App = () => {
       onUpdatePoints,
       onFilterLoan: (loanId: string) => setLoanFilterId(loanId),
       onShare,
+      checklist: checklistApi,
       directory,
       showActions: true,
       seenNotesAt,
