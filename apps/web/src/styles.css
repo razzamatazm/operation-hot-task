@@ -1642,49 +1642,6 @@ button.btn-good:hover {
   padding: 6px 0;
 }
 
-.notif-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.68rem;
-  color: var(--ink-secondary);
-  background: var(--bg-soft);
-  border: 1px solid var(--line-soft);
-  padding: 3px 8px;
-  border-radius: 4px;
-  animation: fadeIn 0.2s ease-out;
-}
-
-.notif-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--brand);
-  flex-shrink: 0;
-}
-
-/* Loan auto-merge notice (ADR-0001): non-blocking, dismissible. */
-.loan-merge-notice {
-  font-family: "DM Sans", sans-serif;
-  font-size: 0.8rem;
-}
-
-.loan-merge-notice-dismiss {
-  padding: 0 4px;
-  margin-left: 2px;
-  background: none;
-  border: none;
-  color: var(--muted);
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.loan-merge-notice-dismiss:hover {
-  color: var(--ink);
-}
-
 @keyframes fadeIn {
   from { opacity: 0; transform: translateX(-4px); }
   to { opacity: 1; transform: translateX(0); }

@@ -234,7 +234,7 @@ Quick-action class composition lives in `quickActionClass` in `TaskCard`.
 
 Restrained. Used only at:
 - Form panel slide-in (`@keyframes slideDown`, 150ms)
-- Notification chip fade (`@keyframes fadeIn`)
+- Form-overlay backdrop + in-card cancel flash fade (`@keyframes fadeIn`)
 - Overdue tag pulse (`@keyframes pulse-overdue`, 2s)
 - Unread-note dot pulse (`@keyframes pulse-unread`, 1.6s halo)
 - Card hover (shadow swap)
