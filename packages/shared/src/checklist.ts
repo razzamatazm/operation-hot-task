@@ -120,6 +120,14 @@ const isChecker = (task: LoanTask, user: UserIdentity): boolean =>
 const isCreator = (task: LoanTask, user: UserIdentity): boolean =>
   task.createdBy.id === user.id || hasRole(user, "ADMIN");
 
+/* Which seat an actor occupies when adding an item — decides `addedBy`, so a
+   creator-added item is reliably flagged for the checker. The assignee is the
+   checker; otherwise the task creator is the creator; an admin holding neither
+   seat is acting for the checker. Derived server-side, never trusted from the
+   client. */
+export const checklistSeat = (task: LoanTask, user: UserIdentity): "checker" | "creator" =>
+  task.assignee?.id === user.id ? "checker" : task.createdBy.id === user.id ? "creator" : "checker";
+
 /* The distinct checklist operations, gated by turn (#44 permissions-by-turn):
      - CLAIMED (checker's initial pass): checker builds the list.
      - AWAITING_ITEMS (creator's turn): creator ticks / notes / adds / submits;
@@ -148,11 +156,15 @@ export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: Checkli
 
   switch (task.status) {
     case "CLAIMED":
-      // Checker's initial pass — building the outstanding-items list.
-      return checker && (op === "add" || op === "editText" || op === "toggle" || op === "checkerNote");
+      // Checker's initial pass — building the outstanding-items list (add,
+      // fix a typo, annotate). Not toggling: nothing's been collected yet.
+      return checker && (op === "add" || op === "editText" || op === "checkerNote");
     case "AWAITING_ITEMS":
       // Creator's turn: resolve, annotate, extend, set submission context.
-      if (creator && (op === "toggle" || op === "creatorNote" || op === "add" || op === "submissionNotes" || op === "editText")) {
+      // Text-editing is deliberately NOT the creator's op — it's the checker's
+      // (and it clears+stales a check), so the requester can't silently rewrite
+      // a requirement.
+      if (creator && (op === "toggle" || op === "creatorNote" || op === "add" || op === "submissionNotes")) {
         return true;
       }
       // Checker may still pile on items and per-item checker notes.

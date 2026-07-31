@@ -1125,7 +1125,6 @@ button.btn-good:hover {
   border: 1.5px solid var(--line);
   border-radius: 4px;
   background: var(--panel);
-  color: var(--panel);
   cursor: pointer;
 }
 .checklist-check:disabled {

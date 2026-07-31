@@ -1032,9 +1032,11 @@ const TaskCard = ({
     canNoteTask;
 
   /* Fire a FRAUD move. Plain transition and release are one-tap; a note-required
-     move (Send Outstanding Items / Send Back) sends only with a non-blank note
-     (the server also rejects blank) and posts the text as the transition's
-     reviewNotes. */
+     move (Send Outstanding Items / Send Back) posts the (optional) note as the
+     transition's reviewNotes. With the structured checklist (#44) the note is
+     optional context — a non-empty checklist is the payload — so the move sends
+     even with an empty note as long as there are items. */
+  const fraudHasChecklist = (task.checklist?.length ?? 0) > 0;
   const runFraudAction = (action: FraudCardAction): void => {
     acknowledgeUnread();
     if (action.kind === "release") {
@@ -1044,9 +1046,12 @@ const TaskCard = ({
     }
   };
   const submitFraudNote = (target: TaskStatus): void => {
-    if (!fraudNote.trim()) return;
+    const note = fraudNote.trim();
+    // The server rejects an empty hand-back with no note AND no checklist; the
+    // button mirrors that so the checklist path sends note-free.
+    if (!note && !fraudHasChecklist) return;
     acknowledgeUnread();
-    void onTransition(task.id, target, fraudNote.trim());
+    void onTransition(task.id, target, note || undefined);
     setFraudNote("");
     setOpenFraudNote(null);
   };
@@ -1142,14 +1147,14 @@ const TaskCard = ({
                           <div className="task-card-fraud-note">
                             <textarea
                               rows={2}
-                              placeholder="Describe what's outstanding…"
+                              placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
                               value={fraudNote}
                               onChange={(e) => setFraudNote(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
                               autoFocus
                             />
                             <div className="task-card-fraud-note-actions">
-                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim()}>
+                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
                                 Send
                               </button>
                               <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
@@ -2516,55 +2521,22 @@ export const App = () => {
      surface as a toast — the server is the authority on turn/permission, so a
      rejected op just tells the user it isn't their turn. Bundled into one object
      so the card only takes a single prop. */
-  const checklistApi: ChecklistApi = {
-    addItem: async (taskId, text) => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/checklist/items`, { method: "POST", body: JSON.stringify({ text }) }, user);
-        await refresh();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Failed to add item", { variant: "error" });
-      }
-    },
-    editText: async (taskId, itemId, text) => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/checklist/items/${itemId}/text`, { method: "POST", body: JSON.stringify({ text }) }, user);
-        await refresh();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Failed to edit item", { variant: "error" });
-      }
-    },
-    toggle: async (taskId, itemId, checked, note) => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { method: "POST", body: JSON.stringify({ checked, ...(note !== undefined ? { note } : {}) }) }, user);
-        await refresh();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Failed to update item", { variant: "error" });
-      }
-    },
-    setNote: async (taskId, itemId, note) => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/checklist/items/${itemId}/note`, { method: "POST", body: JSON.stringify({ note }) }, user);
-        await refresh();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Failed to save note", { variant: "error" });
-      }
-    },
-    setCheckerNote: async (taskId, itemId, checkerNote) => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { method: "POST", body: JSON.stringify({ checkerNote }) }, user);
-        await refresh();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Failed to save note", { variant: "error" });
-      }
-    },
-    setSubmissionNotes: async (taskId, submissionNotes) => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/checklist/submission-notes`, { method: "POST", body: JSON.stringify({ submissionNotes }) }, user);
-        await refresh();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Failed to save notes", { variant: "error" });
-      }
+  const runChecklist = async (path: string, body: unknown, fallback: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(path, { method: "POST", body: JSON.stringify(body) }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : fallback, { variant: "error" });
     }
+  };
+  const checklistApi: ChecklistApi = {
+    addItem: (taskId, text) => runChecklist(`/tasks/${taskId}/checklist/items`, { text }, "Failed to add item"),
+    editText: (taskId, itemId, text) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/text`, { text }, "Failed to edit item"),
+    toggle: (taskId, itemId, checked, note) =>
+      runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { checked, ...(note !== undefined ? { note } : {}) }, "Failed to update item"),
+    setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note"),
+    setCheckerNote: (taskId, itemId, checkerNote) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { checkerNote }, "Failed to save note"),
+    setSubmissionNotes: (taskId, submissionNotes) => runChecklist(`/tasks/${taskId}/checklist/submission-notes`, { submissionNotes }, "Failed to save notes")
   };
 
   /* Edit a Loan's name/link (the app's first post-creation edit surface).

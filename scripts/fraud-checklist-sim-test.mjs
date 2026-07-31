@@ -22,6 +22,7 @@ import {
   addChecklistItem,
   allChecklistResolved,
   canEditChecklist,
+  checklistSeat,
   editChecklistItemText,
   setChecklistItemChecked,
   setChecklistItemCheckerNote,
@@ -157,6 +158,7 @@ check("AWAITING_ITEMS (creator's turn): creator resolves/notes/adds/submits; che
   assert.ok(canEditChecklist(t, CHECKER, "add"));
   assert.ok(canEditChecklist(t, CHECKER, "checkerNote"));
   assert.ok(!canEditChecklist(t, CHECKER, "toggle"), "checker doesn't tick items on the creator's turn");
+  assert.ok(!canEditChecklist(t, CREATOR, "editText"), "creator can't rewrite item text (that's the checker's op, and it clears the check)");
   assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
 });
 
@@ -167,6 +169,13 @@ check("PENDING_APPROVAL (checker's turn): checker edits/adds/rechecks/notes; cre
   assert.ok(canEditChecklist(t, CHECKER, "checkerNote"));
   assert.ok(!canEditChecklist(t, CREATOR, "toggle"));
   assert.ok(!canEditChecklist(t, CREATOR, "add"));
+});
+
+check("checklistSeat derives addedBy from the actor's real seat", () => {
+  const t = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.equal(checklistSeat(t, CHECKER), "checker", "assignee is the checker");
+  assert.equal(checklistSeat(t, CREATOR), "creator", "task creator is the creator");
+  assert.equal(checklistSeat(t, ADMIN), "checker", "an admin holding neither seat acts for the checker");
 });
 
 check("no checklist edits on non-FRAUD or closed tasks", () => {

@@ -11,6 +11,7 @@ import {
   addChecklistItem,
   canClaimTask,
   canEditChecklist,
+  checklistSeat,
   canTransitionStatus,
   canUnclaimTask,
   editChecklistItemText,
@@ -608,14 +609,7 @@ export class TaskService {
     if (!trimmed) {
       throw new Error("A checklist item needs some text");
     }
-    const addedBy: "checker" | "creator" = task.createdBy.id === user.id && !user.roles.includes("ADMIN")
-      ? "creator"
-      : task.assignee?.id === user.id
-        ? "checker"
-        // Admin acting: attribute by whichever seat they hold, defaulting to checker.
-        : task.createdBy.id === user.id
-          ? "creator"
-          : "checker";
+    const addedBy = checklistSeat(task, user);
     const addedOnPass = task.checklistPass && task.checklistPass > 0 ? task.checklistPass : 1;
     const next = addChecklistItem(task.checklist ?? [], { id: uuid(), text: trimmed, addedBy, addedOnPass });
     return this.persistChecklist(task, next, user, `Added checklist item: ${trimmed}`);
