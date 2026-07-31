@@ -4,8 +4,9 @@
  *
  * Exercises the PURE checklist core in packages/shared/checklist.ts — the
  * data-model invariants the whole feature rides on:
- *   - No-deletion: there is no delete op; an item leaves consideration only by
- *     being checked off (with a note).
+ *   - Gated deletion (#66): the adding seat can delete a fresh (draft) item on
+ *     its own turn; it locks once handed off (committed), and the other seat's
+ *     items are never deletable.
  *   - Checked/stale: editing a CHECKED item's text auto-clears the check and
  *     marks it stale; re-checking a stale item clears stale.
  *   - Ordering: unresolved (unchecked) items float to the top, checked settle
@@ -21,9 +22,12 @@ import assert from "node:assert/strict";
 import {
   addChecklistItem,
   allChecklistResolved,
+  canDeleteChecklistItem,
   canEditChecklist,
   checklistSeat,
+  commitChecklistItems,
   editChecklistItemText,
+  removeChecklistItem,
   setChecklistItemChecked,
   setChecklistItemCheckerNote,
   setChecklistItemNote,
@@ -64,18 +68,75 @@ const check = (label, fn) => {
 console.log("FRAUD checklist shared-model sim");
 
 // --- add / purity ----------------------------------------------------------
-check("addChecklistItem appends an unchecked item and doesn't mutate the input", () => {
+check("addChecklistItem appends an unchecked DRAFT item and doesn't mutate the input", () => {
   const before = [];
   const after = addChecklistItem(before, { id: "a", text: "2023 tax returns", addedBy: "checker", addedOnPass: 1 });
   assert.equal(before.length, 0, "input array untouched");
   assert.equal(after.length, 1);
-  assert.deepEqual(after[0], { id: "a", text: "2023 tax returns", checked: false, addedBy: "checker", addedOnPass: 1 });
+  assert.deepEqual(after[0], { id: "a", text: "2023 tax returns", checked: false, addedBy: "checker", addedOnPass: 1, draft: true });
 });
 
-check("there is no delete op — items are only ever added or checked off", async () => {
-  const mod = await import("../packages/shared/dist/checklist.js");
-  const names = Object.keys(mod);
-  assert.ok(!names.some((n) => /delete|remove/i.test(n)), `no delete/remove export (got: ${names.join(", ")})`);
+// --- gated deletion (#66) ---------------------------------------------------
+check("removeChecklistItem drops the item by id and doesn't mutate the input", () => {
+  const before = [item({ id: "a" }), item({ id: "b" })];
+  const after = removeChecklistItem(before, "a");
+  assert.deepEqual(after.map((i) => i.id), ["b"]);
+  assert.deepEqual(before.map((i) => i.id), ["a", "b"], "input untouched (purity)");
+});
+
+check("commitChecklistItems clears every draft flag and doesn't mutate the input", () => {
+  const before = [item({ id: "a", draft: true }), item({ id: "b", draft: true }), item({ id: "c" })];
+  const after = commitChecklistItems(before);
+  assert.ok(after.every((i) => i.draft === undefined), "all drafts cleared");
+  assert.equal(before[0].draft, true, "input untouched (purity)");
+});
+
+check("adder can delete their OWN fresh draft on their active turn", () => {
+  // Checker in CLAIMED (their build turn) deletes a checker-added draft.
+  const claimed = makeFraudTask({ status: "CLAIMED" });
+  const draftItem = item({ id: "a", addedBy: "checker", draft: true });
+  assert.ok(canDeleteChecklistItem(claimed, CHECKER, draftItem), "checker deletes own draft in CLAIMED");
+  assert.ok(canDeleteChecklistItem(claimed, ADMIN, item({ id: "a", addedBy: "checker", draft: true })), "admin (checker seat) too");
+  // Creator in AWAITING_ITEMS (their turn) deletes a creator-added draft.
+  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.ok(canDeleteChecklistItem(awaiting, CREATOR, item({ id: "b", addedBy: "creator", draft: true })), "creator deletes own draft in AWAITING_ITEMS");
+  // Checker in PENDING_APPROVAL (their review turn) deletes a checker-added draft.
+  const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
+  assert.ok(canDeleteChecklistItem(pending, CHECKER, item({ id: "c", addedBy: "checker", draft: true })), "checker deletes own draft in PENDING_APPROVAL");
+});
+
+check("a COMMITTED (handed-off) item is never deletable, even by its adder on their turn", () => {
+  const claimed = makeFraudTask({ status: "CLAIMED" });
+  const committed = item({ id: "a", addedBy: "checker" }); // no draft flag = committed
+  assert.ok(!canDeleteChecklistItem(claimed, CHECKER, committed), "committed checker item locked in CLAIMED");
+  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.ok(!canDeleteChecklistItem(awaiting, CREATOR, item({ id: "b", addedBy: "creator" })), "committed creator item locked");
+});
+
+check("the OTHER seat's items are never deletable (check off with a note instead)", () => {
+  // Checker cannot delete a creator-added draft; creator cannot delete a checker-added draft.
+  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.ok(!canDeleteChecklistItem(awaiting, CHECKER, item({ id: "a", addedBy: "creator", draft: true })), "checker can't delete creator's item");
+  const claimed = makeFraudTask({ status: "CLAIMED" });
+  assert.ok(!canDeleteChecklistItem(claimed, CREATOR, item({ id: "b", addedBy: "checker", draft: true })), "creator can't delete checker's item");
+});
+
+check("deletion is rejected when it's NOT the adder's active turn", () => {
+  // Checker added a draft but it's the creator's AWAITING_ITEMS turn now.
+  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.ok(!canDeleteChecklistItem(awaiting, CHECKER, item({ id: "a", addedBy: "checker", draft: true })), "checker can't delete off-turn (AWAITING_ITEMS)");
+  // Creator can't delete during the checker's CLAIMED / PENDING_APPROVAL turns.
+  const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
+  assert.ok(!canDeleteChecklistItem(pending, CREATOR, item({ id: "b", addedBy: "creator", draft: true })), "creator can't delete off-turn (PENDING_APPROVAL)");
+});
+
+check("outsiders can never delete; non-FRAUD / closed tasks allow no deletion", () => {
+  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.ok(!canDeleteChecklistItem(awaiting, OUTSIDER, item({ id: "a", addedBy: "creator", draft: true })), "outsider blocked");
+  const value = makeFraudTask({ taskType: "VALUE", status: "CLAIMED" });
+  assert.ok(!canDeleteChecklistItem(value, CHECKER, item({ id: "b", addedBy: "checker", draft: true })), "non-FRAUD blocked");
+  const done = makeFraudTask({ status: "COMPLETED" });
+  assert.ok(!canDeleteChecklistItem(done, CHECKER, item({ id: "c", addedBy: "checker", draft: true })), "closed task blocked");
 });
 
 // --- checked / stale invariant ---------------------------------------------

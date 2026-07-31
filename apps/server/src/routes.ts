@@ -486,12 +486,13 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
-  /* FRAUD structured outstanding-items checklist (#44). Focused, atomic
-     endpoints mirroring the completed-note pattern — each enforces the
-     turn/permission rule and the no-deletion / checked-stale invariants
-     server-side (there is deliberately no delete endpoint). submit / approve /
-     bounce-back ride the existing /transition endpoint (the pass counter bumps
-     there). */
+  /* FRAUD structured outstanding-items checklist (#44, gated deletion #66).
+     Focused, atomic endpoints mirroring the completed-note pattern — each
+     enforces the turn/permission rule and the gated-deletion / checked-stale
+     invariants server-side. DELETE is gated (adder-only, own turn, still a
+     fresh draft — see canDeleteChecklistItem). submit / approve / bounce-back
+     ride the existing /transition endpoint (the pass counter bumps there, and
+     each hand-off commits existing items against further deletion). */
   router.post("/tasks/:taskId/checklist/items", async (req, res) => {
     try {
       const { text } = checklistItemTextSchema.parse(req.body);
@@ -511,6 +512,16 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to edit checklist item");
+    }
+  });
+
+  router.delete("/tasks/:taskId/checklist/items/:itemId", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      const task = await service.removeChecklistItem(req.params.taskId, req.params.itemId, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to delete checklist item");
     }
   });
 

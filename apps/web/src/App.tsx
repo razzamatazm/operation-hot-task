@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
 
@@ -547,6 +547,7 @@ const SharePopover = ({
 export interface ChecklistApi {
   addItem: (taskId: string, text: string) => Promise<void>;
   editText: (taskId: string, itemId: string, text: string) => Promise<void>;
+  deleteItem: (taskId: string, itemId: string) => Promise<void>;
   toggle: (taskId: string, itemId: string, checked: boolean, note?: string) => Promise<void>;
   setNote: (taskId: string, itemId: string, note: string) => Promise<void>;
   setCheckerNote: (taskId: string, itemId: string, checkerNote: string) => Promise<void>;
@@ -556,6 +557,12 @@ export interface ChecklistApi {
 const CheckIcon = () => (
   <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
     <path d="M3 8.5l3.2 3.3L13 4.8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+    <path d="M3 4.5h10M6.5 4.5V3.2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.3M5 4.5l.6 8a1 1 0 0 0 1 .95h2.8a1 1 0 0 0 1-.95l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
@@ -677,6 +684,21 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                     {item.addedBy === "creator" && <span className="checklist-badge checklist-badge-creator" title="Added by the requester">+requester</span>}
                     {item.stale && <span className="checklist-badge checklist-badge-stale" title="Text changed after it was checked — re-verify">stale · re-verify</span>}
                   </span>
+
+                  {/* Gated delete (#66): only for a fresh item you added, on your
+                      own turn, before it's handed off. Locks once submitted /
+                      sent / bounced. */}
+                  {canDeleteChecklistItem(task, user, item) && (
+                    <button
+                      type="button"
+                      className="checklist-delete"
+                      title="Delete this item (only until you hand it off)"
+                      aria-label={`Delete "${item.text}"`}
+                      onClick={() => void api.deleteItem(task.id, item.id)}
+                    >
+                      <TrashIcon />
+                    </button>
+                  )}
                 </div>
 
                 {/* Per-item notes: the requester's exception note and the
@@ -2529,9 +2551,18 @@ export const App = () => {
       showToast(err instanceof Error ? err.message : fallback, { variant: "error" });
     }
   };
+  const deleteChecklist = async (path: string, fallback: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(path, { method: "DELETE" }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : fallback, { variant: "error" });
+    }
+  };
   const checklistApi: ChecklistApi = {
     addItem: (taskId, text) => runChecklist(`/tasks/${taskId}/checklist/items`, { text }, "Failed to add item"),
     editText: (taskId, itemId, text) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/text`, { text }, "Failed to edit item"),
+    deleteItem: (taskId, itemId) => deleteChecklist(`/tasks/${taskId}/checklist/items/${itemId}`, "Failed to delete item"),
     toggle: (taskId, itemId, checked, note) =>
       runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { checked, ...(note !== undefined ? { note } : {}) }, "Failed to update item"),
     setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note"),

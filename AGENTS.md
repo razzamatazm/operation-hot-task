@@ -209,12 +209,24 @@ Primary goals:
   - **Structured outstanding-items checklist (#44):** the outstanding-items
     handoff is a structured `checklist: ChecklistItem[]` on the fraud check, not
     free text. Each `ChecklistItem` has `{ id, text, checked, note?,
-    checkerNote?, addedBy: "checker" | "creator", addedOnPass, stale? }`. Rules:
+    checkerNote?, addedBy: "checker" | "creator", addedOnPass, stale?, draft? }`.
+    (`draft` marks a fresh, not-yet-handed-off item its adder can still delete —
+    see gated deletion below.) Rules:
     - **One checked state = resolved.** A check means *collected* OR
       *not-needed*; the per-item `note` explains a non-collection. No separate
       waived/N-A state.
-    - **No deletions, ever.** There is no delete op (client or server). To drop
-      an item from consideration, check it off and note why.
+    - **Gated deletion (#66).** You may delete an item **you added**, on **your
+      active editing turn**, while it is still a fresh **draft** — i.e. before
+      the next hand-off. An item is deletable iff `addedBy ===
+      checklistSeat(actor)` **and** it's that seat's turn (checker in `Claimed` /
+      `Pending Approval`; creator in `Awaiting Items`) **and** it hasn't been
+      handed off since it was added (`draft` still set). New items start as
+      drafts (`draft: true`); every hand-off transition (Send / Submit / Send
+      Back) **commits** all existing items (clears `draft`), locking them
+      permanently against deletion so the round-trip fraud record is preserved.
+      The **other seat's** items are never deletable — to drop one from
+      consideration, check it off and note why. Enforced server-side via
+      `canDeleteChecklistItem`; the UI affordance only mirrors it.
     - **Both roles add items** (enter-to-add). `addedBy` is derived server-side
       from the actor's real seat, so creator-added items are reliably flagged.
     - **Checker text-edit → uncheck + stale.** Editing a checked item's text
@@ -516,10 +528,12 @@ Primary goals:
   - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
     without reopening it — creator/assignee/admin; the card's "Add a note"
     affordance)
-  - FRAUD structured checklist (#44) — focused, atomic endpoints, each
-    server-enforcing the turn/permission + no-deletion / checked-stale
-    invariants (there is deliberately no delete endpoint):
+  - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
+    endpoints, each server-enforcing the turn/permission + gated-deletion /
+    checked-stale invariants:
     - `POST /api/tasks/:taskId/checklist/items` (add an item)
+    - `DELETE /api/tasks/:taskId/checklist/items/:itemId` (delete your own fresh,
+      not-yet-handed-off item — gated by `canDeleteChecklistItem`)
     - `POST /api/tasks/:taskId/checklist/items/:itemId/text` (edit text →
       uncheck + stale)
     - `POST /api/tasks/:taskId/checklist/items/:itemId/checked` (toggle resolved,
