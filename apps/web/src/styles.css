@@ -1157,18 +1157,28 @@ button.btn-good:hover {
 }
 
 /* Share affordance (issue #41): a person-picker + Share/Copy-link row in the
-   expanded body. All color comes from theme tokens so it works in every theme. */
-/* Share popover (#41 content, collapsed behind a button per #52). A compact
-   ghost trigger opens an anchored panel that floats over the meta column. */
+   expanded body. All color comes from theme tokens so it works in every theme.
+   The trigger is an icon (#58) that sits inline in the action row (same row as
+   Cancel); the panel opens above it (#59). */
 .share-pop {
   position: relative;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line-soft);
+  display: inline-flex;
+}
+/* Icon-only trigger: square-ish so the share glyph reads as a button, not text. */
+.share-pop-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
+.icon-share {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 .share-pop-panel {
   position: absolute;
-  top: calc(100% + 6px);
+  bottom: calc(100% + 6px);
   left: 0;
   z-index: 30;
   width: 260px;
@@ -1181,7 +1191,7 @@ button.btn-good:hover {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow-md), 0 12px 32px -14px rgba(0, 0, 0, 0.35);
-  animation: slideDown 0.14s ease-out;
+  animation: slideUp 0.14s ease-out;
 }
 .share-pop-label {
   font-family: "JetBrains Mono", monospace;
@@ -1200,18 +1210,61 @@ button.btn-good:hover {
   flex-wrap: wrap;
   align-items: center;
 }
-.share-pop-status {
+
+/* Upward-opening panels (share popover, #59) and rising toasts (#60). Mirrors
+   slideDown but enters from below. */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Toast host (#60) ─────────────────────────────────────────
+   App-wide auto-dismissing confirmations (see ToastProvider in toast.tsx).
+   Floats above the action buttons at the bottom of the viewport. Mono + a
+   signal dot matches the "warm ledger" badge idiom; all color via tokens.
+   Wave 2 (#56) reuses the same host. */
+.toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(360px, 88vw);
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-md), 0 12px 32px -14px rgba(0, 0, 0, 0.35);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.64rem;
-  letter-spacing: 0.04em;
-  color: var(--good);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  animation: slideUp 0.16s ease-out;
 }
-.share-pop-status.share-pop-warn {
-  color: var(--hot);
+.toast::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
 }
-.share-pop-status.share-pop-error {
-  color: var(--bad);
-}
+.toast-success::before { background: var(--good); }
+.toast-warn::before { background: var(--hot); }
+.toast-error::before { background: var(--bad); }
 
 /* Two-step cancel: confirmation row replaces the actions block. */
 .task-card-cancel-confirm {

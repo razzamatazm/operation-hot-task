@@ -1,6 +1,7 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CLOSED_STATUSES, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canRestoreTask, formatWallDate, fraudCardActions, getNotesFieldLabel, nextFlowStatuses, restoreTargetStatus, searchLoans } from "@loan-tasks/shared";
 import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
@@ -352,13 +353,38 @@ const Timeline = ({ task }: { task: LoanTask }) => {
   );
 };
 
+/* Standard three-connected-nodes "share" glyph (#58). Hand-rolled inline SVG —
+   the app ships no icon library (only the logo SVG + Unicode marks), so this is
+   the one reusable share icon every share affordance should use. Sized via
+   `.icon-share` in styles.css; color follows `currentColor`. */
+const ShareIcon = () => (
+  <svg
+    className="icon-share"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <line x1="8.6" y1="10.7" x2="15.4" y2="6.3" />
+    <line x1="8.6" y1="13.3" x2="15.4" y2="17.7" />
+  </svg>
+);
+
 /* ── Share popover ───────────────────────────────────────────
-   A compact "Share" button that opens an anchored panel with the people-picker,
-   optional note, Copy link, and the delivery feedback from #41. Collapses the
+   A compact icon trigger (#58) that opens an anchored panel — above the trigger
+   (#59) — with the people-picker, optional note, and Copy link. Collapses the
    share UI behind a button so it stops dominating the card (#52). Self-contained
    so the create-task flow (#46) can reuse it. Dismisses on outside-click or Esc.
-   Delivery semantics are unchanged — `onShare` still resolves with whether the
-   DM reached the recipient. */
+   On a successful share (recorded server-side regardless of DM delivery) it
+   fires a "Shared" toast and auto-dismisses; Copy link keeps its "Copied ✓"
+   flash, then auto-dismisses (#60). */
 const SharePopover = ({
   candidates,
   onShare,
@@ -375,21 +401,29 @@ const SharePopover = ({
   link?: string | null;
 }) => {
   const [open, setOpen] = useState(false);
-  /* Chosen person + optional note + send status + copy-link flash.
-     "undelivered" = share recorded but the target has no bot reference, so the
-     DM couldn't reach them. */
+  /* Chosen person + optional note + in-flight flag + copy-link flash. Success
+     and failure are both toasts now (#60), so no status text lives in the panel;
+     `state` only drives the button label + disabled while a share is in flight. */
   const [targetId, setTargetId] = useState("");
   const [note, setNote] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "done" | "undelivered" | "error">("idle");
+  const [state, setState] = useState<"idle" | "sending">("idle");
   const [copied, setCopied] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const selectId = useId();
+  const { showToast } = useToast();
+
+  /* Close and reset the transient flags so the next open starts clean. */
+  const close = () => {
+    setOpen(false);
+    setCopied(false);
+    setState("idle");
+  };
 
   /* Dismiss on an outside mousedown while open. Esc is handled on the panel. */
   useEffect(() => {
     if (!open) return;
     const onDown = (e: globalThis.MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) close();
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -399,24 +433,29 @@ const SharePopover = ({
     if (!targetId) return;
     setState("sending");
     try {
-      const { delivered } = await onShare(targetId, note.trim() || undefined);
-      setState(delivered ? "done" : "undelivered");
+      /* The share is recorded server-side regardless of DM delivery, so any
+         resolution is a success — confirm with a toast and auto-dismiss (#60). */
+      await onShare(targetId, note.trim() || undefined);
       setTargetId("");
       setNote("");
+      showToast("Shared", { variant: "success" });
+      close();
     } catch {
-      setState("error");
+      /* Re-enable the button so they can retry; the failure surfaces as a toast. */
+      setState("idle");
+      showToast("Couldn't share — try again", { variant: "error" });
     }
   };
 
   /* Copy the in-app deep link (`#task-<id>` anchor scrolls the row into view).
      The person-picker above is the real deliverable; this is the lightweight
-     "share link". */
+     "share link". Keep the "Copied ✓" flash, then auto-dismiss the popover (#60). */
   const handleCopy = async () => {
     if (!link) return;
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setTimeout(close, 1100);
     } catch {
       /* clipboard unavailable — ignore */
     }
@@ -429,16 +468,18 @@ const SharePopover = ({
         className="btn-sm btn-ghost share-pop-trigger"
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        aria-label="Share"
+        title="Share"
+        onClick={() => (open ? close() : setOpen(true))}
       >
-        Share
+        <ShareIcon />
       </button>
       {open && (
         <div
           className="share-pop-panel"
           role="dialog"
           aria-label="Share this task"
-          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } }}
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
         >
           <label className="share-pop-label" htmlFor={selectId}>Share</label>
           <select
@@ -470,9 +511,6 @@ const SharePopover = ({
               </button>
             )}
           </div>
-          {state === "done" && <span className="share-pop-status" role="status">Sent a heads-up ✓</span>}
-          {state === "undelivered" && <span className="share-pop-status share-pop-warn" role="status">Couldn't reach them — have them message the bot first.</span>}
-          {state === "error" && <span className="share-pop-status share-pop-error" role="status">Couldn't share — try again</span>}
         </div>
       )}
     </div>
@@ -884,17 +922,18 @@ const TaskCard = ({
                   Restore
                 </button>
               )}
+              {/* Share (issues #41, #52, #58): icon trigger on the same row as
+                  the other actions (e.g. Cancel) — DM a specific person a deep
+                  link to this task, outside the normal creator/assignee flow.
+                  Hidden when there's nobody else in the directory to point at. */}
+              {shareCandidates.length > 0 && (
+                <SharePopover
+                  candidates={shareCandidates}
+                  onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
+                  link={shareLink}
+                />
+              )}
             </div>
-          )}
-          {/* Share (issues #41, #52): collapsed behind a button — DM a specific
-              person a deep link to this task, outside the normal creator/assignee
-              flow. Hidden when there's nobody else in the directory to point at. */}
-          {showActions && shareCandidates.length > 0 && (
-            <SharePopover
-              candidates={shareCandidates}
-              onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
-              link={shareLink}
-            />
           )}
         </div>
 
