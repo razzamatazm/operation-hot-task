@@ -9,7 +9,8 @@ import { UserStore } from "./user-store.js";
 import { TeamsBotClient } from "./bot.js";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { SettingsStore } from "./settings-store.js";
-import { createTaskSchema, reviewNoteSchema, transitionSchema, updatePointsSchema } from "./validation.js";
+import { LoanService } from "./loan-service.js";
+import { createLoanSchema, createTaskSchema, reviewNoteSchema, transitionSchema, updateLoanSchema, updatePointsSchema } from "./validation.js";
 
 const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
 
@@ -26,11 +27,12 @@ const sendError = (res: Response, error: unknown, fallback: string): void => {
 const toCreateInput = (body: unknown) => {
   const parsed = createTaskSchema.parse(body);
   const folderName = parsed.folderName?.trim() || parsed.loanName?.trim() || parsed.serverLocation?.trim();
-  if (!folderName) {
-    throw new Error("folderName is required");
+  if (!folderName && !parsed.loanId) {
+    throw new Error("folderName or loanId is required");
   }
   return {
-    folderName,
+    ...(parsed.loanId ? { loanId: parsed.loanId } : {}),
+    folderName: folderName ?? "",
     taskType: parsed.taskType,
     notes: parsed.notes,
     ...(parsed.dueAt ? { dueAt: parsed.dueAt } : {}),
@@ -42,7 +44,7 @@ const toCreateInput = (body: unknown) => {
   };
 };
 
-export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient, settingsStore: SettingsStore): Router => {
+export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient, settingsStore: SettingsStore, loanService: LoanService): Router => {
   const router = Router();
 
   /* Resolve the caller: verify the SSO token (or accept dev headers), then
@@ -255,6 +257,61 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ ok: true });
     } catch (error) {
       sendError(res, error, "Failed to remove user");
+    }
+  });
+
+  /* Loans (ADR-0001). Search powers the create-form typeahead; create/get
+     back it; PATCH is the Loan-scoped edit surface (name + link). Any
+     authenticated user may create/edit a loan — same trust as creating a
+     task. */
+  router.get("/loans", async (req, res) => {
+    try {
+      if (req.query.q !== undefined) {
+        const query = typeof req.query.q === "string" ? req.query.q : "";
+        const matches = await loanService.search(query);
+        res.json({ loans: matches.map((m) => m.loan) });
+        return;
+      }
+      res.json({ loans: await loanService.list() });
+    } catch (error) {
+      sendError(res, error, "Failed to list loans");
+    }
+  });
+
+  router.post("/loans", async (req, res) => {
+    try {
+      await getActor(req);
+      const input = createLoanSchema.parse(req.body);
+      const loan = await loanService.create({
+        name: input.name,
+        ...(input.humperdinkLink ? { humperdinkLink: input.humperdinkLink } : {})
+      });
+      res.status(201).json({ loan });
+    } catch (error) {
+      sendError(res, error, "Failed to create loan");
+    }
+  });
+
+  router.get("/loans/:loanId", async (req, res) => {
+    const loan = await loanService.get(req.params.loanId);
+    if (!loan) {
+      res.status(404).json({ error: "Loan not found" });
+      return;
+    }
+    res.json({ loan });
+  });
+
+  router.patch("/loans/:loanId", async (req, res) => {
+    try {
+      await getActor(req);
+      const input = updateLoanSchema.parse(req.body);
+      const result = await loanService.update(req.params.loanId, {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.humperdinkLink !== undefined ? { humperdinkLink: input.humperdinkLink } : {})
+      });
+      res.json({ loan: result.loan, ...(result.merged ? { merged: result.merged } : {}) });
+    } catch (error) {
+      sendError(res, error, "Failed to update loan");
     }
   });
 
