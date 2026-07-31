@@ -12,8 +12,11 @@ import { v4 as uuid } from "uuid";
 import {
   LOAN_MATCH_THRESHOLD,
   clusterLoanNames,
+  deriveMyLoanIds,
   findLoanForCreate,
   loanNameSimilarity,
+  loanTypeaheadSuggestions,
+  nextHighlightIndex,
   normalizeLinkKey,
   normalizeLoanName,
   searchLoans
@@ -123,6 +126,44 @@ const run = async () => {
   pass("searchLoans surfaces fuzzy + substring matches, ranked");
 
   assert.ok(findLoanForCreate("smith 1042", undefined, loanList)?.id === "l1", "findLoanForCreate matches normalized name");
+
+  // ── "My loans" derivation (issue #55) ────────────────────
+  const mineTasks = [
+    { loanId: "l1", createdBy: { id: "me" } },   // mine
+    { loanId: "l2", createdBy: { id: "other" } },// someone else's
+    { loanId: "l3", createdBy: { id: "me" } },   // mine
+    { loanId: "l1", createdBy: { id: "other" } },// still mine via the l1 task above
+    { createdBy: { id: "me" } }                  // OOO / no loanId → ignored
+  ];
+  const mineIds = deriveMyLoanIds(mineTasks, "me");
+  assert.deepEqual([...mineIds].sort(), ["l1", "l3"], "my loans = loans linked by tasks I created");
+  pass("deriveMyLoanIds scopes loans to tasks the current user created");
+
+  // ── Typeahead: empty query = my MRU shortlist; typing = global ─
+  const older = "2026-01-01T00:00:00.000Z";
+  const newer = "2026-06-01T00:00:00.000Z";
+  const suggestLoans = [
+    { id: "l1", name: "Smith 1042", createdAt: older, updatedAt: older },
+    { id: "l2", name: "Smithson 88", createdAt: newer, updatedAt: newer },
+    { id: "l3", name: "Jones 9000", createdAt: newer, updatedAt: newer }
+  ];
+  const emptyShortlist = loanTypeaheadSuggestions("", suggestLoans, mineIds, 8);
+  assert.deepEqual(emptyShortlist.map((m) => m.loan.id), ["l3", "l1"], "empty query = only my loans, MRU (updatedAt desc)");
+  const typed = loanTypeaheadSuggestions("smith", suggestLoans, mineIds, 8);
+  assert.ok(typed.some((m) => m.loan.id === "l2"), "typing searches ALL loans, incl. ones not mine (l2)");
+  assert.ok(!typed.some((m) => m.loan.id === "l3"), "typed search still filters by match score");
+  const noneMine = loanTypeaheadSuggestions("", suggestLoans, new Set(), 8);
+  assert.equal(noneMine.length, 0, "empty query with no loans of mine yields an empty shortlist");
+  pass("loanTypeaheadSuggestions branches empty→my-MRU vs typed→global search");
+
+  // ── Keyboard highlight wrap (issue #55) ──────────────────
+  assert.equal(nextHighlightIndex(-1, 1, 3), 0, "ArrowDown from none → first");
+  assert.equal(nextHighlightIndex(-1, -1, 3), 2, "ArrowUp from none → last");
+  assert.equal(nextHighlightIndex(0, 1, 3), 1, "ArrowDown advances");
+  assert.equal(nextHighlightIndex(2, 1, 3), 0, "ArrowDown wraps past the end");
+  assert.equal(nextHighlightIndex(0, -1, 3), 2, "ArrowUp wraps past the start");
+  assert.equal(nextHighlightIndex(1, 1, 0), -1, "empty list → none");
+  pass("nextHighlightIndex wraps highlight across the suggestion list");
 
   // ── Create + dedupe ──────────────────────────────────────
   await withTempDir(async ({ service }) => {
