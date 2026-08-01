@@ -2021,6 +2021,390 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
   );
 };
 
+/* ── Create-task form ─────────────────────────────────────────
+   Extracted from App (issue #72) so that typing in any field only
+   re-renders this subtree — App (and the whole task list it renders) no
+   longer re-renders on every keystroke. All form-input state lives here;
+   App keeps only `formOpen` and mounts this child while it's true. The two
+   side-effects the form triggers (persist + post-create share) stay on App
+   behind the single stable `onCreate` callback so this component stays
+   presentational — it builds the payload and closes on success. */
+interface CreateTaskFormProps {
+  loans: Loan[];
+  directory: Array<{ id: string; displayName: string }>;
+  user: UserIdentity;
+  tasks: LoanTask[];
+  onClose: () => void;
+  /* Persist the task, then fire the optional post-create share (#46) with its
+     delivered/couldn't-reach toast, and refresh. Resolves once the task is
+     created; rejects only when the create itself fails (App has already shown
+     the error toast) so the form stays open for a retry. */
+  onCreate: (payload: CreateTaskInput, shareWithUserId: string) => Promise<void>;
+}
+
+const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: CreateTaskFormProps) => {
+  const { showToast } = useToast();
+  const [form, setForm] = useState({
+    folderName: "",
+    loanId: "",
+    taskType: "LOI" as TaskType,
+    urgency: "GREEN" as UrgencyLevel,
+    startDate: "",
+    returnDate: "",
+    notes: "",
+    humperdinkLink: "",
+    points: 0,
+    // FRAUD only (#69): outstanding items the creator seeds at creation. Enter-
+    // to-add list of item texts; mapped to the `initialItems` payload and
+    // persisted as creator-added draft checklist items server-side.
+    initialItems: [] as string[],
+    // "Make sure X sees this" at creation (issue #46): optional target who gets
+    // the same share DM #41 sends, fired right after the task is persisted.
+    shareWithUserId: ""
+  });
+  /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
+     from the committed `form.initialItems` list. */
+  const [seedDraft, setSeedDraft] = useState("");
+  /* Create-form loan typeahead: which suggestion list is open + which loan
+     (if any) the typed Folder Name resolved to. */
+  const [loanSuggestOpen, setLoanSuggestOpen] = useState(false);
+  /* The text the user actually typed into Folder Name (issue #55). Kept
+     separate from `form.folderName` so keyboard arrow-autofill can preview a
+     highlighted loan's name in the field without reshuffling the match list. */
+  const [loanQuery, setLoanQuery] = useState("");
+  /* Highlighted suggestion index for keyboard nav, or -1 for none (#55). */
+  const [loanHighlight, setLoanHighlight] = useState(-1);
+  const [namvarHover, setNamvarHover] = useState<number | null>(null);
+
+  /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
+     by a task the current user created (merged loans share one id, so they
+     count automatically). Drives the empty-query, open-on-focus view. Kept
+     local so it only recomputes on this form's renders, not App's. */
+  const myLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
+
+  /* Current typeahead suggestions: empty query → my most-recently-used loans;
+     typing → all users' loans ranked by match (#55). Excludes an option that
+     exactly equals what's already typed. */
+  const loanMatches = useMemo(
+    () =>
+      loanTypeaheadSuggestions(loanQuery, loans, myLoanIds, 6).filter(
+        (m) => m.loan.name.trim().toLowerCase() !== loanQuery.trim().toLowerCase()
+      ),
+    [loanQuery, loans, myLoanIds]
+  );
+
+  /* Commit a loan pick from the typeahead (mouse click or keyboard Enter):
+     link the task to the existing loan and confirm with a transient toast
+     (#56) instead of an inline hint that reflowed the form. */
+  const selectLoan = (loan: Loan): void => {
+    setForm((c) => ({
+      ...c,
+      folderName: loan.name,
+      loanId: loan.id,
+      humperdinkLink: loan.humperdinkLink ?? c.humperdinkLink
+    }));
+    setLoanQuery(loan.name);
+    setLoanSuggestOpen(false);
+    setLoanHighlight(-1);
+    showToast("Linked to an existing loan", { variant: "success" });
+  };
+
+  const handleSubmit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    const rawLink = form.humperdinkLink.trim();
+    const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
+    // Only pass loanId when the typed name still matches the selected loan —
+    // editing the text after selecting means the user intends a new loan.
+    const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
+    const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
+    // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
+    // ship the outstanding items the creator already knows about.
+    const seededItems =
+      form.taskType === "FRAUD"
+        ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
+        : [];
+    const payload: CreateTaskInput = {
+      folderName: form.folderName,
+      taskType: form.taskType,
+      notes: form.notes,
+      ...(keepLoanId ? { loanId: form.loanId } : {}),
+      ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
+      ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
+      ...(form.points > 0 ? { points: form.points } : {}),
+      ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {})
+    };
+
+    try {
+      // App owns persist + post-create share + refresh; on success we close,
+      // which unmounts this child and discards the draft state. A create
+      // failure rejects here (App already toasted) — keep the form open.
+      await onCreate(payload, form.shareWithUserId);
+      onClose();
+    } catch {
+      /* create failed — App surfaced the error; leave the form open to retry */
+    }
+  };
+
+  return (
+    <div
+      className="form-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="New task"
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+    >
+      <div className="form-panel" onClick={(e) => e.stopPropagation()}>
+      <form className="task-form" onSubmit={handleSubmit}>
+        <label>
+          {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
+          {form.taskType === "OOO" ? (
+            <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
+          ) : (
+            <span className="loan-typeahead">
+              <input
+                value={form.folderName}
+                autoComplete="off"
+                placeholder="Search existing loans or type a new name"
+                role="combobox"
+                aria-expanded={loanSuggestOpen && loanMatches.length > 0}
+                aria-autocomplete="list"
+                aria-activedescendant={loanHighlight >= 0 ? `loan-opt-${loanHighlight}` : undefined}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  // Typing diverges from any prior selection → treat as a new
+                  // loan, and re-scope the match list to the typed query.
+                  setForm((c) => ({ ...c, folderName: v, loanId: "" }));
+                  setLoanQuery(v);
+                  setLoanSuggestOpen(true);
+                  setLoanHighlight(-1);
+                }}
+                onFocus={() => { setLoanQuery(form.folderName); setLoanSuggestOpen(true); setLoanHighlight(-1); }}
+                onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    if (loanMatches.length === 0) return;
+                    e.preventDefault();
+                    if (!loanSuggestOpen) setLoanSuggestOpen(true);
+                    const next = nextHighlightIndex(loanHighlight, e.key === "ArrowDown" ? 1 : -1, loanMatches.length);
+                    setLoanHighlight(next);
+                    // Autofill the field with the highlighted loan's name;
+                    // selection (link + toast) waits for Enter.
+                    const preview = loanMatches[next];
+                    if (preview) setForm((c) => ({ ...c, folderName: preview.loan.name, loanId: "" }));
+                  } else if (e.key === "Enter" && loanSuggestOpen && loanHighlight >= 0 && loanMatches[loanHighlight]) {
+                    e.preventDefault();
+                    selectLoan(loanMatches[loanHighlight]!.loan);
+                  } else if (e.key === "Escape" && loanSuggestOpen) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setLoanSuggestOpen(false);
+                    setLoanHighlight(-1);
+                  }
+                }}
+                required
+              />
+              {loanSuggestOpen && loanMatches.length > 0 && (
+                <ul className="loan-typeahead-list" role="listbox">
+                  {loanMatches.map((m, i) => (
+                    <li key={m.loan.id}>
+                      <button
+                        type="button"
+                        id={`loan-opt-${i}`}
+                        role="option"
+                        aria-selected={i === loanHighlight}
+                        className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
+                        onMouseEnter={() => setLoanHighlight(i)}
+                        // onMouseDown fires before the input's onBlur so the pick registers.
+                        onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
+                      >
+                        <span className="loan-typeahead-name">{m.loan.name}</span>
+                        {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </span>
+          )}
+        </label>
+        <label>
+          Type
+          <select value={form.taskType} onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}>
+            <option value="LOI">LOI Check</option>
+            <option value="BUDDY_CHAT">Buddy Chat</option>
+            <option value="VALUE">Value Check</option>
+            <option value="FRAUD">Fraud Check</option>
+            <option value="LOAN_DOCS">Loan Docs</option>
+            <option value="OOO">OOO - Out of Office</option>
+          </select>
+        </label>
+        {form.taskType === "OOO" ? (
+          <>
+            <label>
+              Start Date
+              <input
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
+                required
+              />
+            </label>
+            <label>
+              Return Date
+              <input
+                type="date"
+                value={form.returnDate}
+                min={form.startDate || undefined}
+                onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
+                required
+              />
+            </label>
+          </>
+        ) : (
+          <label>
+            Urgency
+            <select value={form.urgency} onChange={(e) => setForm((c) => ({ ...c, urgency: e.target.value as UrgencyLevel }))}>
+              <option value="GREEN">Within 24 Hours</option>
+              <option value="YELLOW">End of Day</option>
+              <option value="ORANGE">Within 1 Hour</option>
+              <option value="RED">Urgent Now</option>
+            </select>
+          </label>
+        )}
+        <label>
+          How Bad?
+          <span
+            className="poop-picker poop-picker-form"
+            onMouseLeave={() => setNamvarHover(null)}
+          >
+            {[1, 2, 3, 4, 5].map((n) => {
+              const active = n <= (namvarHover ?? form.points);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  className={`poop-pick${active ? " poop-pick-on" : ""}`}
+                  onMouseEnter={() => setNamvarHover(n)}
+                  onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
+                  aria-label={`${n} poop${n === 1 ? "" : "s"}`}
+                  aria-pressed={n <= form.points}
+                >
+                  💩
+                </button>
+              );
+            })}
+          </span>
+        </label>
+        <label className="span-full">
+          {/* FRAUD's free-text field is now a general discussion seed, so it
+              gets a purpose-built "Notes" label (#69); the shared
+              NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
+          {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
+          <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
+        </label>
+        {/* FRAUD only (#69): seed the outstanding-items checklist with items
+            the creator already knows about. Enter-to-add, mirrors the card's
+            FraudChecklist add idiom. Optional — the checker seeds later. */}
+        {form.taskType === "FRAUD" && (
+          <div className="span-full task-form-seed">
+            <span className="task-form-seed-head">Outstanding Items <span className="form-label-optional">- Optional</span></span>
+            {form.initialItems.length > 0 && (
+              <ul className="task-form-seed-list">
+                {form.initialItems.map((text, idx) => (
+                  <li key={idx} className="task-form-seed-item">
+                    <span className="task-form-seed-text">{text}</span>
+                    <button
+                      type="button"
+                      className="checklist-delete"
+                      aria-label={`Remove "${text}"`}
+                      onClick={() => setForm((c) => ({ ...c, initialItems: c.initialItems.filter((_, i) => i !== idx) }))}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="checklist-add">
+              <input
+                className="checklist-item-input"
+                placeholder="Add an item, press Enter…"
+                value={seedDraft}
+                onChange={(e) => setSeedDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const v = seedDraft.trim();
+                    if (!v) return;
+                    setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
+                    setSeedDraft("");
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={!seedDraft.trim()}
+                onClick={() => {
+                  const v = seedDraft.trim();
+                  if (!v) return;
+                  setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
+                  setSeedDraft("");
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        )}
+        {form.taskType !== "OOO" && (
+          <label className="span-full">
+            Humperdink Link
+            <input
+              type="text"
+              inputMode="url"
+              placeholder="Optional"
+              value={form.humperdinkLink}
+              onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && !/^https?:\/\//i.test(v)) {
+                  setForm((c) => ({ ...c, humperdinkLink: `https://${v}` }));
+                }
+              }}
+            />
+          </label>
+        )}
+        {/* "Make sure someone sees this" (issue #46): optional at-creation
+            share. Reuses #41's people directory + share endpoint; excludes
+            the creator. Hidden when nobody else is in the directory. */}
+        {directory.some((u) => u.id !== user.id) && (
+          <label className="span-full">
+            <span>Share Directly <span className="form-label-optional">- Optional</span></span>
+            <select
+              value={form.shareWithUserId}
+              onChange={(e) => setForm((c) => ({ ...c, shareWithUserId: e.target.value }))}
+            >
+              <option value="">No one — just create it</option>
+              {directory
+                .filter((u) => u.id !== user.id)
+                .map((u) => (
+                  <option key={u.id} value={u.id}>{u.displayName}</option>
+                ))}
+            </select>
+          </label>
+        )}
+        <div className="form-actions">
+          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button type="submit">Create Task</button>
+        </div>
+      </form>
+      </div>
+    </div>
+  );
+};
+
 /* ── Main app ─────────────────────────────────────────────── */
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
@@ -2032,17 +2416,11 @@ export const App = () => {
   /* Selectable people for the share picker (issue #41). Active users, id + name. */
   const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  /* Whether the New Task form is open. Only App state the create form needs —
+     it flips on open/close, never per keystroke, so the whole form-input state
+     lives in <CreateTaskForm> (issue #72) and App no longer re-renders (and
+     re-renders the task list) as the user types. */
   const [formOpen, setFormOpen] = useState(false);
-  /* Create-form loan typeahead: which suggestion list is open + which loan
-     (if any) the typed Folder Name resolved to. */
-  const [loanSuggestOpen, setLoanSuggestOpen] = useState(false);
-  /* The text the user actually typed into Folder Name (issue #55). Kept
-     separate from `form.folderName` so keyboard arrow-autofill can preview a
-     highlighted loan's name in the field without reshuffling the match list. */
-  const [loanQuery, setLoanQuery] = useState("");
-  /* Highlighted suggestion index for keyboard nav, or -1 for none (#55). */
-  const [loanHighlight, setLoanHighlight] = useState(-1);
-  const [namvarHover, setNamvarHover] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
 
   /* Grouped ("courts") view toggle — buckets tasks by whose court the ball is
@@ -2239,61 +2617,7 @@ export const App = () => {
     setPulsingIds(new Set());
   }, [user.id]);
 
-  const [form, setForm] = useState({
-    folderName: "",
-    loanId: "",
-    taskType: "LOI" as TaskType,
-    urgency: "GREEN" as UrgencyLevel,
-    startDate: "",
-    returnDate: "",
-    notes: "",
-    humperdinkLink: "",
-    points: 0,
-    // FRAUD only (#69): outstanding items the creator seeds at creation. Enter-
-    // to-add list of item texts; mapped to the `initialItems` payload and
-    // persisted as creator-added draft checklist items server-side.
-    initialItems: [] as string[],
-    // "Make sure X sees this" at creation (issue #46): optional target who gets
-    // the same share DM #41 sends, fired right after the task is persisted.
-    shareWithUserId: ""
-  });
-  /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
-     from the committed `form.initialItems` list. */
-  const [seedDraft, setSeedDraft] = useState("");
-
   const { showToast } = useToast();
-
-  /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
-     by a task the current user created (merged loans share one id, so they
-     count automatically). Drives the empty-query, open-on-focus view. */
-  const myLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
-
-  /* Current typeahead suggestions: empty query → my most-recently-used loans;
-     typing → all users' loans ranked by match (#55). Excludes an option that
-     exactly equals what's already typed. */
-  const loanMatches = useMemo(
-    () =>
-      loanTypeaheadSuggestions(loanQuery, loans, myLoanIds, 6).filter(
-        (m) => m.loan.name.trim().toLowerCase() !== loanQuery.trim().toLowerCase()
-      ),
-    [loanQuery, loans, myLoanIds]
-  );
-
-  /* Commit a loan pick from the typeahead (mouse click or keyboard Enter):
-     link the task to the existing loan and confirm with a transient toast
-     (#56) instead of an inline hint that reflowed the form. */
-  const selectLoan = (loan: Loan): void => {
-    setForm((c) => ({
-      ...c,
-      folderName: loan.name,
-      loanId: loan.id,
-      humperdinkLink: loan.humperdinkLink ?? c.humperdinkLink
-    }));
-    setLoanQuery(loan.name);
-    setLoanSuggestOpen(false);
-    setLoanHighlight(-1);
-    showToast("Linked to an existing loan", { variant: "success" });
-  };
 
   const isAdmin = user.roles.includes("ADMIN");
 
@@ -2393,68 +2717,45 @@ export const App = () => {
     return () => source.close();
   }, []);
 
-  const onCreateTask = async (event: FormEvent): Promise<void> => {
-    event.preventDefault();
-    const rawLink = form.humperdinkLink.trim();
-    const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
-    // Only pass loanId when the typed name still matches the selected loan —
-    // editing the text after selecting means the user intends a new loan.
-    const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
-    const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
-    // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
-    // ship the outstanding items the creator already knows about.
-    const seededItems =
-      form.taskType === "FRAUD"
-        ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
-        : [];
-    const payload: CreateTaskInput = {
-      folderName: form.folderName,
-      taskType: form.taskType,
-      notes: form.notes,
-      ...(keepLoanId ? { loanId: form.loanId } : {}),
-      ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
-      ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
-      ...(form.points > 0 ? { points: form.points } : {}),
-      ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {})
-    };
-
-    // Snapshot the share target before the form state is cleared below.
-    const shareWithUserId = form.shareWithUserId;
-
+  /* Create-form submit seam (issue #72). <CreateTaskForm> owns the form state
+     and builds the payload; App keeps the two side-effects — persistence and
+     the post-create share — so the child stays presentational. Resolves once
+     the task is persisted (the child then closes itself); rejects only when the
+     create itself fails, after surfacing the error, so the form stays open. */
+  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string): Promise<void> => {
+    let created: { task: LoanTask };
     try {
-      const { task } = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0, initialItems: [], shareWithUserId: "" }));
-      setSeedDraft("");
-      setLoanSuggestOpen(false);
-      setError(null);
-      setFormOpen(false);
-      // "Make sure X sees this" (issue #46): the share has to fire AFTER the task
-      // is persisted, so it's a follow-up call to #41's endpoint using the new
-      // task id — deliberately decoupled so a failed/undelivered share never
-      // blocks task creation. `delivered` tells us if the DM actually landed.
-      // The outcome surfaces as a shared toast (post-create form is closed).
-      if (shareWithUserId) {
-        const target = directory.find((u) => u.id === shareWithUserId);
-        const targetName = target ? firstName(target.displayName) : "them";
-        try {
-          const { delivered } = await onShare(task.id, shareWithUserId);
-          if (delivered) {
-            showToast(`Sent ${targetName} a heads-up about this task ✓`, { variant: "success" });
-          } else {
-            showToast(
-              `Task created, but we couldn't reach ${targetName} — have them message the bot first.`,
-              { variant: "warn" }
-            );
-          }
-        } catch {
-          showToast(`Task created, but sharing with ${targetName} failed.`, { variant: "error" });
-        }
-      }
-      await refresh();
-      await loadLoans();
+      created = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to create task", { variant: "error" });
+      throw err;
     }
+    setError(null);
+    // "Make sure X sees this" (issue #46): the share has to fire AFTER the task
+    // is persisted, so it's a follow-up call to #41's endpoint using the new
+    // task id — deliberately decoupled so a failed/undelivered share never
+    // blocks task creation. `delivered` tells us if the DM actually landed.
+    // The outcome surfaces as a shared toast. A share failure here does not
+    // reject — the task was created, so the form still closes.
+    if (shareWithUserId) {
+      const target = directory.find((u) => u.id === shareWithUserId);
+      const targetName = target ? firstName(target.displayName) : "them";
+      try {
+        const { delivered } = await onShare(created.task.id, shareWithUserId);
+        if (delivered) {
+          showToast(`Sent ${targetName} a heads-up about this task ✓`, { variant: "success" });
+        } else {
+          showToast(
+            `Task created, but we couldn't reach ${targetName} — have them message the bot first.`,
+            { variant: "warn" }
+          );
+        }
+      } catch {
+        showToast(`Task created, but sharing with ${targetName} failed.`, { variant: "error" });
+      }
+    }
+    await refresh();
+    await loadLoans();
   };
 
   const onClaim = async (taskId: string): Promise<void> => {
@@ -2854,263 +3155,18 @@ export const App = () => {
 
       {error && <p className="error-bar">{error}</p>}
 
+      {/* New Task form (issue #72): its input state lives in the child, so
+          typing never re-renders App or the task list. Mounted only while
+          open; unmounting on close discards the draft. */}
       {formOpen && (
-        <div
-          className="form-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="New task"
-          onClick={() => setFormOpen(false)}
-          onKeyDown={(e) => { if (e.key === "Escape") setFormOpen(false); }}
-        >
-          <div className="form-panel" onClick={(e) => e.stopPropagation()}>
-          <form className="task-form" onSubmit={onCreateTask}>
-            <label>
-              {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
-              {form.taskType === "OOO" ? (
-                <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
-              ) : (
-                <span className="loan-typeahead">
-                  <input
-                    value={form.folderName}
-                    autoComplete="off"
-                    placeholder="Search existing loans or type a new name"
-                    role="combobox"
-                    aria-expanded={loanSuggestOpen && loanMatches.length > 0}
-                    aria-autocomplete="list"
-                    aria-activedescendant={loanHighlight >= 0 ? `loan-opt-${loanHighlight}` : undefined}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      // Typing diverges from any prior selection → treat as a new
-                      // loan, and re-scope the match list to the typed query.
-                      setForm((c) => ({ ...c, folderName: v, loanId: "" }));
-                      setLoanQuery(v);
-                      setLoanSuggestOpen(true);
-                      setLoanHighlight(-1);
-                    }}
-                    onFocus={() => { setLoanQuery(form.folderName); setLoanSuggestOpen(true); setLoanHighlight(-1); }}
-                    onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
-                    onKeyDown={(e) => {
-                      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                        if (loanMatches.length === 0) return;
-                        e.preventDefault();
-                        if (!loanSuggestOpen) setLoanSuggestOpen(true);
-                        const next = nextHighlightIndex(loanHighlight, e.key === "ArrowDown" ? 1 : -1, loanMatches.length);
-                        setLoanHighlight(next);
-                        // Autofill the field with the highlighted loan's name;
-                        // selection (link + toast) waits for Enter.
-                        const preview = loanMatches[next];
-                        if (preview) setForm((c) => ({ ...c, folderName: preview.loan.name, loanId: "" }));
-                      } else if (e.key === "Enter" && loanSuggestOpen && loanHighlight >= 0 && loanMatches[loanHighlight]) {
-                        e.preventDefault();
-                        selectLoan(loanMatches[loanHighlight]!.loan);
-                      } else if (e.key === "Escape" && loanSuggestOpen) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setLoanSuggestOpen(false);
-                        setLoanHighlight(-1);
-                      }
-                    }}
-                    required
-                  />
-                  {loanSuggestOpen && loanMatches.length > 0 && (
-                    <ul className="loan-typeahead-list" role="listbox">
-                      {loanMatches.map((m, i) => (
-                        <li key={m.loan.id}>
-                          <button
-                            type="button"
-                            id={`loan-opt-${i}`}
-                            role="option"
-                            aria-selected={i === loanHighlight}
-                            className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
-                            onMouseEnter={() => setLoanHighlight(i)}
-                            // onMouseDown fires before the input's onBlur so the pick registers.
-                            onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
-                          >
-                            <span className="loan-typeahead-name">{m.loan.name}</span>
-                            {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </span>
-              )}
-            </label>
-            <label>
-              Type
-              <select value={form.taskType} onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}>
-                <option value="LOI">LOI Check</option>
-                <option value="BUDDY_CHAT">Buddy Chat</option>
-                <option value="VALUE">Value Check</option>
-                <option value="FRAUD">Fraud Check</option>
-                <option value="LOAN_DOCS">Loan Docs</option>
-                <option value="OOO">OOO - Out of Office</option>
-              </select>
-            </label>
-            {form.taskType === "OOO" ? (
-              <>
-                <label>
-                  Start Date
-                  <input
-                    type="date"
-                    value={form.startDate}
-                    onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
-                    required
-                  />
-                </label>
-                <label>
-                  Return Date
-                  <input
-                    type="date"
-                    value={form.returnDate}
-                    min={form.startDate || undefined}
-                    onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
-                    required
-                  />
-                </label>
-              </>
-            ) : (
-              <label>
-                Urgency
-                <select value={form.urgency} onChange={(e) => setForm((c) => ({ ...c, urgency: e.target.value as UrgencyLevel }))}>
-                  <option value="GREEN">Within 24 Hours</option>
-                  <option value="YELLOW">End of Day</option>
-                  <option value="ORANGE">Within 1 Hour</option>
-                  <option value="RED">Urgent Now</option>
-                </select>
-              </label>
-            )}
-            <label>
-              How Bad?
-              <span
-                className="poop-picker poop-picker-form"
-                onMouseLeave={() => setNamvarHover(null)}
-              >
-                {[1, 2, 3, 4, 5].map((n) => {
-                  const active = n <= (namvarHover ?? form.points);
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`poop-pick${active ? " poop-pick-on" : ""}`}
-                      onMouseEnter={() => setNamvarHover(n)}
-                      onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
-                      aria-label={`${n} poop${n === 1 ? "" : "s"}`}
-                      aria-pressed={n <= form.points}
-                    >
-                      💩
-                    </button>
-                  );
-                })}
-              </span>
-            </label>
-            <label className="span-full">
-              {/* FRAUD's free-text field is now a general discussion seed, so it
-                  gets a purpose-built "Notes" label (#69); the shared
-                  NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
-              {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
-              <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
-            </label>
-            {/* FRAUD only (#69): seed the outstanding-items checklist with items
-                the creator already knows about. Enter-to-add, mirrors the card's
-                FraudChecklist add idiom. Optional — the checker seeds later. */}
-            {form.taskType === "FRAUD" && (
-              <div className="span-full task-form-seed">
-                <span className="task-form-seed-head">Outstanding Items <span className="form-label-optional">- Optional</span></span>
-                {form.initialItems.length > 0 && (
-                  <ul className="task-form-seed-list">
-                    {form.initialItems.map((text, idx) => (
-                      <li key={idx} className="task-form-seed-item">
-                        <span className="task-form-seed-text">{text}</span>
-                        <button
-                          type="button"
-                          className="checklist-delete"
-                          aria-label={`Remove "${text}"`}
-                          onClick={() => setForm((c) => ({ ...c, initialItems: c.initialItems.filter((_, i) => i !== idx) }))}
-                        >
-                          <TrashIcon />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="checklist-add">
-                  <input
-                    className="checklist-item-input"
-                    placeholder="Add an item, press Enter…"
-                    value={seedDraft}
-                    onChange={(e) => setSeedDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const v = seedDraft.trim();
-                        if (!v) return;
-                        setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
-                        setSeedDraft("");
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    disabled={!seedDraft.trim()}
-                    onClick={() => {
-                      const v = seedDraft.trim();
-                      if (!v) return;
-                      setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
-                      setSeedDraft("");
-                    }}
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            )}
-            {form.taskType !== "OOO" && (
-              <label className="span-full">
-                Humperdink Link
-                <input
-                  type="text"
-                  inputMode="url"
-                  placeholder="Optional"
-                  value={form.humperdinkLink}
-                  onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
-                  onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (v && !/^https?:\/\//i.test(v)) {
-                      setForm((c) => ({ ...c, humperdinkLink: `https://${v}` }));
-                    }
-                  }}
-                />
-              </label>
-            )}
-            {/* "Make sure someone sees this" (issue #46): optional at-creation
-                share. Reuses #41's people directory + share endpoint; excludes
-                the creator. Hidden when nobody else is in the directory. */}
-            {directory.some((u) => u.id !== user.id) && (
-              <label className="span-full">
-                <span>Share Directly <span className="form-label-optional">- Optional</span></span>
-                <select
-                  value={form.shareWithUserId}
-                  onChange={(e) => setForm((c) => ({ ...c, shareWithUserId: e.target.value }))}
-                >
-                  <option value="">No one — just create it</option>
-                  {directory
-                    .filter((u) => u.id !== user.id)
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>{u.displayName}</option>
-                    ))}
-                </select>
-              </label>
-            )}
-            <div className="form-actions">
-              <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)}>Cancel</button>
-              <button type="submit">Create Task</button>
-            </div>
-          </form>
-          </div>
-        </div>
+        <CreateTaskForm
+          loans={loans}
+          directory={directory}
+          user={user}
+          tasks={tasks}
+          onClose={() => setFormOpen(false)}
+          onCreate={onCreate}
+        />
       )}
 
       {/* Tab bar only renders when there's more than one tab to choose
