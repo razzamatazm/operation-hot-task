@@ -159,7 +159,10 @@ Primary goals:
 - Notes label by task type:
   - LOI: `Loan Terms and Contacts`
   - Buddy Chat: `Concerns`
-  - Fraud: `Outstanding Items and Notes`
+  - Fraud: `Discussion` — `NOTES_FIELD_LABELS.FRAUD` now heads the card's
+    free-text **discussion thread** (#68), not a separate outstanding-items
+    field. The create form (#69) uses a purpose-built `Notes` field plus an
+    outstanding-items checklist seeder, not this constant.
   - Value / Loan Docs / OOO: `Notes`
 
 ### Status Model
@@ -240,18 +243,28 @@ Primary goals:
     - **Pass counter.** `checklistPass` starts at 1 on the first "Send
       Outstanding Items" and increments on each bounce-back; new items stamp the
       current pass in `addedOnPass`.
-    - **Turn permissions** (server-enforced via `canEditChecklist`): `Claimed`
-      = the checker builds the list; `Awaiting Items` = the requester ticks /
-      notes / adds / sets submission notes, and the checker may also add items +
-      set checker notes; `Pending Approval` = the checker edits (→ stale), adds,
-      re-checks, and sets checker notes.
+    - **Creator seeds at creation (#69).** On a FRAUD create the requester may
+      seed the checklist with outstanding items they already know about
+      (`CreateTaskInput.initialItems: { text }[]`). They persist as creator-added
+      draft items on pass 0. While the task is `Open` (pre-claim) the creator is
+      the active editing seat, so gated deletion lets them manage their own
+      seeds until a checker claims and the first "Send Outstanding Items" commits
+      them.
+    - **Turn permissions** (server-enforced via `canEditChecklist`): `Open`
+      (pre-claim) = the creator seeds / manages their own draft list (add / edit
+      own text / toggle / note); `Claimed` = the checker builds the list;
+      `Awaiting Items` = the requester ticks / notes / adds, and the checker may
+      also add items + set checker notes; `Pending Approval` = the checker edits
+      (→ stale), adds, re-checks, and sets checker notes.
     - **Approval gate = the checker.** In `Pending Approval` the checker can
       Approve (allowed even with unresolved items — approve-with-exceptions) or
       Send Back → `Awaiting Items` (pass++). Same `Pending Approval → Completed`
       gate as before.
-    - A separate free-text `submissionNotes` field carries creator→checker
-      context for the whole submission, kept near the submit action, distinct
-      from the per-item notes.
+    - **Free-text is the discussion thread, not a dedicated field (#68).** The
+      FRAUD card's free-text surface is the shared discussion thread (headed by
+      `NOTES_FIELD_LABELS.FRAUD` = "Discussion") plus the per-item notes — there
+      is **no separate submission-notes field**. The create form's `Notes` (#69)
+      seeds that thread.
   - **Note-required hand-back:** any move *into* `Awaiting Items` (the initial
     "Send Outstanding Items" or a "Send Back") must carry **either** a non-empty
     checklist **or** a non-empty note describing what's outstanding — an empty
@@ -541,10 +554,9 @@ Primary goals:
     - `POST /api/tasks/:taskId/checklist/items/:itemId/note` (creator note)
     - `POST /api/tasks/:taskId/checklist/items/:itemId/checker-note` (checker
       note)
-    - `POST /api/tasks/:taskId/checklist/submission-notes` (creator→checker
-      submission context)
-    submit / approve / bounce-back ride the existing `/transition` endpoint (the
-    pass counter bumps there).
+    Creator-seeded items ride the create payload (`POST /api/tasks`
+    `initialItems`, #69); submit / approve / bounce-back ride the existing
+    `/transition` endpoint (the pass counter bumps there).
 - Integration:
   - `POST /api/integrations/tasks` with `x-api-key` when enabled
 - Streaming:

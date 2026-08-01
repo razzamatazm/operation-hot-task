@@ -7,7 +7,11 @@ export const NOTES_FIELD_LABELS: Readonly<Record<TaskType, string>> = {
   LOI: "Loan Terms and Contacts",
   BUDDY_CHAT: "Concerns",
   VALUE: "Notes",
-  FRAUD: "Outstanding Items and Notes",
+  // FRAUD's free-text surface is now the shared discussion thread (#68): the
+  // structured checklist carries outstanding items, and this label heads the
+  // card's thread. The create form uses a purpose-built "Notes" label (#69),
+  // not this constant.
+  FRAUD: "Discussion",
   LOAN_DOCS: "Notes",
   OOO: "Notes"
 };
@@ -182,10 +186,6 @@ export interface LoanTask {
       old free-text handoff. Built by the checker, resolved by the creator,
       approved by the checker. Absent on non-FRAUD tasks. */
   checklist?: ChecklistItem[];
-  /** FRAUD only (#44): creator→checker free-text context for the submission,
-      separate from the per-item checklist notes. Surfaced near the submit
-      action. */
-  submissionNotes?: string;
   /** FRAUD only (#44): the outstanding-items pass counter. Starts at 1 when the
       checker first sends items (CLAIMED → AWAITING_ITEMS) and increments on
       each bounce-back (PENDING_APPROVAL → AWAITING_ITEMS). New items record the
@@ -220,6 +220,11 @@ export interface CreateTaskInput {
   humperdinkLink?: string;
   /** @deprecated Compatibility alias for one release window. */
   serverLocation?: string;
+  /** FRAUD only (#69): outstanding-items the creator already knows about, seeded
+      onto the checklist at creation. Persisted as creator-added draft
+      `ChecklistItem`s; ignored for non-FRAUD task types. Optional — zero is
+      fine, the checker seeds later. */
+  initialItems?: { text: string }[];
 }
 
 export interface UpdateTaskStatusInput {

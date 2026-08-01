@@ -44,7 +44,10 @@ export const createTaskSchema = z.object({
   points: z.number().int().min(0).max(5).optional(),
   notes: z.string().min(1),
   humperdinkLink: humperdinkLinkSchema,
-  serverLocation: z.string().optional()
+  serverLocation: z.string().optional(),
+  // FRAUD only (#69): outstanding items the creator seeds at creation. Optional
+  // (zero is fine). Ignored server-side for non-FRAUD task types.
+  initialItems: z.array(z.object({ text: z.string().min(1).max(500) })).optional()
 }).superRefine((value, ctx) => {
   const hasFolderName = Boolean(value.folderName?.trim());
   const hasLoanName = Boolean(value.loanName?.trim());
@@ -155,8 +158,4 @@ export const checklistItemNoteSchema = z.object({
 
 export const checklistItemCheckerNoteSchema = z.object({
   checkerNote: z.string().max(1000)
-});
-
-export const checklistSubmissionNotesSchema = z.object({
-  submissionNotes: z.string().max(2000)
 });
