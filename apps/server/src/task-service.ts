@@ -116,6 +116,22 @@ export class TaskService {
       resolvedLink = loan.humperdinkLink;
     }
 
+    // FRAUD only (#69): the creator can seed outstanding items they already know
+    // about at creation. They're persisted as creator-added draft items on pass
+    // 0 (before any hand-off), so gated deletion (#66) lets the creator manage
+    // them while the task is OPEN and the checker's first send commits them.
+    // Non-FRAUD task types have no checklist surface, so the payload is ignored.
+    let seededChecklist: ChecklistItem[] = [];
+    if (input.taskType === "FRAUD" && input.initialItems) {
+      for (const entry of input.initialItems) {
+        const text = entry.text.trim();
+        if (!text) {
+          continue;
+        }
+        seededChecklist = addChecklistItem(seededChecklist, { id: uuid(), text, addedBy: "creator", addedOnPass: 0 });
+      }
+    }
+
     const task: LoanTask = {
       id: uuid(),
       ...(loanId ? { loanId } : {}),
@@ -132,7 +148,8 @@ export class TaskService {
       createdBy: { id: user.id, displayName: user.displayName },
       ...(isOoo && startDate ? { startDate } : {}),
       ...(isOoo && returnDate ? { returnDate } : {}),
-      ...(!isOoo && resolvedLink ? { humperdinkLink: resolvedLink } : {})
+      ...(!isOoo && resolvedLink ? { humperdinkLink: resolvedLink } : {}),
+      ...(seededChecklist.length > 0 ? { checklist: seededChecklist } : {})
     };
 
     const createdMessage = isOoo
@@ -696,18 +713,6 @@ export class TaskService {
     this.requireItem(task, itemId);
     const next = setChecklistItemCheckerNote(task.checklist ?? [], itemId, checkerNote.trim());
     return this.persistChecklist(task, next, user, "Set checklist item checker note");
-  }
-
-  /* Set the separate creator→checker submission-context free-text. */
-  async setChecklistSubmissionNotes(taskId: string, submissionNotes: string, user: UserIdentity): Promise<LoanTask> {
-    const task = await this.requireTask(taskId);
-    this.assertChecklistOp(task, user, "submissionNotes");
-    const now = new Date().toISOString();
-    const updated: LoanTask = { ...task, submissionNotes: submissionNotes.trim(), updatedAt: now };
-    const event = this.makeHistory(task.id, user, "CHECKLIST_UPDATED", "Updated submission notes");
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
-    return updated;
   }
 
   /* Enforce the turn/permission gate for a checklist op; throws when the actor

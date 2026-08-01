@@ -162,6 +162,8 @@ export const checklistSeat = (task: LoanTask, user: UserIdentity): "checker" | "
   task.assignee?.id === user.id ? "checker" : task.createdBy.id === user.id ? "creator" : "checker";
 
 /* The distinct checklist operations, gated by turn (#44 permissions-by-turn):
+     - OPEN (pre-claim, creator's turn #69): the creator seeds/manages their own
+       outstanding-items list before any checker claims it.
      - CLAIMED (checker's initial pass): checker builds the list.
      - AWAITING_ITEMS (creator's turn): creator ticks / notes / adds / submits;
        the checker may ALSO add items and add per-item checker notes.
@@ -175,8 +177,7 @@ export type ChecklistOp =
   | "editText"
   | "toggle"
   | "creatorNote"
-  | "checkerNote"
-  | "submissionNotes";
+  | "checkerNote";
 
 export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: ChecklistOp): boolean => {
   if (task.taskType !== "FRAUD") {
@@ -189,16 +190,22 @@ export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: Checkli
   }
 
   switch (task.status) {
+    case "OPEN":
+      // Pre-claim (#69): the creator seeds and manages their OWN outstanding-
+      // items list before a checker picks it up. They own the whole list here,
+      // so they may add, fix their own text, tick, and annotate. No checker
+      // seat exists yet, so only the creator acts.
+      return creator && (op === "add" || op === "editText" || op === "toggle" || op === "creatorNote");
     case "CLAIMED":
       // Checker's initial pass — building the outstanding-items list (add,
       // fix a typo, annotate). Not toggling: nothing's been collected yet.
       return checker && (op === "add" || op === "editText" || op === "checkerNote");
     case "AWAITING_ITEMS":
-      // Creator's turn: resolve, annotate, extend, set submission context.
+      // Creator's turn: resolve, annotate, extend.
       // Text-editing is deliberately NOT the creator's op — it's the checker's
       // (and it clears+stales a check), so the requester can't silently rewrite
       // a requirement.
-      if (creator && (op === "toggle" || op === "creatorNote" || op === "add" || op === "submissionNotes")) {
+      if (creator && (op === "toggle" || op === "creatorNote" || op === "add")) {
         return true;
       }
       // Checker may still pile on items and per-item checker notes.
@@ -217,6 +224,9 @@ export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: Checkli
    turn (any closed/other status). */
 const activeTurnSeat = (status: LoanTask["status"]): "checker" | "creator" | null => {
   switch (status) {
+    case "OPEN":
+      // Pre-claim: the creator is the only active seat (#69).
+      return "creator";
     case "CLAIMED":
       return "checker";
     case "AWAITING_ITEMS":

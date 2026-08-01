@@ -551,7 +551,6 @@ export interface ChecklistApi {
   toggle: (taskId: string, itemId: string, checked: boolean, note?: string) => Promise<void>;
   setNote: (taskId: string, itemId: string, note: string) => Promise<void>;
   setCheckerNote: (taskId: string, itemId: string, checkerNote: string) => Promise<void>;
-  setSubmissionNotes: (taskId: string, submissionNotes: string) => Promise<void>;
 }
 
 const CheckIcon = () => (
@@ -571,8 +570,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
   /* One inline editor open at a time: which item + which field. */
   const [active, setActive] = useState<{ id: string; kind: "text" | "note" | "checkerNote" } | null>(null);
   const [draft, setDraft] = useState("");
-  const [subDraft, setSubDraft] = useState(task.submissionNotes ?? "");
-  const [subEditing, setSubEditing] = useState(false);
 
   const items = task.checklist ?? [];
   const sorted = sortChecklist(items);
@@ -583,7 +580,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
   const canEditText = canEditChecklist(task, user, "editText");
   const canCreatorNote = canEditChecklist(task, user, "creatorNote");
   const canCheckerNote = canEditChecklist(task, user, "checkerNote");
-  const canSubmissionNotes = canEditChecklist(task, user, "submissionNotes");
 
   const openEditor = (id: string, kind: "text" | "note" | "checkerNote", seed: string) => {
     setActive({ id, kind });
@@ -610,18 +606,13 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     await api.addItem(task.id, value);
   };
 
-  const saveSubmissionNotes = async () => {
-    setSubEditing(false);
-    if ((task.submissionNotes ?? "") !== subDraft.trim()) {
-      await api.setSubmissionNotes(task.id, subDraft.trim());
-    }
-  };
-
   /* One-line turn cue so each party knows what the list wants from them. */
   const turnCue =
-    task.status === "CLAIMED"
-      ? "Checker's pass — list what's outstanding"
-      : task.status === "AWAITING_ITEMS"
+    task.status === "OPEN"
+      ? "Seed the items you already know are outstanding"
+      : task.status === "CLAIMED"
+        ? "Checker's pass — list what's outstanding"
+        : task.status === "AWAITING_ITEMS"
         ? "Requester's turn — collect items, then submit"
         : task.status === "PENDING_APPROVAL"
           ? "Final review — approve or send back"
@@ -766,33 +757,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
 
       {sorted.length === 0 && !canAdd && (
         <div className="checklist-empty">No outstanding items yet.</div>
-      )}
-
-      {/* Separate creator→checker submission context, kept near the submit
-          action. Editable by the requester on their turn; read-only otherwise
-          when present. */}
-      {(canSubmissionNotes || task.submissionNotes) && (
-        <div className="checklist-submission">
-          <span className="checklist-submission-label">Notes for the checker</span>
-          {canSubmissionNotes && subEditing ? (
-            <textarea
-              className="checklist-submission-input"
-              rows={2}
-              autoFocus
-              placeholder="Anything the checker should know about this submission…"
-              value={subDraft}
-              onChange={(e) => setSubDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveSubmissionNotes(); } if (e.key === "Escape") { setSubEditing(false); setSubDraft(task.submissionNotes ?? ""); } }}
-              onBlur={() => void saveSubmissionNotes()}
-            />
-          ) : canSubmissionNotes ? (
-            <button type="button" className="checklist-submission-value" onClick={() => { setSubDraft(task.submissionNotes ?? ""); setSubEditing(true); }}>
-              {task.submissionNotes || "Add context for the checker…"}
-            </button>
-          ) : (
-            <div className="checklist-submission-value checklist-submission-readonly">{task.submissionNotes}</div>
-          )}
-        </div>
       )}
     </div>
   );
@@ -2285,10 +2249,17 @@ export const App = () => {
     notes: "",
     humperdinkLink: "",
     points: 0,
+    // FRAUD only (#69): outstanding items the creator seeds at creation. Enter-
+    // to-add list of item texts; mapped to the `initialItems` payload and
+    // persisted as creator-added draft checklist items server-side.
+    initialItems: [] as string[],
     // "Make sure X sees this" at creation (issue #46): optional target who gets
     // the same share DM #41 sends, fired right after the task is persisted.
     shareWithUserId: ""
   });
+  /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
+     from the committed `form.initialItems` list. */
+  const [seedDraft, setSeedDraft] = useState("");
 
   const { showToast } = useToast();
 
@@ -2430,6 +2401,12 @@ export const App = () => {
     // editing the text after selecting means the user intends a new loan.
     const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
     const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
+    // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
+    // ship the outstanding items the creator already knows about.
+    const seededItems =
+      form.taskType === "FRAUD"
+        ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
+        : [];
     const payload: CreateTaskInput = {
       folderName: form.folderName,
       taskType: form.taskType,
@@ -2437,7 +2414,8 @@ export const App = () => {
       ...(keepLoanId ? { loanId: form.loanId } : {}),
       ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
-      ...(form.points > 0 ? { points: form.points } : {})
+      ...(form.points > 0 ? { points: form.points } : {}),
+      ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {})
     };
 
     // Snapshot the share target before the form state is cleared below.
@@ -2445,7 +2423,8 @@ export const App = () => {
 
     try {
       const { task } = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
-      setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0, shareWithUserId: "" }));
+      setForm((c) => ({ ...c, folderName: "", loanId: "", notes: "", startDate: "", returnDate: "", humperdinkLink: "", points: 0, initialItems: [], shareWithUserId: "" }));
+      setSeedDraft("");
       setLoanSuggestOpen(false);
       setError(null);
       setFormOpen(false);
@@ -2566,8 +2545,7 @@ export const App = () => {
     toggle: (taskId, itemId, checked, note) =>
       runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { checked, ...(note !== undefined ? { note } : {}) }, "Failed to update item"),
     setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note"),
-    setCheckerNote: (taskId, itemId, checkerNote) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { checkerNote }, "Failed to save note"),
-    setSubmissionNotes: (taskId, submissionNotes) => runChecklist(`/tasks/${taskId}/checklist/submission-notes`, { submissionNotes }, "Failed to save notes")
+    setCheckerNote: (taskId, itemId, checkerNote) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { checkerNote }, "Failed to save note")
   };
 
   /* Edit a Loan's name/link (the app's first post-creation edit surface).
@@ -3028,9 +3006,67 @@ export const App = () => {
               </span>
             </label>
             <label className="span-full">
-              {getNotesFieldLabel(form.taskType)}
+              {/* FRAUD's free-text field is now a general discussion seed, so it
+                  gets a purpose-built "Notes" label (#69); the shared
+                  NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
+              {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
               <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
             </label>
+            {/* FRAUD only (#69): seed the outstanding-items checklist with items
+                the creator already knows about. Enter-to-add, mirrors the card's
+                FraudChecklist add idiom. Optional — the checker seeds later. */}
+            {form.taskType === "FRAUD" && (
+              <div className="span-full task-form-seed">
+                <span className="task-form-seed-head">Outstanding Items <span className="form-label-optional">- Optional</span></span>
+                {form.initialItems.length > 0 && (
+                  <ul className="task-form-seed-list">
+                    {form.initialItems.map((text, idx) => (
+                      <li key={idx} className="task-form-seed-item">
+                        <span className="task-form-seed-text">{text}</span>
+                        <button
+                          type="button"
+                          className="checklist-delete"
+                          aria-label={`Remove "${text}"`}
+                          onClick={() => setForm((c) => ({ ...c, initialItems: c.initialItems.filter((_, i) => i !== idx) }))}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="checklist-add">
+                  <input
+                    className="checklist-item-input"
+                    placeholder="Add an item, press Enter…"
+                    value={seedDraft}
+                    onChange={(e) => setSeedDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const v = seedDraft.trim();
+                        if (!v) return;
+                        setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
+                        setSeedDraft("");
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    disabled={!seedDraft.trim()}
+                    onClick={() => {
+                      const v = seedDraft.trim();
+                      if (!v) return;
+                      setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
+                      setSeedDraft("");
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
             {form.taskType !== "OOO" && (
               <label className="span-full">
                 Humperdink Link

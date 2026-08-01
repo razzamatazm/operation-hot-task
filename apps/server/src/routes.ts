@@ -15,7 +15,6 @@ import {
   checklistItemCheckerNoteSchema,
   checklistItemNoteSchema,
   checklistItemTextSchema,
-  checklistSubmissionNotesSchema,
   createLoanSchema,
   createTaskSchema,
   reviewNoteSchema,
@@ -52,7 +51,8 @@ const toCreateInput = (body: unknown) => {
     ...(parsed.returnDate ? { returnDate: parsed.returnDate } : {}),
     ...(parsed.urgency ? { urgency: parsed.urgency } : {}),
     ...(parsed.points ? { points: parsed.points } : {}),
-    ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {})
+    ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {}),
+    ...(parsed.initialItems && parsed.initialItems.length > 0 ? { initialItems: parsed.initialItems } : {})
   };
 };
 
@@ -555,17 +555,6 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to set checker note");
-    }
-  });
-
-  router.post("/tasks/:taskId/checklist/submission-notes", async (req, res) => {
-    try {
-      const { submissionNotes } = checklistSubmissionNotesSchema.parse(req.body);
-      const user = await getActor(req);
-      const task = await service.setChecklistSubmissionNotes(req.params.taskId, submissionNotes, user);
-      res.json({ task });
-    } catch (error) {
-      sendError(res, error, "Failed to set submission notes");
     }
   });
 

@@ -21,6 +21,10 @@
  *     stamp the current pass.
  *   - Outstanding-items requirement is satisfied by a non-empty checklist
  *     (no free-text note needed), while the note-only path still works.
+ *   - Creator-seeded-at-creation items (#69): the creator can seed the list at
+ *     create time (flagged addedBy=creator, draft, unchecked), manage their own
+ *     seeds while the task is OPEN (pre-claim), and the seeds commit on the
+ *     checker's first Send Outstanding Items.
  *   - Every mutation records exactly one CHECKLIST_UPDATED history event.
  */
 import assert from "node:assert/strict";
@@ -238,13 +242,55 @@ await check("approval gate: creator cannot approve; checker approves with except
   assert.equal(done.status, "COMPLETED");
 });
 
-await check("submission notes are stored separate from per-item notes", async () => {
+await check("creator seeds outstanding items at creation (#69): flagged addedBy=creator, draft, unchecked, pass 0", async () => {
   const { service } = await setup();
-  const id = await claimedFraud(service);
-  await service.addChecklistItem(id, "an item", CHECKER);
-  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
-  const t = await service.setChecklistSubmissionNotes(id, "Everything attached in the shared drive.", CREATOR);
-  assert.equal(t.submissionNotes, "Everything attached in the shared drive.");
+  const task = await service.createTask(
+    { folderName: "Seeded", taskType: "FRAUD", notes: "context for the checker", initialItems: [{ text: "2023 tax returns" }, { text: "Bank statement" }] },
+    CREATOR
+  );
+  assert.equal(task.status, "OPEN");
+  assert.equal(task.checklist.length, 2);
+  assert.ok(task.checklist.every((i) => i.addedBy === "creator"), "all seeded items flagged creator");
+  assert.ok(task.checklist.every((i) => i.checked === false), "seeded items start unchecked");
+  assert.ok(task.checklist.every((i) => i.draft === true), "seeded items start as deletable drafts");
+  assert.equal(task.checklist[0].addedOnPass, 0, "seeded before any pass");
+  assert.equal(task.checklist[0].text, "2023 tax returns");
+});
+
+await check("non-FRAUD create ignores initialItems (no checklist surface)", async () => {
+  const { service } = await setup();
+  const task = await service.createTask(
+    { folderName: "Not fraud", taskType: "VALUE", notes: "n", initialItems: [{ text: "should be ignored" }] },
+    CREATOR
+  );
+  assert.ok(!task.checklist, "no checklist on non-FRAUD task");
+});
+
+await check("creator deletes their own seeded item while OPEN; it locks once the checker sends (#69/#66)", async () => {
+  const { service } = await setup();
+  const task = await service.createTask(
+    { folderName: "Seeded", taskType: "FRAUD", notes: "context", initialItems: [{ text: "keep me" }, { text: "delete me" }] },
+    CREATOR
+  );
+  const deleteId = task.checklist.find((i) => i.text === "delete me").id;
+  const afterDel = await service.removeChecklistItem(task.id, deleteId, CREATOR);
+  assert.ok(!afterDel.checklist.some((i) => i.id === deleteId), "creator deleted own fresh seed while OPEN");
+  assert.equal(afterDel.checklist.length, 1);
+  // A checker claims and sends outstanding items — that hand-off commits the seed.
+  await service.claimTask(task.id, CHECKER);
+  const keepId = afterDel.checklist.find((i) => i.text === "keep me").id;
+  await service.transitionStatus(task.id, "AWAITING_ITEMS", CHECKER);
+  await assert.rejects(() => service.removeChecklistItem(task.id, keepId, CREATOR), /can't delete this checklist item/i);
+});
+
+await check("outsider cannot delete a creator's seeded item while OPEN", async () => {
+  const { service } = await setup();
+  const task = await service.createTask(
+    { folderName: "Seeded", taskType: "FRAUD", notes: "context", initialItems: [{ text: "mine" }] },
+    CREATOR
+  );
+  const itemId = task.checklist[0].id;
+  await assert.rejects(() => service.removeChecklistItem(task.id, itemId, OUTSIDER), /can't delete this checklist item/i);
 });
 
 await check("each checklist mutation records exactly one CHECKLIST_UPDATED history event", async () => {

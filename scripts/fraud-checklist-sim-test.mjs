@@ -201,6 +201,21 @@ check("unresolvedCount / allChecklistResolved reflect the checked states", () =>
 });
 
 // --- turn permissions ------------------------------------------------------
+check("OPEN (pre-claim, #69): creator seeds/manages their own draft list; outsider cannot", () => {
+  // Pre-claim there is no assignee — the creator is the only active seat.
+  const t = makeFraudTask({ status: "OPEN", assignee: undefined });
+  assert.ok(canEditChecklist(t, CREATOR, "add"));
+  assert.ok(canEditChecklist(t, CREATOR, "editText"), "creator may fix their own seed text pre-claim");
+  assert.ok(canEditChecklist(t, CREATOR, "toggle"));
+  assert.ok(canEditChecklist(t, CREATOR, "creatorNote"));
+  assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
+  // Gated deletion: creator may delete their own fresh seeded draft on their
+  // OPEN turn; a committed (handed-off) creator item is locked even in OPEN.
+  assert.ok(canDeleteChecklistItem(t, CREATOR, item({ id: "a", addedBy: "creator", draft: true })), "creator deletes own OPEN draft");
+  assert.ok(!canDeleteChecklistItem(t, CREATOR, item({ id: "b", addedBy: "creator" })), "committed creator item locked in OPEN");
+  assert.ok(!canDeleteChecklistItem(t, OUTSIDER, item({ id: "c", addedBy: "creator", draft: true })), "outsider blocked in OPEN");
+});
+
 check("CLAIMED (initial pass): checker builds; creator/outsider cannot", () => {
   const t = makeFraudTask({ status: "CLAIMED" });
   assert.ok(canEditChecklist(t, CHECKER, "add"));
@@ -215,7 +230,6 @@ check("AWAITING_ITEMS (creator's turn): creator resolves/notes/adds/submits; che
   assert.ok(canEditChecklist(t, CREATOR, "toggle"));
   assert.ok(canEditChecklist(t, CREATOR, "creatorNote"));
   assert.ok(canEditChecklist(t, CREATOR, "add"));
-  assert.ok(canEditChecklist(t, CREATOR, "submissionNotes"));
   assert.ok(canEditChecklist(t, CHECKER, "add"));
   assert.ok(canEditChecklist(t, CHECKER, "checkerNote"));
   assert.ok(!canEditChecklist(t, CHECKER, "toggle"), "checker doesn't tick items on the creator's turn");
