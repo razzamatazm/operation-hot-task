@@ -60,6 +60,16 @@ Defined in `TaskCard` in [apps/web/src/App.tsx](src/App.tsx).
 The collapsed row is the densest surface in the app — every change should
 preserve scannability.
 
+`TaskCard` is wrapped in `React.memo` (#73) so a 30s `now` tick or an
+unrelated `App` state change doesn't re-render every card. The memo only
+bites while **every** prop it receives is referentially stable: the handlers
+in `cardProps` are `useCallback`-wrapped and `checklistApi` is `useMemo`'d in
+`App`. There is no `exhaustive-deps` lint here (lint = `tsc --noEmit`), so
+this is manual discipline — **never add an inline arrow or fresh object
+literal to `cardProps`** (e.g. `onFoo: (x) => setBar(x)`); hoist it to a
+stable `useCallback`/`useMemo` first, or the whole list silently re-renders
+again.
+
 ### Unified grid
 
 Every task the viewer is allowed to see lives in one list (`unifiedTasks`
