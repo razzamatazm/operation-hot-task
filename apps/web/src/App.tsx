@@ -1,6 +1,6 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
-import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -763,7 +763,13 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
 };
 
 /* ── Task Card ────────────────────────────────────────────── */
-const TaskCard = ({
+/* Memoized so non-card App state changes — most notably the 30s `now` ticker
+   (#73) — re-render only the cards whose props actually changed. This bites
+   only because every prop below is referentially stable: the ~10 handlers and
+   `checklistApi` are `useCallback`/`useMemo`-wrapped in App, and the rest are
+   primitives or already-stable values (see the `cardProps` object). Adding an
+   unstable prop here silently defeats the memo. */
+const TaskCard = memo(({
   task,
   user,
   onClaim,
@@ -1392,7 +1398,8 @@ const TaskCard = ({
       {expanded && renderExpanded()}
     </div>
   );
-};
+});
+TaskCard.displayName = "TaskCard";
 
 /* ── Card List ────────────────────────────────────────────── */
 const CardList = ({
@@ -1444,6 +1451,11 @@ const CardList = ({
     {tasks.length === 0 ? (
       <div className="empty-card">{emptyMessage}</div>
     ) : (
+      /* Only live-countdown (non-closed) rows take the ticking `now` (#73):
+         `groupedDue` ignores it for COMPLETED / CANCELLED / ARCHIVED, so
+         withholding it keeps those cards' props stable and lets TaskCard's memo
+         skip them on a 30s tick. Active cards still re-render on a tick — their
+         countdown is the input that changed. */
       tasks.map((task) => (
         <TaskCard
           key={task.id}
@@ -1462,7 +1474,7 @@ const CardList = ({
           directory={directory}
           showActions={showActions}
           pulsing={pulsingIds?.has(task.id) ?? false}
-          {...(now !== undefined ? { now } : {})}
+          {...(now !== undefined && !CLOSED_STATUSES.includes(task.status) ? { now } : {})}
           {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
           {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
           {...(expandOverrides?.[task.id] !== undefined ? { expandOverride: expandOverrides[task.id] } : {})}
@@ -2498,13 +2510,13 @@ export const App = () => {
       /* storage unavailable — degrade silently */
     }
   }, [seenNotesAt, seenNotesKey]);
-  const markNoteSeen = (taskId: string, at: string): void => {
+  const markNoteSeen = useCallback((taskId: string, at: string): void => {
     setSeenNotesAt((prev) => {
       const cur = prev[taskId];
       if (cur && cur >= at) return prev;
       return { ...prev, [taskId]: at };
     });
-  };
+  }, []);
 
   useEffect(() => {
     try {
@@ -2513,9 +2525,9 @@ export const App = () => {
       /* storage unavailable — degrade silently */
     }
   }, [expandOverrides, expandKey]);
-  const setExpandOverride = (taskId: string, open: boolean): void => {
+  const setExpandOverride = useCallback((taskId: string, open: boolean): void => {
     setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
-  };
+  }, []);
   /* Deep-link focus: once the linked task has loaded, jump to the main list,
      expand it, and scroll it into view. Waits for the task to be present so a
      cold open (tasks fetched after Teams init) still lands correctly. The rAF
@@ -2627,7 +2639,7 @@ export const App = () => {
     }
   }, [isAdmin, activeTab]);
 
-  const refresh = async (): Promise<void> => {
+  const refresh = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user);
       setTasks(data.tasks);
@@ -2635,9 +2647,9 @@ export const App = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks");
     }
-  };
+  }, [user]);
 
-  const loadLoans = async (): Promise<void> => {
+  const loadLoans = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ loans: Loan[] }>("/loans", { method: "GET" }, user);
       setLoans(data.loans);
@@ -2645,7 +2657,7 @@ export const App = () => {
       /* Loan typeahead is a convenience — a failed load just means no
          suggestions, so swallow rather than blocking the task view. */
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     teamsApp
@@ -2758,57 +2770,57 @@ export const App = () => {
     await loadLoans();
   };
 
-  const onClaim = async (taskId: string): Promise<void> => {
+  const onClaim = useCallback(async (taskId: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/claim`, { method: "POST" }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to claim task", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
-  const onUnclaim = async (taskId: string): Promise<void> => {
+  const onUnclaim = useCallback(async (taskId: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/unclaim`, { method: "POST" }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to unclaim task", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
-  const onTransition = async (taskId: string, status: TaskStatus, reviewNotes?: string): Promise<void> => {
+  const onTransition = useCallback(async (taskId: string, status: TaskStatus, reviewNotes?: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status, ...(reviewNotes ? { reviewNotes } : {}) }) }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to update task", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
   /* FRAUD "release for any fraud checker" (#39): the requester hands a
      PENDING_APPROVAL task back to the checker pool (server unassigns it, keeps
      it PENDING_APPROVAL) so final approval isn't stuck on one checker. */
-  const onRelease = async (taskId: string): Promise<void> => {
+  const onRelease = useCallback(async (taskId: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/release`, { method: "POST" }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to release task", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
-  const onAddReviewNote = async (taskId: string, text: string): Promise<void> => {
+  const onAddReviewNote = useCallback(async (taskId: string, text: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/review-note`, { method: "POST", body: JSON.stringify({ text }) }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to add review note", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
   /* Add a note to a COMPLETED task (#45). Hits the server-atomic endpoint that
      appends the note while keeping the task COMPLETED — no visible reopen. */
-  const onAddCompletedNote = async (taskId: string, text: string): Promise<void> => {
+  const onAddCompletedNote = useCallback(async (taskId: string, text: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/completed-note`, { method: "POST", body: JSON.stringify({ text }) }, user);
       await refresh();
@@ -2816,30 +2828,32 @@ export const App = () => {
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to add note", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
   /* FRAUD structured checklist (#44). One handler per atomic endpoint; each
      refreshes so the live task (and SSE-driven cards) reflect the change. Errors
      surface as a toast — the server is the authority on turn/permission, so a
      rejected op just tells the user it isn't their turn. Bundled into one object
      so the card only takes a single prop. */
-  const runChecklist = async (path: string, body: unknown, fallback: string): Promise<void> => {
+  const runChecklist = useCallback(async (path: string, body: unknown, fallback: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(path, { method: "POST", body: JSON.stringify(body) }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : fallback, { variant: "error" });
     }
-  };
-  const deleteChecklist = async (path: string, fallback: string): Promise<void> => {
+  }, [user, refresh, showToast]);
+  const deleteChecklist = useCallback(async (path: string, fallback: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(path, { method: "DELETE" }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : fallback, { variant: "error" });
     }
-  };
-  const checklistApi: ChecklistApi = {
+  }, [user, refresh, showToast]);
+  /* Memoized so the object identity is stable across renders (#73) — a fresh
+     literal every render would defeat TaskCard's memo for every card. */
+  const checklistApi = useMemo<ChecklistApi>(() => ({
     addItem: (taskId, text) => runChecklist(`/tasks/${taskId}/checklist/items`, { text }, "Failed to add item"),
     editText: (taskId, itemId, text) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/text`, { text }, "Failed to edit item"),
     deleteItem: (taskId, itemId) => deleteChecklist(`/tasks/${taskId}/checklist/items/${itemId}`, "Failed to delete item"),
@@ -2847,7 +2861,7 @@ export const App = () => {
       runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { checked, ...(note !== undefined ? { note } : {}) }, "Failed to update item"),
     setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note"),
     setCheckerNote: (taskId, itemId, checkerNote) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { checkerNote }, "Failed to save note")
-  };
+  }), [runChecklist, deleteChecklist]);
 
   /* Edit a Loan's name/link (the app's first post-creation edit surface).
      Server propagates to every linked task; we refresh tasks + loans so the
@@ -2882,20 +2896,20 @@ export const App = () => {
     }
   };
 
-  const onUpdatePoints = async (taskId: string, points: number): Promise<void> => {
+  const onUpdatePoints = useCallback(async (taskId: string, points: number): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/points`, { method: "POST", body: JSON.stringify({ points }) }, user);
       await refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to update poops", { variant: "error" });
     }
-  };
+  }, [user, refresh, showToast]);
 
   /* Share a task with one person (issue #41). Returns whether the DM actually
      reached them (they may have no bot reference), so the card can distinguish
      "sent ✓" from a "couldn't reach them" heads-up. Rethrows on request failure
      so the card can flash an inline error next to the picker. */
-  const onShare = async (taskId: string, targetUserId: string, note?: string): Promise<{ delivered: boolean }> => {
+  const onShare = useCallback(async (taskId: string, targetUserId: string, note?: string): Promise<{ delivered: boolean }> => {
     try {
       const res = await apiRequest<{ ok: true; delivered: boolean }>(
         `/tasks/${taskId}/share`,
@@ -2908,7 +2922,13 @@ export const App = () => {
       showToast(err instanceof Error ? err.message : "Failed to share task", { variant: "error" });
       throw err;
     }
-  };
+  }, [user, showToast]);
+
+  /* Stable so it doesn't defeat TaskCard's memo (#73) — was an inline arrow
+     rebuilt inside `cardProps` every render. */
+  const onFilterLoan = useCallback((loanId: string): void => {
+    setLoanFilterId(loanId);
+  }, []);
 
   /* Unified visible-task list. Closed tasks (COMPLETED / CANCELLED /
      ARCHIVED) older than CLOSED_TTL_DAYS drop off the bottom — admins can
@@ -3017,7 +3037,7 @@ export const App = () => {
       onAddReviewNote,
       onAddCompletedNote,
       onUpdatePoints,
-      onFilterLoan: (loanId: string) => setLoanFilterId(loanId),
+      onFilterLoan,
       onShare,
       checklist: checklistApi,
       directory,
