@@ -41,15 +41,11 @@ export interface ChecklistItem {
   draft?: boolean;
 }
 
-/* Ordering rule (#44): unresolved (unchecked) items float to the top, resolved
-   ones settle below. Stable within each group — items keep their add-order — so
-   the list never jumps around beyond the checked/unchecked split. Pure: returns
-   a new array and never mutates the input. */
-export const sortChecklist = (items: ChecklistItem[]): ChecklistItem[] => {
-  const unchecked = items.filter((item) => !item.checked);
-  const checked = items.filter((item) => item.checked);
-  return [...unchecked, ...checked];
-};
+/* Ordering rule (#96, reverses the #44 float-to-top rule): stable add-order,
+   regardless of checked state. Checking an item off never moves its position —
+   the stored order already is add-order, so this is an identity pass over a
+   fresh array. Pure: returns a new array and never mutates the input. */
+export const sortChecklist = (items: ChecklistItem[]): ChecklistItem[] => [...items];
 
 /* Append a new (unchecked) item. No id/uniqueness logic here — the caller mints
    the id — so this stays a pure list op. The item starts as a `draft` so its
@@ -208,8 +204,10 @@ export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: Checkli
       if (creator && (op === "toggle" || op === "creatorNote" || op === "add")) {
         return true;
       }
-      // Checker may still pile on items and per-item checker notes.
-      return checker && (op === "add" || op === "checkerNote");
+      // Checker may still pile on items, add per-item checker notes, and
+      // (#95) toggle any item — including ones the creator added — so they
+      // can mark something done/not-needed without waiting for a round trip.
+      return checker && (op === "add" || op === "checkerNote" || op === "toggle");
     case "PENDING_APPROVAL":
       // Checker's review turn: edit (→ stale), add, re-check, annotate.
       return checker && (op === "add" || op === "editText" || op === "toggle" || op === "checkerNote");

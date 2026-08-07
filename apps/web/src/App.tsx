@@ -541,8 +541,9 @@ const SharePopover = ({
    surface on FRAUD checks. The checker builds the list, the creator resolves
    it (tick = collected OR not-needed, with an optional note), the checker
    reviews and approves or bounces. Items are never deleted — an item leaves
-   consideration only by being checked off. Unresolved items float to the top.
-   Every affordance is gated by the shared canEditChecklist so the UI matches
+   consideration only by being checked off. Stable add-order (#96); checking
+   an item off never moves it. Every affordance is gated by the shared
+   canEditChecklist so the UI matches
    the server's turn rules; the server is still the authority. */
 export interface ChecklistApi {
   addItem: (taskId: string, text: string) => Promise<void>;
@@ -606,26 +607,11 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     await api.addItem(task.id, value);
   };
 
-  /* One-line turn cue so each party knows what the list wants from them.
-     OPEN (unclaimed/just-created) intentionally has no cue — the create
-     form already has its own Outstanding Items seeder (#82). */
-  const turnCue =
-    task.status === "OPEN"
-      ? null
-      : task.status === "CLAIMED"
-        ? "Checker's pass — list what's outstanding"
-        : task.status === "AWAITING_ITEMS"
-        ? "Requester's turn — collect items, then submit"
-        : task.status === "PENDING_APPROVAL"
-          ? "Final review — approve or send back"
-          : null;
-
   return (
     <div className="checklist">
       <div className="checklist-head">
         <span className="checklist-title">Outstanding items</span>
         <span className="checklist-count">{items.length === 0 ? "none yet" : `${open} open / ${items.length}`}</span>
-        {turnCue && <span className="checklist-turn">{turnCue}</span>}
       </div>
 
       {sorted.length > 0 && (
@@ -711,7 +697,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                     </div>
                   ) : item.note ? (
                     <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
-                      <span className="checklist-note-label">Requester</span> {item.note}
+                      <b>{task.createdBy.displayName}:</b> {item.note}
                     </button>
                   ) : canCreatorNote ? (
                     <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
@@ -731,7 +717,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                     </div>
                   ) : item.checkerNote ? (
                     <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
-                      <span className="checklist-note-label">Checker</span> {item.checkerNote}
+                      <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
                     </button>
                   ) : canCheckerNote ? (
                     <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ checker note</button>
@@ -868,7 +854,9 @@ const TaskCard = memo(({
     (task.status === "CLAIMED" ||
       task.status === "NEEDS_REVIEW" ||
       task.status === "MERGE_DONE" ||
-      task.status === "MERGE_APPROVED");
+      task.status === "MERGE_APPROVED" ||
+      task.status === "AWAITING_ITEMS" ||
+      task.status === "PENDING_APPROVAL");
   const defaultOpen = task.status === "OPEN" || hasUnreadNote || involvedInFlight;
   const expanded = expandOverride ?? defaultOpen;
   const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open);
@@ -980,6 +968,11 @@ const TaskCard = memo(({
      and Release live in the expanded body where the note box fits. */
   const fraudActions = fraudCardActions(task, user.id);
   const fraudQuick = fraudActions.find((a) => a.kind === "transition");
+  /* The plain forward move already rides the collapsed row as the quick
+     action (#97) — don't render it a second time in the expanded body.
+     Note-required moves and Release have no quick-action equivalent, so
+     they always render here. */
+  const expandedFraudActions = fraudActions.filter((a) => a !== fraudQuick);
   // A released final-approval task (unassigned PENDING_APPROVAL) is claimable
   // by any fraud checker via the same claim path as an OPEN task.
   const isReleasedForClaim = task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" && !task.assignee;
@@ -1056,20 +1049,9 @@ const TaskCard = memo(({
       {/* Meta facts live in one slim strip up top — the columns below
           belong to the lifecycle (timeline) and the conversation. */}
       <div className="expand-strip">
-        <span className="strip-item">
-          <label>Assigner</label>
-          <span className="v"><ExpandAvatar name={task.createdBy.displayName} />{task.createdBy.displayName}</span>
-        </span>
-        <span className="strip-item">
-          <label>Assignee</label>
-          <span className="v">
-            {task.assignee ? (
-              <><ExpandAvatar name={task.assignee.displayName} />{task.assignee.displayName}</>
-            ) : (
-              <span className="v-pending">Pending</span>
-            )}
-          </span>
-        </span>
+        {/* Assigner/Assignee already render in the collapsed row's header,
+            which stays visible above this body — showing them again here
+            would be a duplicate (#93). */}
         <span className="strip-item">
           <label>Created</label>
           <span className="v">{formatDate(task.createdAt)}</span>
@@ -1111,9 +1093,9 @@ const TaskCard = memo(({
                   Outstanding Items / Send Back) reveal an inline note that posts
                   as the transition's reviewNotes, and Release hands the task to
                   the checker pool. Same set the bot DM cards render. */}
-              {fraudActions.length > 0 && (
+              {expandedFraudActions.length > 0 && (
                 <div className="task-card-fraud">
-                  {fraudActions.map((action) => {
+                  {expandedFraudActions.map((action) => {
                     // A populated checklist already satisfies the server's
                     // "items or note" rule, so a transitionWithNote action
                     // fires immediately in that case — only an empty
@@ -1307,8 +1289,10 @@ const TaskCard = memo(({
     </div>
   );
 
-  /* Grouped-row people values: Owner = assignee (or "Unclaimed"), From =
-     creator. Shown as avatar chip + first name. */
+  /* Grouped-row people values: Assignee = assignee (or "Unclaimed"), Assigner =
+     creator. Shown as avatar chip + first name. The viewer's own name renders
+     bold in whichever slot it appears (#93) — pure "is this name mine", not
+     conditional on which role the viewer is looking from. */
   const ownerName = task.assignee?.displayName;
   const due = groupedDue(task, now ?? Date.now());
   const groupedOverdue = due.overdue;
@@ -1327,11 +1311,11 @@ const TaskCard = memo(({
         <span className="task-card-grouped-stripe" aria-hidden="true" />
         <span className="task-card-grouped-people">
           <span className="task-card-grouped-person">
-            <span className="task-card-grouped-role">Owner</span>
+            <span className="task-card-grouped-role">Assignee</span>
             {task.assignee ? (
               <>
                 <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(ownerName)}</span>
-                <span className="task-card-grouped-name" title={ownerName}>{firstName(ownerName)}</span>
+                <span className={`task-card-grouped-name${isAssignee ? " task-card-grouped-name-mine" : ""}`} title={ownerName}>{firstName(ownerName)}</span>
               </>
             ) : (
               <>
@@ -1341,9 +1325,9 @@ const TaskCard = memo(({
             )}
           </span>
           <span className="task-card-grouped-person task-card-grouped-person-from">
-            <span className="task-card-grouped-role">From</span>
+            <span className="task-card-grouped-role">Assigner</span>
             <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
-            <span className="task-card-grouped-name" title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
+            <span className={`task-card-grouped-name${isCreator ? " task-card-grouped-name-mine" : ""}`} title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
           </span>
         </span>
         <span className="task-card-collapsed-title">
