@@ -1034,7 +1034,9 @@ const TaskCard = memo(({
     acknowledgeUnread();
     if (action.kind === "release") {
       void onRelease(task.id);
-    } else if (action.kind === "transition" && action.targetStatus) {
+    } else if ((action.kind === "transition" || action.kind === "transitionWithNote") && action.targetStatus) {
+      // transitionWithNote only reaches here when the checklist already has
+      // items (see noteRequired below), so it's safe to fire note-free.
       void onTransition(task.id, action.targetStatus);
     }
   };
@@ -1117,7 +1119,11 @@ const TaskCard = memo(({
               {fraudActions.length > 0 && (
                 <div className="task-card-fraud">
                   {fraudActions.map((action) => {
-                    const noteRequired = action.kind === "transitionWithNote";
+                    // A populated checklist already satisfies the server's
+                    // "items or note" rule, so a transitionWithNote action
+                    // fires immediately in that case — only an empty
+                    // checklist still needs the note box gate (#84).
+                    const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
                     const noteOpen = noteRequired && openFraudNote === action.targetStatus;
                     return (
                       <div key={action.label} className="task-card-fraud-action">
