@@ -1,0 +1,82 @@
+# Current Implementation Snapshot
+
+Verified against the repo and local run on `2026-05-04`.
+
+- Monorepo with:
+  - `apps/web`: React + Vite Teams tab UI
+  - `apps/server`: Express API, scheduler, SSE stream, Teams bot endpoint, notification plumbing
+  - `packages/shared`: shared task types, workflow rules, due-date logic
+  - `teams-app`: Teams manifest template and icon assets
+- Local development uses:
+  - Header-based mock auth fallback (prod uses Entra SSO)
+  - JSON file persistence, not Azure SQL
+  - Vite frontend on `http://localhost:5173`
+  - Express backend on `http://127.0.0.1:4100`
+- The app is functional locally without Teams credentials.
+- Current data files:
+  - Tasks/history: `apps/server/data/tasks.json`
+  - Loans: `apps/server/data/loans.json` (ADR-0001; created on first boot)
+  - Bot references: `apps/server/data/bot-references.json`
+  - Bot task threads (root message ids for threading): `apps/server/data/bot-task-threads.json`
+  - Activity feed state: `apps/server/data/activity-feed-state.json`
+  - Admin settings (selected notification channel): `apps/server/data/admin-settings.json`
+
+See [AGENTS.md](../../AGENTS.md) for validation commands.
+
+## Current Backend Surface
+
+- Health:
+  - `GET /api/health`
+- Loans (ADR-0001):
+  - `GET /api/loans` (list; `?q=` fuzzy search for the create-form typeahead)
+  - `POST /api/loans` (create; dedupes by canonical link / normalized name)
+  - `GET /api/loans/:loanId`
+  - `PATCH /api/loans/:loanId` (edit name/link; propagates to linked tasks;
+    auto-merges on a shared Humperdink link)
+- Tasks:
+  - `GET /api/tasks`
+  - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or
+    `folderName`; `folderName`/`humperdinkLink` are a live cache of the Loan)
+  - `GET /api/tasks/:taskId`
+  - `GET /api/tasks/:taskId/history`
+  - `POST /api/tasks/:taskId/claim`
+  - `POST /api/tasks/:taskId/unclaim`
+  - `POST /api/tasks/:taskId/release` (FRAUD: release a `Pending Approval` task
+    back to the checker pool — creator/admin only)
+  - `POST /api/tasks/:taskId/transition`
+  - `POST /api/tasks/:taskId/points`
+  - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
+  - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
+    without reopening it — creator/assignee/admin; the card's "Add a note"
+    affordance)
+  - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
+    endpoints, each server-enforcing the turn/permission + gated-deletion /
+    checked-stale invariants:
+    - `POST /api/tasks/:taskId/checklist/items` (add an item)
+    - `DELETE /api/tasks/:taskId/checklist/items/:itemId` (delete your own fresh,
+      not-yet-handed-off item — gated by `canDeleteChecklistItem`)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/text` (edit text →
+      uncheck + stale)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/checked` (toggle resolved,
+      optional per-item creator note)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/note` (creator note)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/checker-note` (checker
+      note)
+    Creator-seeded items ride the create payload (`POST /api/tasks`
+    `initialItems`, #69); submit / approve / bounce-back ride the existing
+    `/transition` endpoint (the pass counter bumps there).
+- Integration:
+  - `POST /api/integrations/tasks` with `x-api-key` when enabled
+- Streaming:
+  - `GET /api/stream`
+- Bot:
+  - `POST /api/bot/messages`
+
+## Current Architecture Notes
+
+- The server currently serves API traffic only in dev; Vite serves the UI separately.
+- The server can serve built frontend assets when `apps/web/dist/index.html` exists at the configured path for the running process.
+- Real-time UI updates are delivered through SSE.
+- Scheduler runs every 5 minutes and handles reminders, OOO auto-complete, auto-archive, and archive purge.
+- Persistence is file-backed through `TaskStore`.
+- Shared workflow logic lives in `packages/shared` and should remain the canonical place for status rules, due-date logic, and permission helpers.

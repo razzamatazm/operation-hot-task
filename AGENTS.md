@@ -1,40 +1,27 @@
 # AGENTS.md
 
+`Operation Hot Task` is an internal Microsoft Teams task app for loan
+operations. Monorepo: `apps/web` (React + Vite Teams tab), `apps/server`
+(Express API/scheduler/bot), `packages/shared` (shared workflow logic),
+`teams-app` (Teams manifest/icons). Package manager is npm.
+
 ## Agent Charter
-- This repo is for `Operation Hot Task`, an internal Microsoft Teams task app for loan operations.
-- Treat this file as the working source of truth for agent behavior, confirmed product decisions, and current implementation state.
-- Ask discovery questions one at a time when a change depends on business intent that is not already confirmed here.
-- Do not make implementation-critical product assumptions when the answer is not already captured here.
-- When the user confirms a new product or workflow decision, record it in this file in the appropriate section.
-- Separate `current implementation` from `target direction`. Do not present planned architecture as if it already exists.
 
-## Current Implementation Snapshot
-Verified against the repo and local run on `2026-05-04`.
-
-- Monorepo with:
-  - `apps/web`: React + Vite Teams tab UI
-  - `apps/server`: Express API, scheduler, SSE stream, Teams bot endpoint, notification plumbing
-  - `packages/shared`: shared task types, workflow rules, due-date logic
-  - `teams-app`: Teams manifest template and icon assets
-- Local development uses:
-  - Header-based mock auth fallback (prod uses Entra SSO)
-  - JSON file persistence, not Azure SQL
-  - Vite frontend on `http://localhost:5173`
-  - Express backend on `http://127.0.0.1:4100`
-- The app is functional locally without Teams credentials.
-- Verified commands:
-  - `npm run build`
-  - `npm run test:scheduler`
-  - `npm run test:smoke`
-- Current data files:
-  - Tasks/history: `apps/server/data/tasks.json`
-  - Loans: `apps/server/data/loans.json` (ADR-0001; created on first boot)
-  - Bot references: `apps/server/data/bot-references.json`
-  - Bot task threads (root message ids for threading): `apps/server/data/bot-task-threads.json`
-  - Activity feed state: `apps/server/data/activity-feed-state.json`
-  - Admin settings (selected notification channel): `apps/server/data/admin-settings.json`
+- Treat this file and its linked docs as the working source of truth for
+  agent behavior, confirmed product decisions, and current implementation
+  state.
+- Ask discovery questions one at a time when a change depends on business
+  intent that is not already confirmed in these docs.
+- Do not make implementation-critical product assumptions when the answer
+  isn't already captured here.
+- When the user confirms a new product or workflow decision, record it in
+  the relevant doc below (or here, for something that touches every task).
+- Separate `current implementation` from `target direction`
+  ([target-direction.md](docs/product/target-direction.md)). Do not present
+  planned architecture as if it already exists.
 
 ## Repo Runbook
+
 - Install: `npm install`
 - Local env setup:
   - `cp apps/server/.env.example apps/server/.env`
@@ -46,553 +33,49 @@ Verified against the repo and local run on `2026-05-04`.
   - `npm run test:smoke`
   - `npm run test:all`
 
-## Current UI Surfaces
-- Header:
-  - App title: `Operation Hot Task`
-  - `New Task` toggle
-  - Local user picker for mock identities
-- Tabs:
-  - `Active`
-  - `Archived`
-  - `Leaderboard`
-  - `Metrics` for admin users only
-- Active tab behavior:
-  - Shows the current user’s active work
-  - Shows claimable/open work when available
-  - Shows recent activity as a compact expandable table
-- Leaderboard tab:
-  - Displays poop leaderboard
-  - Supports `This Week` and `This Month`
-- Metrics tab:
-  - Admin-only
-  - Includes claim volume, status totals, LOI-to-Loan-Docs conversion, and task-type breakdown
-- Create-task form:
-  - OOO relabels `Folder Name` to `Vacation Description`
-  - Non-OOO tasks show urgency selector
-  - OOO tasks show a **start-date** selector and a **return-date** selector
-    (start must be on or before return). Both are required; stored on the task
-    as `startDate` / `returnDate` (raw `YYYY-MM-DD`), with `dueAt` still computed
-    from the return date for scheduling.
-  - Poop points selector is always present as a 5-emoji picker
-  - Humperdink Link is non-OOO only
-
-## Current Auth And Identity Model
-- **Production: Microsoft Entra SSO.** The Teams tab acquires a token
-  (`authentication.getAuthToken()`); the server verifies it against the tenant
-  JWKS in `auth.ts` (validates `iss` / `aud` / `tid`) and resolves the stable
-  `oid`. Roles come from the file-based `users` table (`user-store.ts`), seeded
-  via the onboarding flow and managed in the admin panel.
-- **Local dev fallback only:** when SSO env is unset (plain browser, no Teams
-  host), the server trusts `x-user-id` / `x-user-name` / `x-user-roles`
-  headers. The web app sends these from a dev-only `DEV_USERS` list (in
-  `apps/web/src/App.tsx`, tree-shaken from the prod bundle):
-  - `Suzie`: loan officer
-  - `Alexa`: loan officer + file checker
-  - `Johanna`: loan officer + file checker + admin
-- The `x-user-*` path is disabled whenever SSO is configured, so it can never
-  be used on the internet-facing deploy.
-
 ## Product Scope
-Core task types:
-- LOI checks
-- Buddy Chat
-- Value checks
-- Fraud checks
-- Loan docs
-- OOO (out of office coverage)
 
-Primary goals:
-- Create, claim, complete, and archive tasks
-- Track in-progress and completed work
-- Show urgency with stoplight-style visuals
-- Send real-time updates and overdue reminders
+Core task types: LOI checks, Buddy Chat, Value checks, Fraud checks, Loan
+docs, OOO (out of office coverage).
 
-## Confirmed Product Decisions
+Primary goals: create, claim, complete, and archive tasks; track in-progress
+and completed work; show urgency with stoplight-style visuals; send
+real-time updates and overdue reminders.
 
-### Teams Surface
-- Teams surface: Tab + Bot
-- Teams app display name: `Operation Hot Task`
-- App icons use paper-on-fire concept with color and outline variants
+## Where To Look
 
-### Roles And Permissions
-- Roles:
-  - Loan officers
-  - File checkers
-  - Admins
-- File checkers are a subset of loan officers
-- Only file checkers can claim and complete Fraud Check tasks
-- Fraud Check tasks run a two-phase completion (see Status Model → Fraud
-  lifecycle): the checker (assignee) sends outstanding items and approves; the
-  requester (creator) submits items back and can release for any fraud checker
-- `Cancelled` can be set by task creator or admin
-- `Claimed -> Needs Review` can be done by assignee or creator
-- `Needs Review -> Claimed` and `Needs Review -> Completed` do not require admin
+Current implementation, by area:
 
-### Admin Panel (Users & Roles)
-- Admin-only `Admin` tab (next to Metrics) manages the `users` table
-- Per-user role toggles (`LOAN_OFFICER` / `FILE_CHECKER` / `ADMIN`) via
-  `PUT /api/users/:id/roles`
-- Lifecycle: add a user by email (resolved through Microsoft Graph) via
-  `POST /api/users`; deactivate / reactivate via `PATCH /api/users/:id`;
-  permanently remove via `DELETE /api/users/:id`
-- Deactivated users keep their record + roles but are blocked at auth (403)
-- Guards: cannot deactivate/remove yourself; cannot remove or demote the
-  last active admin
-- Newly auto-created users (default `LOAN_OFFICER`, never edited) are
-  flagged in the panel so admins can promote them
+- [Implementation snapshot + backend API surface + architecture notes](docs/product/implementation-snapshot.md)
+- [UI surfaces (tabs, header, recent activity)](docs/product/ui.md)
+- [Auth and identity model](docs/product/auth-identity.md)
+- [Roles, permissions, and the admin panel](docs/product/roles-permissions.md)
+- [Create-task fields](docs/product/task-fields.md)
+- [Status model, reopen/restore](docs/product/status-model.md)
+- [Fraud two-phase workflow](docs/product/fraud-workflow.md)
+- [Claiming, poop points, leaderboard](docs/product/claiming-scoring.md)
+- [Due date and urgency](docs/product/due-date-urgency.md)
+- [OOO rules](docs/product/ooo.md)
+- [Notifications, bot, activity feed](docs/product/notifications-bot.md)
+- [Overdue reminders and retention](docs/product/reminders-retention.md)
+- [Integrations and hosting](docs/product/integrations-hosting.md)
+- [Target direction (not yet built)](docs/product/target-direction.md)
 
-### Create Task Fields
-- Required fields:
-  - Folder Name
-  - Task Type: `LOI`, `Buddy Chat`, `Value`, `Fraud`, `Loan Docs`, `OOO`
-  - Poop points: `1`-`5`, default `1`
-  - Timing:
-    - Non-OOO: urgency
-    - OOO: start date and return date in `YYYY-MM-DD`, PT (start ≤ return; both required)
-  - Notes
-- Optional fields:
-  - Non-OOO only: Humperdink Link
-- Folder Name is the canonical task name
-- There is no separate file name field
-- OOO UI wording:
-  - Folder Name label becomes `Vacation Description`
-- Notes label by task type:
-  - LOI: `Loan Terms and Contacts`
-  - Buddy Chat: `Concerns`
-  - Fraud: `Notes` — `NOTES_FIELD_LABELS.FRAUD` heads the card's free-text
-    **discussion thread** (#68), not a separate outstanding-items field;
-    relabeled from `Discussion` to `Notes` for consistency (#81). The create
-    form (#69) uses a purpose-built `Notes` field plus an outstanding-items
-    checklist seeder, not this constant.
-  - Value / Loan Docs / OOO: `Notes`
-
-### Status Model
-- General statuses:
-  - `Open`
-  - `Claimed`
-  - `Needs Review`
-  - `Cancelled`
-  - `Completed`
-  - `Archived`
-- FRAUD-only statuses (two-phase completion, see below):
-  - `Awaiting Items` (`AWAITING_ITEMS`)
-  - `Pending Approval` (`PENDING_APPROVAL`)
-- **Notes after completion:** a `Completed` task can still receive a review note
-  (the card's "Add a note" affordance) without being reopened. The note is
-  appended to `reviewNotes` server-side while the status stays `Completed` — no
-  transient reopen, so `reopenedFrom`/`completedAt` are untouched and one
-  "note added" history event is recorded. Applies to every task type;
-  creator/assignee/admin only. `Cancelled`/`Archived` stay closed to notes.
-- Loan Docs lifecycle:
-  - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
-- Fraud lifecycle (two-phase completion):
-  - Fraud checks run a two-phase back-and-forth between the requester (creator)
-    and the fraud checker (assignee), driven by `FRAUD_FLOW`:
-    `Open -> Claimed -> Awaiting Items -> Pending Approval -> Completed -> Archived`.
-  - Two new **non-closed** statuses sit between claim and completion:
-    - `Awaiting Items`: the checker's initial pass is done and the ball is in the
-      **requester's** court to gather the outstanding items. This is the phase
-      users see as **Outstanding Items**.
-    - `Pending Approval`: the requester has submitted the items back and the ball
-      is in the **checker's** court for final approval. Users see this as
-      **Final Approval**.
-    Both are non-closed, so review notes keep flowing throughout the exchange.
-    Only `Pending Approval -> Completed` (the checker's **Approve**) closes the
-    task. Non-FRAUD task types never enter these statuses.
-  - Forward moves and who can make them:
-    - `Claimed -> Awaiting Items` — **checker only** (assignee or admin); the
-      "Send Outstanding Items" action.
-    - `Awaiting Items -> Pending Approval` — **requester only** (creator or
-      admin); the "Submit for Approval" action.
-    - `Pending Approval -> Completed` — **checker only** (assignee/admin,
-      FILE_CHECKER); the "Approve" action, gated by the normal completion rule.
-  - Backward / recovery moves:
-    - `Pending Approval -> Awaiting Items` — checker "Send Back" (wants more).
-    - `Awaiting Items -> Claimed` — checker reopens the initial pass.
-    - Either non-closed status can be `Cancelled` by the creator or an admin.
-  - **Structured outstanding-items checklist (#44):** the outstanding-items
-    handoff is a structured `checklist: ChecklistItem[]` on the fraud check, not
-    free text. Each `ChecklistItem` has `{ id, text, checked, note?,
-    checkerNote?, addedBy: "checker" | "creator", addedOnPass, stale?, draft? }`.
-    (`draft` marks a fresh, not-yet-handed-off item its adder can still delete —
-    see gated deletion below.) Rules:
-    - **One checked state = resolved.** A check means *collected* OR
-      *not-needed*; the per-item `note` explains a non-collection. No separate
-      waived/N-A state.
-    - **Gated deletion (#66).** You may delete an item **you added**, on **your
-      active editing turn**, while it is still a fresh **draft** — i.e. before
-      the next hand-off. An item is deletable iff `addedBy ===
-      checklistSeat(actor)` **and** it's that seat's turn (checker in `Claimed` /
-      `Pending Approval`; creator in `Awaiting Items`) **and** it hasn't been
-      handed off since it was added (`draft` still set). New items start as
-      drafts (`draft: true`); every hand-off transition (Send / Submit / Send
-      Back) **commits** all existing items (clears `draft`), locking them
-      permanently against deletion so the round-trip fraud record is preserved.
-      The **other seat's** items are never deletable — to drop one from
-      consideration, check it off and note why. Enforced server-side via
-      `canDeleteChecklistItem`; the UI affordance only mirrors it.
-    - **Both roles add items** (enter-to-add). `addedBy` is derived server-side
-      from the actor's real seat, so creator-added items are reliably flagged.
-    - **Checker text-edit → uncheck + stale.** Editing a checked item's text
-      auto-clears the check and sets `stale` ("re-verify"), so a check never
-      vouches for a changed requirement; it can then be re-checked (which clears
-      `stale`).
-    - **Per-item notes.** `note` is the creator's exception; `checkerNote` is the
-      checker's rework note (set on review / bounce-back).
-    - **Ordering.** Unresolved (unchecked) items float to the top, checked settle
-      below; stable add-order within each group. No manual reorder in v1.
-    - **Pass counter.** `checklistPass` starts at 1 on the first "Send
-      Outstanding Items" and increments on each bounce-back; new items stamp the
-      current pass in `addedOnPass`.
-    - **Creator seeds at creation (#69).** On a FRAUD create the requester may
-      seed the checklist with outstanding items they already know about
-      (`CreateTaskInput.initialItems: { text }[]`). They persist as creator-added
-      draft items on pass 0. While the task is `Open` (pre-claim) the creator is
-      the active editing seat, so gated deletion lets them manage their own
-      seeds until a checker claims and the first "Send Outstanding Items" commits
-      them.
-    - **Turn permissions** (server-enforced via `canEditChecklist`): `Open`
-      (pre-claim) = the creator seeds / manages their own draft list (add / edit
-      own text / toggle / note); `Claimed` = the checker builds the list;
-      `Awaiting Items` = the requester ticks / notes / adds, and the checker may
-      also add items + set checker notes; `Pending Approval` = the checker edits
-      (→ stale), adds, re-checks, and sets checker notes.
-    - **Approval gate = the checker.** In `Pending Approval` the checker can
-      Approve (allowed even with unresolved items — approve-with-exceptions) or
-      Send Back → `Awaiting Items` (pass++). Same `Pending Approval → Completed`
-      gate as before.
-    - **Free-text is the discussion thread, not a dedicated field (#68).** The
-      FRAUD card's free-text surface is the shared discussion thread (headed by
-      `NOTES_FIELD_LABELS.FRAUD` = "Notes") plus the per-item notes — there
-      is **no separate submission-notes field**. The create form's `Notes` (#69)
-      seeds that thread.
-  - **Note-required hand-back:** any move *into* `Awaiting Items` (the initial
-    "Send Outstanding Items" or a "Send Back") must carry **either** a non-empty
-    checklist **or** a non-empty note describing what's outstanding — an empty
-    hand-back (no items, no note) is rejected. When present, the note rides in on
-    the transition as `reviewNotes` (note + transition in one gesture), is
-    recorded on the task, and seeds the DM conversation thread. (The checklist
-    is the primary surface; the note path stays for surfaces that can't build a
-    checklist, e.g. bot cards.)
-  - **Reminder rules:**
-    - `Awaiting Items` is a wait on the requester and is **fully silent** — it is
-      never overdue and is excluded from the reminder engine. The checker is not
-      pinged while the requester holds the ball.
-    - Entering `Pending Approval` sets a **fresh end-of-day (`Yellow`) clock**
-      (recomputed `dueAt`, cleared reminder stamp), then hands off to the normal
-      reminder engine (quiet the rest of today, hourly the next business
-      morning) so final approval doesn't inherit the task's original urgency.
-  - **Release for any fraud checker:** if the assigned checker is unavailable,
-    the requester (or an admin) can release a `Pending Approval` task back to the
-    pool via `POST /api/tasks/:taskId/release`. This unassigns **in place** —
-    status stays `Pending Approval`, only the assignee is cleared — so any
-    FILE_CHECKER can then claim it and Approve directly (the claim keeps the
-    `Pending Approval` status rather than snapping back to `Claimed`). A
-    double-release is a harmless no-op.
-  - **Private to the participants:** the entire two-phase exchange is private —
-    no channel posts. Entering `Awaiting Items` sends exactly one lifecycle DM to
-    the creator plus the outstanding-items note as a DM note card; entering
-    `Pending Approval` sends exactly one DM to the checker. Release notifies
-    in-app only.
-  - **Scoring at final completion only:** poop points are awarded only when the
-    task reaches the final `Completed` (the checker's Approve). The intermediate
-    non-closed phases never score.
-- Reopen / Restore:
-  - Reopening a closed task (`Completed` or `Archived` -> `Open`, which lands
-    on `Claimed` when an assignee is retained) records the prior closed status
-    on the task as `reopenedFrom`.
-  - A reopened task offers a **Restore** action that returns it to exactly that
-    prior closed status (`Completed` or `Archived`, never just `Open`). Restore
-    is permitted for whoever could reopen it — task creator or assignee (plus
-    admin) — and is intentionally NOT assignee-only the way `Complete` is, so a
-    creator who reopened their own task can close it back out without the
-    assignee acting.
-  - `reopenedFrom` is cleared as soon as the task reaches any closed status
-    again. Restore returns Loan Docs tasks straight to the single prior closed
-    status; intermediate merge-chain state is not restored.
-- Done-view retention (UI): `Cancelled` tasks stay visible in the web Done
-  view for the same closed-task retention window as `Completed` / `Archived`
-  (they no longer disappear immediately on cancel). This is a UI filter only;
-  the backend auto-archive/purge behavior is unchanged.
-
-### Claiming Rules
-- Claiming is first-come-first-serve
-- Unclaim is allowed
-- Claim tasks section is hidden when there are no claimable tasks
-
-### Poop Points Rules
-- Stored field remains numeric `points`
-- User-facing points name is `Poops`
-- All task types, including OOO, use poop points
-- Poop points are awarded on completion
-- Task cards show per-task points as `1`-`5` repeated poop emojis
-- The create-task form uses a 5-emoji left-to-right picker:
-  - Inactive slots are monochrome poop emoji styling
-  - Active slots are full-color poop emojis
-- Poop points are only set at task creation time
-- Poop points cannot be edited after a task is created
-- Legacy tasks missing points are backfilled to `1`
-
-### Due Date And Urgency
-- Due date is tracked backend-only
-- Due date is not shown in user-facing UI as a dedicated field
-- Default urgency for all non-OOO task types is `Green`
-- Urgency meanings:
-  - `Green`: due in 24 real hours from creation; if the due time lands on a weekend, roll to Monday
-  - `Yellow`: needed by end of business day
-  - `Orange`: needed within 1 hour
-  - `Red`: urgent now
-- User-facing urgency labels use timeframe wording:
-  - `Within 24 Hours`
-  - `End of Day`
-  - `Within 1 Hour`
-  - `Urgent Now`
-- Color is visual styling only
-
-### OOO Rules
-- OOO is a first-class task type
-- OOO uses return date instead of urgency input
-- Return date is date-only and interpreted in `America/Los_Angeles`
-- OOO `dueAt` is computed as `8:30 AM PT` on the return date
-- OOO return date must resolve to a future due time
-- OOO auto-completes from active statuses when the return due time is reached
-- OOO uses existing people model:
-  - Creator = out-of-office person
-  - Assignee = covering person when claimed
-- OOO keeps standard claim/unclaim flow using `Open` and `Claimed`
-
-### Leaderboard
-- `Leaderboard` tab is visible to all users
-- Time windows:
-  - `This Week`
-  - `This Month`
-- Week starts Monday at `12:00 AM` PT
-- Scoring uses `completedAt` in PT
-- Tasks counted are in current status `Completed` or `Archived`
-- Tie-breakers:
-  - Higher points
-  - Higher completed task count
-  - Display name ascending
-- Show all users with non-zero points in selected period
-- Reopened tasks are recalculated from current state; there is no immutable score ledger in v1
-
-### Front Page Recent Activity
-- Active tab includes bottom-section recent activity
-- Show the most recent `30` tasks
-- Ordering:
-  - Active statuses first: `Open`, `Claimed`, `Needs Review`, `Merge Done`, `Merge Approved`, `Awaiting Items`, `Pending Approval`
-  - Closed statuses second: `Completed`, `Cancelled`, `Archived`
-  - Within each group: newest `createdAt` first
-- Table columns:
-  - Task Name
-  - Status
-  - Type
-  - Creator
-  - Assignee
-  - Date Created
-  - Date Completed
-- Clicking a row expands an inline detailed task view beneath that row
-- `Date Completed` shows `—` when `completedAt` is missing
-
-### Notifications
-- Notification channels:
-  - In-app notifications
-  - Teams bot direct messages
-  - Teams bot channel posts
-  - Teams activity feed notifications
-- Channel-post target is **admin-selectable** in the Admin tab ("Notification
-  Channel"): the bot lists every channel it's been added to (labelled
-  "Team / Channel" from `channelData`, captured on @mention; falls back to the
-  channel name, then the raw conversation id), and the admin picks which one
-  group notifications go to. The choice persists in
-  `apps/server/data/admin-settings.json` (`notificationChannelId`) via
-  `GET/PUT /api/admin/channels`. When unset (default), notifications broadcast
-  to **every** channel the bot is in; if the saved channel no longer matches a
-  captured one, it falls back to broadcasting so nothing is dropped.
-- Routing:
-  - New task created: channel post as an Adaptive Card with a one-tap **Claim**
-    button and an **Open in Hot Task** deep link, plus in-app event. The card's
-    root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
-    so follow-ups can thread.
-    - Title is `[<TASK_TYPE>] <creator> <type phrase>: <file name>`,
-      e.g. `[LOAN_DOCS] Tyler needs a set of loan docs done: Smith-1042`.
-      Per-type phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked",
-      VALUE "needs a Value Check", OOO "is out of office", etc.). The file name
-      links to the task's Humperdink link when one exists. Urgency is NOT in the
-      title (it moved to the detail block).
-    - Detail block is `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as
-      its time-frame label ("Within 1 Hour"), not the raw colour code. Folder is
-      omitted — the file name is already in the title.
-    - **OOO** is special-cased: no type tag/file name. Title reads
-      "Out Of Office - <creator> will be out of the office from <start> to
-      <return> and needs coverage. Can you help?" (dates via `formatWallDate`),
-      and the detail shows the vacation description instead of How Bad/Urgency.
-    - **Open in Hot Task** is a Teams deep link to the `loan-tasks-home` tab
-      carrying the task id as `subEntityId`. The web app reads it (teams-js
-      `page.subPageId`) and expands + scrolls to that task. Requires
-      `TEAMS_APP_ID`; the button is omitted when it's unset.
-  - Task claimed/unclaimed: posted as a **reply in the task's existing thread**
-    (not a new full-channel broadcast). Falls back to a fresh channel post if
-    the root message id is unknown (e.g. the bot restarted, or the task predates
-    threading).
-  - On claim, the claimer also gets a **full-details DM card** (`DM_CLAIM`):
-    type, How Bad, urgency time-frame, due, notes, Humperdink link, an **Open in
-    Hot Task** deep link, and a contextual **advance/complete** button.
-  - `Merge Done` and `Completed`: DM task creator
-  - `Merge Approved`: DM task assignee
-  - Notes: DM counterpart user as an **interactive note card** — shows the
-    recent conversation (last ~5 notes, oldest → newest) with an inline reply
-    box and a contextual advance/complete button. The reply box **persists**
-    after sending (card refreshes to the updated thread), so a user can send
-    several messages in a row. Tapping **Reply** posts the text straight back
-    as another review note (which in turn DMs the original author, closing the
-    loop). Routed via the `DM_NOTE` target; falls back to a plain DM when there's
-    no targeted recipient. Reply resolves the Teams user (`from.aadObjectId`) to
-    a stored identity and calls `addReviewNote`; the card refreshes to confirm.
-  - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM goes to creator
-- Tapping **Claim** on a card resolves the Teams user (`from.aadObjectId`) to a
-  stored identity, claims the task, then refreshes the card (button removed) and
-  threads the "grabbed this one" reply. Unknown/inactive users get a toast and
-  no claim.
-- **Advance/Complete** buttons (note + claim cards) call `botPrimaryAdvance` for
-  the next forward step (Mark Merge Done → Approve Merge → Complete for Loan
-  Docs; Complete otherwise), then transition via the task service and refresh to
-  a confirmation card that offers the *next* step — so a user can step a task all
-  the way through from one card. Permission is enforced at transition time
-  (toast on failure); the button is status-driven, not role-filtered.
-- **Fraud two-phase buttons** are the exception: FRAUD tasks render a shared,
-  **role-aware** button set (`fraudCardActions` in `packages/shared/src/fraud.ts`)
-  on both the bot DM cards and the web courts view, so both surfaces show the
-  same actions to the same viewer — checker: "Send Outstanding Items" (note) then
-  "Approve" / "Send Back" (note); requester: "Submit for Approval" and "Release
-  for any fraud checker". Note-required moves open an inline note box whose text
-  posts as the transition's `reviewNotes`. The user-facing phase names are
-  **Outstanding Items** and **Final Approval** across both surfaces.
-- Copy is intentionally personable/casual (e.g. "tossed a new file check on the
-  pile", "grabbed this one — on it now"), low on emoji.
-- Bot v1 scope:
-  - Notifications/reminders
-  - One-tap claim from channel cards
-  - Quick add via `/bot new`
-- Bot quick add flow:
-  - Ask Folder Name
-  - Ask task type
-  - Ask urgency for non-OOO
-  - Ask return date for OOO
-  - Ask Poops
-  - Ask notes
-  - Ask Humperdink Link for non-OOO
-  - Show final review with field-level edits
-  - Show explicit final create confirmation
-  - Support `/bot back`
-
-### Activity Feed
-- Left-rail icon dot is not used
-- Teams activity feed is used instead
-- Activity type is `systemDefault` for v1
-- Activity feed alerts trigger on:
-  - State change
-  - Hourly reminder cadence during business hours
-- Bounce-back condition is `Needs Review`
-- Pickup scope is tasks claimable by the user
-- Due condition is overdue-only
-
-### Overdue Reminders And Retention
-- Reminder cadence: every 1 hour
-- Reminders only during business hours
-- Business hours:
-  - `8:30 AM` to `5:30 PM`
-  - `America/Los_Angeles`
-- Stop reminders when status is:
-  - `Completed`
-  - `Archived`
-  - `Cancelled`
-- Archived tasks are retained for `3 months`
-
-### Integrations And Hosting
-- v1 is standalone with no LOS/CRM integration
-- Planned phase 2:
-  - In-house web app can create tasks through API/button click
-- Hosting direction:
-  - Local-first implementation
-  - Azure-ready deployment target
-
-## Current Backend Surface
-- Health:
-  - `GET /api/health`
-- Loans (ADR-0001):
-  - `GET /api/loans` (list; `?q=` fuzzy search for the create-form typeahead)
-  - `POST /api/loans` (create; dedupes by canonical link / normalized name)
-  - `GET /api/loans/:loanId`
-  - `PATCH /api/loans/:loanId` (edit name/link; propagates to linked tasks;
-    auto-merges on a shared Humperdink link)
-- Tasks:
-  - `GET /api/tasks`
-  - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or
-    `folderName`; `folderName`/`humperdinkLink` are a live cache of the Loan)
-  - `GET /api/tasks/:taskId`
-  - `GET /api/tasks/:taskId/history`
-  - `POST /api/tasks/:taskId/claim`
-  - `POST /api/tasks/:taskId/unclaim`
-  - `POST /api/tasks/:taskId/release` (FRAUD: release a `Pending Approval` task
-    back to the checker pool — creator/admin only)
-  - `POST /api/tasks/:taskId/transition`
-  - `POST /api/tasks/:taskId/points`
-  - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
-  - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
-    without reopening it — creator/assignee/admin; the card's "Add a note"
-    affordance)
-  - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
-    endpoints, each server-enforcing the turn/permission + gated-deletion /
-    checked-stale invariants:
-    - `POST /api/tasks/:taskId/checklist/items` (add an item)
-    - `DELETE /api/tasks/:taskId/checklist/items/:itemId` (delete your own fresh,
-      not-yet-handed-off item — gated by `canDeleteChecklistItem`)
-    - `POST /api/tasks/:taskId/checklist/items/:itemId/text` (edit text →
-      uncheck + stale)
-    - `POST /api/tasks/:taskId/checklist/items/:itemId/checked` (toggle resolved,
-      optional per-item creator note)
-    - `POST /api/tasks/:taskId/checklist/items/:itemId/note` (creator note)
-    - `POST /api/tasks/:taskId/checklist/items/:itemId/checker-note` (checker
-      note)
-    Creator-seeded items ride the create payload (`POST /api/tasks`
-    `initialItems`, #69); submit / approve / bounce-back ride the existing
-    `/transition` endpoint (the pass counter bumps there).
-- Integration:
-  - `POST /api/integrations/tasks` with `x-api-key` when enabled
-- Streaming:
-  - `GET /api/stream`
-- Bot:
-  - `POST /api/bot/messages`
-
-## Current Architecture Notes
-- The server currently serves API traffic only in dev; Vite serves the UI separately.
-- The server can serve built frontend assets when `apps/web/dist/index.html` exists at the configured path for the running process.
-- Real-time UI updates are delivered through SSE.
-- Scheduler runs every 5 minutes and handles reminders, OOO auto-complete, auto-archive, and archive purge.
-- Persistence is file-backed through `TaskStore`.
-- Shared workflow logic lives in `packages/shared` and should remain the canonical place for status rules, due-date logic, and permission helpers.
-
-## Target Direction
-- Microsoft Teams app with:
-  - Tab for task management UI
-  - Bot for notifications/reminders
-- Microsoft Entra ID SSO for identity
-- Backend API + scheduler on Azure
-- Relational DB, expected Azure SQL, for task state and audit history
+Design/UI reference: [apps/web/CLAUDE.md](apps/web/CLAUDE.md).
+Domain glossary and ADRs: [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/).
 
 ## Implementation Guardrails For Agents
-- Prefer changing shared workflow and type logic in `packages/shared` before duplicating rules in `apps/web` or `apps/server`.
-- When changing product rules, update:
-  - shared types/workflow
-  - server validation and service logic
-  - web UI labels and affordances
-  - this file if the decision is confirmed
-- Do not assume Teams credentials, Graph credentials, bot credentials, or inbound integration auth are configured locally.
-- Preserve compatibility aliases only when necessary:
-  - `loanName`
-  - `serverLocation`
-- Distinguish local mock-auth behavior from production identity direction in user-facing explanations.
+
+- Prefer changing shared workflow and type logic in `packages/shared` before
+  duplicating rules in `apps/web` or `apps/server`.
+- When changing product rules, update: shared types/workflow, server
+  validation and service logic, web UI labels and affordances, and the
+  relevant doc under `docs/product/` if the decision is confirmed.
+- Do not assume Teams credentials, Graph credentials, bot credentials, or
+  inbound integration auth are configured locally.
+- Preserve compatibility aliases only when necessary: `loanName`,
+  `serverLocation`.
 
 ## Open Questions Queue
+
 - None currently.
