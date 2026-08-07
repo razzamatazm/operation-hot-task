@@ -1225,18 +1225,14 @@ button.btn-good:hover {
   border-radius: 999px;
   white-space: nowrap;
 }
-.checklist-badge-creator {
-  color: var(--brand);
-  background: var(--brand-soft);
-}
 .checklist-badge-stale {
   color: var(--bad);
   background: var(--bad-bg);
 }
 .checklist-delete {
   flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   display: inline-flex;
   align-items: center;
