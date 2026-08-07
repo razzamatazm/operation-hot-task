@@ -331,6 +331,7 @@ interface ClaimOutcome {
   message: string;
   status?: string;
   assignee?: string;
+  openUrl?: string;
 }
 
 interface AdvanceAction {
@@ -548,8 +549,9 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
 };
 
 /* Card the original message is refreshed to after a successful claim — the
-   Claim button is gone so the task can't be double-claimed from the card. */
-const claimedCard = (outcome: ClaimOutcome): Record<string, unknown> => ({
+   Claim button is gone so the task can't be double-claimed from the card, but
+   "Open in Hot Task" stays so the card is still useful after claiming. */
+const claimedCard = (outcome: ClaimOutcome, openUrl?: string): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
@@ -558,7 +560,8 @@ const claimedCard = (outcome: ClaimOutcome): Record<string, unknown> => ({
     ...(outcome.assignee
       ? [{ type: "TextBlock", text: `Claimed by ${outcome.assignee}`, wrap: true, spacing: "Small", isSubtle: true }]
       : [])
-  ]
+  ],
+  ...(openUrl ? { actions: [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: openUrl }] } : {})
 });
 
 /* Terminal state the root card is silently edited to when a task completes —
@@ -732,7 +735,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(claimedCard(outcome));
+      return cardRefreshResponse(claimedCard(outcome, outcome.openUrl));
     }
 
     if (verb === "replyNote") {
@@ -1778,11 +1781,13 @@ export class TeamsBotClient {
       // claimTask fires a CHANNEL_CLAIMED notification → markTaskClaimed updates
       // every recorded root card. The invoke response below still refreshes the
       // tapper's own client immediately.
+      const thread = await this.threads.get(taskId);
       const outcome: ClaimOutcome = {
         ok: true,
         message: `${user.displayName} grabbed ${task.folderName}`,
         status: task.status,
-        assignee: user.displayName
+        assignee: user.displayName,
+        ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {})
       };
       return outcome;
     } catch (error) {
@@ -1801,7 +1806,8 @@ export class TeamsBotClient {
      claim (web or card tap) so the Claim button disappears everywhere. A silent
      in-place edit — no new channel message, so nobody is re-pinged. */
   async markTaskClaimed(taskId: string, message: string, assignee: string): Promise<void> {
-    await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }));
+    const thread = await this.threads.get(taskId);
+    await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }, thread?.card?.openUrl));
   }
 
   /* Silently edit the channel card(s) to the terminal "completed" state. */
@@ -1853,11 +1859,14 @@ export class TeamsBotClient {
     }
     // In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state.
     return withRefresh(
-      claimedCard({
-        ok: true,
-        message: `${task.assignee?.displayName ?? "Someone"} grabbed ${task.folderName}`,
-        ...(task.assignee?.displayName ? { assignee: task.assignee.displayName } : {})
-      })
+      claimedCard(
+        {
+          ok: true,
+          message: `${task.assignee?.displayName ?? "Someone"} grabbed ${task.folderName}`,
+          ...(task.assignee?.displayName ? { assignee: task.assignee.displayName } : {})
+        },
+        content.openUrl
+      )
     );
   }
 
