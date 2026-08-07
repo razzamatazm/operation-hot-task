@@ -159,10 +159,11 @@ Primary goals:
 - Notes label by task type:
   - LOI: `Loan Terms and Contacts`
   - Buddy Chat: `Concerns`
-  - Fraud: `Discussion` — `NOTES_FIELD_LABELS.FRAUD` now heads the card's
-    free-text **discussion thread** (#68), not a separate outstanding-items
-    field. The create form (#69) uses a purpose-built `Notes` field plus an
-    outstanding-items checklist seeder, not this constant.
+  - Fraud: `Notes` — `NOTES_FIELD_LABELS.FRAUD` heads the card's free-text
+    **discussion thread** (#68), not a separate outstanding-items field;
+    relabeled from `Discussion` to `Notes` for consistency (#81). The create
+    form (#69) uses a purpose-built `Notes` field plus an outstanding-items
+    checklist seeder, not this constant.
   - Value / Loan Docs / OOO: `Notes`
 
 ### Status Model
@@ -262,7 +263,7 @@ Primary goals:
       gate as before.
     - **Free-text is the discussion thread, not a dedicated field (#68).** The
       FRAUD card's free-text surface is the shared discussion thread (headed by
-      `NOTES_FIELD_LABELS.FRAUD` = "Discussion") plus the per-item notes — there
+      `NOTES_FIELD_LABELS.FRAUD` = "Notes") plus the per-item notes — there
       is **no separate submission-notes field**. The create form's `Notes` (#69)
       seeds that thread.
   - **Note-required hand-back:** any move *into* `Awaiting Items` (the initial
