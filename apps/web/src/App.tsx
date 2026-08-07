@@ -560,7 +560,7 @@ const CheckIcon = () => (
 );
 
 const TrashIcon = () => (
-  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
     <path d="M3 4.5h10M6.5 4.5V3.2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.3M5 4.5l.6 8a1 1 0 0 0 1 .95h2.8a1 1 0 0 0 1-.95l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
@@ -674,7 +674,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                   )}
 
                   <span className="checklist-badges">
-                    {item.addedBy === "creator" && <span className="checklist-badge checklist-badge-creator" title="Added by the requester">+requester</span>}
                     {item.stale && <span className="checklist-badge checklist-badge-stale" title="Text changed after it was checked — re-verify">stale · re-verify</span>}
                   </span>
 
