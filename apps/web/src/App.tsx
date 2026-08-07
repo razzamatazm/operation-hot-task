@@ -606,10 +606,12 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     await api.addItem(task.id, value);
   };
 
-  /* One-line turn cue so each party knows what the list wants from them. */
+  /* One-line turn cue so each party knows what the list wants from them.
+     OPEN (unclaimed/just-created) intentionally has no cue — the create
+     form already has its own Outstanding Items seeder (#82). */
   const turnCue =
     task.status === "OPEN"
-      ? "Seed the items you already know are outstanding"
+      ? null
       : task.status === "CLAIMED"
         ? "Checker's pass — list what's outstanding"
         : task.status === "AWAITING_ITEMS"
