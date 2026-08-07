@@ -1087,11 +1087,6 @@ const TaskCard = memo(({
         )}
       </div>
 
-      {/* FRAUD structured outstanding-items checklist (#44) — the handoff
-          surface, full-width above the timeline/thread split. Non-FRAUD tasks
-          skip it entirely. */}
-      {task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />}
-
       <div className="expand-cols">
         <div className="expand-meta">
           <Timeline task={task} />
@@ -1272,6 +1267,11 @@ const TaskCard = memo(({
         </div>
 
         <div className="thread">
+          {/* FRAUD structured outstanding-items checklist (#44) — the handoff
+              surface, stacked above the notes thread in the same column so its
+              left edge lines up with the thread instead of spanning full width
+              above the two-column split (#80). Non-FRAUD tasks skip it entirely. */}
+          {task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />}
           <div className="thread-head">{notesLabel}</div>
           <div className="note-brief"><b>{task.createdBy.displayName}:</b> {task.notes}</div>
           {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
