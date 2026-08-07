@@ -7,11 +7,12 @@ export const NOTES_FIELD_LABELS: Readonly<Record<TaskType, string>> = {
   LOI: "Loan Terms and Contacts",
   BUDDY_CHAT: "Concerns",
   VALUE: "Notes",
-  // FRAUD's free-text surface is now the shared discussion thread (#68): the
+  // FRAUD's free-text surface is the shared discussion thread (#68): the
   // structured checklist carries outstanding items, and this label heads the
-  // card's thread. The create form uses a purpose-built "Notes" label (#69),
-  // not this constant.
-  FRAUD: "Discussion",
+  // card's thread. Relabeled from "Discussion" back to "Notes" for
+  // consistency with every other task type (#81). The create form uses its
+  // own purpose-built "Notes" label (#69), not this constant.
+  FRAUD: "Notes",
   LOAN_DOCS: "Notes",
   OOO: "Notes"
 };
