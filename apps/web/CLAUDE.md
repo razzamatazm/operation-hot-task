@@ -147,11 +147,17 @@ assignee), not assignee-gated like Complete.
    bottom once it ages past the cutoff. (Admin Metrics counts every status
    from the raw task list, independent of this view filter.)
 
-Rows never auto-expand — every card renders collapsed, including on a
-new unread note (that only pulses the red dot). The
-`useEffect([task.status, user.id])` collapses `expanded` back to `false`
-on status transitions and on mock-user switch. The user clicks a row to
-open it.
+Rows default to collapsed, with three exceptions computed in `TaskCard`
+(`defaultOpen`): `OPEN` tasks (open for everyone), a card with an unread
+note from the other party, and a card where the viewer is involved
+(creator/assignee) and the task is in-flight — `CLAIMED` / `NEEDS_REVIEW` /
+`MERGE_DONE` / `MERGE_APPROVED` / `AWAITING_ITEMS` / `PENDING_APPROVAL`
+(the last two are the FRAUD checklist phases, #98). A new unread note by
+itself does not auto-open a card outside that rule — it only pulses the red
+dot. A persisted per-user manual override (`expandOverride`) wins over the
+default; the `useEffect([task.status, user.id])` clears it back to the
+default on status transitions and on mock-user switch. Otherwise the user
+clicks a row to open/close it.
 
 ### Status = left stripe
 

@@ -180,7 +180,7 @@ check("per-item creator and checker notes are independent", () => {
 });
 
 // --- ordering --------------------------------------------------------------
-check("unresolved float to top, checked settle below, stable add-order within", () => {
+check("stable add-order regardless of checked state (#96)", () => {
   const items = [
     item({ id: "1", checked: true }),
     item({ id: "2", checked: false }),
@@ -188,7 +188,7 @@ check("unresolved float to top, checked settle below, stable add-order within", 
     item({ id: "4", checked: false })
   ];
   const sorted = sortChecklist(items);
-  assert.deepEqual(sorted.map((i) => i.id), ["2", "4", "1", "3"]);
+  assert.deepEqual(sorted.map((i) => i.id), ["1", "2", "3", "4"]);
   assert.deepEqual(items.map((i) => i.id), ["1", "2", "3", "4"], "input untouched (purity)");
 });
 
@@ -225,14 +225,14 @@ check("CLAIMED (initial pass): checker builds; creator/outsider cannot", () => {
   assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
 });
 
-check("AWAITING_ITEMS (creator's turn): creator resolves/notes/adds/submits; checker may add + checkerNote", () => {
+check("AWAITING_ITEMS (creator's turn): creator resolves/notes/adds/submits; checker may add + checkerNote + toggle (#95)", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.ok(canEditChecklist(t, CREATOR, "toggle"));
   assert.ok(canEditChecklist(t, CREATOR, "creatorNote"));
   assert.ok(canEditChecklist(t, CREATOR, "add"));
   assert.ok(canEditChecklist(t, CHECKER, "add"));
   assert.ok(canEditChecklist(t, CHECKER, "checkerNote"));
-  assert.ok(!canEditChecklist(t, CHECKER, "toggle"), "checker doesn't tick items on the creator's turn");
+  assert.ok(canEditChecklist(t, CHECKER, "toggle"), "checker can resolve items on the creator's turn (#95)");
   assert.ok(!canEditChecklist(t, CREATOR, "editText"), "creator can't rewrite item text (that's the checker's op, and it clears the check)");
   assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
 });

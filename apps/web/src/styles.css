@@ -1125,17 +1125,6 @@ button.btn-good:hover {
   letter-spacing: 0.04em;
   color: var(--muted);
 }
-.checklist-turn {
-  margin-left: auto;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--brand);
-  background: var(--brand-soft);
-  padding: 2px 7px;
-  border-radius: 999px;
-}
 .checklist-items {
   list-style: none;
   margin: 0;
@@ -1270,22 +1259,9 @@ button.btn-good:hover {
 .checklist-note:disabled {
   cursor: default;
 }
-.checklist-note-label {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.56rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-right: 5px;
-}
-.checklist-note-creator .checklist-note-label {
-  color: var(--brand);
-  background: var(--brand-soft);
-}
-.checklist-note-checker .checklist-note-label {
-  color: var(--warn);
-  background: var(--warn-bg);
+.checklist-note b {
+  font-weight: 600;
+  color: var(--ink);
 }
 .checklist-note-add {
   align-self: flex-start;
@@ -1958,6 +1934,41 @@ button.btn-good:hover {
 @media (max-width: 768px) {
   .expand-cols {
     grid-template-columns: 1fr;
+  }
+
+  /* #92: once the columns stack, a tall vertical dot-list pushes the notes
+     thread far down the card. Switch the timeline to a compact horizontal
+     row — same dots/labels/NOW badge, connecting line rotated 90°, wrapping
+     onto a second line if it doesn't fit — so notes start much higher. */
+  .timeline {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    margin-top: 4px;
+  }
+  .tl-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding-bottom: 0;
+  }
+  .tl-item:not(:last-child)::before {
+    content: none;
+  }
+  .tl-item:not(:last-child)::after {
+    content: "";
+    width: 14px;
+    height: 1.5px;
+    margin: 0 5px;
+    background: var(--line);
+    flex: none;
+  }
+  .tl-dot {
+    margin-top: 0;
+  }
+  .tl-body {
+    font-size: 0.72rem;
+    white-space: nowrap;
   }
 
   .task-card-collapsed {
@@ -2670,9 +2681,15 @@ button.btn-good:hover {
 /* Collapsed grouped row: stripe | people | title | due | action */
 .task-card-grouped {
   display: grid;
-  grid-template-columns: 4px 172px minmax(0, 1fr) 110px 116px;
+  /* People and due are fluid (clamp) rather than fixed-px, and action sizes
+     to its label (auto) instead of a fixed box — between full desktop width
+     and the full-stack breakpoint below, nothing here has a fixed floor
+     wider than its content needs, so the title's minmax(0, 1fr) column is
+     always the one that gives, via ellipsis, instead of the quick-action
+     button or the people names getting crushed/clipped (#91). */
+  grid-template-columns: 4px clamp(96px, 15vw, 172px) minmax(0, 1fr) clamp(60px, 8vw, 110px) auto;
   align-items: center;
-  gap: 14px;
+  gap: clamp(8px, 1.4vw, 14px);
   padding: 7px 14px 7px 0;
   min-height: 46px;
   cursor: pointer;
@@ -2688,7 +2705,7 @@ button.btn-good:hover {
 }
 .task-card-grouped-overdue .task-card-grouped-stripe { background: var(--bad); }
 
-/* People: Owner (assignee / Unclaimed) over From (creator). */
+/* People: Assignee (or Unclaimed) over Assigner (creator). */
 .task-card-grouped-people {
   display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 4px 0;
 }
@@ -2706,11 +2723,16 @@ button.btn-good:hover {
 }
 .task-card-grouped-avatar-none { background: transparent; border: 1.5px dashed var(--line); }
 .task-card-grouped-name {
-  flex: 1 1 auto; min-width: 0; font-size: 0.8rem; font-weight: 600; color: var(--ink);
+  flex: 1 1 auto; min-width: 0; font-size: 0.8rem; font-weight: 500; color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .task-card-grouped-person-from .task-card-grouped-name { font-weight: 500; color: var(--ink-secondary); }
 .task-card-grouped-name-none { color: var(--muted); font-style: italic; font-weight: 500; }
+/* #93: the viewer's own name, in whichever slot it appears — 600 is DM
+   Sans's bold ceiling (apps/web/CLAUDE.md), one step up from the 500 both
+   slots otherwise use. */
+.task-card-grouped-name-mine,
+.task-card-grouped-person-from .task-card-grouped-name-mine { font-weight: 600; color: var(--ink); }
 
 /* Title block reuses .task-card-collapsed-title; the poop track rides inline
    with the type label, sized down to the compact grouped scale. */
@@ -2738,6 +2760,10 @@ button.btn-good:hover {
 /* Primary action stays quiet in mono: ink-filled instead of green. */
 .task-card-grouped .task-card-quick-action.btn-good { background: var(--ink); color: var(--panel); }
 .task-card-grouped .task-card-quick-action.btn-good:hover { background: var(--ink-secondary); }
+/* The action grid column is `auto` here (#91) — size the button to its own
+   label instead of the shared 116px cap, so a long one ("Submit for
+   Approval", "Mark Merge Done") never clips or overlaps the due column. */
+.task-card-grouped > .task-card-quick-action { width: auto; max-width: none; }
 
 /* Mini (closed) grouped rows: tighter, no action column. */
 .task-card-grouped-mini { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }

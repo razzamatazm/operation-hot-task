@@ -65,8 +65,9 @@ Rules:
   `stale`).
 - **Per-item notes.** `note` is the creator's exception; `checkerNote` is the
   checker's rework note (set on review / bounce-back).
-- **Ordering.** Unresolved (unchecked) items float to the top, checked settle
-  below; stable add-order within each group. No manual reorder in v1.
+- **Ordering.** Stable add-order (#96, reverses the earlier float-to-top
+  rule) — checking or unchecking an item never changes its position. No
+  manual reorder in v1.
 - **Pass counter.** `checklistPass` starts at 1 on the first "Send
   Outstanding Items" and increments on each bounce-back; new items stamp the
   current pass in `addedOnPass`.
@@ -81,7 +82,8 @@ Rules:
   (pre-claim) = the creator seeds / manages their own draft list (add / edit
   own text / toggle / note); `Claimed` = the checker builds the list;
   `Awaiting Items` = the requester ticks / notes / adds, and the checker may
-  also add items + set checker notes; `Pending Approval` = the checker edits
+  also add items, toggle any item (#95), and set checker notes; `Pending
+  Approval` = the checker edits
   (→ stale), adds, re-checks, and sets checker notes.
 - **Approval gate = the checker.** In `Pending Approval` the checker can
   Approve (allowed even with unresolved items — approve-with-exceptions) or
