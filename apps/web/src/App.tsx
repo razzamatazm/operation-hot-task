@@ -2310,16 +2310,10 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
             })}
           </span>
         </label>
-        <label className="span-full">
-          {/* FRAUD's free-text field is now a general discussion seed, so it
-              gets a purpose-built "Notes" label (#69); the shared
-              NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
-          {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
-          <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
-        </label>
         {/* FRAUD only (#69): seed the outstanding-items checklist with items
             the creator already knows about. Enter-to-add, mirrors the card's
-            FraudChecklist add idiom. Optional — the checker seeds later. */}
+            FraudChecklist add idiom. Optional — the checker seeds later.
+            Rendered above Notes (#78) so the checklist leads the form. */}
         {form.taskType === "FRAUD" && (
           <div className="span-full task-form-seed">
             <span className="task-form-seed-head">Outstanding Items <span className="form-label-optional">- Optional</span></span>
@@ -2340,7 +2334,11 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
                 ))}
               </ul>
             )}
-            <div className="checklist-add">
+            {/* (#79) .checklist-add's dashed top divider exists to separate an
+                already-seeded item list above it; with nothing seeded yet on
+                the create form it reads as a stray gap, so drop it via
+                .checklist-add-flush until the first item lands. */}
+            <div className={`checklist-add${form.initialItems.length > 0 ? "" : " checklist-add-flush"}`}>
               <input
                 className="checklist-item-input"
                 placeholder="Add an item, press Enter…"
@@ -2372,6 +2370,13 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
             </div>
           </div>
         )}
+        <label className="span-full">
+          {/* FRAUD's free-text field is now a general discussion seed, so it
+              gets a purpose-built "Notes" label (#69); the shared
+              NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
+          {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
+          <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
+        </label>
         {form.taskType !== "OOO" && (
           <label className="span-full">
             Humperdink Link
