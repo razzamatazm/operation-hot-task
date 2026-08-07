@@ -1097,11 +1097,11 @@ button.btn-good:hover {
    the app's button idiom. Colors go through theme tokens only, so it works in
    light / dark / contrast without per-theme overrides. */
 .checklist {
-  grid-column: 1 / -1;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: var(--bg-soft);
   padding: 10px 12px;
+  margin-bottom: 14px;
   margin-bottom: 10px;
 }
 .checklist-head {
