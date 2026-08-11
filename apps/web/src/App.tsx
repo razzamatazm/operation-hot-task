@@ -70,8 +70,6 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
 
 const canUnclaim = (task: LoanTask, user: UserIdentity): boolean => task.status === "CLAIMED" && (task.assignee?.id === user.id || user.roles.includes("ADMIN"));
 
-const isOverdue = (task: LoanTask): boolean => !CLOSED_STATUSES.includes(task.status) && new Date(task.dueAt).getTime() < Date.now();
-
 const formatDate = (iso: string): string => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -302,57 +300,6 @@ const ExpandAvatar = ({ name }: { name?: string }) => (
   <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
 );
 
-/* ── Status timeline (expanded body) ──────────────────────── */
-/* Vertical rail of the task's lifecycle. NEEDS_REVIEW sits on the CLAIMED
-   step (and tags it); ARCHIVED reads as COMPLETED. The current in-flight
-   step carries a "NOW" (or "NEEDS REVIEW") chip. */
-const TIMELINE_LABELS: Record<string, string> = {
-  OPEN: "Opened",
-  CLAIMED: "Claimed",
-  MERGE_DONE: "Merge done",
-  MERGE_APPROVED: "Merge approved",
-  // FRAUD two-phase (#39): outstanding items sent to the requester, then the
-  // requester submits them back for the checker's final approval.
-  AWAITING_ITEMS: "Outstanding items",
-  PENDING_APPROVAL: "Final approval",
-  COMPLETED: "Completed",
-  NEEDS_REVIEW: "Needs review"
-};
-const Timeline = ({ task }: { task: LoanTask }) => {
-  const flow: TaskStatus[] =
-    task.taskType === "LOAN_DOCS"
-      ? ["OPEN", "CLAIMED", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED"]
-      : task.taskType === "FRAUD"
-        ? ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED"]
-        : ["OPEN", "CLAIMED", "COMPLETED"];
-  const effective: TaskStatus =
-    task.status === "NEEDS_REVIEW" ? "CLAIMED" : task.status === "ARCHIVED" ? "COMPLETED" : task.status;
-  const idx = flow.indexOf(effective);
-  return (
-    <div className="timeline">
-      {flow.map((s, i) => {
-        const done = i <= idx;
-        const current = i === idx && !CLOSED_STATUSES.includes(task.status);
-        const dotColor = done
-          ? s === "COMPLETED" && task.status === "COMPLETED"
-            ? "var(--good)"
-            : "var(--brand)"
-          : "var(--line)";
-        return (
-          <div key={s} className="tl-item">
-            <span className="tl-dot" style={{ background: dotColor }} />
-            <div className="tl-body">
-              <b style={{ color: done ? "var(--ink)" : "var(--muted)" }}>{TIMELINE_LABELS[s]}</b>
-              {current && task.status === "NEEDS_REVIEW" && <span className="tag tag-warn">NEEDS REVIEW</span>}
-              {current && task.status !== "NEEDS_REVIEW" && <span className="tag tag-brand">NOW</span>}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
 /* Standard three-connected-nodes "share" glyph (#58). Hand-rolled inline SVG —
    the app ships no icon library (only the logo SVG + Unicode marks), so this is
    the one reusable share icon every share affordance should use. Sized via
@@ -407,7 +354,8 @@ const FilterIcon = () => (
 const SharePopover = ({
   candidates,
   onShare,
-  link
+  link,
+  asMenuItem
 }: {
   /* People the picker offers — pre-filtered by the caller (excludes creator,
      assignee, and self per #41). */
@@ -418,6 +366,9 @@ const SharePopover = ({
   /* Copy-link target (in-app deep link). null/undefined hides the Copy link
      button — e.g. when there's no task id yet. */
   link?: string | null;
+  /* Render the trigger as the word "Share" in a full-width menu row instead
+     of the icon-only square button, for use inside the actions menu. */
+  asMenuItem?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   /* Chosen person + optional note + in-flight flag + copy-link flash. Success
@@ -484,14 +435,14 @@ const SharePopover = ({
     <div className="share-pop" ref={wrapRef}>
       <button
         type="button"
-        className="btn-sm btn-ghost share-pop-trigger"
+        className={asMenuItem ? "btn-sm btn-ghost" : "btn-sm btn-ghost share-pop-trigger"}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Share"
         title="Share"
         onClick={() => (open ? close() : setOpen(true))}
       >
-        <ShareIcon />
+        {asMenuItem ? "Share" : <ShareIcon />}
       </button>
       {open && (
         <div
@@ -677,52 +628,64 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                       <TrashIcon />
                     </button>
                   )}
+
+                  {/* "+ note" rides inline at the end of the item's own row
+                      (not a separate line below) — saves a line per item
+                      that doesn't have one yet. Once a note exists (or is
+                      being edited), it moves to its full row below instead —
+                      a real note needs the room. Same "+ note" label for
+                      both the requester's and checker's note — the distinct
+                      "checker note" wording wasn't worth differentiating. */}
+                  {!editingNote && !item.note && canCreatorNote && (
+                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
+                  )}
+                  {!editingCheckerNote && !item.checkerNote && canCheckerNote && (
+                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ note</button>
+                  )}
                 </div>
 
                 {/* Per-item notes: the requester's exception note and the
                     checker's rework note, each shown when present and editable
                     by the owning role on their turn. */}
-                <div className="checklist-item-notes">
-                  {editingNote ? (
-                    <div className="checklist-note-edit">
-                      <input
-                        className="checklist-item-input"
-                        placeholder="Why it's not needed / how it was handled…"
-                        value={draft}
-                        autoFocus
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
-                        onBlur={() => void saveEditor(item)}
-                      />
-                    </div>
-                  ) : item.note ? (
-                    <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
-                      <b>{task.createdBy.displayName}:</b> {item.note}
-                    </button>
-                  ) : canCreatorNote ? (
-                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
-                  ) : null}
+                {(editingNote || item.note || editingCheckerNote || item.checkerNote) && (
+                  <div className="checklist-item-notes">
+                    {editingNote ? (
+                      <div className="checklist-note-edit">
+                        <input
+                          className="checklist-item-input"
+                          placeholder="Why it's not needed / how it was handled…"
+                          value={draft}
+                          autoFocus
+                          onChange={(e) => setDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                          onBlur={() => void saveEditor(item)}
+                        />
+                      </div>
+                    ) : item.note ? (
+                      <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
+                        <b>{task.createdBy.displayName}:</b> {item.note}
+                      </button>
+                    ) : null}
 
-                  {editingCheckerNote ? (
-                    <div className="checklist-note-edit">
-                      <input
-                        className="checklist-item-input"
-                        placeholder="Why this isn't sufficient / needs rework…"
-                        value={draft}
-                        autoFocus
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
-                        onBlur={() => void saveEditor(item)}
-                      />
-                    </div>
-                  ) : item.checkerNote ? (
-                    <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
-                      <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
-                    </button>
-                  ) : canCheckerNote ? (
-                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ checker note</button>
-                  ) : null}
-                </div>
+                    {editingCheckerNote ? (
+                      <div className="checklist-note-edit">
+                        <input
+                          className="checklist-item-input"
+                          placeholder="Why this isn't sufficient / needs rework…"
+                          value={draft}
+                          autoFocus
+                          onChange={(e) => setDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                          onBlur={() => void saveEditor(item)}
+                        />
+                      </div>
+                    ) : item.checkerNote ? (
+                      <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
+                        <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </li>
             );
           })}
@@ -740,10 +703,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
           />
           <button type="button" className="btn-sm" onClick={() => void addItem()} disabled={!newItem.trim()}>Add</button>
         </div>
-      )}
-
-      {sorted.length === 0 && !canAdd && (
-        <div className="checklist-empty">No outstanding items yet.</div>
       )}
     </div>
   );
@@ -821,6 +780,11 @@ const TaskCard = memo(({
      draft. */
   const [completedNoteOpen, setCompletedNoteOpen] = useState(false);
   const [completedNote, setCompletedNote] = useState("");
+  /* Actions menu: everything but the row's one primary action and FRAUD's
+     forward moves lives behind this hamburger, next to the primary action
+     in the collapsed row's action cell — open regardless of whether the
+     row itself is expanded. */
+  const [menuOpen, setMenuOpen] = useState(false);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -876,7 +840,6 @@ const TaskCard = memo(({
     const el = reviewListRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [reviewCount, expanded]);
-  const overdue = isOverdue(task);
   const transitions = nextFlowStatuses(task).filter((s) => s !== "OPEN");
   // Non-undefined only for a reopened task; the exact closed status to restore
   // it to (COMPLETED/ARCHIVED). Permission mirrors the shared canRestoreTask.
@@ -1000,9 +963,12 @@ const TaskCard = memo(({
        expanded body. Closed mini rows show Archive (creator-only) or
        nothing; clicking the row expands to reveal Re-open. */
   }
-  const quickActionClass = primaryAction
-    ? `btn-sm task-card-quick-action${primaryAction.kind === "good" ? " btn-good" : primaryAction.kind === "ghost" ? " btn-ghost" : primaryAction.kind === "danger" ? " btn-danger" : ""}`
-    : "";
+  // One button style for the row's primary action, regardless of kind —
+  // plain filled-brand, matching every other button in this row (Send,
+  // Add note, ...). Used to differentiate good/ghost/danger; that read as
+  // three inconsistent button styles for what's always the row's one
+  // next-step action.
+  const quickActionClass = primaryAction ? "btn-sm task-card-quick-action" : "";
 
   /* Expanded body, rendered below the collapsed row when open.
      Mirrors the design's accordion: a slim metadata strip up top, then a
@@ -1044,248 +1010,299 @@ const TaskCard = memo(({
     setOpenFraudNote(null);
   };
 
+  const cancelBlock = (
+    <>
+      {showActions && cancelStage === "confirming" && (
+        <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
+          <span>Cancel this task?</span>
+          <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
+            Yes, cancel
+          </button>
+          <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
+            Keep
+          </button>
+        </div>
+      )}
+      {showActions && cancelStage === "done" && (
+        <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
+      )}
+    </>
+  );
+
+  /* FRAUD two-phase forward moves (#39) — the job of the card while it's in
+     this phase, not administrivia, so they stay visible in the expanded
+     body (not folded into the actions menu). The plain quick move also
+     rides the collapsed row; the note-required moves (Send Outstanding
+     Items / Send Back) reveal an inline note that posts as the transition's
+     reviewNotes, and Release hands the task to the checker pool. Same set
+     the bot DM cards render. */
+  const fraudActionsBlock = showActions && cancelStage === "idle" && expandedFraudActions.length > 0 && (
+    <div className="task-card-fraud">
+      {expandedFraudActions.map((action) => {
+        // A populated checklist already satisfies the server's
+        // "items or note" rule, so a transitionWithNote action
+        // fires immediately in that case — only an empty
+        // checklist still needs the note box gate (#84).
+        const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
+        const noteOpen = noteRequired && openFraudNote === action.targetStatus;
+        return (
+          <div key={action.label} className="task-card-fraud-action">
+            <button
+              type="button"
+              className={`btn-sm ${action.kind === "release" ? "btn-ghost" : "btn-good"}`}
+              aria-expanded={noteRequired ? noteOpen : undefined}
+              onClick={() => {
+                if (noteRequired && action.targetStatus) {
+                  setFraudNote("");
+                  setOpenFraudNote(noteOpen ? null : action.targetStatus);
+                } else {
+                  runFraudAction(action);
+                }
+              }}
+            >
+              {action.label}
+            </button>
+            {noteOpen && action.targetStatus && (
+              <div className="task-card-fraud-note">
+                <textarea
+                  rows={2}
+                  placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
+                  value={fraudNote}
+                  onChange={(e) => setFraudNote(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
+                  autoFocus
+                />
+                <div className="task-card-fraud-note-actions">
+                  <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
+                    Send
+                  </button>
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  /* Everything else — the actions-menu ladder, rendered inside the
+     hamburger (see actionsMenu below), not in the expanded body. */
+  const secondaryActionsBlock = showActions && cancelStage === "idle" && (
+    <>
+      {task.status === "OPEN" && isCreator && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel Task
+        </button>
+      )}
+      {canUnclaim(task, user) && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
+          Unclaim
+        </button>
+      )}
+      {task.status === "CLAIMED" && isCreator && !isAssignee && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel
+        </button>
+      )}
+      {task.status === "MERGE_DONE" && isAssignee && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
+          Undo Merge Done
+        </button>
+      )}
+      {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel
+        </button>
+      )}
+      {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel
+        </button>
+      )}
+      {task.status === "COMPLETED" && isCreator && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
+          Archive
+        </button>
+      )}
+      {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
+          Re-open
+        </button>
+      )}
+      {/* Add a note to a COMPLETED task (#45): reveal an inline field
+          that posts to the completed-note endpoint (task stays
+          COMPLETED). Every task type; creator/assignee/admin. */}
+      {task.status === "COMPLETED" && canNoteTask && (
+        <button
+          type="button"
+          className="btn-sm btn-ghost"
+          aria-expanded={completedNoteOpen}
+          onClick={() => { acknowledgeUnread(); setCompletedNote(""); setCompletedNoteOpen((open) => !open); }}
+        >
+          Add a note
+        </button>
+      )}
+      {/* A reopened task remembers the closed status it came from.
+          "Restore" sends it straight back there (COMPLETED or ARCHIVED),
+          available to whoever reopened it — creator, assignee, or admin —
+          so a creator-only reopen doesn't need the assignee to close it
+          out. Gated by the shared canRestoreTask so UI and API agree. */}
+      {restoreTarget && canRestoreTask(task, user) && (
+        <button type="button" className="btn-sm btn-good" onClick={() => { acknowledgeUnread(); onTransition(task.id, restoreTarget); }}>
+          Restore
+        </button>
+      )}
+      {/* Inline note field for the "Add a note" affordance (#45). Full
+          width below the action buttons; Enter (no shift) or Add posts,
+          Esc / Cancel dismisses. */}
+      {task.status === "COMPLETED" && completedNoteOpen && (
+        <div className="task-card-note-add">
+          <textarea
+            rows={2}
+            placeholder="Add a note to this completed task…"
+            value={completedNote}
+            onChange={(e) => setCompletedNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitCompletedNote(); }
+              if (e.key === "Escape") { setCompletedNoteOpen(false); setCompletedNote(""); }
+            }}
+            autoFocus
+          />
+          <div className="task-card-note-add-actions">
+            <button type="button" className="btn-sm btn-good" onClick={() => void submitCompletedNote()} disabled={!completedNote.trim()}>
+              Add note
+            </button>
+            <button type="button" className="btn-sm btn-ghost" onClick={() => { setCompletedNoteOpen(false); setCompletedNote(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  /* Share (issues #41, #52, #58): a menu row now, not a standalone icon
+     trigger — DM a specific person a deep link to this task, outside the
+     normal creator/assignee flow. Hidden when there's nobody else in the
+     directory to point at. */
+  const shareMenuItemBlock = shareCandidates.length > 0 && (
+    <SharePopover
+      candidates={shareCandidates}
+      onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
+      link={shareLink}
+      asMenuItem
+    />
+  );
+
+  /* Actions menu: hamburger next to the row's primary action (see the
+     collapsed row below), holding Share plus the secondary ladder
+     (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
+     Done). Cancel's confirm/done UI renders inside the same panel so it
+     stays visible once triggered, matching the in-place-swap behavior it
+     always had. stopBubble on the wrapping span keeps clicks in this
+     subtree (the trigger, and every button in the open panel) from also
+     toggling the collapsed row's expand/collapse. */
+  const menuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || cancelStage !== "idle");
+  const actionsMenu = menuHasContent && (
+    <span onClick={stopBubble} className="task-card-menu">
+      <button
+        type="button"
+        className="task-card-menu-trigger"
+        aria-label="More actions"
+        aria-expanded={menuOpen}
+        onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="4" y1="7" x2="20" y2="7" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="17" x2="20" y2="17" />
+        </svg>
+      </button>
+      {menuOpen && (
+        <div className="task-card-menu-panel" role="menu">
+          {cancelBlock}
+          {secondaryActionsBlock}
+          {shareMenuItemBlock}
+        </div>
+      )}
+    </span>
+  );
+
+  const checklistBlock = task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />;
+
+  /* The originating note (task.notes) uses the same avatar/name/timestamp
+     row as the reply thread below it, instead of a separate "Name: text"
+     block style — one consistent list, not two different-looking ones. */
+  const notesBlock = (
+    <>
+      <div className="thread-head">{notesLabel}</div>
+      <div className="msgs" ref={reviewListRef}>
+        <div className="msg">
+          <ExpandAvatar name={task.createdBy.displayName} />
+          <div>
+            <div className="msg-meta">
+              <span className="msg-author">{task.createdBy.displayName}</span>
+              <span className="msg-time">{formatDate(task.createdAt)}</span>
+            </div>
+            <div className="msg-text">{task.notes}</div>
+          </div>
+        </div>
+        {Array.isArray(task.reviewNotes) && task.reviewNotes.map((note, i) => (
+          <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
+            <ExpandAvatar name={note.by.displayName} />
+            <div>
+              <div className="msg-meta">
+                <span className="msg-author">{note.by.displayName}</span>
+                <span className="msg-time">{formatDate(note.at)}</span>
+              </div>
+              <div className="msg-text">{note.text}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {canPostNote && (
+        <div className="composer">
+          <textarea
+            rows={1}
+            placeholder={`Reply to ${replyTarget}…`}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}
+          />
+          <button type="button" className="btn-sm" onClick={() => void handleSubmitNote()} disabled={!noteText.trim()}>Send</button>
+        </div>
+      )}
+    </>
+  );
+
+  /* Compact Created/Due, one row, bottom of the card. */
+  const metaFooter = (
+    <div className="task-card-meta-footer">
+      <span><b>Created</b> {formatDate(task.createdAt)}</span>
+      {task.taskType === "OOO" ? (
+        <span><b>Returns</b> {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
+      ) : (
+        <span><b>Due</b> {formatDate(task.dueAt)}</span>
+      )}
+    </div>
+  );
+
+  /* Expanded body: always a single stacked column, sections separated by a
+     hairline rather than nested card chrome. No progress stepper/timeline —
+     the collapsed row's own next-step button (Claim/Complete/Approve/...)
+     already says where a task sits in its flow, and most task types barely
+     have one anyway. No due-pill either — the collapsed row's own
+     OVERDUE/due chip already shows that. Secondary actions never show
+     here — they live in the row's hamburger instead. */
   const renderExpanded = () => (
     <div className="task-card-expanded">
-      {/* Meta facts live in one slim strip up top — the columns below
-          belong to the lifecycle (timeline) and the conversation. */}
-      <div className="expand-strip">
-        {/* Assigner/Assignee already render in the collapsed row's header,
-            which stays visible above this body — showing them again here
-            would be a duplicate (#93). */}
-        <span className="strip-item">
-          <label>Created</label>
-          <span className="v">{formatDate(task.createdAt)}</span>
-        </span>
-        {task.taskType === "OOO" ? (
-          <span className="strip-item">
-            <label>Returns</label>
-            <span className="v">{task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
-          </span>
-        ) : (
-          <span className="strip-item">
-            <label>Due</label>
-            <span className={`v${overdue ? " v-due-late" : ""}`}>{formatDate(task.dueAt)}</span>
-          </span>
-        )}
-      </div>
-
-      <div className="expand-cols">
-        <div className="expand-meta">
-          <Timeline task={task} />
-          {showActions && cancelStage === "confirming" && (
-            <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
-              <span>Cancel this task?</span>
-              <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
-                Yes, cancel
-              </button>
-              <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
-                Keep
-              </button>
-            </div>
-          )}
-          {showActions && cancelStage === "done" && (
-            <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
-          )}
-          {showActions && cancelStage === "idle" && (
-            <div className="task-card-actions expand-actions">
-              {/* FRAUD two-phase forward moves (#39). The plain quick move also
-                  rides the collapsed row; the note-required moves (Send
-                  Outstanding Items / Send Back) reveal an inline note that posts
-                  as the transition's reviewNotes, and Release hands the task to
-                  the checker pool. Same set the bot DM cards render. */}
-              {expandedFraudActions.length > 0 && (
-                <div className="task-card-fraud">
-                  {expandedFraudActions.map((action) => {
-                    // A populated checklist already satisfies the server's
-                    // "items or note" rule, so a transitionWithNote action
-                    // fires immediately in that case — only an empty
-                    // checklist still needs the note box gate (#84).
-                    const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
-                    const noteOpen = noteRequired && openFraudNote === action.targetStatus;
-                    return (
-                      <div key={action.label} className="task-card-fraud-action">
-                        <button
-                          type="button"
-                          className={`btn-sm ${action.kind === "release" ? "btn-ghost" : "btn-good"}`}
-                          aria-expanded={noteRequired ? noteOpen : undefined}
-                          onClick={() => {
-                            if (noteRequired && action.targetStatus) {
-                              setFraudNote("");
-                              setOpenFraudNote(noteOpen ? null : action.targetStatus);
-                            } else {
-                              runFraudAction(action);
-                            }
-                          }}
-                        >
-                          {action.label}
-                        </button>
-                        {noteOpen && action.targetStatus && (
-                          <div className="task-card-fraud-note">
-                            <textarea
-                              rows={2}
-                              placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
-                              value={fraudNote}
-                              onChange={(e) => setFraudNote(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
-                              autoFocus
-                            />
-                            <div className="task-card-fraud-note-actions">
-                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
-                                Send
-                              </button>
-                              <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {task.status === "OPEN" && isCreator && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel Task
-                </button>
-              )}
-              {canUnclaim(task, user) && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
-                  Unclaim
-                </button>
-              )}
-              {task.status === "CLAIMED" && isCreator && !isAssignee && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel
-                </button>
-              )}
-              {task.status === "MERGE_DONE" && isAssignee && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
-                  Undo Merge Done
-                </button>
-              )}
-              {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel
-                </button>
-              )}
-              {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel
-                </button>
-              )}
-              {task.status === "COMPLETED" && isCreator && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
-                  Archive
-                </button>
-              )}
-              {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
-                  Re-open
-                </button>
-              )}
-              {/* Add a note to a COMPLETED task (#45): reveal an inline field
-                  that posts to the completed-note endpoint (task stays
-                  COMPLETED). Every task type; creator/assignee/admin. */}
-              {task.status === "COMPLETED" && canNoteTask && (
-                <button
-                  type="button"
-                  className="btn-sm btn-ghost"
-                  aria-expanded={completedNoteOpen}
-                  onClick={() => { acknowledgeUnread(); setCompletedNote(""); setCompletedNoteOpen((open) => !open); }}
-                >
-                  Add a note
-                </button>
-              )}
-              {/* A reopened task remembers the closed status it came from.
-                  "Restore" sends it straight back there (COMPLETED or ARCHIVED),
-                  available to whoever reopened it — creator, assignee, or admin —
-                  so a creator-only reopen doesn't need the assignee to close it
-                  out. Gated by the shared canRestoreTask so UI and API agree. */}
-              {restoreTarget && canRestoreTask(task, user) && (
-                <button type="button" className="btn-sm btn-good" onClick={() => { acknowledgeUnread(); onTransition(task.id, restoreTarget); }}>
-                  Restore
-                </button>
-              )}
-              {/* Share (issues #41, #52, #58): icon trigger on the same row as
-                  the other actions (e.g. Cancel) — DM a specific person a deep
-                  link to this task, outside the normal creator/assignee flow.
-                  Hidden when there's nobody else in the directory to point at. */}
-              {shareCandidates.length > 0 && (
-                <SharePopover
-                  candidates={shareCandidates}
-                  onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
-                  link={shareLink}
-                />
-              )}
-              {/* Inline note field for the "Add a note" affordance (#45). Full
-                  width below the action buttons; Enter (no shift) or Add posts,
-                  Esc / Cancel dismisses. */}
-              {task.status === "COMPLETED" && completedNoteOpen && (
-                <div className="task-card-note-add">
-                  <textarea
-                    rows={2}
-                    placeholder="Add a note to this completed task…"
-                    value={completedNote}
-                    onChange={(e) => setCompletedNote(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitCompletedNote(); }
-                      if (e.key === "Escape") { setCompletedNoteOpen(false); setCompletedNote(""); }
-                    }}
-                    autoFocus
-                  />
-                  <div className="task-card-note-add-actions">
-                    <button type="button" className="btn-sm btn-good" onClick={() => void submitCompletedNote()} disabled={!completedNote.trim()}>
-                      Add note
-                    </button>
-                    <button type="button" className="btn-sm btn-ghost" onClick={() => { setCompletedNoteOpen(false); setCompletedNote(""); }}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="thread">
-          {/* FRAUD structured outstanding-items checklist (#44) — the handoff
-              surface, stacked above the notes thread in the same column so its
-              left edge lines up with the thread instead of spanning full width
-              above the two-column split (#80). Non-FRAUD tasks skip it entirely. */}
-          {task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />}
-          <div className="thread-head">{notesLabel}</div>
-          <div className="note-brief"><b>{task.createdBy.displayName}:</b> {task.notes}</div>
-          {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
-            <div className="msgs" ref={reviewListRef}>
-              {task.reviewNotes.map((note, i) => (
-                <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
-                  <ExpandAvatar name={note.by.displayName} />
-                  <div>
-                    <div className="msg-meta">
-                      <span className="msg-author">{note.by.displayName}</span>
-                      <span className="msg-time">{formatDate(note.at)}</span>
-                    </div>
-                    <div className="msg-text">{note.text}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {canPostNote && (
-            <div className="composer">
-              <textarea
-                rows={1}
-                placeholder={`Reply to ${replyTarget}…`}
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}
-              />
-              <button type="button" className="btn-sm" onClick={() => void handleSubmitNote()} disabled={!noteText.trim()}>Send</button>
-            </div>
-          )}
-        </div>
-      </div>
+      {fraudActionsBlock}
+      {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
+      <div className="thread">{notesBlock}</div>
+      {metaFooter}
     </div>
   );
 
@@ -1309,25 +1326,29 @@ const TaskCard = memo(({
         title={urgencyTitle}
       >
         <span className="task-card-grouped-stripe" aria-hidden="true" />
-        <span className="task-card-grouped-people">
-          <span className="task-card-grouped-person">
-            <span className="task-card-grouped-role">Assignee</span>
+        {/* Assigner→assignee, one line: avatar pill + arrow, not two
+            stacked "ASSIGNEE"/"ASSIGNER" label rows. Names never
+            truncate — the title's own minmax(0,1fr) column is the one
+            that gives via ellipsis, same as it already does elsewhere
+            in this row. */}
+        <span className="task-card-pair">
+          <span className="task-card-pair-person">
+            <span className="task-card-pair-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
+            <span className={`task-card-pair-name${isCreator ? " task-card-pair-name-mine" : ""}`} title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
+          </span>
+          <span className="task-card-pair-arrow" aria-hidden="true">→</span>
+          <span className="task-card-pair-person">
             {task.assignee ? (
               <>
-                <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(ownerName)}</span>
-                <span className={`task-card-grouped-name${isAssignee ? " task-card-grouped-name-mine" : ""}`} title={ownerName}>{firstName(ownerName)}</span>
+                <span className="task-card-pair-avatar" aria-hidden="true">{initialsOf(ownerName)}</span>
+                <span className={`task-card-pair-name${isAssignee ? " task-card-pair-name-mine" : ""}`} title={ownerName}>{firstName(ownerName)}</span>
               </>
             ) : (
               <>
-                <span className="task-card-grouped-avatar task-card-grouped-avatar-none" aria-hidden="true" />
-                <span className="task-card-grouped-name task-card-grouped-name-none">Unclaimed</span>
+                <span className="task-card-pair-avatar task-card-pair-avatar-none" aria-hidden="true" />
+                <span className="task-card-pair-name task-card-pair-name-none">Unclaimed</span>
               </>
             )}
-          </span>
-          <span className="task-card-grouped-person task-card-grouped-person-from">
-            <span className="task-card-grouped-role">Assigner</span>
-            <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
-            <span className={`task-card-grouped-name${isCreator ? " task-card-grouped-name-mine" : ""}`} title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
           </span>
         </span>
         <span className="task-card-collapsed-title">
@@ -1374,17 +1395,20 @@ const TaskCard = memo(({
           {due.label && <span className="task-card-grouped-due-label">{due.label}</span>}
           <span className="task-card-grouped-due-value">{due.value}</span>
         </span>
-        {!mini && primaryAction ? (
-          <button
-            type="button"
-            className={quickActionClass}
-            onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
-          >
-            {primaryAction.label}
-          </button>
-        ) : (
-          <span className="task-card-quick-action-empty" aria-hidden="true" />
-        )}
+        <span className="task-card-action-cell">
+          {actionsMenu}
+          {!mini && primaryAction ? (
+            <button
+              type="button"
+              className={quickActionClass}
+              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+            >
+              {primaryAction.label}
+            </button>
+          ) : (
+            <span className="task-card-quick-action-empty" aria-hidden="true" />
+          )}
+        </span>
       </div>
       {expanded && renderExpanded()}
     </div>
