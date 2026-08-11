@@ -1,10 +1,79 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
-import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, flowFor, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
+import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
+
+/* ── PROTOTYPE #105 — throwaway ──────────────────────────────
+   Answers "what should the generalized expanded-body layout look like?"
+   for the Task View Responsive redesign (wayfinder map #100). Three
+   structurally different layouts for renderExpanded, switchable via
+   ?variant=A|B|C on the real app / real data (current stays default).
+   Dev-only (IS_DEV). Capture the winner, then delete this whole block
+   plus the .proto105-* CSS and PrototypeSwitcher. */
+const PROTO_VARIANT_EVENT = "proto105-variant-change";
+const PROTO_VARIANTS = ["current", "A", "B", "C"] as const;
+type ProtoVariant = (typeof PROTO_VARIANTS)[number];
+const getProtoVariant = (): ProtoVariant => {
+  const v = new URLSearchParams(window.location.search).get("variant");
+  return (PROTO_VARIANTS as readonly string[]).includes(v ?? "") ? (v as ProtoVariant) : "current";
+};
+const cycleProtoVariant = (current: ProtoVariant, dir: 1 | -1): ProtoVariant => {
+  const i = (PROTO_VARIANTS.indexOf(current) + dir + PROTO_VARIANTS.length) % PROTO_VARIANTS.length;
+  return PROTO_VARIANTS[i] ?? "current";
+};
+const setProtoVariant = (v: ProtoVariant): void => {
+  const url = new URL(window.location.href);
+  if (v === "current") url.searchParams.delete("variant");
+  else url.searchParams.set("variant", v);
+  window.history.replaceState({}, "", url);
+  window.dispatchEvent(new Event(PROTO_VARIANT_EVENT));
+};
+const useProtoVariant = (): ProtoVariant =>
+  useSyncExternalStore(
+    (cb) => {
+      window.addEventListener(PROTO_VARIANT_EVENT, cb);
+      window.addEventListener("popstate", cb);
+      return () => {
+        window.removeEventListener(PROTO_VARIANT_EVENT, cb);
+        window.removeEventListener("popstate", cb);
+      };
+    },
+    getProtoVariant
+  );
+const PROTO_STEP_LABELS: Partial<Record<TaskStatus, string>> = {
+  OPEN: "Opened",
+  CLAIMED: "Claimed",
+  AWAITING_ITEMS: "Outstanding items",
+  PENDING_APPROVAL: "Final approval",
+  MERGE_DONE: "Merge done",
+  MERGE_APPROVED: "Merge approved",
+  COMPLETED: "Completed"
+};
+const PrototypeSwitcherMount = () => {
+  const variant = useProtoVariant();
+  const go = (dir: 1 | -1) => setProtoVariant(cycleProtoVariant(variant, dir));
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) return;
+      if (e.key === "ArrowLeft") go(-1);
+      if (e.key === "ArrowRight") go(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [variant]);
+  return (
+    <div className="proto105-switcher">
+      <button type="button" onClick={() => go(-1)}>←</button>
+      <span>#105 expanded-body — {variant === "current" ? "current (baseline)" : `Variant ${variant}`}</span>
+      <button type="button" onClick={() => go(1)}>→</button>
+    </div>
+  );
+};
+/* ── end PROTOTYPE #105 setup ─────────────────────────────── */
 /* Dev-only mock identities for the plain-browser path (no Teams host). The
    server's `x-user-*` header fallback (auth.ts, only when SSO is unconfigured)
    trusts these so local role-switching works. IS_DEV is statically false in a
@@ -407,7 +476,8 @@ const FilterIcon = () => (
 const SharePopover = ({
   candidates,
   onShare,
-  link
+  link,
+  asMenuItem
 }: {
   /* People the picker offers — pre-filtered by the caller (excludes creator,
      assignee, and self per #41). */
@@ -418,6 +488,10 @@ const SharePopover = ({
   /* Copy-link target (in-app deep link). null/undefined hides the Copy link
      button — e.g. when there's no task id yet. */
   link?: string | null;
+  /* PROTOTYPE #105 — render the trigger as the word "Share" in a full-width
+     menu row instead of the icon-only square button, for use inside the
+     #105 hamburger menu. Defaults to the icon trigger everywhere else. */
+  asMenuItem?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   /* Chosen person + optional note + in-flight flag + copy-link flash. Success
@@ -484,14 +558,14 @@ const SharePopover = ({
     <div className="share-pop" ref={wrapRef}>
       <button
         type="button"
-        className="btn-sm btn-ghost share-pop-trigger"
+        className={asMenuItem ? "btn-sm btn-ghost" : "btn-sm btn-ghost share-pop-trigger"}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Share"
         title="Share"
         onClick={() => (open ? close() : setOpen(true))}
       >
-        <ShareIcon />
+        {asMenuItem ? "Share" : <ShareIcon />}
       </button>
       {open && (
         <div
@@ -677,52 +751,64 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                       <TrashIcon />
                     </button>
                   )}
+
+                  {/* "+ note" rides inline at the end of the item's own row
+                      (not a separate line below) — saves a line per item
+                      that doesn't have one yet. Once a note exists (or is
+                      being edited), it moves to its full row below instead —
+                      a real note needs the room. Same "+ note" label for
+                      both the requester's and checker's note — the distinct
+                      "checker note" wording wasn't worth differentiating. */}
+                  {!editingNote && !item.note && canCreatorNote && (
+                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
+                  )}
+                  {!editingCheckerNote && !item.checkerNote && canCheckerNote && (
+                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ note</button>
+                  )}
                 </div>
 
                 {/* Per-item notes: the requester's exception note and the
                     checker's rework note, each shown when present and editable
                     by the owning role on their turn. */}
-                <div className="checklist-item-notes">
-                  {editingNote ? (
-                    <div className="checklist-note-edit">
-                      <input
-                        className="checklist-item-input"
-                        placeholder="Why it's not needed / how it was handled…"
-                        value={draft}
-                        autoFocus
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
-                        onBlur={() => void saveEditor(item)}
-                      />
-                    </div>
-                  ) : item.note ? (
-                    <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
-                      <b>{task.createdBy.displayName}:</b> {item.note}
-                    </button>
-                  ) : canCreatorNote ? (
-                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
-                  ) : null}
+                {(editingNote || item.note || editingCheckerNote || item.checkerNote) && (
+                  <div className="checklist-item-notes">
+                    {editingNote ? (
+                      <div className="checklist-note-edit">
+                        <input
+                          className="checklist-item-input"
+                          placeholder="Why it's not needed / how it was handled…"
+                          value={draft}
+                          autoFocus
+                          onChange={(e) => setDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                          onBlur={() => void saveEditor(item)}
+                        />
+                      </div>
+                    ) : item.note ? (
+                      <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
+                        <b>{task.createdBy.displayName}:</b> {item.note}
+                      </button>
+                    ) : null}
 
-                  {editingCheckerNote ? (
-                    <div className="checklist-note-edit">
-                      <input
-                        className="checklist-item-input"
-                        placeholder="Why this isn't sufficient / needs rework…"
-                        value={draft}
-                        autoFocus
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
-                        onBlur={() => void saveEditor(item)}
-                      />
-                    </div>
-                  ) : item.checkerNote ? (
-                    <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
-                      <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
-                    </button>
-                  ) : canCheckerNote ? (
-                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ checker note</button>
-                  ) : null}
-                </div>
+                    {editingCheckerNote ? (
+                      <div className="checklist-note-edit">
+                        <input
+                          className="checklist-item-input"
+                          placeholder="Why this isn't sufficient / needs rework…"
+                          value={draft}
+                          autoFocus
+                          onChange={(e) => setDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                          onBlur={() => void saveEditor(item)}
+                        />
+                      </div>
+                    ) : item.checkerNote ? (
+                      <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
+                        <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </li>
             );
           })}
@@ -742,9 +828,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
         </div>
       )}
 
-      {sorted.length === 0 && !canAdd && (
-        <div className="checklist-empty">No outstanding items yet.</div>
-      )}
     </div>
   );
 };
@@ -808,6 +891,18 @@ const TaskCard = memo(({
   /* Ticking clock (ms) for the row's live countdown. */
   now?: number;
 }) => {
+  // PROTOTYPE #105 — see block at top of file. Internal hook, not a prop, so
+  // it doesn't disturb this component's memo signature.
+  const protoVariant = useProtoVariant();
+  // PROTOTYPE #105 — squished-by-default progress card (mock: one-line +
+  // segmented bar, tap to reveal the full step list). Per-card, defaults
+  // closed like the mock's mobile frame.
+  const [protoStepperOpen, setProtoStepperOpen] = useState(false);
+  // PROTOTYPE #105 iteration — hamburger menu replacing the meta-strip share
+  // icon, holding Share + the secondary action ladder (Re-open, Add a note,
+  // Unclaim, Cancel, Archive, Restore, Undo Merge Done). Reopens ticket
+  // #103's "no overflow menu" call; pending re-confirmation.
+  const [protoMenuOpen, setProtoMenuOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   /* FRAUD note-required moves (Send Outstanding Items / Send Back) reveal an
      inline textarea whose text posts as the transition's reviewNotes. `fraudNote`
@@ -1003,6 +1098,11 @@ const TaskCard = memo(({
   const quickActionClass = primaryAction
     ? `btn-sm task-card-quick-action${primaryAction.kind === "good" ? " btn-good" : primaryAction.kind === "ghost" ? " btn-ghost" : primaryAction.kind === "danger" ? " btn-danger" : ""}`
     : "";
+  // PROTOTYPE #105 — per live feedback ("we have three button styles here,
+  // let's pick one"), the row's primary action drops its ghost/danger/ink
+  // variants and just uses the plain filled-brand button (same look as
+  // Send, Add note, etc.) — one style for this row, not three.
+  const protoQuickActionClass = primaryAction ? "btn-sm task-card-quick-action" : "";
 
   /* Expanded body, rendered below the collapsed row when open.
      Mirrors the design's accordion: a slim metadata strip up top, then a
@@ -1044,7 +1144,265 @@ const TaskCard = memo(({
     setOpenFraudNote(null);
   };
 
-  const renderExpanded = () => (
+  /* Shared pieces reused by the baseline body and the #105 prototype
+     variants below — same content, different container/layout markup
+     around them. See "PROTOTYPE #105" at the top of this file. */
+  const metaStripBlock = (
+    <>
+      <span className="strip-item">
+        <label>Created</label>
+        <span className="v">{formatDate(task.createdAt)}</span>
+      </span>
+      {task.taskType === "OOO" ? (
+        <span className="strip-item">
+          <label>Returns</label>
+          <span className="v">{task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
+        </span>
+      ) : (
+        <span className="strip-item">
+          <label>Due</label>
+          <span className={`v${overdue ? " v-due-late" : ""}`}>{formatDate(task.dueAt)}</span>
+        </span>
+      )}
+    </>
+  );
+  const shareBlock = shareCandidates.length > 0 && (
+    <SharePopover
+      candidates={shareCandidates}
+      onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
+      link={shareLink}
+    />
+  );
+  // PROTOTYPE #105 — same share action, rendered as a text menu row for the
+  // hamburger menu instead of the icon-only trigger.
+  const shareMenuItemBlock = shareCandidates.length > 0 && (
+    <SharePopover
+      candidates={shareCandidates}
+      onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
+      link={shareLink}
+      asMenuItem
+    />
+  );
+  const cancelBlock = (
+    <>
+      {showActions && cancelStage === "confirming" && (
+        <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
+          <span>Cancel this task?</span>
+          <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
+            Yes, cancel
+          </button>
+          <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
+            Keep
+          </button>
+        </div>
+      )}
+      {showActions && cancelStage === "done" && (
+        <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
+      )}
+    </>
+  );
+  /* FRAUD two-phase forward moves (#39) — split out from the rest of the
+     action ladder so #105 proto variants can keep these visible (core
+     workflow, not administrivia) while folding the rest into a menu. The
+     plain quick move also rides the collapsed row; the note-required moves
+     (Send Outstanding Items / Send Back) reveal an inline note that posts
+     as the transition's reviewNotes, and Release hands the task to the
+     checker pool. Same set the bot DM cards render. */
+  const fraudActionsBlock = showActions && cancelStage === "idle" && expandedFraudActions.length > 0 && (
+    <div className="task-card-fraud">
+      {expandedFraudActions.map((action) => {
+        // A populated checklist already satisfies the server's
+        // "items or note" rule, so a transitionWithNote action
+        // fires immediately in that case — only an empty
+        // checklist still needs the note box gate (#84).
+        const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
+        const noteOpen = noteRequired && openFraudNote === action.targetStatus;
+        return (
+          <div key={action.label} className="task-card-fraud-action">
+            <button
+              type="button"
+              className={`btn-sm ${action.kind === "release" ? "btn-ghost" : "btn-good"}`}
+              aria-expanded={noteRequired ? noteOpen : undefined}
+              onClick={() => {
+                if (noteRequired && action.targetStatus) {
+                  setFraudNote("");
+                  setOpenFraudNote(noteOpen ? null : action.targetStatus);
+                } else {
+                  runFraudAction(action);
+                }
+              }}
+            >
+              {action.label}
+            </button>
+            {noteOpen && action.targetStatus && (
+              <div className="task-card-fraud-note">
+                <textarea
+                  rows={2}
+                  placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
+                  value={fraudNote}
+                  onChange={(e) => setFraudNote(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
+                  autoFocus
+                />
+                <div className="task-card-fraud-note-actions">
+                  <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
+                    Send
+                  </button>
+                  <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+  /* Everything else — the "secondary" ladder. Current baseline renders
+     these plus fraudActionsBlock together in one .task-card-actions block;
+     #105 proto variants fold this (plus shareBlock) into a hamburger menu
+     instead, per the live iteration on ticket #105 (reopens ticket #103's
+     "no overflow menu" call — pending re-confirmation before it's final). */
+  const secondaryActionsBlock = showActions && cancelStage === "idle" && (
+    <>
+      {task.status === "OPEN" && isCreator && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel Task
+        </button>
+      )}
+      {canUnclaim(task, user) && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
+          Unclaim
+        </button>
+      )}
+      {task.status === "CLAIMED" && isCreator && !isAssignee && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel
+        </button>
+      )}
+      {task.status === "MERGE_DONE" && isAssignee && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
+          Undo Merge Done
+        </button>
+      )}
+      {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel
+        </button>
+      )}
+      {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
+        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+          Cancel
+        </button>
+      )}
+      {task.status === "COMPLETED" && isCreator && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
+          Archive
+        </button>
+      )}
+      {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
+          Re-open
+        </button>
+      )}
+      {/* Add a note to a COMPLETED task (#45): reveal an inline field
+          that posts to the completed-note endpoint (task stays
+          COMPLETED). Every task type; creator/assignee/admin. */}
+      {task.status === "COMPLETED" && canNoteTask && (
+        <button
+          type="button"
+          className="btn-sm btn-ghost"
+          aria-expanded={completedNoteOpen}
+          onClick={() => { acknowledgeUnread(); setCompletedNote(""); setCompletedNoteOpen((open) => !open); }}
+        >
+          Add a note
+        </button>
+      )}
+      {/* A reopened task remembers the closed status it came from.
+          "Restore" sends it straight back there (COMPLETED or ARCHIVED),
+          available to whoever reopened it — creator, assignee, or admin —
+          so a creator-only reopen doesn't need the assignee to close it
+          out. Gated by the shared canRestoreTask so UI and API agree. */}
+      {restoreTarget && canRestoreTask(task, user) && (
+        <button type="button" className="btn-sm btn-good" onClick={() => { acknowledgeUnread(); onTransition(task.id, restoreTarget); }}>
+          Restore
+        </button>
+      )}
+      {/* Inline note field for the "Add a note" affordance (#45). Full
+          width below the action buttons; Enter (no shift) or Add posts,
+          Esc / Cancel dismisses. */}
+      {task.status === "COMPLETED" && completedNoteOpen && (
+        <div className="task-card-note-add">
+          <textarea
+            rows={2}
+            placeholder="Add a note to this completed task…"
+            value={completedNote}
+            onChange={(e) => setCompletedNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitCompletedNote(); }
+              if (e.key === "Escape") { setCompletedNoteOpen(false); setCompletedNote(""); }
+            }}
+            autoFocus
+          />
+          <div className="task-card-note-add-actions">
+            <button type="button" className="btn-sm btn-good" onClick={() => void submitCompletedNote()} disabled={!completedNote.trim()}>
+              Add note
+            </button>
+            <button type="button" className="btn-sm btn-ghost" onClick={() => { setCompletedNoteOpen(false); setCompletedNote(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+  // Baseline keeps the original combined shape: fraud moves + secondary
+  // ladder + share, all in one .task-card-actions block.
+  const actionsBlock = (fraudActionsBlock || secondaryActionsBlock) && (
+    <>
+      {fraudActionsBlock}
+      {secondaryActionsBlock}
+      {shareBlock}
+    </>
+  );
+  const checklistBlock = task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />;
+  const notesBlock = (
+    <>
+      <div className="thread-head">{notesLabel}</div>
+      <div className="note-brief"><b>{task.createdBy.displayName}:</b> {task.notes}</div>
+      {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
+        <div className="msgs" ref={reviewListRef}>
+          {task.reviewNotes.map((note, i) => (
+            <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
+              <ExpandAvatar name={note.by.displayName} />
+              <div>
+                <div className="msg-meta">
+                  <span className="msg-author">{note.by.displayName}</span>
+                  <span className="msg-time">{formatDate(note.at)}</span>
+                </div>
+                <div className="msg-text">{note.text}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {canPostNote && (
+        <div className="composer">
+          <textarea
+            rows={1}
+            placeholder={`Reply to ${replyTarget}…`}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}
+          />
+          <button type="button" className="btn-sm" onClick={() => void handleSubmitNote()} disabled={!noteText.trim()}>Send</button>
+        </div>
+      )}
+    </>
+  );
+
+  const renderExpandedCurrent = () => (
     <div className="task-card-expanded">
       {/* Meta facts live in one slim strip up top — the columns below
           belong to the lifecycle (timeline) and the conversation. */}
@@ -1052,200 +1410,14 @@ const TaskCard = memo(({
         {/* Assigner/Assignee already render in the collapsed row's header,
             which stays visible above this body — showing them again here
             would be a duplicate (#93). */}
-        <span className="strip-item">
-          <label>Created</label>
-          <span className="v">{formatDate(task.createdAt)}</span>
-        </span>
-        {task.taskType === "OOO" ? (
-          <span className="strip-item">
-            <label>Returns</label>
-            <span className="v">{task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
-          </span>
-        ) : (
-          <span className="strip-item">
-            <label>Due</label>
-            <span className={`v${overdue ? " v-due-late" : ""}`}>{formatDate(task.dueAt)}</span>
-          </span>
-        )}
+        {metaStripBlock}
       </div>
 
       <div className="expand-cols">
         <div className="expand-meta">
           <Timeline task={task} />
-          {showActions && cancelStage === "confirming" && (
-            <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
-              <span>Cancel this task?</span>
-              <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
-                Yes, cancel
-              </button>
-              <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
-                Keep
-              </button>
-            </div>
-          )}
-          {showActions && cancelStage === "done" && (
-            <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
-          )}
-          {showActions && cancelStage === "idle" && (
-            <div className="task-card-actions expand-actions">
-              {/* FRAUD two-phase forward moves (#39). The plain quick move also
-                  rides the collapsed row; the note-required moves (Send
-                  Outstanding Items / Send Back) reveal an inline note that posts
-                  as the transition's reviewNotes, and Release hands the task to
-                  the checker pool. Same set the bot DM cards render. */}
-              {expandedFraudActions.length > 0 && (
-                <div className="task-card-fraud">
-                  {expandedFraudActions.map((action) => {
-                    // A populated checklist already satisfies the server's
-                    // "items or note" rule, so a transitionWithNote action
-                    // fires immediately in that case — only an empty
-                    // checklist still needs the note box gate (#84).
-                    const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
-                    const noteOpen = noteRequired && openFraudNote === action.targetStatus;
-                    return (
-                      <div key={action.label} className="task-card-fraud-action">
-                        <button
-                          type="button"
-                          className={`btn-sm ${action.kind === "release" ? "btn-ghost" : "btn-good"}`}
-                          aria-expanded={noteRequired ? noteOpen : undefined}
-                          onClick={() => {
-                            if (noteRequired && action.targetStatus) {
-                              setFraudNote("");
-                              setOpenFraudNote(noteOpen ? null : action.targetStatus);
-                            } else {
-                              runFraudAction(action);
-                            }
-                          }}
-                        >
-                          {action.label}
-                        </button>
-                        {noteOpen && action.targetStatus && (
-                          <div className="task-card-fraud-note">
-                            <textarea
-                              rows={2}
-                              placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
-                              value={fraudNote}
-                              onChange={(e) => setFraudNote(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(action.targetStatus!); } }}
-                              autoFocus
-                            />
-                            <div className="task-card-fraud-note-actions">
-                              <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(action.targetStatus!)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
-                                Send
-                              </button>
-                              <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {task.status === "OPEN" && isCreator && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel Task
-                </button>
-              )}
-              {canUnclaim(task, user) && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
-                  Unclaim
-                </button>
-              )}
-              {task.status === "CLAIMED" && isCreator && !isAssignee && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel
-                </button>
-              )}
-              {task.status === "MERGE_DONE" && isAssignee && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
-                  Undo Merge Done
-                </button>
-              )}
-              {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel
-                </button>
-              )}
-              {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-                <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
-                  Cancel
-                </button>
-              )}
-              {task.status === "COMPLETED" && isCreator && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
-                  Archive
-                </button>
-              )}
-              {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "OPEN"); }}>
-                  Re-open
-                </button>
-              )}
-              {/* Add a note to a COMPLETED task (#45): reveal an inline field
-                  that posts to the completed-note endpoint (task stays
-                  COMPLETED). Every task type; creator/assignee/admin. */}
-              {task.status === "COMPLETED" && canNoteTask && (
-                <button
-                  type="button"
-                  className="btn-sm btn-ghost"
-                  aria-expanded={completedNoteOpen}
-                  onClick={() => { acknowledgeUnread(); setCompletedNote(""); setCompletedNoteOpen((open) => !open); }}
-                >
-                  Add a note
-                </button>
-              )}
-              {/* A reopened task remembers the closed status it came from.
-                  "Restore" sends it straight back there (COMPLETED or ARCHIVED),
-                  available to whoever reopened it — creator, assignee, or admin —
-                  so a creator-only reopen doesn't need the assignee to close it
-                  out. Gated by the shared canRestoreTask so UI and API agree. */}
-              {restoreTarget && canRestoreTask(task, user) && (
-                <button type="button" className="btn-sm btn-good" onClick={() => { acknowledgeUnread(); onTransition(task.id, restoreTarget); }}>
-                  Restore
-                </button>
-              )}
-              {/* Share (issues #41, #52, #58): icon trigger on the same row as
-                  the other actions (e.g. Cancel) — DM a specific person a deep
-                  link to this task, outside the normal creator/assignee flow.
-                  Hidden when there's nobody else in the directory to point at. */}
-              {shareCandidates.length > 0 && (
-                <SharePopover
-                  candidates={shareCandidates}
-                  onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
-                  link={shareLink}
-                />
-              )}
-              {/* Inline note field for the "Add a note" affordance (#45). Full
-                  width below the action buttons; Enter (no shift) or Add posts,
-                  Esc / Cancel dismisses. */}
-              {task.status === "COMPLETED" && completedNoteOpen && (
-                <div className="task-card-note-add">
-                  <textarea
-                    rows={2}
-                    placeholder="Add a note to this completed task…"
-                    value={completedNote}
-                    onChange={(e) => setCompletedNote(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitCompletedNote(); }
-                      if (e.key === "Escape") { setCompletedNoteOpen(false); setCompletedNote(""); }
-                    }}
-                    autoFocus
-                  />
-                  <div className="task-card-note-add-actions">
-                    <button type="button" className="btn-sm btn-good" onClick={() => void submitCompletedNote()} disabled={!completedNote.trim()}>
-                      Add note
-                    </button>
-                    <button type="button" className="btn-sm btn-ghost" onClick={() => { setCompletedNoteOpen(false); setCompletedNote(""); }}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {cancelBlock}
+          {actionsBlock && <div className="task-card-actions expand-actions">{actionsBlock}</div>}
         </div>
 
         <div className="thread">
@@ -1253,41 +1425,254 @@ const TaskCard = memo(({
               surface, stacked above the notes thread in the same column so its
               left edge lines up with the thread instead of spanning full width
               above the two-column split (#80). Non-FRAUD tasks skip it entirely. */}
-          {task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />}
-          <div className="thread-head">{notesLabel}</div>
-          <div className="note-brief"><b>{task.createdBy.displayName}:</b> {task.notes}</div>
-          {Array.isArray(task.reviewNotes) && task.reviewNotes.length > 0 && (
-            <div className="msgs" ref={reviewListRef}>
-              {task.reviewNotes.map((note, i) => (
-                <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
-                  <ExpandAvatar name={note.by.displayName} />
-                  <div>
-                    <div className="msg-meta">
-                      <span className="msg-author">{note.by.displayName}</span>
-                      <span className="msg-time">{formatDate(note.at)}</span>
-                    </div>
-                    <div className="msg-text">{note.text}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {canPostNote && (
-            <div className="composer">
-              <textarea
-                rows={1}
-                placeholder={`Reply to ${replyTarget}…`}
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}
-              />
-              <button type="button" className="btn-sm" onClick={() => void handleSubmitNote()} disabled={!noteText.trim()}>Send</button>
-            </div>
-          )}
+          {checklistBlock}
+          {notesBlock}
         </div>
       </div>
     </div>
   );
+
+  /* ── PROTOTYPE #105 variants — stepper only for FRAUD/LOAN_DOCS (#101);
+     everything else (OOO, LOI, BUDDY_CHAT, VALUE) always falls back to
+     renderExpandedCurrent, per ticket #101's decision. ── */
+  const protoStepper = (() => {
+    if (task.taskType !== "FRAUD" && task.taskType !== "LOAN_DOCS") return null;
+    const flow = flowFor(task).filter((s) => s !== "ARCHIVED");
+    const steps = flow.map((s) => ({ status: s, label: PROTO_STEP_LABELS[s] ?? s }));
+    const idx = task.status === "ARCHIVED" ? steps.length - 1 : flow.indexOf(task.status);
+    return { steps, idx };
+  })();
+
+  // Mock's actual behavior: squished to one line + a segmented bar by
+  // default, tap to reveal the full step list. Same collapse/expand for
+  // both the horizontal (variant A/B) and vertical-rail (variant C) forms.
+  const renderProtoStepperCard = (orientation: "horizontal" | "vertical") => {
+    if (!protoStepper) return null;
+    const { steps, idx } = protoStepper;
+    const clampedIdx = Math.max(idx, 0);
+    const current = steps[clampedIdx];
+    return (
+      <div className={`proto105-card proto105-stepper proto105-stepper-${orientation}`}>
+        <button
+          type="button"
+          className="proto105-stepper-head"
+          aria-expanded={protoStepperOpen}
+          onClick={() => setProtoStepperOpen((o) => !o)}
+        >
+          <span className="proto105-stepper-now">{idx < 0 ? "Cancelled" : current?.label}</span>
+          <span className="proto105-stepper-count">STEP {clampedIdx + 1} / {steps.length}</span>
+          <span className={`proto105-chev${protoStepperOpen ? " proto105-chev-open" : ""}`} aria-hidden="true">▼</span>
+        </button>
+        <div className="proto105-stepper-bar">
+          {steps.map((step, i) => (
+            <i key={step.status} className={i < idx ? "on" : i === idx ? "now" : ""} />
+          ))}
+        </div>
+        {protoStepperOpen && (
+          <div className="proto105-steps">
+            {steps.map((step, i) => (
+              <div
+                key={step.status}
+                className={`proto105-step${i < idx ? " proto105-step-done" : ""}${i === idx ? " proto105-step-current" : ""}`}
+              >
+                <span className="proto105-step-dot" aria-hidden="true" />
+                <span className="proto105-step-label">{step.label}</span>
+              </div>
+            ))}
+            {idx < 0 && <div className="proto105-step-note">Cancelled — flow interrupted</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+  // FRAUD's forward moves stay visible, unwrapped in a card — they're the
+  // core job of the card while it's in that phase, not administrivia, so
+  // they don't belong behind the menu. Nothing renders for LOAN_DOCS/other
+  // types (or once there's no move left to make).
+  const renderProtoFraudActions = () => fraudActionsBlock && <div className="proto105-fraud-actions">{fraudActionsBlock}</div>;
+  // No .proto105-card box chrome here (per live feedback — "box in a box in
+  // a box"). These are sections of one card, not cards nested inside a card;
+  // .proto105-a's own divider rule separates them with a hairline instead.
+  const renderProtoChecklistCard = () =>
+    checklistBlock && <div className="proto105-checklist">{checklistBlock}</div>;
+  // The originating note (task.notes) gets its own markup here instead of
+  // reusing notesBlock's .note-brief treatment — per live feedback, the
+  // tan-box "Name: text" style read as a different, inconsistent style from
+  // the avatar/name/timestamp reply messages below it. Same .msg format for
+  // both, so the thread reads as one consistent list.
+  const renderProtoNotesCard = () => (
+    <div className="proto105-notes thread">
+      <div className="thread-head">{notesLabel}</div>
+      <div className="msgs" ref={reviewListRef}>
+        <div className="msg">
+          <ExpandAvatar name={task.createdBy.displayName} />
+          <div>
+            <div className="msg-meta">
+              <span className="msg-author">{task.createdBy.displayName}</span>
+              <span className="msg-time">{formatDate(task.createdAt)}</span>
+            </div>
+            <div className="msg-text">{task.notes}</div>
+          </div>
+        </div>
+        {Array.isArray(task.reviewNotes) && task.reviewNotes.map((note, i) => (
+          <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
+            <ExpandAvatar name={note.by.displayName} />
+            <div>
+              <div className="msg-meta">
+                <span className="msg-author">{note.by.displayName}</span>
+                <span className="msg-time">{formatDate(note.at)}</span>
+              </div>
+              <div className="msg-text">{note.text}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {canPostNote && (
+        <div className="composer">
+          <textarea
+            rows={1}
+            placeholder={`Reply to ${replyTarget}…`}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}
+          />
+          <button type="button" className="btn-sm" onClick={() => void handleSubmitNote()} disabled={!noteText.trim()}>Send</button>
+        </div>
+      )}
+    </div>
+  );
+  // Hamburger next to the due-pill: Share + the secondary ladder (Re-open,
+  // Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge Done). Cancel's
+  // confirm/done UI (cancelBlock) renders inside the same panel so it stays
+  // visible once triggered, matching the baseline's in-place-swap behavior.
+  const protoMenuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || cancelStage !== "idle");
+  const renderProtoMenu = () =>
+    protoMenuHasContent && (
+      <div className="proto105-menu">
+        <button
+          type="button"
+          className="proto105-menu-trigger"
+          aria-label="More actions"
+          aria-expanded={protoMenuOpen}
+          onClick={(e) => { e.stopPropagation(); setProtoMenuOpen((o) => !o); }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="4" y1="7" x2="20" y2="7" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="17" x2="20" y2="17" />
+          </svg>
+        </button>
+        {protoMenuOpen && (
+          <div className="proto105-menu-panel" role="menu">
+            {cancelBlock}
+            {secondaryActionsBlock}
+            {shareMenuItemBlock}
+          </div>
+        )}
+      </div>
+    );
+  const renderProtoMetaStrip = () => {
+    const due = groupedDue(task, now ?? Date.now());
+    return (
+      <div className="expand-strip proto105-strip">
+        {!due.done && (
+          <span className={`proto105-due-pill${due.overdue ? " proto105-due-pill-overdue" : ""}`}>
+            {due.label ? `${due.label} ${due.value}` : due.value}
+          </span>
+        )}
+        {metaStripBlock}
+        {/* Variant A moved the menu next to the collapsed row's primary
+            action instead — see the .task-card-grouped-action-cell usage
+            below. B/C keep it here. */}
+        {protoVariant !== "A" && renderProtoMenu()}
+      </div>
+    );
+  };
+
+  // Compact Created/Due, one row, bottom of the card — per live feedback,
+  // the old top strip's stacked label/value pairs took too much space for
+  // what they say. Only used by variant A now.
+  const renderProtoMetaFooter = () => (
+    <div className="proto105-meta-footer">
+      <span><b>Created</b> {formatDate(task.createdAt)}</span>
+      {task.taskType === "OOO" ? (
+        <span><b>Returns</b> {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
+      ) : (
+        <span><b>Due</b> {formatDate(task.dueAt)}</span>
+      )}
+    </div>
+  );
+
+  // Variant A — everything stacks in one column at every width, matching
+  // the mock's phone frame literally rather than reflowing — no
+  // container-query column switch at all. Applies to every task type now
+  // (not just FRAUD/LOAN_DOCS). Secondary actions never show here — they
+  // live in the row's hamburger now, at every width.
+  //
+  // No progress stepper/Timeline here — per live feedback, it ate a lot of
+  // space for little information; the collapsed row's own next-step button
+  // (Claim/Complete/Approve/...) already communicates where a task sits in
+  // its flow, and most task types barely have one anyway. No due-pill here
+  // either — the collapsed row's own OVERDUE/due chip already shows that;
+  // repeating it here was a duplicate. Created/Due move to a compact single
+  // row at the bottom instead of a multi-line strip up top.
+  const renderExpandedProtoA = () => (
+    <div className="task-card-expanded proto105-a">
+      {renderProtoFraudActions()}
+      {renderProtoChecklistCard()}
+      {renderProtoNotesCard()}
+      {renderProtoMetaFooter()}
+    </div>
+  );
+
+  // Variant B — full-width horizontal stepper strip, then a container-query
+  // grid below it: 1 column under ~520px of the row's own width, 2 columns
+  // (actions+checklist / notes) above it. Demonstrates true container-query
+  // responsiveness driven by the row, not the viewport.
+  const renderExpandedProtoB = () => (
+    <div className="task-card-expanded proto105-b">
+      {renderProtoMetaStrip()}
+      {renderProtoStepperCard("horizontal")}
+      <div className="proto105-b-grid">
+        <div className="proto105-b-col">
+          {renderProtoFraudActions()}
+          {renderProtoChecklistCard()}
+        </div>
+        <div className="proto105-b-col">{renderProtoNotesCard()}</div>
+      </div>
+    </div>
+  );
+
+  // Variant C — vertical rail: stepper reads top-to-bottom in a narrow left
+  // column (closest structurally to today's 220px/1fr Timeline split, so
+  // lowest implementation risk), actions folded beneath it, checklist +
+  // notes fill the wide right column.
+  const renderExpandedProtoC = () => (
+    <div className="task-card-expanded proto105-c">
+      {renderProtoMetaStrip()}
+      <div className="proto105-c-grid">
+        <div className="proto105-c-rail">
+          {renderProtoStepperCard("vertical")}
+          {renderProtoFraudActions()}
+        </div>
+        <div className="proto105-c-col">
+          {renderProtoChecklistCard()}
+          {renderProtoNotesCard()}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderExpanded = () => {
+    // Variant A: every task type. B/C: stepper types only (FRAUD/LOAN_DOCS)
+    // — deprioritized per live feedback, left as-is for comparison.
+    if (IS_DEV && protoVariant === "A") return renderExpandedProtoA();
+    if (IS_DEV && protoVariant !== "current" && protoStepper) {
+      if (protoVariant === "B") return renderExpandedProtoB();
+      if (protoVariant === "C") return renderExpandedProtoC();
+    }
+    return renderExpandedCurrent();
+  };
 
   /* Grouped-row people values: Assignee = assignee (or "Unclaimed"), Assigner =
      creator. Shown as avatar chip + first name. The viewer's own name renders
@@ -1300,7 +1685,7 @@ const TaskCard = memo(({
   return (
     <div className={cardClass} id={`task-${task.id}`}>
       <div
-        className={`task-card-grouped${mini ? " task-card-grouped-mini" : ""}${groupedOverdue ? " task-card-grouped-overdue" : ""}`}
+        className={`task-card-grouped${mini ? " task-card-grouped-mini" : ""}${groupedOverdue ? " task-card-grouped-overdue" : ""}${IS_DEV && protoVariant === "A" ? " task-card-proto-a" : ""}`}
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
@@ -1328,6 +1713,31 @@ const TaskCard = memo(({
             <span className="task-card-grouped-role">Assigner</span>
             <span className="task-card-grouped-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
             <span className={`task-card-grouped-name${isCreator ? " task-card-grouped-name-mine" : ""}`} title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
+          </span>
+        </span>
+        {/* PROTOTYPE #105 — single-line assigner→assignee "pair" (avatar pill
+            + arrow), matching the mock's `.pair`. Swaps in for the two-row
+            .task-card-grouped-people block only in the narrow reflow, only
+            under the live variant-A iteration — see .task-card-proto-a in
+            styles.css. */}
+        <span className="proto105-pair">
+          <span className="proto105-pair-person">
+            <span className="proto105-pair-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
+            <span className={`proto105-pair-name${isCreator ? " proto105-pair-name-mine" : ""}`} title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
+          </span>
+          <span className="proto105-pair-arrow" aria-hidden="true">→</span>
+          <span className="proto105-pair-person">
+            {task.assignee ? (
+              <>
+                <span className="proto105-pair-avatar" aria-hidden="true">{initialsOf(ownerName)}</span>
+                <span className={`proto105-pair-name${isAssignee ? " proto105-pair-name-mine" : ""}`} title={ownerName}>{firstName(ownerName)}</span>
+              </>
+            ) : (
+              <>
+                <span className="proto105-pair-avatar proto105-pair-avatar-none" aria-hidden="true" />
+                <span className="proto105-pair-name proto105-pair-name-none">Unclaimed</span>
+              </>
+            )}
           </span>
         </span>
         <span className="task-card-collapsed-title">
@@ -1374,17 +1784,27 @@ const TaskCard = memo(({
           {due.label && <span className="task-card-grouped-due-label">{due.label}</span>}
           <span className="task-card-grouped-due-value">{due.value}</span>
         </span>
-        {!mini && primaryAction ? (
-          <button
-            type="button"
-            className={quickActionClass}
-            onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
-          >
-            {primaryAction.label}
-          </button>
-        ) : (
-          <span className="task-card-quick-action-empty" aria-hidden="true" />
-        )}
+        <span className="task-card-grouped-action-cell">
+          {/* PROTOTYPE #105 — hamburger on the outside (far right), primary
+              action on the inside, per live feedback. Applies to every task
+              type, not just FRAUD/LOAN_DOCS — the row treatment is
+              type-agnostic. stopBubble keeps clicks in this subtree from
+              also toggling the row's expand/collapse. */}
+          {IS_DEV && protoVariant === "A" && (
+            <span onClick={stopBubble}>{renderProtoMenu()}</span>
+          )}
+          {!mini && primaryAction ? (
+            <button
+              type="button"
+              className={IS_DEV && protoVariant === "A" ? protoQuickActionClass : quickActionClass}
+              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+            >
+              {primaryAction.label}
+            </button>
+          ) : (
+            <span className="task-card-quick-action-empty" aria-hidden="true" />
+          )}
+        </span>
       </div>
       {expanded && renderExpanded()}
     </div>
@@ -3115,6 +3535,7 @@ export const App = () => {
 
   return (
     <main className="app-shell">
+      {IS_DEV && <PrototypeSwitcherMount />}
       {/* ── Header ──────────────────────────────────── */}
       <header className="top-bar">
         <div className="top-bar-left">

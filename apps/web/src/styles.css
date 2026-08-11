@@ -1264,7 +1264,8 @@ button.btn-good:hover {
   color: var(--ink);
 }
 .checklist-note-add {
-  align-self: flex-start;
+  flex: none;
+  white-space: nowrap;
   border: none;
   background: transparent;
   padding: 0;
@@ -1917,9 +1918,11 @@ button.btn-good:hover {
     gap: 10px;
   }
 
+  /* Brand + New Task + Grouped stay one row at every width — wrapping them
+     onto separate lines is never necessary and looks broken. */
   .top-bar-left {
-    flex-direction: column;
-    gap: 6px;
+    flex-wrap: nowrap;
+    gap: 10px;
   }
 
   .task-form {
@@ -2763,7 +2766,10 @@ button.btn-good:hover {
 /* The action grid column is `auto` here (#91) — size the button to its own
    label instead of the shared 116px cap, so a long one ("Submit for
    Approval", "Mark Merge Done") never clips or overlaps the due column. */
-.task-card-grouped > .task-card-quick-action { width: auto; max-width: none; }
+.task-card-grouped-action-cell .task-card-quick-action { width: auto; max-width: none; }
+/* Wraps the primary action + (PROTOTYPE #105, variant A only) the hamburger
+   menu, so both still land in the grid's single "action" column/area. */
+.task-card-grouped-action-cell { display: flex; align-items: center; gap: 6px; }
 
 /* Mini (closed) grouped rows: tighter, no action column. */
 .task-card-grouped-mini { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
@@ -2782,6 +2788,343 @@ button.btn-good:hover {
   .task-card-grouped-people { grid-area: people; }
   .task-card-grouped .task-card-collapsed-title { grid-area: title; }
   .task-card-grouped-due { grid-area: due; }
-  .task-card-grouped > .task-card-quick-action,
-  .task-card-grouped > .task-card-quick-action-empty { grid-area: action; justify-self: end; }
+  .task-card-grouped > .task-card-grouped-action-cell { grid-area: action; justify-self: end; }
 }
+
+/* ── PROTOTYPE #105 — throwaway ──────────────────────────────
+   Generalized expanded-body layout variants (see App.tsx). Delete this
+   whole block along with the .proto105-* JSX once a variant wins. */
+.proto105-switcher {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: var(--shadow-md);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+.proto105-switcher button {
+  background: none;
+  border: 1px solid var(--bg);
+  color: var(--bg);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.proto105-switcher button:hover { background: rgba(255, 255, 255, 0.15); }
+
+.proto105-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px 14px;
+}
+.proto105-card-head {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.proto105-strip { justify-content: space-between; align-items: center; }
+.proto105-strip-share { flex-direction: row; align-items: center; }
+/* Hamburger: Share + secondary action ladder, replacing the bare share
+   icon (#105 live iteration — reopens ticket #103's "no overflow menu"
+   call, pending re-confirmation). */
+.proto105-menu { position: relative; margin-left: auto; }
+.proto105-menu-trigger {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-secondary);
+  box-shadow: var(--shadow-sm);
+}
+.proto105-menu-trigger:hover { background: var(--bg-soft); color: var(--ink); }
+.proto105-menu-trigger svg { width: 16px; height: 16px; }
+.proto105-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 180px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+.proto105-menu-panel > button,
+.proto105-menu-panel > * { width: 100%; }
+/* SharePopover's own wrapper div is the direct child the rule above
+   catches — its trigger button one level deeper isn't, so it stayed
+   content-sized instead of matching the other menu rows. */
+.proto105-menu-panel .share-pop > button { width: 100%; }
+/* FRAUD forward moves, unwrapped (no card chrome) — the job of the card
+   while in this phase, not a secondary action. */
+.proto105-fraud-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* Assigner→assignee "pair" (avatar pill + arrow), matching the mock's
+   .pair — single line, swapped in for the two-row people block only in
+   the narrow collapsed-row reflow below, only for cards in the live
+   variant-A iteration (.task-card-proto-a). Hidden by default. */
+.proto105-pair { display: none; align-items: center; gap: 6px; min-width: 0; }
+.proto105-pair-person { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.proto105-pair-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--bg-soft);
+  color: var(--ink-secondary);
+  border: 1px solid var(--line-soft);
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 700;
+  font-size: 0.56rem;
+}
+.proto105-pair-avatar-none { background: transparent; border: 1.5px dashed var(--line); }
+.proto105-pair-arrow { color: var(--muted); flex: none; font-size: 0.85em; }
+.proto105-pair-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.proto105-pair-name-mine { font-weight: 600; }
+.proto105-pair-name-none { color: var(--muted); font-style: italic; }
+
+/* The pair replaces the two-row people block for every proto-A card, at
+   every width — not just a narrow-width fallback. Liked as the general
+   look for both collapsed and opened cards. Names never truncate — the
+   column gets whatever width the names need (max-content), the title's
+   own minmax(0,1fr) column is the one that gives via ellipsis instead,
+   same as the rest of the row already does. */
+.task-card-proto-a.task-card-grouped { grid-template-columns: 4px max-content minmax(0, 1fr) clamp(60px, 8vw, 110px) auto; }
+.task-card-proto-a .task-card-grouped-people { display: none; }
+.task-card-proto-a .proto105-pair { display: inline-flex; }
+
+/* Narrow collapsed-row reflow (variant-A live iteration only — production
+   and B/C are untouched). Replaces the old max-width:720px 2x2 reflow,
+   which squeezed the title column against an unbounded `auto` action
+   column once the hamburger doubled its width — title text would wrap
+   into the due/action corner. Redraws it as two clean rows instead:
+   title (+ poops + folder link, already stacked internally) full-width on
+   top; assigner→assignee pair bottom-left, action+due bottom-right. */
+@media (max-width: 780px) {
+  .task-card-proto-a.task-card-grouped {
+    grid-template-columns: 4px 1fr minmax(128px, max-content);
+    grid-template-areas:
+      "stripe title  action"
+      "stripe pair   due";
+    row-gap: 6px;
+  }
+  .task-card-proto-a .proto105-pair { grid-area: pair; flex-wrap: wrap; row-gap: 2px; }
+  .task-card-proto-a .task-card-collapsed-title { grid-area: title; }
+  /* Label + value side by side here instead of stacked — the due row has
+     no competing content once action moved to the row above it, so one
+     line reads cleaner than two ("OVERDUE BY" / "83d" wrapping). */
+  .task-card-proto-a .task-card-grouped-due {
+    grid-area: due;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    justify-self: end;
+  }
+  .task-card-proto-a .task-card-grouped-action-cell { grid-area: action; justify-self: end; }
+}
+/* Due-pill, matching the mock's .due-pill — a rounded countdown chip. */
+.proto105-due-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--hot-bg);
+  color: var(--hot);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.proto105-due-pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.proto105-due-pill-overdue { background: var(--bad-bg); color: var(--bad); }
+
+/* Stepper card: squished to one line + a segmented bar by default (mock's
+   "squished" behavior); tap the head to reveal the full step list. */
+.proto105-stepper { padding: 0; container-type: inline-size; overflow: hidden; }
+.proto105-stepper-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.proto105-stepper-now { font-weight: 700; font-size: 0.88rem; letter-spacing: -0.01em; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proto105-stepper-count { font-family: "JetBrains Mono", monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 0.04em; flex: none; }
+.proto105-chev { font-size: 0.6rem; color: var(--muted); transition: transform 0.16s; flex: none; }
+.proto105-chev-open { transform: rotate(180deg); }
+.proto105-stepper-bar { display: flex; gap: 3px; padding: 0 13px 12px; }
+.proto105-stepper-bar i { height: 4px; flex: 1; border-radius: 2px; background: var(--line-soft); font-style: normal; }
+.proto105-stepper-bar i.on { background: var(--ink); }
+.proto105-stepper-bar i.now { background: var(--hot); }
+.proto105-steps { padding: 2px 13px 13px; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line-soft); }
+.proto105-stepper-horizontal .proto105-steps { flex-direction: row; flex-wrap: wrap; gap: 0; padding-top: 10px; }
+.proto105-stepper-horizontal .proto105-steps .proto105-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 96px;
+  padding-right: 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.proto105-stepper-horizontal .proto105-steps .proto105-step::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+  margin-left: 6px;
+}
+.proto105-stepper-horizontal .proto105-steps .proto105-step:last-child::after { display: none; }
+.proto105-stepper-vertical .proto105-steps { padding-top: 12px; }
+.proto105-stepper-vertical .proto105-steps .proto105-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.proto105-step-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--panel);
+  flex: none;
+}
+.proto105-step-done .proto105-step-dot { background: var(--good); border-color: var(--good); }
+.proto105-step-current { color: var(--ink); font-weight: 700; }
+.proto105-step-current .proto105-step-dot { background: var(--brand); border-color: var(--brand); }
+.proto105-step-done { color: var(--ink-secondary); }
+.proto105-step-note {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
+  color: var(--bad);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Variant A — always a single stacked column. No box-per-section chrome
+   (per live feedback, "box in a box in a box") — these are sections of one
+   card, separated by a hairline instead of nested card borders/shadows. */
+.proto105-a { display: flex; flex-direction: column; }
+.proto105-a > * + * {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+/* The checklist card (FraudChecklist's own .checklist) keeps its box
+   chrome everywhere else in the app — only here, inside variant A, it
+   drops to the same plain "label + content" look as Notes, so it stops
+   reading as a card nested inside a card. */
+.proto105-checklist .checklist {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+/* Match "OUTSTANDING ITEMS" to the "NOTES" label exactly (same size/color)
+   now that they're two sections of the same list, not two different
+   components. */
+.proto105-checklist .checklist-title { font-size: 0.66rem; color: var(--muted); }
+/* Match the "add an item" input to the notes composer's textarea (same
+   padding/radius/min-height/font), and give both the add-item and send
+   buttons a shared min-width — per live feedback, these two input rows
+   should read as the same size, not two different ones. */
+.proto105-checklist .checklist-add input {
+  padding: 9px 11px;
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.proto105-checklist .checklist-add button,
+.proto105-notes .composer button {
+  min-width: 64px;
+}
+/* .composer's base align-items:flex-end bottom-aligns Send against the
+   textarea instead of centering it, unlike .checklist-add's Add button —
+   match Add's centered look. */
+.proto105-notes .composer { align-items: center; }
+/* Compact Created/Due row, bottom of the card (variant A only) — replaces
+   the old multi-line top strip. Its own border-top would double up with
+   the divider rule above, so it only adds the font/color treatment. */
+.proto105-meta-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.proto105-meta-footer b { color: var(--ink-secondary); font-weight: 600; margin-right: 5px; }
+
+/* Variant B — container-query grid: 1 col narrow, 2 col once the row itself
+   has room. Driven by the row's own width, not the viewport (mirrors the
+   mock's use of container queries). */
+.proto105-b { display: flex; flex-direction: column; gap: 12px; container-type: inline-size; }
+.proto105-b-grid { display: flex; flex-direction: column; gap: 12px; }
+.proto105-b-col { display: flex; flex-direction: column; gap: 12px; }
+@container (min-width: 520px) {
+  .proto105-b-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+}
+
+/* Variant C — narrow vertical rail (stepper + actions) beside a wide
+   checklist/notes column. Structurally closest to today's 220px/1fr split. */
+.proto105-c { display: flex; flex-direction: column; gap: 12px; }
+.proto105-c-grid { display: grid; grid-template-columns: 200px 1fr; gap: 16px; }
+.proto105-c-rail { display: flex; flex-direction: column; gap: 12px; }
+.proto105-c-col { display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 640px) {
+  .proto105-c-grid { grid-template-columns: 1fr; }
+}
+/* ── end PROTOTYPE #105 ──────────────────────────────────────── */
