@@ -47,7 +47,9 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
 ## Layout Primitives
 
 - App shell: `.app-shell`, max-width 1320px, 12px gap stack.
-- Top bar: title + `New Task` toggle + user picker. 2px ink underline.
+- App bar: nav tabs (admin only) + user picker, no brand lockup (Teams'
+  own tab chrome already shows the app name). `New Task` and the
+  Grouped/Flat segment live on each list's own `.section-head` instead.
 - Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill.
 - Sections: `.section-head` (h2 + monospace `.section-count` chip) on a
   1px line. Use this for every list grouping.
