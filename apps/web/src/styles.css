@@ -26,6 +26,18 @@
   --shadow-sm: 0 1px 3px rgba(26, 24, 20, 0.06);
   --shadow-md: 0 4px 16px rgba(26, 24, 20, 0.07);
   --focus-ring: 0 0 0 2px rgba(44, 94, 160, 0.3);
+  /* Person-avatar chip palette (#106 follow-up) — 8 rotating hues, hashed
+     by user id in avatarStyle() (App.tsx), kept distinct from the
+     good/warn/hot/bad status hues so a chip color never reads as urgency. */
+  --avatar-1: #a16b07;
+  --avatar-2: #2c5ea0;
+  --avatar-3: #1f7a6c;
+  --avatar-4: #7a4a8f;
+  --avatar-5: #af5439;
+  --avatar-6: #5c7a29;
+  --avatar-7: #5a6b8c;
+  --avatar-8: #a8447a;
+  --avatar-ink: #fff;
 }
 
 /* ── Dark theme (deep navy) ───────────────────────────────── */
@@ -54,6 +66,15 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
   --focus-ring: 0 0 0 2px rgba(109, 163, 224, 0.35);
+  --avatar-1: #e0b44a;
+  --avatar-2: #6da3e0;
+  --avatar-3: #4fc4b0;
+  --avatar-4: #b083c9;
+  --avatar-5: #e0805a;
+  --avatar-6: #9ac25a;
+  --avatar-7: #8fa3c9;
+  --avatar-8: #d97fb0;
+  --avatar-ink: #14171c;
 }
 
 /* ── Contrast theme ───────────────────────────────────────── */
@@ -82,6 +103,18 @@
   --shadow-sm: none;
   --shadow-md: none;
   --focus-ring: 0 0 0 2px #18ffff;
+  /* Contrast theme stays monochrome on purpose — decorative hue variety
+     works against its max-legibility goal, so every slot maps to the same
+     neutral chip; the initials + adjacent name text still carry the info. */
+  --avatar-1: var(--bg-soft);
+  --avatar-2: var(--bg-soft);
+  --avatar-3: var(--bg-soft);
+  --avatar-4: var(--bg-soft);
+  --avatar-5: var(--bg-soft);
+  --avatar-6: var(--bg-soft);
+  --avatar-7: var(--bg-soft);
+  --avatar-8: var(--bg-soft);
+  --avatar-ink: var(--ink);
 }
 
 /* ── Reset & base ─────────────────────────────────────────── */
@@ -112,43 +145,28 @@ h1, h2, h3, h4 {
   gap: 12px;
 }
 
-/* ── Top bar ──────────────────────────────────────────────── */
-.top-bar {
+/* ── App bar ──────────────────────────────────────────────── */
+/* No brand lockup here — Teams already shows "Hot Task" in its own tab, so
+   an in-app logo/title would be pure duplication. New Task now lives on the
+   list's own section header (next to Grouped/Flat, see .task-grid-head),
+   so this row is just nav (admin only) + the dev user picker — light
+   enough that it doesn't need its own heavy divider; the tab strip carries
+   its own thin underline when it's present, and the list header below
+   supplies the real dividing line. */
+.app-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 0 10px;
-  border-bottom: 2px solid var(--ink);
-}
-
-.top-bar-left {
-  display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 16px;
 }
 
-/* Flame mark + title stay inline as one brand unit at every breakpoint. */
-.top-bar-brand {
+.app-bar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.top-bar-logo {
-  width: 26px;
-  height: 26px;
+  gap: 14px;
+  margin-left: auto;
+  padding: 10px 0;
   flex: none;
-  fill: var(--hot);
 }
-
-.top-bar h1 {
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-}
-
 
 .user-picker {
   display: flex;
@@ -407,7 +425,10 @@ button.btn-good:hover {
 /* ── Section headers ──────────────────────────────────────── */
 .section-head {
   display: flex;
-  align-items: baseline;
+  /* Centered, not baseline — task-grid-head packs in the Grouped/Flat
+     segment and New Task button alongside the h2, and those need to line
+     up on their vertical middle with the text, not its text baseline. */
+  align-items: center;
   gap: 10px;
   padding: 10px 0 6px;
   border-bottom: 1px solid var(--line);
@@ -1887,17 +1908,18 @@ button.btn-good:hover {
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 980px) {
-  .top-bar {
+  .app-bar {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
   }
 
-  /* Brand + New Task + Grouped stay one row at every width — wrapping them
+  /* Tab labels + user picker stay one row at every width — wrapping them
      onto separate lines is never necessary and looks broken. */
-  .top-bar-left {
+  .app-bar-actions {
     flex-wrap: nowrap;
     gap: 10px;
+    margin-left: 0;
   }
 
   .task-form {
@@ -1947,11 +1969,8 @@ button.btn-good:hover {
     gap: 10px;
   }
 
-  .top-bar {
+  .app-bar {
     gap: 8px;
-  }
-  .top-bar h1 {
-    font-size: 1.15rem;
   }
   .user-picker {
     flex-wrap: wrap;
@@ -2576,31 +2595,37 @@ button.btn-good:hover {
 /* A compact, mono, ink-on-paper alternative to the flat unified grid. Tasks
    bucket into courts by whose move it is; the section header carries that
    meaning, so each row stays quiet — its only colored signal is a red left
-   stripe + red countdown when overdue. Toggled from the top bar, persisted. */
-.group-toggle { display: inline-flex; align-items: center; gap: 8px; }
-.group-toggle-label {
+   stripe + red countdown when overdue. Toggled by the Grouped/Flat segment
+   on the list's own section header (GroupSeg in App.tsx) — it lives there
+   because that's what it actually describes, not the top app bar. */
+.seg {
+  margin-left: auto;
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+}
+.seg button {
+  border: 0;
+  background: none;
+  padding: 6px 11px;
+  border-radius: 6px;
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--muted); font-weight: 600;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.group-switch {
-  width: 38px; height: 22px; border-radius: 999px; background: var(--line);
-  border: none; padding: 0; position: relative; cursor: pointer; flex: none;
-  transition: background 0.15s;
-}
-.group-switch-on { background: var(--brand); }
-.group-switch-knob {
-  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
-  border-radius: 50%; background: var(--panel);
-  box-shadow: var(--shadow-sm); transition: transform 0.15s;
-}
-.group-switch-on .group-switch-knob { transform: translateX(16px); }
-.group-switch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.seg button:hover { color: var(--ink-secondary); background: none; }
+.seg button.seg-on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow-sm); }
+.seg button.seg-on:hover { color: var(--ink); }
+.seg button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 .courts { display: grid; gap: 10px; }
 .court { display: grid; gap: 5px; }
 .court .section-head { padding: 8px 0 5px; }
-.court[data-court="celebrating"] .section-head h2 { color: var(--good); }
 .card-list-grouped { gap: 5px; }
 
 /* Grouped rows read as a flat mono list, not floating cards — drop the base
@@ -2618,13 +2643,13 @@ button.btn-good:hover {
 /* Collapsed grouped row: stripe | pair | title | due | action */
 .task-card-grouped {
   display: grid;
-  /* The pair sizes to its content (full names, never truncated — see
-     .task-card-pair-name) instead of a clamped column; due and action stay
-     fluid. Between full desktop width and the full-stack breakpoint below,
-     the title's minmax(0, 1fr) column is always the one that gives, via
-     ellipsis, instead of the pair's names or the quick-action button
-     getting crushed/clipped (#91). */
-  grid-template-columns: 4px max-content minmax(0, 1fr) clamp(60px, 8vw, 110px) auto;
+  /* Title first (its minmax(0, 1fr) column is always the one that gives,
+     via ellipsis), then the pair sitting immediately left of due — both
+     size to content instead of a clamped column, so full names never
+     truncate (see .task-card-pair-name). Only falls to a second line at
+     the ~780px stacked breakpoint below. */
+  grid-template-columns: 4px minmax(0, 1fr) max-content clamp(60px, 8vw, 110px) auto;
+  grid-template-areas: "stripe title pair due action";
   align-items: center;
   gap: clamp(8px, 1.4vw, 14px);
   padding: 7px 14px 7px 0;
@@ -2637,6 +2662,7 @@ button.btn-good:hover {
 
 /* Thin left stripe — overdue is the only thing loud enough to color it. */
 .task-card-grouped-stripe {
+  grid-area: stripe;
   align-self: stretch; width: 4px; background: transparent;
   border-radius: 8px 0 0 8px;
 }
@@ -2644,7 +2670,7 @@ button.btn-good:hover {
 
 /* Assigner→assignee, one line: avatar pill + arrow, not two stacked
    "ASSIGNEE"/"ASSIGNER" label rows. */
-.task-card-pair { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.task-card-pair { grid-area: pair; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .task-card-pair-person { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .task-card-pair-avatar {
   width: 20px; height: 20px; border-radius: 50%; flex: none;
@@ -2666,12 +2692,13 @@ button.btn-good:hover {
 
 /* Title block reuses .task-card-collapsed-title; the poop track rides inline
    with the type label, sized down to the compact grouped scale. */
-.task-card-grouped .task-card-collapsed-title { padding: 4px 0; }
+.task-card-grouped .task-card-collapsed-title { grid-area: title; padding: 4px 0; }
 .task-card-grouped .task-card-collapsed-type .poop-track { margin-left: 6px; padding: 0; }
 .task-card-grouped .task-card-collapsed-type .poop-slot { font-size: 11px; }
 
 /* Due: label over value, right-aligned. Red when overdue, muted when done. */
 .task-card-grouped-due {
+  grid-area: due;
   display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
   text-align: right; min-width: 0;
 }
@@ -2690,7 +2717,7 @@ button.btn-good:hover {
 /* Wraps the primary action + the hamburger menu, so both land together in
    the grid's single "action" column/area. One button style for the
    primary action, regardless of kind — see quickActionClass in App.tsx. */
-.task-card-action-cell { display: flex; align-items: center; gap: 6px; }
+.task-card-action-cell { grid-area: action; display: flex; align-items: center; gap: 6px; }
 /* The action grid column is `auto` here (#91) — size the button to its own
    label instead of the shared 116px cap, so a long one ("Submit for
    Approval", "Mark Merge Done") never clips or overlaps the due column. */

@@ -1,6 +1,6 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
-import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -111,6 +111,17 @@ const initialsOf = (name?: string): string => {
   const parts = name.trim().split(/\s+/);
   const letters = parts.map((p) => p[0] ?? "").join("");
   return (letters.slice(0, 2) || "?").toUpperCase();
+};
+
+/* Stable per-person color for the pair avatar chips: hashes the user id
+   into one of 8 themed slots (--avatar-1..8 in styles.css) so the same
+   person always gets the same chip color across rows and sessions. */
+const AVATAR_PALETTE_SIZE = 8;
+const avatarStyle = (id: string): CSSProperties => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  const slot = (hash % AVATAR_PALETTE_SIZE) + 1;
+  return { background: `var(--avatar-${slot})`, color: "var(--avatar-ink)", border: "none" };
 };
 
 /* Whose court is the ball in? Drives the grouped buckets. Mirrors the
@@ -1333,14 +1344,14 @@ const TaskCard = memo(({
             in this row. */}
         <span className="task-card-pair">
           <span className="task-card-pair-person">
-            <span className="task-card-pair-avatar" aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
+            <span className="task-card-pair-avatar" style={avatarStyle(task.createdBy.id)} aria-hidden="true">{initialsOf(task.createdBy.displayName)}</span>
             <span className={`task-card-pair-name${isCreator ? " task-card-pair-name-mine" : ""}`} title={task.createdBy.displayName}>{firstName(task.createdBy.displayName)}</span>
           </span>
           <span className="task-card-pair-arrow" aria-hidden="true">→</span>
           <span className="task-card-pair-person">
             {task.assignee ? (
               <>
-                <span className="task-card-pair-avatar" aria-hidden="true">{initialsOf(ownerName)}</span>
+                <span className="task-card-pair-avatar" style={avatarStyle(task.assignee.id)} aria-hidden="true">{initialsOf(ownerName)}</span>
                 <span className={`task-card-pair-name${isAssignee ? " task-card-pair-name-mine" : ""}`} title={ownerName}>{firstName(ownerName)}</span>
               </>
             ) : (
@@ -1397,7 +1408,10 @@ const TaskCard = memo(({
         </span>
         <span className="task-card-action-cell">
           {actionsMenu}
-          {!mini && primaryAction ? (
+          {/* Mini (closed) rows never have a primary action — skip the
+              spacer entirely instead of reserving its 116px, which used to
+              strand empty space between the outcome stamp and the menu. */}
+          {!mini && (primaryAction ? (
             <button
               type="button"
               className={quickActionClass}
@@ -1407,7 +1421,7 @@ const TaskCard = memo(({
             </button>
           ) : (
             <span className="task-card-quick-action-empty" aria-hidden="true" />
-          )}
+          ))}
         </span>
       </div>
       {expanded && renderExpanded()}
@@ -1500,6 +1514,33 @@ const CardList = ({
   </div>
 );
 
+/* Grouped/Flat list-view segment (#106 follow-up): lives on the list's own
+   section header, where it actually describes what it changes, rather than
+   floating in the top app bar. */
+const GroupSeg = ({ grouped, onChange }: { grouped: boolean; onChange: (g: boolean) => void }) => (
+  <div className="seg" role="group" aria-label="List grouping">
+    <button type="button" className={grouped ? "seg-on" : ""} aria-pressed={grouped} onClick={() => onChange(true)}>
+      Grouped
+    </button>
+    <button type="button" className={!grouped ? "seg-on" : ""} aria-pressed={!grouped} onClick={() => onChange(false)}>
+      Flat
+    </button>
+  </div>
+);
+
+/* New Task, the primary action, sits directly right of the Grouped/Flat
+   segment on whichever list header is showing — not in the top app bar,
+   which now only holds nav + the dev user picker. */
+const NewTaskButton = ({ open, onClick }: { open: boolean; onClick: () => void }) => (
+  <button type="button" className="form-toggle" aria-expanded={open} onClick={onClick}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+    New Task
+  </button>
+);
+
 /* Editable header shown above the task list when it's filtered to a single
    Loan (ADR-0001). The app's only post-creation edit surface, scoped to the
    Loan's name + Humperdink link. Any authenticated user may edit. */
@@ -1507,12 +1548,20 @@ const LoanFilterHeader = ({
   loan,
   taskCount,
   onSave,
-  onClear
+  onClear,
+  grouped,
+  onGroupedChange,
+  formOpen,
+  onToggleForm
 }: {
   loan: Loan;
   taskCount: number;
   onSave: (loanId: string, name: string, humperdinkLink: string) => Promise<void>;
   onClear: () => void;
+  grouped: boolean;
+  onGroupedChange: (g: boolean) => void;
+  formOpen: boolean;
+  onToggleForm: () => void;
 }) => {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(loan.name);
@@ -1572,6 +1621,8 @@ const LoanFilterHeader = ({
       </div>
       <div className="loan-header-meta">
         <span className="section-count">{taskCount} TASK{taskCount === 1 ? "" : "S"}</span>
+        <GroupSeg grouped={grouped} onChange={onGroupedChange} />
+        <NewTaskButton open={formOpen} onClick={onToggleForm} />
         <button type="button" className="btn-sm btn-ghost" onClick={onClear}>Clear filter</button>
       </div>
     </div>
@@ -3140,57 +3191,62 @@ export const App = () => {
   return (
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────── */}
-      <header className="top-bar">
-        <div className="top-bar-left">
-          <span className="top-bar-brand">
-            <svg className="top-bar-logo" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
-            </svg>
-            <h1>Hot Task</h1>
-          </span>
-          <button
-            type="button"
-            className="form-toggle"
-            aria-expanded={formOpen}
-            onClick={() => setFormOpen((o) => !o)}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            New Task
-          </button>
-          {(activeTab === "active" || activeTab === "all") && (
-            <div className="group-toggle">
-              <span className="group-toggle-label">Grouped</span>
-              <button
-                type="button"
-                className={`group-switch${grouped ? " group-switch-on" : ""}`}
-                role="switch"
-                aria-checked={grouped}
-                aria-label="Group tasks by whose court the ball is in"
-                title={grouped ? "Grouped into courts — click for a flat list" : "Flat list — click to group into courts"}
-                onClick={() => setGrouped((g) => !g)}
-              >
-                <span className="group-switch-knob" />
-              </button>
-            </div>
+      {/* Teams already shows "Hot Task" in its own tab, so no brand lockup
+          here — that would be pure duplication. New Task lives on the list's
+          own section header now (next to Grouped/Flat), so this top row is
+          just nav (admin only) + the dev user picker — no need for it to
+          read as its own heavy "bar" anymore. */}
+      <header className="app-bar">
+        {isAdmin && (
+          <nav className="tab-bar">
+            <button
+              type="button"
+              className={`tab-btn${activeTab === "active" ? " tab-active" : ""}`}
+              onClick={() => setActiveTab("active")}
+            >
+              Tasks
+              <span className="section-count">{activeCount}</span>
+            </button>
+            <button
+              type="button"
+              className={`tab-btn${activeTab === "all" ? " tab-active" : ""}`}
+              onClick={() => setActiveTab("all")}
+            >
+              All Tasks
+              <span className="section-count">{allTasksAdmin.length}</span>
+            </button>
+            <button
+              type="button"
+              className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
+              onClick={() => setActiveTab("metrics")}
+            >
+              Metrics
+            </button>
+            <button
+              type="button"
+              className={`tab-btn${activeTab === "admin" ? " tab-active" : ""}`}
+              onClick={() => setActiveTab("admin")}
+            >
+              Admin
+            </button>
+          </nav>
+        )}
+        <div className="app-bar-actions">
+          {IS_DEV ? (
+            <label className="user-picker">
+              <span>User:</span>
+              <select value={user.id} onChange={(e) => setUser(DEV_USERS.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
+                {DEV_USERS.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName} ({u.roles.join("/")})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="user-picker user-picker-static">{user.displayName}</span>
           )}
         </div>
-        {IS_DEV ? (
-          <label className="user-picker">
-            <span>User:</span>
-            <select value={user.id} onChange={(e) => setUser(DEV_USERS.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
-              {DEV_USERS.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.displayName} ({u.roles.join("/")})
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <span className="user-picker user-picker-static">{user.displayName}</span>
-        )}
       </header>
 
       {error && <p className="error-bar">{error}</p>}
@@ -3209,44 +3265,6 @@ export const App = () => {
         />
       )}
 
-      {/* Tab bar only renders when there's more than one tab to choose
-          (i.e. admins with the Metrics panel). Non-admins see the unified
-          grid directly. */}
-      {isAdmin && (
-      <div className="tab-bar">
-        <button
-          type="button"
-          className={`tab-btn${activeTab === "active" ? " tab-active" : ""}`}
-          onClick={() => setActiveTab("active")}
-        >
-          Tasks
-          <span className="section-count">{activeCount}</span>
-        </button>
-        <button
-          type="button"
-          className={`tab-btn${activeTab === "all" ? " tab-active" : ""}`}
-          onClick={() => setActiveTab("all")}
-        >
-          All Tasks
-          <span className="section-count">{allTasksAdmin.length}</span>
-        </button>
-        <button
-          type="button"
-          className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
-          onClick={() => setActiveTab("metrics")}
-        >
-          Metrics
-        </button>
-        <button
-          type="button"
-          className={`tab-btn${activeTab === "admin" ? " tab-active" : ""}`}
-          onClick={() => setActiveTab("admin")}
-        >
-          Admin
-        </button>
-      </div>
-      )}
-
       {/* ── Unified task grid ──────────────────────── */}
       {activeTab === "active" && (() => {
         // A stale id (loan merged away) simply resolves to undefined → the
@@ -3261,12 +3279,28 @@ export const App = () => {
                 taskCount={filtered.length}
                 onSave={onSaveLoan}
                 onClear={() => setLoanFilterId(null)}
+                grouped={grouped}
+                onGroupedChange={setGrouped}
+                formOpen={formOpen}
+                onToggleForm={() => setFormOpen((o) => !o)}
               />
               {renderTaskList(filtered, "No tasks for this loan.")}
             </>
           );
         }
-        return renderTaskList(unifiedTasks, "No tasks yet.");
+        return (
+          <>
+            <div className="section-head task-grid-head">
+              <h2>
+                Tasks
+                <span className="section-count">{unifiedTasks.length}</span>
+              </h2>
+              <GroupSeg grouped={grouped} onChange={setGrouped} />
+              <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+            </div>
+            {renderTaskList(unifiedTasks, "No tasks yet.")}
+          </>
+        );
       })()}
 
       {/* ── All Tasks (admin) ────────────────────────── */}
@@ -3275,6 +3309,8 @@ export const App = () => {
           <div className="section-head task-grid-head">
             <h2>All Tasks (admin)</h2>
             <span className="section-count">{allTasksAdmin.length} total · no age cutoff</span>
+            <GroupSeg grouped={grouped} onChange={setGrouped} />
+            <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
           </div>
           {renderTaskList(allTasksAdmin, "No tasks yet.")}
         </>

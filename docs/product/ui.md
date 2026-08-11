@@ -1,23 +1,23 @@
 # Current UI Surfaces
 
-- Header:
-  - App title: `Operation Hot Task`
-  - `New Task` toggle
+- App bar: no brand/title lockup — Teams' own tab chrome already shows the
+  app name, so an in-app one would be pure duplication.
   - Local user picker for mock identities (dev only, see
     [auth-identity.md](auth-identity.md))
-- **Tab bar only renders for admins.** Non-admin users see the unified task
-  grid directly with no tab bar. Admin tabs, in order:
-  - `Tasks` — the unified task grid (see below), with an open/in-flight count
-    badge
-  - `All Tasks` — every task regardless of status, with a count badge
-  - `Metrics` — admin-only, see below
-  - `Admin` — user/role management, see
-    [roles-permissions.md](roles-permissions.md#admin-panel-users--roles)
+  - **Tab bar only renders for admins.** Non-admin users see the unified
+    task grid directly with no tab bar. Admin tabs, in order:
+    - `Tasks` — the unified task grid (see below), with an open/in-flight
+      count badge
+    - `All Tasks` — every task regardless of status, with a count badge
+    - `Metrics` — admin-only, see below
+    - `Admin` — user/role management, see
+      [roles-permissions.md](roles-permissions.md#admin-panel-users--roles)
 - There is no `Leaderboard` tab and no separate `Active`/`Archived` tabs.
   A ranked claims panel lives *inside* Metrics — see
   [claiming-scoring.md](claiming-scoring.md#claims-leaderboard-metrics-panel).
-- A **Grouped / flat-list toggle** sits above the task grid (not a tab) to
-  switch how the `Tasks`/`All Tasks` view is laid out.
+- `New Task` and a **Grouped / flat-list segment** sit on each list's own
+  section header (above the `Tasks`, `All Tasks`, and per-loan grids) —
+  not in the app bar and not a tab.
 - Create-task form: see [task-fields.md](task-fields.md)
 
 ## Unified Task Grid
