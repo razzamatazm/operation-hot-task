@@ -253,6 +253,11 @@ Restrained. Used only at:
 - Form-overlay backdrop + in-card cancel flash fade (`@keyframes fadeIn`)
 - Overdue tag pulse (`@keyframes pulse-overdue`, 2s)
 - Unread-note dot pulse (`@keyframes pulse-unread`, 1.6s halo)
+- Celebrating-card green halo pulse (`@keyframes pulse-celebrate`, 1.4s, runs
+  twice then settles)
+- Notes-thread entry fade/drop-in (`@keyframes drop`)
+- Upward-opening panels and rising toasts — share popover, toast host
+  (`@keyframes slideUp`)
 - Card hover (shadow swap)
 - Bar fills on metrics (`transition: width 0.3s`)
 

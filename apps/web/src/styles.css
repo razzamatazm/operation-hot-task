@@ -1054,7 +1054,6 @@ button.btn-good:hover {
   background: var(--bg-soft);
   padding: 10px 12px;
   margin-bottom: 14px;
-  margin-bottom: 10px;
 }
 .checklist-head {
   display: flex;

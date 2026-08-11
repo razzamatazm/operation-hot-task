@@ -120,6 +120,12 @@ GitHub Actions runs automatically on push/PR:
 - Rotate bot secret by re-running:
   - `scripts/azure/create-identity-and-bot.sh`
 - If you want separate staging/prod, change `AZ_RESOURCE_GROUP`, `AZ_WEBAPP_NAME`, and `AZ_APP_PREFIX` per environment.
+- Loans data lives in `LOANS_FILE`. It's optional — if unset, the server
+  derives `loans.json` next to whatever `DATA_FILE` points at, so on this
+  webapp it resolves to `/home/site/data/loans.json` alongside
+  `tasks.json` without any app-setting change. Only set `LOANS_FILE`
+  explicitly if you want loans stored somewhere other than beside
+  `DATA_FILE`.
 
 ## Deploy model — build locally, ship artifacts (do not build on the server)
 
