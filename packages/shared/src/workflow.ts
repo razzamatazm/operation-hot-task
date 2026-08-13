@@ -1,3 +1,4 @@
+import { ACTION_LABELS } from "./labels.js";
 import { AppConfig, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
@@ -251,25 +252,28 @@ const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
   return index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
 };
 
-const ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
-  MERGE_DONE: "Mark Merge Done",
-  MERGE_APPROVED: "Approve Merge",
-  COMPLETED: "Complete"
+/* Keyed by the *target* status. The single source of truth for these strings is
+   ACTION_LABELS (#116) — the web quick-action ladder reads the same constants,
+   so no surface can invent its own wording. */
+export const ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
+  MERGE_DONE: ACTION_LABELS.MERGE_DONE,
+  MERGE_APPROVED: ACTION_LABELS.APPROVE_MERGE,
+  COMPLETED: ACTION_LABELS.COMPLETE
 };
 
 /* FRAUD's forward action label is keyed by the *current* status, not the target
    (its COMPLETED step reads "Approve", which would collide with the standard
    "Complete" if keyed by target). CLAIMED → "Send Outstanding Items"; then
-   "Submit for Approval"; then "Approve". */
-const FRAUD_ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
-  CLAIMED: "Send Outstanding Items",
-  AWAITING_ITEMS: "Submit for Approval",
-  PENDING_APPROVAL: "Approve"
+   "Submit"; then "Approve". */
+export const FRAUD_ADVANCE_LABELS: Partial<Record<TaskStatus, string>> = {
+  CLAIMED: ACTION_LABELS.SEND_OUTSTANDING_ITEMS,
+  AWAITING_ITEMS: ACTION_LABELS.SUBMIT,
+  PENDING_APPROVAL: ACTION_LABELS.APPROVE
 };
 
-/* The single "move it forward" action to offer on a bot card (Mark Merge Done →
-   Approve Merge → Complete for Loan Docs; Send Outstanding Items → Submit for
-   Approval → Approve for Fraud; Complete for everyone else). Returns undefined
+/* The single "move it forward" action to offer on a bot card (Merge Done →
+   Approve Merge → Complete for Loan Docs; Send Outstanding Items → Submit →
+   Approve for Fraud; Complete for everyone else). Returns undefined
    when there's no forward step worth a button (open/closed tasks). Status-only —
    the actual transition still enforces the caller's permission. */
 export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: string } | undefined => {

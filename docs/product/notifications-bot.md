@@ -68,7 +68,7 @@
   threads the "grabbed this one" reply. Unknown/inactive users get a toast and
   no claim.
 - **Advance/Complete** buttons (note + claim cards) call `botPrimaryAdvance` for
-  the next forward step (Mark Merge Done → Approve Merge → Complete for Loan
+  the next forward step (Merge Done → Approve Merge → Complete for Loan
   Docs; Complete otherwise), then transition via the task service and refresh to
   a confirmation card that offers the *next* step — so a user can step a task all
   the way through from one card. Permission is enforced at transition time

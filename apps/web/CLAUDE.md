@@ -114,12 +114,52 @@ Each slot has one job. When adding info, replace something — don't append:
   `2d overdue`. Full absolute timestamp shows as `title` tooltip. Red +
   bold (`.task-card-collapsed-due-overdue`) when overdue.
 - **Action** — single contextual button (`Claim` / `Complete` /
-  `Approve` / `Cancel` / `Re-open` / `Archive`). Picked by the
-  `primaryAction` ladder in `TaskCard`. When no action applies, an empty
-  spacer keeps the column reserved so rows still align. Hidden on mini.
+  `Merge Done` / `Approve Merge` / `Submit` / `Approve` / `Archive`).
+  Picked by the `primaryAction` ladder in `TaskCard`. When no action
+  applies, an empty spacer keeps the column reserved so rows still align.
+  Hidden on mini.
 
 The **whole row** is the expand toggle (`role="button"`, Enter/Space).
 Don't add a chevron; it's redundant.
+
+### Grouped collapsed row (`.task-card-grouped`)
+
+The grouped list renders each row as its own CSS grid. Because sibling
+grids can't share tracks, **every column except the title is a fixed
+width** — a content-sized column resolves differently per row and the
+list goes ragged (#116, which measured 86px of hamburger drift across one
+screen). Above the 780px stacked breakpoint:
+
+```
+4px    | minmax(0,1fr) | 196px | clamp(60px,8vw,110px) | 154px
+stripe | title         | pair  | due                   | action
+```
+
+- **pair** (`--pair-col-w`, 196px) — assigner → assignee on one line.
+  Sized past the widest pair the app renders — measured 191px for
+  `Johanna → Unclaimed` (`Unclaimed` is the longest token and it pairs
+  with the longest first name). Overflow **wraps** (`flex-wrap: wrap`);
+  first names are never ellipsized, which is a standing rule.
+- **action** (`--action-col-w`) — hamburger (32px) + 6px gap +
+  `--quick-action-w` (116px). The cell is a two-track grid with the
+  hamburger and the button placed by `grid-column`, not by source order,
+  so a row missing either one doesn't slide the other. **Every quick
+  action is 116px wide regardless of label**; `Approve Merge` is the
+  longest label that lands here (~112px) and sets the ceiling. Don't
+  reintroduce a `width: auto` override on `.task-card-quick-action` —
+  that per-row sizing is what caused the drift.
+- **title** — the only elastic track, and therefore the only thing that
+  gives, via ellipsis.
+
+Action labels come from `ACTION_LABELS` in `packages/shared`, never from
+literals in `App.tsx`. The web row, the expanded body, and the Teams bot's
+Adaptive Card buttons all read the same constant, so no surface can invent
+its own wording (`Approve` vs `Approve Merge` was exactly that drift).
+
+At and below 780px the row restacks to two lines (title + action on top,
+pair + due below) and the action cell reverts to a content-sized flex row
+with an auto-width button. That layout is separately tuned — leave it
+alone.
 
 ### Mini rows (closed tasks)
 

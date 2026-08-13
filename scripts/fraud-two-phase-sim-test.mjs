@@ -205,7 +205,7 @@ check("botPrimaryAdvance labels the correct single fraud step per state", () => 
   });
   assert.deepEqual(botPrimaryAdvance(makeFraudTask({ status: "AWAITING_ITEMS" })), {
     status: "PENDING_APPROVAL",
-    label: "Submit for Approval"
+    label: "Submit"
   });
   assert.deepEqual(botPrimaryAdvance(makeFraudTask({ status: "PENDING_APPROVAL" })), {
     status: "COMPLETED",
