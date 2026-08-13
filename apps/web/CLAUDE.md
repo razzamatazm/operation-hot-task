@@ -125,21 +125,30 @@ Don't add a chevron; it's redundant.
 ### Grouped collapsed row (`.task-card-grouped`)
 
 The grouped list renders each row as its own CSS grid. Because sibling
-grids can't share tracks, **every column except the title is a fixed
-width** — a content-sized column resolves differently per row and the
-list goes ragged (#116, which measured 86px of hamburger drift across one
-screen). Above the 780px stacked breakpoint:
+grids can't share tracks, a content-sized column resolves differently per
+row and the list goes ragged (#116, which measured 86px of hamburger drift
+across one screen).
+
+An active row is **two lines at every width** — there is no responsive
+reflow, deliberately. The pair used to share one line with the title and
+needed a fixed 196px reservation sized to the widest pair in the app; on a
+typical row that left ~38px of dead space between the names and the due
+stamp. Moving the pair onto its own line removed both the gap and the
+reservation:
 
 ```
-4px    | minmax(0,1fr) | 196px | clamp(60px,8vw,110px) | 154px
-stripe | title         | pair  | due                   | action
+4px    | minmax(0,1fr) | 154px
+stripe | title         | action
+stripe | pair          | due
 ```
 
-- **pair** (`--pair-col-w`, 196px) — assigner → assignee on one line.
-  Sized past the widest pair the app renders — measured 191px for
-  `Johanna → Unclaimed` (`Unclaimed` is the longest token and it pairs
-  with the longest first name). Overflow **wraps** (`flex-wrap: wrap`);
-  first names are never ellipsized, which is a standing rule.
+- **pair** — assigner → assignee on one line, now sharing a row only with
+  the due stamp. No fixed width; overflow **wraps** (`flex-wrap: wrap`),
+  and first names are never ellipsized, which is a standing rule. The
+  widest pair the app renders is 190px (`Johanna → Unclaimed`), which no
+  longer competes with anything.
+- **due** — label and value side by side (not stacked), right-aligned so
+  its right edge lines up with the action column above it.
 - **action** (`--action-col-w`) — hamburger (32px) + 6px gap +
   `--quick-action-w` (116px). The cell is a two-track grid with the
   hamburger and the button placed by `grid-column`, not by source order,
@@ -147,9 +156,22 @@ stripe | title         | pair  | due                   | action
   action is 116px wide regardless of label**; `Approve Merge` is the
   longest label that lands here (~112px) and sets the ceiling. Don't
   reintroduce a `width: auto` override on `.task-card-quick-action` —
-  that per-row sizing is what caused the drift.
+  that per-row sizing is what caused the drift. The old sub-780px rule
+  did exactly that; it is gone, because the hamburger sits *left* of the
+  button and right-aligning alone still lets a `Claim` row and an
+  `Approve Merge` row put their hamburgers in different places.
 - **title** — the only elastic track, and therefore the only thing that
   gives, via ellipsis.
+
+**Mini (closed) rows stay on one line.** They carry no quick action, so a
+second row would buy nothing and cost height — stacking took a mini from
+48px to 74px, taller than an active row used to be, across the ~117 closed
+rows in a typical list. They keep the single-line template, including a
+fixed 176px pair reservation (same reasoning as #116: on one line a
+content-sized pair walks the due stamp sideways). Their hamburger shares
+the active rows' alignment. They do still host the hamburger — it is how a
+closed task reaches Re-open / Archive — so never `display: none` the
+action cell on a mini.
 
 ### Panels that escape the card (#113, #122)
 
@@ -222,10 +244,10 @@ literals in `App.tsx`. The web row, the expanded body, and the Teams bot's
 Adaptive Card buttons all read the same constant, so no surface can invent
 its own wording (`Approve` vs `Approve Merge` was exactly that drift).
 
-At and below 780px the row restacks to two lines (title + action on top,
-pair + due below) and the action cell reverts to a content-sized flex row
-with an auto-width button. That layout is separately tuned — leave it
-alone.
+The two-line arrangement (title + action on top, pair + due below) is the
+row's only layout, at every width — the old `max-width: 780px` reflow is
+gone. The action cell keeps its fixed tracks all the way down; don't
+reintroduce the auto-width override that breakpoint used to apply.
 
 ### Mini rows (closed tasks)
 
