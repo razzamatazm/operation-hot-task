@@ -34,6 +34,7 @@ Never hard-code colors. Use the variables:
 | `--ink`, `--ink-secondary`, `--muted` | Text strength, high → low        |
 | `--line`, `--line-soft`     | Borders, strong → faint                  |
 | `--brand`, `--brand-hover`, `--brand-soft` | Primary action / link        |
+| `--on-accent`               | Ink for text/icons on a filled accent    |
 | `--good` / `--good-bg`      | Green urgency, success, "active" stat    |
 | `--warn` / `--warn-bg`      | Yellow urgency, review thread accent     |
 | `--hot`  / `--hot-bg`       | Orange urgency, Loan Docs type bar       |
@@ -245,6 +246,10 @@ Single base `<button>`, modified by class:
 - `.btn-danger` = transparent + bad outline (Cancel Task, destructive)
 - `.btn-warn` = filled warn (rare; reminder-related)
 - `.btn-sm` = compact size; use inside cards and tables
+
+Filled variants take their label color from `--on-accent`, never `#fff`.
+Light theme's accents are dark enough for white ink; dark and contrast use
+bright pastel fills where white collapses to ~2.8:1 or worse.
 
 Quick-action class composition lives in `quickActionClass` in `TaskCard`.
 

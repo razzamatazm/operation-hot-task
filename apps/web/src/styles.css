@@ -19,6 +19,12 @@
   --brand: #2c5ea0;
   --brand-hover: #1e4a82;
   --brand-soft: #e4edf7;
+  /* Ink for text/icons sitting ON a filled accent (brand/good/warn/hot).
+     Light theme's accents are dark saturated colors, so white reads fine —
+     but the dark and contrast themes use bright pastel accents where white
+     ink collapses to ~2.8:1. Every filled-accent control reads this token
+     instead of hardcoding #fff. */
+  --on-accent: #fff;
   --good: #2e7d4f;
   --good-bg: #e8f5ec;
   --warn: #a16b07;
@@ -74,6 +80,10 @@
   --brand: #c9903f;
   --brand-hover: #dba566;
   --brand-soft: #2c2216;
+  /* The dark accents are bright pastels chosen to read as text on a dark
+     panel; used as button fills they need dark ink, not white. White on
+     the amber --brand was 2.78:1 (AA fail); #14171c is 8.6:1. */
+  --on-accent: #14171c;
   --good: #5ec97e;
   --good-bg: #1a2e22;
   --warn: #e0b44a;
@@ -112,6 +122,9 @@
   --brand: #18ffff;
   --brand-hover: #7fffff;
   --brand-soft: #002424;
+  /* Near-white accents (cyan, mint, yellow) — white ink on them was
+     effectively unreadable. Pure black keeps the max-legibility promise. */
+  --on-accent: #000;
   --good: #90ee90;
   --good-bg: #003300;
   --warn: #ffe45a;
@@ -261,6 +274,13 @@ h1, h2, h3, h4 {
   overflow-y: auto;
 }
 
+/* The warm 45% scrim was tuned to knock back a paper-white page. Over an
+   already-dark app it barely registers, so the modal read as floating in the
+   same plane as the list behind it rather than above it. */
+:root[data-theme="dark"] .form-overlay {
+  background: rgba(0, 0, 0, 0.66);
+}
+
 .form-panel {
   width: 100%;
   max-width: 760px;
@@ -396,7 +416,7 @@ button {
   font-size: 0.82rem;
   font-weight: 600;
   background: var(--brand);
-  color: #fff;
+  color: var(--on-accent);
   transition: background 0.15s;
 }
 
@@ -431,7 +451,7 @@ button.btn-danger:hover {
 
 button.btn-warn {
   background: var(--warn);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 button.btn-warn:hover {
@@ -445,7 +465,7 @@ button.btn-warn:disabled {
 
 button.btn-good {
   background: var(--good);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 button.btn-good:hover {
@@ -478,6 +498,11 @@ button.btn-good:hover {
   background: var(--bg-soft);
   padding: 2px 7px;
   border-radius: 3px;
+}
+/* --bg-soft on --bg is 1.1:1 in dark, so the chip lost its pill shape and
+   the count read as loose text next to the heading. */
+:root[data-theme="dark"] .section-count {
+  background: color-mix(in srgb, var(--bg), var(--ink) 9%);
 }
 
 /* ── Tab bar ──────────────────────────────────────────────── */
@@ -1166,7 +1191,7 @@ button.btn-good:hover {
 .checklist-check-on {
   background: var(--good);
   border-color: var(--good);
-  color: #fff;
+  color: var(--on-accent);
 }
 .checklist-item-text {
   flex: 1 1 auto;
@@ -1891,6 +1916,17 @@ button.btn-good:hover {
   opacity: 0.7;
 }
 
+/* A grayscaled emoji is a mid-gray glyph, which reads against paper but not
+   against a dark panel: at 0.35 the unpicked slots all but vanished, so the
+   5-slot track looked empty and the control stopped looking clickable.
+   The :not() guards matter — these selectors outrank the bare .poop-pick-on
+   / .poop-slot-on rules below and would otherwise dim the picked slots too. */
+:root[data-theme="dark"] .poop-pick:not(.poop-pick-on) { opacity: 0.55; }
+:root[data-theme="dark"] .poop-pick:not(.poop-pick-on):hover { opacity: 0.85; }
+/* Read-only ghost slots in the collapsed row start even fainter (0.2). They
+   stay clearly subordinate to the filled slots — just no longer absent. */
+:root[data-theme="dark"] .poop-slot:not(.poop-slot-on) { opacity: 0.38; }
+
 .poop-pick-on,
 .poop-pick.poop-pick-on:hover {
   filter: grayscale(0);
@@ -2485,7 +2521,7 @@ button.btn-good:hover {
 }
 .admin-role.on {
   border-color: transparent;
-  color: #fff;
+  color: var(--on-accent);
 }
 .admin-role.lo.on {
   background: var(--brand);
@@ -2650,6 +2686,14 @@ button.btn-good:hover {
 }
 .seg button:hover { color: var(--ink-secondary); background: none; }
 .seg button.seg-on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow-sm); }
+/* The selected pill is --panel on a --bg-soft track, which separates fine on
+   paper but is 1.05:1 in dark — plus the drop shadow that sells the "raised"
+   read on light is invisible against a dark surface. Lift the fill and give
+   it a hairline so the selected segment is unambiguous. */
+:root[data-theme="dark"] .seg button.seg-on {
+  background: color-mix(in srgb, var(--panel), var(--ink) 10%);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
 .seg button.seg-on:hover { color: var(--ink); }
 .seg button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
