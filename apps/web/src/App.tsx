@@ -355,12 +355,38 @@ const FilterIcon = () => (
   </svg>
 );
 
-/* Share panel geometry (#113). The width mirrors `.share-pop-panel`'s own
-   `width: 260px`; GAP is the breathing room between trigger and panel, MARGIN
-   the minimum distance the panel keeps from any viewport edge. */
+/* Portaled-panel geometry (#113, #122). GAP is the breathing room between a
+   trigger and the panel it anchors; MARGIN the minimum distance the panel keeps
+   from any viewport edge. The widths mirror the panels' own CSS and are only
+   fallbacks for the first frame, before the panel has been measured. */
+const PANEL_GAP = 6;
+const PANEL_MARGIN = 8;
 const SHARE_PANEL_WIDTH = 260;
-const SHARE_PANEL_GAP = 6;
-const SHARE_PANEL_MARGIN = 8;
+const MENU_PANEL_WIDTH = 180;
+
+/* Place a fixed-position panel against a trigger's viewport rect. Prefers
+   opening downward and flips above only when below can't fit it and above can.
+   Both axes are clamped to the viewport, which is what a row near the top or
+   the bottom of the list would otherwise blow past. `align` picks which edge of
+   the panel lines up with the matching edge of the trigger. */
+const placePanel = (
+  anchor: DOMRect,
+  width: number,
+  height: number,
+  align: "left" | "right"
+): { top: number; left: number } => {
+  const roomBelow = window.innerHeight - anchor.bottom - PANEL_GAP - PANEL_MARGIN;
+  const roomAbove = anchor.top - PANEL_GAP - PANEL_MARGIN;
+  const openDown = roomBelow >= height || roomBelow >= roomAbove;
+  const rawTop = openDown ? anchor.bottom + PANEL_GAP : anchor.top - PANEL_GAP - height;
+  const rawLeft = align === "right" ? anchor.right - width : anchor.left;
+  const maxTop = Math.max(PANEL_MARGIN, window.innerHeight - height - PANEL_MARGIN);
+  const maxLeft = Math.max(PANEL_MARGIN, window.innerWidth - width - PANEL_MARGIN);
+  return {
+    top: Math.min(Math.max(rawTop, PANEL_MARGIN), maxTop),
+    left: Math.min(Math.max(rawLeft, PANEL_MARGIN), maxLeft)
+  };
+};
 
 /* ── Share popover ───────────────────────────────────────────
    A compact icon trigger (#58) that opens an anchored panel with the
@@ -421,27 +447,19 @@ const SharePopover = ({
     setPos(null);
   };
 
-  /* Anchor the fixed panel to the trigger. Prefers below; flips above only when
-     below can't fit it and above can. Clamped on both axes so the panel never
-     leaves the viewport, which is what a row near the top or bottom of the list
-     would otherwise do. */
+  /* Anchor the fixed panel to the trigger — see `placePanel`. Left-aligned:
+     the trigger is a menu row or an inline icon, both of which have room to
+     their right. */
   const place = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
-    const anchor = trigger.getBoundingClientRect();
     const panel = panelRef.current;
-    const width = panel?.offsetWidth || SHARE_PANEL_WIDTH;
-    const height = panel?.offsetHeight ?? 0;
-    const roomBelow = window.innerHeight - anchor.bottom - SHARE_PANEL_GAP - SHARE_PANEL_MARGIN;
-    const roomAbove = anchor.top - SHARE_PANEL_GAP - SHARE_PANEL_MARGIN;
-    const openDown = roomBelow >= height || roomBelow >= roomAbove;
-    const rawTop = openDown ? anchor.bottom + SHARE_PANEL_GAP : anchor.top - SHARE_PANEL_GAP - height;
-    const maxTop = Math.max(SHARE_PANEL_MARGIN, window.innerHeight - height - SHARE_PANEL_MARGIN);
-    const maxLeft = Math.max(SHARE_PANEL_MARGIN, window.innerWidth - width - SHARE_PANEL_MARGIN);
-    setPos({
-      top: Math.min(Math.max(rawTop, SHARE_PANEL_MARGIN), maxTop),
-      left: Math.min(Math.max(anchor.left, SHARE_PANEL_MARGIN), maxLeft)
-    });
+    setPos(placePanel(
+      trigger.getBoundingClientRect(),
+      panel?.offsetWidth || SHARE_PANEL_WIDTH,
+      panel?.offsetHeight ?? 0,
+      "left"
+    ));
   }, []);
 
   /* Layout effect, not effect: the panel renders hidden for one commit while
@@ -866,6 +884,15 @@ const TaskCard = memo(({
      in the collapsed row's action cell — open regardless of whether the
      row itself is expanded. */
   const [menuOpen, setMenuOpen] = useState(false);
+  /* The panel is portaled to document.body and fixed-positioned from the
+     hamburger's rect (#122) — as an absolutely-positioned descendant it was
+     clipped away by `.task-card`'s `overflow: hidden`, which on a collapsed row
+     cut off all but an ~8px sliver. Trigger and panel are no longer
+     ancestor/descendant, so both the positioning and the outside-click hit test
+     need their own refs. */
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuPanelRef = useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -874,6 +901,72 @@ const TaskCard = memo(({
     const id = setTimeout(() => setCancelStage("idle"), 1200);
     return () => clearTimeout(id);
   }, [cancelStage]);
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    setMenuPos(null);
+  }, []);
+  /* Right-aligned: the hamburger sits to the LEFT of the primary action button,
+     so a left-anchored panel would drift under that button and off the card's
+     right edge. Growing leftward keeps it clear — this is what the old
+     `right: 0` absolute rule did. */
+  const placeMenu = useCallback(() => {
+    const trigger = menuTriggerRef.current;
+    if (!trigger) return;
+    const panel = menuPanelRef.current;
+    setMenuPos(placePanel(
+      trigger.getBoundingClientRect(),
+      panel?.offsetWidth || MENU_PANEL_WIDTH,
+      panel?.offsetHeight ?? 0,
+      "right"
+    ));
+  }, []);
+  /* Layout effect, not effect: the panel renders hidden for one commit while
+     `menuPos` is still null, and this measures and places it before paint, so
+     there's no visible jump. `cancelStage` is a dependency because the confirm
+     row and the "Cancelled ✓" flash swap the panel's contents and therefore its
+     height, which changes where an up-flipped panel has to sit. Re-places on
+     scroll (capture, to catch scrolling containers) and on resize. */
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    placeMenu();
+    window.addEventListener("scroll", placeMenu, true);
+    window.addEventListener("resize", placeMenu);
+    return () => {
+      window.removeEventListener("scroll", placeMenu, true);
+      window.removeEventListener("resize", placeMenu);
+    };
+  }, [menuOpen, cancelStage, placeMenu]);
+  /* Dismiss on outside mousedown or Escape (#122 — the menu had neither).
+     Trigger and panel are two separate regions now, so both have to be hit
+     tested; checking only one would close the menu the instant it opened. The
+     share popover the menu hosts is portaled to the body as well (#113), so it
+     is a third region — without that exemption, picking a person would close
+     the menu and take the popover down with it. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const insideMenu = (target: EventTarget | null): boolean =>
+      !!target &&
+      (menuTriggerRef.current?.contains(target as Node) ||
+        menuPanelRef.current?.contains(target as Node) ||
+        !!(target as HTMLElement).closest?.(".share-pop-panel"));
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (insideMenu(e.target)) return;
+      closeMenu();
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      /* Esc inside the share popover belongs to that popover — it closes there
+         and the menu stays put. */
+      if (e.key !== "Escape") return;
+      if ((e.target as HTMLElement | null)?.closest?.(".share-pop-panel")) return;
+      closeMenu();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen, closeMenu]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
   /* Who may attach a review note: the task's creator, its assignee, or an admin.
@@ -1319,18 +1412,23 @@ const TaskCard = memo(({
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
      Done). Cancel's confirm/done UI renders inside the same panel so it
      stays visible once triggered, matching the in-place-swap behavior it
-     always had. stopBubble on the wrapping span keeps clicks in this
-     subtree (the trigger, and every button in the open panel) from also
-     toggling the collapsed row's expand/collapse. */
+     always had. stopBubble on the wrapping span keeps clicks on the trigger
+     from also toggling the collapsed row's expand/collapse — and since the
+     panel is portaled to the body (#122) it is no longer inside that span, so
+     it carries its own stopBubble. A React portal still bubbles events through
+     the React tree, so without it every button in the panel would toggle the
+     row. */
   const menuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || cancelStage !== "idle");
   const actionsMenu = menuHasContent && (
     <span onClick={stopBubble} className="task-card-menu">
       <button
         type="button"
+        ref={menuTriggerRef}
         className="task-card-menu-trigger"
         aria-label="More actions"
+        aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
+        onClick={(e) => { e.stopPropagation(); if (menuOpen) closeMenu(); else setMenuOpen(true); }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <line x1="4" y1="7" x2="20" y2="7" />
@@ -1338,12 +1436,21 @@ const TaskCard = memo(({
           <line x1="4" y1="17" x2="20" y2="17" />
         </svg>
       </button>
-      {menuOpen && (
-        <div className="task-card-menu-panel" role="menu">
+      {menuOpen && createPortal(
+        <div
+          ref={menuPanelRef}
+          className="task-card-menu-panel"
+          role="menu"
+          onClick={stopBubble}
+          /* Hidden (but still laid out, so it can be measured) until `placeMenu`
+             has run — see the layout effect above. */
+          style={{ top: menuPos?.top ?? 0, left: menuPos?.left ?? 0, visibility: menuPos ? undefined : "hidden" }}
+        >
           {cancelBlock}
           {secondaryActionsBlock}
           {shareMenuItemBlock}
-        </div>
+        </div>,
+        document.body
       )}
     </span>
   );

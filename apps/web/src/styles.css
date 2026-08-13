@@ -1456,15 +1456,18 @@ button.btn-good:hover {
 }
 .task-card-menu-trigger:hover { background: var(--bg-soft); color: var(--ink); }
 .task-card-menu-trigger svg { width: 16px; height: 16px; }
+/* Portaled to document.body and fixed-positioned from the hamburger's rect
+   (#122) — `top`/`left` come from the inline style `placeMenu` computes, and
+   the panel is right-aligned to the trigger there (the hamburger sits to the
+   left of the primary action button, so a left-anchored panel would drift under
+   it and off the card's right edge). As an absolutely-positioned descendant it
+   was clipped by `.task-card`'s `overflow: hidden`, which the card needs for
+   its rounded corners and inset status stripe; on a collapsed row that cut away
+   all but an ~8px sliver. z-index sits below `.share-pop-panel`'s 60 — the
+   share popover opens out of this menu and has to layer over it. */
 .task-card-menu-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  /* Right-anchored to the trigger, not left — the hamburger sits to the
-     left of the primary action button, so a left-anchored panel would
-     drift under that button and toward the card's right edge. Growing left
-     instead keeps it clear. */
-  right: 0;
-  z-index: 20;
+  position: fixed;
+  z-index: 55;
   display: flex;
   flex-direction: column;
   align-items: flex-start;

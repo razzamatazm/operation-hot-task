@@ -151,6 +151,32 @@ stripe | title         | pair  | due                   | action
 - **title** — the only elastic track, and therefore the only thing that
   gives, via ellipsis.
 
+### Panels that escape the card (#113, #122)
+
+`.task-card` keeps `overflow: hidden` — rounded corners, the inset status
+stripe, and the grouped-row shadow all depend on it — so any panel taller
+than a collapsed row has to leave the card instead. Both the share popover
+(`.share-pop-panel`, #113) and the hamburger's actions menu
+(`.task-card-menu-panel`, #122) are `createPortal`'d to `document.body` and
+`position: fixed`, placed from their trigger's `getBoundingClientRect()` by
+the shared `placePanel` helper in `App.tsx`: prefer downward, flip up only
+when below can't fit and above can, clamp both axes to the viewport, and
+re-place on capture-phase `scroll` and on `resize`. The menu right-aligns
+to its trigger (the hamburger sits left of the quick action); the share
+popover left-aligns. z-index: menu 55, share popover 60 — the popover opens
+out of the menu and layers over it.
+
+Two consequences of portaling, both easy to regress:
+
+- The panel is no longer a DOM descendant of the row, so **outside-click
+  dismissal has to hit-test each region separately** — trigger, panel, and
+  (for the menu) the share popover it hosts. Testing only one closes the
+  panel the instant it opens, or tears the popover down mid-share.
+- The panel is no longer inside the `stopPropagation` span that shields the
+  row's expand/collapse toggle, so it carries **its own `stopBubble`**.
+  React portals still bubble through the React tree; without it every button
+  in the panel would also toggle the row.
+
 ### Empty action slot — three-way resolution (#117)
 
 The `primaryAction` ladder covers one status-and-role case per branch
