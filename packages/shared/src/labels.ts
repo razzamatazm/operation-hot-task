@@ -22,6 +22,11 @@ export const ACTION_LABELS = {
   SUBMIT: "Submit",
   APPROVE: "Approve",
   SEND_BACK: "Send Back",
+  /* Reverse move out of NEEDS_REVIEW back to CLAIMED (#125), for the reviewer
+     who decides the work isn't done. Named after the status it undoes, the same
+     way the hamburger's `Undo Merge Done` is — both are steps backwards that
+     live in the menu, never in the collapsed row. */
+  UNDO_REVIEW: "Undo Review",
   RELEASE: "Release for any fraud checker",
   /* Row-level Cancel (#117): the creator's terminal fallback in the collapsed
      row's action slot. Same wording as the hamburger's Cancel entry — it drives
