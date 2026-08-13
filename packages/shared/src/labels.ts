@@ -22,7 +22,11 @@ export const ACTION_LABELS = {
   SUBMIT: "Submit",
   APPROVE: "Approve",
   SEND_BACK: "Send Back",
-  RELEASE: "Release for any fraud checker"
+  RELEASE: "Release for any fraud checker",
+  /* Row-level Cancel (#117): the creator's terminal fallback in the collapsed
+     row's action slot. Same wording as the hamburger's Cancel entry — it drives
+     the same two-step confirm. */
+  CANCEL: "Cancel"
 } as const;
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;

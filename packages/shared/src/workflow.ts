@@ -293,6 +293,41 @@ export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: 
   return label ? { status: target, label } : undefined;
 };
 
+/* The two parties to a task: whoever asked for it and whoever is doing it. */
+export type PendingParty = "CREATOR" | "ASSIGNEE";
+
+/* Whose move is it? Defined only for the *handoff* statuses — the ones where
+   the flow has explicitly passed the ball from one party to the other and is
+   waiting on a named person:
+
+     MERGE_DONE       → CREATOR   (approves the merge)
+     MERGE_APPROVED   → ASSIGNEE  (completes)
+     AWAITING_ITEMS   → CREATOR   (the FRAUD requester submits the items)
+     PENDING_APPROVAL → ASSIGNEE  (the fraud checker approves)
+
+   Everything else is undefined on purpose. OPEN is waiting on nobody in
+   particular (anyone may claim); CLAIMED means "someone is working on it",
+   which is a state, not a handoff; NEEDS_REVIEW is open to creator, assignee
+   and admin alike (see canMoveNeedsReview), so no single person holds it.
+
+   The web collapsed row uses this for its passive `Waiting on <name>`
+   indicator (#117) so the view never re-derives the flow. Status-only — it
+   says who the flow is waiting on, not who is permitted to act. */
+export const pendingPartyFor = (task: LoanTask): PendingParty | undefined => {
+  switch (task.status) {
+    case "MERGE_DONE":
+      return "CREATOR";
+    case "MERGE_APPROVED":
+      return "ASSIGNEE";
+    case "AWAITING_ITEMS":
+      return "CREATOR";
+    case "PENDING_APPROVAL":
+      return "ASSIGNEE";
+    default:
+      return undefined;
+  }
+};
+
 /* A reopened task remembers the closed status it came from in `reopenedFrom`.
    That closed status is the target of the "Restore" action — the exact status
    to return the task to. Only valid while the task sits in an active status;

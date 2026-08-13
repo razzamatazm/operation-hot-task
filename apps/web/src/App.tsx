@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -1033,6 +1033,15 @@ const TaskCard = memo(({
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
     } else if (task.status === "CLAIMED" && isAssignee && transitions.includes("COMPLETED")) {
       primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+    } else if (task.status === "NEEDS_REVIEW" && canMoveNeedsReview(task, user)) {
+      /* #118: NEEDS_REVIEW is a side branch (it's in no flow array), so it had
+         no ladder case at all and showed an empty slot to everyone — including
+         the reviewer. COMPLETED is its forward move; returning it to CLAIMED
+         stays in the hamburger. Gated by the shared predicate (creator /
+         assignee / admin) so the button and the server agree. Sits below the
+         CLAIMED cases and above MERGE_DONE: the statuses are mutually
+         exclusive, so it neither shadows nor is shadowed. */
+      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "MERGE_DONE" && isCreator) {
       primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
     } else if (task.status === "MERGE_APPROVED" && isAssignee) {
@@ -1050,6 +1059,33 @@ const TaskCard = memo(({
   // three inconsistent button styles for what's always the row's one
   // next-step action.
   const quickActionClass = primaryAction ? "btn-sm task-card-quick-action" : "";
+
+  /* Terminal three-way resolution of the action slot when the ladder above
+     produced nothing (#117). An empty slot used to read as a rendering
+     failure on your own tasks. In order:
+
+       1. `Waiting on <first name>` — you're a party to the task and the flow
+          is waiting on the *other* party (pendingPartyFor, from the shared
+          workflow module). Passive label, never a button: the ball is
+          legitimately in someone else's court, so offering a destructive
+          action here would be wrong.
+       2. Cancel — you created it and it's still cancellable. Deliberately the
+          *creator* condition, not the shared canCancelTask (which also allows
+          admins): a destructive action must not appear in an admin's row for
+          a task they don't own. Admins still get Cancel in the hamburger.
+       3. The reserved spacer — observers and anyone else with no standing.
+
+     Mini (closed) rows get none of it; they have no action column. */
+  const pendingParty = pendingPartyFor(task);
+  const waitingOn = pendingParty === "CREATOR" ? task.createdBy : pendingParty === "ASSIGNEE" ? task.assignee : undefined;
+  const waitingLabel =
+    !primaryAction && (isCreator || isAssignee) && waitingOn && waitingOn.id !== user.id
+      ? `Waiting on ${firstName(waitingOn.displayName)}`
+      : null;
+  /* `transitions` already carries the status's allowed moves, so CANCELLED
+     being in it is the same rule the server enforces. */
+  const showRowCancel =
+    showActions && !primaryAction && !waitingLabel && isCreator && !isClosed && transitions.includes("CANCELLED");
 
   /* Expanded body, rendered below the collapsed row when open.
      Mirrors the design's accordion: a slim metadata strip up top, then a
@@ -1488,6 +1524,21 @@ const TaskCard = memo(({
               onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
             >
               {primaryAction.label}
+            </button>
+          ) : waitingLabel ? (
+            /* Passive indicator, not a control — no button, no handler. */
+            <span className="task-card-quick-action-waiting" title={waitingLabel}>{waitingLabel}</span>
+          ) : showRowCancel ? (
+            /* Reuses the hamburger's two-step confirm verbatim: drive its
+               stage to `confirming` and open the panel so the existing
+               "Cancel this task?" row (and its "Cancelled ✓" flash) appears
+               in place. No second confirm component. */
+            <button
+              type="button"
+              className="btn-sm btn-danger task-card-quick-action task-card-quick-action-cancel"
+              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); setCancelStage("confirming"); setMenuOpen(true); }}
+            >
+              {ACTION_LABELS.CANCEL}
             </button>
           ) : (
             <span className="task-card-quick-action-empty" aria-hidden="true" />

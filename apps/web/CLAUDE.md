@@ -116,7 +116,7 @@ Each slot has one job. When adding info, replace something — don't append:
 - **Action** — single contextual button (`Claim` / `Complete` /
   `Merge Done` / `Approve Merge` / `Submit` / `Approve` / `Archive`).
   Picked by the `primaryAction` ladder in `TaskCard`. When no action
-  applies, an empty spacer keeps the column reserved so rows still align.
+  applies the slot resolves three ways (see *Empty action slot* below).
   Hidden on mini.
 
 The **whole row** is the expand toggle (`role="button"`, Enter/Space).
@@ -150,6 +150,36 @@ stripe | title         | pair  | due                   | action
   that per-row sizing is what caused the drift.
 - **title** — the only elastic track, and therefore the only thing that
   gives, via ellipsis.
+
+### Empty action slot — three-way resolution (#117)
+
+The `primaryAction` ladder covers one status-and-role case per branch
+(including `NEEDS_REVIEW` → `Complete`, gated by the shared
+`canMoveNeedsReview`, #118). When it produces nothing, the slot is **not**
+blank by default — a bare hamburger with dead space beside it read as a
+rendering failure on your own tasks. In order:
+
+1. **`Waiting on <first name>`** — you're a party to the task (creator or
+   assignee) and the flow is waiting on the *other* party. Whose move it is
+   comes from `pendingPartyFor` in `packages/shared/src/workflow.ts` —
+   `MERGE_DONE`→creator, `MERGE_APPROVED`→assignee, `AWAITING_ITEMS`→creator,
+   `PENDING_APPROVAL`→assignee — never re-derived in the view. Rendered as a
+   passive muted-mono `<span>` (`.task-card-quick-action-waiting`), no
+   handler, at the same `--quick-action-w`. The ball is legitimately in
+   someone else's court, so the row says so instead of offering a
+   destructive action.
+2. **`Cancel`** — you created the task, it isn't closed, and `CANCELLED` is
+   still an allowed transition. Uses the **creator** condition specifically,
+   not the shared `canCancelTask` (creator *or* admin): a destructive action
+   must never show up in an admin's row for a task they don't own. Admins
+   keep Cancel in the hamburger. Clicking it drives the hamburger's
+   `cancelStage` to `confirming` and opens the menu panel, so the existing
+   two-step "Cancel this task?" confirm and its "Cancelled ✓" flash are
+   reused verbatim — there is no second confirm component and no undo flow.
+3. **The reserved spacer** (`.task-card-quick-action-empty`) — observers, and
+   anyone else with no standing. Unchanged.
+
+All three are suppressed on mini (closed) rows, which have no action column.
 
 Action labels come from `ACTION_LABELS` in `packages/shared`, never from
 literals in `App.tsx`. The web row, the expanded body, and the Teams bot's
