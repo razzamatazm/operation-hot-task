@@ -1,6 +1,7 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
-import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -354,14 +355,29 @@ const FilterIcon = () => (
   </svg>
 );
 
+/* Share panel geometry (#113). The width mirrors `.share-pop-panel`'s own
+   `width: 260px`; GAP is the breathing room between trigger and panel, MARGIN
+   the minimum distance the panel keeps from any viewport edge. */
+const SHARE_PANEL_WIDTH = 260;
+const SHARE_PANEL_GAP = 6;
+const SHARE_PANEL_MARGIN = 8;
+
 /* ── Share popover ───────────────────────────────────────────
-   A compact icon trigger (#58) that opens an anchored panel — above the trigger
-   (#59) — with the people-picker, optional note, and Copy link. Collapses the
-   share UI behind a button so it stops dominating the card (#52). Self-contained
-   so the create-task flow (#46) can reuse it. Dismisses on outside-click or Esc.
+   A compact icon trigger (#58) that opens an anchored panel with the
+   people-picker, optional note, and Copy link. Collapses the share UI behind a
+   button so it stops dominating the card (#52). Self-contained so the
+   create-task flow (#46) can reuse it. Dismisses on outside-click or Esc.
    On a successful share (recorded server-side regardless of DM delivery) it
    fires a "Shared" toast and auto-dismisses; Copy link keeps its "Copied ✓"
-   flash, then auto-dismisses (#60). */
+   flash, then auto-dismisses (#60).
+
+   The panel is PORTALED to document.body and fixed-positioned from the
+   trigger's bounding rect (#113). It used to be an absolutely-positioned
+   descendant opening upward, which the host `.task-card`'s `overflow: hidden`
+   clipped — on a collapsed row most of the panel sat above the card's top edge
+   and was simply cut away. That overflow rule can't go (rounded corners, inset
+   status stripe), so the panel leaves the clipping context instead. It now
+   prefers to open DOWNWARD and only flips up when there's no room below. */
 const SharePopover = ({
   candidates,
   onShare,
@@ -389,7 +405,11 @@ const SharePopover = ({
   const [note, setNote] = useState("");
   const [state, setState] = useState<"idle" | "sending">("idle");
   const [copied, setCopied] = useState(false);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
+  /* Trigger and panel are no longer ancestor/descendant — the panel is portaled
+     — so both the hit test and the positioning need their own refs. */
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const selectId = useId();
   const { showToast } = useToast();
 
@@ -398,13 +418,57 @@ const SharePopover = ({
     setOpen(false);
     setCopied(false);
     setState("idle");
+    setPos(null);
   };
 
-  /* Dismiss on an outside mousedown while open. Esc is handled on the panel. */
+  /* Anchor the fixed panel to the trigger. Prefers below; flips above only when
+     below can't fit it and above can. Clamped on both axes so the panel never
+     leaves the viewport, which is what a row near the top or bottom of the list
+     would otherwise do. */
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const anchor = trigger.getBoundingClientRect();
+    const panel = panelRef.current;
+    const width = panel?.offsetWidth || SHARE_PANEL_WIDTH;
+    const height = panel?.offsetHeight ?? 0;
+    const roomBelow = window.innerHeight - anchor.bottom - SHARE_PANEL_GAP - SHARE_PANEL_MARGIN;
+    const roomAbove = anchor.top - SHARE_PANEL_GAP - SHARE_PANEL_MARGIN;
+    const openDown = roomBelow >= height || roomBelow >= roomAbove;
+    const rawTop = openDown ? anchor.bottom + SHARE_PANEL_GAP : anchor.top - SHARE_PANEL_GAP - height;
+    const maxTop = Math.max(SHARE_PANEL_MARGIN, window.innerHeight - height - SHARE_PANEL_MARGIN);
+    const maxLeft = Math.max(SHARE_PANEL_MARGIN, window.innerWidth - width - SHARE_PANEL_MARGIN);
+    setPos({
+      top: Math.min(Math.max(rawTop, SHARE_PANEL_MARGIN), maxTop),
+      left: Math.min(Math.max(anchor.left, SHARE_PANEL_MARGIN), maxLeft)
+    });
+  }, []);
+
+  /* Layout effect, not effect: the panel renders hidden for one commit while
+     `pos` is still null, and this measures and places it before the browser
+     paints, so there's no visible jump. Re-places on scroll (capture, to catch
+     scrolling containers too) and on resize so the panel stays anchored rather
+     than detaching and floating. */
+  useLayoutEffect(() => {
+    if (!open) return;
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, place]);
+
+  /* Dismiss on an outside mousedown while open. Trigger and panel are two
+     separate regions now — testing only one would close the popover the instant
+     it opened. Esc is handled on the panel. */
   useEffect(() => {
     if (!open) return;
     const onDown = (e: globalThis.MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) close();
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      close();
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -443,9 +507,10 @@ const SharePopover = ({
   };
 
   return (
-    <div className="share-pop" ref={wrapRef}>
+    <div className="share-pop">
       <button
         type="button"
+        ref={triggerRef}
         className={asMenuItem ? "btn-sm btn-ghost" : "btn-sm btn-ghost share-pop-trigger"}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -455,11 +520,15 @@ const SharePopover = ({
       >
         {asMenuItem ? "Share" : <ShareIcon />}
       </button>
-      {open && (
+      {open && createPortal(
         <div
+          ref={panelRef}
           className="share-pop-panel"
           role="dialog"
           aria-label="Share this task"
+          /* Hidden (but still laid out, so it can be measured) until `place`
+             has run — see the layout effect above. */
+          style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? undefined : "hidden" }}
           onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
         >
           <label className="share-pop-label" htmlFor={selectId}>Share</label>
@@ -492,7 +561,8 @@ const SharePopover = ({
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -2153,6 +2223,13 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
   /* Highlighted suggestion index for keyboard nav, or -1 for none (#55). */
   const [loanHighlight, setLoanHighlight] = useState(-1);
   const [namvarHover, setNamvarHover] = useState<number | null>(null);
+  /* In-flight guard for Create (#115). Not a debounce — the reported double
+     submit came from a deliberate second click after a pause, so the flag is
+     held for the WHOLE operation (create + the post-create share `onCreate`
+     also awaits) and released only when it settles. It doubles as the button's
+     pending state, which is half the fix: the reporter's read was "the button
+     didn't register my click," and a disabled `Creating…` corrects that. */
+  const [submitting, setSubmitting] = useState(false);
 
   /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
      by a task the current user created (merged loans share one id, so they
@@ -2189,6 +2266,9 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
 
   const handleSubmit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    // Re-entry guard (#115). Covers every submit path, not just the button:
+    // Enter in a text field and held/repeated Enter both land here.
+    if (submitting) return;
     const rawLink = form.humperdinkLink.trim();
     const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
     // Only pass loanId when the typed name still matches the selected loan —
@@ -2212,27 +2292,41 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
       ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {})
     };
 
+    setSubmitting(true);
     try {
       // App owns persist + post-create share + refresh; on success we close,
       // which unmounts this child and discards the draft state. A create
       // failure rejects here (App already toasted) — keep the form open.
+      // onCreate deliberately resolves only after the share follow-up too, so
+      // the pending state spans the whole wait rather than going idle-looking
+      // mid-flight.
       await onCreate(payload, form.shareWithUserId);
       onClose();
     } catch {
       /* create failed — App surfaced the error; leave the form open to retry */
+    } finally {
+      // In `finally`, not the catch: an exception must never strand the form
+      // permanently disabled. Harmless after onClose — React no-ops a setState
+      // on an unmounted component.
+      setSubmitting(false);
     }
   };
 
   return (
+    /* The backdrop is deliberately inert (#114): a stray click here used to
+       call onClose, which unmounts this component and silently destroys the
+       whole draft. Cancel and Escape are the only exits, and both are
+       deliberate acts taken at the user's word — no confirmation prompt, no
+       dirty tracking. The panel's old stopPropagation went with it; with
+       nothing listening on the overlay it was dead weight. */
     <div
       className="form-overlay"
       role="dialog"
       aria-modal="true"
       aria-label="New task"
-      onClick={onClose}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >
-      <div className="form-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="form-panel">
       <form className="task-form" onSubmit={handleSubmit}>
         <label>
           {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
@@ -2480,7 +2574,7 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
         )}
         <div className="form-actions">
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button type="submit">Create Task</button>
+          <button type="submit" disabled={submitting}>{submitting ? "Creating…" : "Create Task"}</button>
         </div>
       </form>
       </div>
