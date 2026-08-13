@@ -151,6 +151,42 @@ stripe | title         | pair  | due                   | action
 - **title** — the only elastic track, and therefore the only thing that
   gives, via ellipsis.
 
+### Panels that escape the card (#113, #122)
+
+`.task-card` keeps `overflow: hidden` — rounded corners, the inset status
+stripe, and the grouped-row shadow all depend on it — so any panel taller
+than a collapsed row has to leave the card instead. Both the share popover
+(`.share-pop-panel`, #113) and the hamburger's actions menu
+(`.task-card-menu-panel`, #122) are `createPortal`'d to `document.body` and
+`position: fixed`. Both go through the `useAnchoredPanel` hook in `App.tsx`,
+which owns the trigger/panel ref pair, the placement (`placePanel`: prefer
+downward, flip up only when below can't fit and above can, clamp both axes
+to the viewport), re-placement on capture-phase `scroll` and on `resize`,
+and outside-click dismissal. The menu right-aligns to its trigger (the
+hamburger sits left of the quick action); the share popover left-aligns.
+z-index: menu 55, share popover 60 — the popover opens out of the menu and
+layers over it.
+
+Things portaling makes easy to get wrong:
+
+- The panel isn't a DOM descendant of the row, so **outside-click dismissal
+  hit-tests each region separately** — trigger, panel, and any panel *this*
+  panel hosts (`keepOpenWithin`, which the menu points at
+  `.share-pop-panel`). Testing only one closes the panel the instant it
+  opens, or tears the share popover down mid-share.
+- **Escape stays with each caller**, deliberately. The share popover
+  swallows it (`stopPropagation` on the panel) because the picker can be
+  embedded in the create-task form, whose own Esc handler would bin the
+  draft. The menu listens on the `document` (focus is usually still on the
+  row) and exempts two targets whose own Esc handlers live inside it: the
+  share popover, and any text field in the panel — the "Add a note" composer
+  clears its draft on Esc, and one keypress shouldn't take the draft and the
+  menu.
+- React events propagate through the **React** tree, not the DOM one, so the
+  wrapping `stopPropagation` span still shields the portaled panel from
+  toggling the row. The panel repeats `stopBubble` anyway — depending on a
+  DOM-detached ancestor for that is what a later refactor breaks silently.
+
 ### Empty action slot — three-way resolution (#117)
 
 The `primaryAction` ladder covers one status-and-role case per branch
