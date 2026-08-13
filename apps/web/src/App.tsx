@@ -1330,6 +1330,18 @@ const TaskCard = memo(({
           Cancel
         </button>
       )}
+      {/* #125: the reverse move out of review. NEEDS_REVIEW's forward move
+          (Complete) rides the collapsed row (#118); putting the task back in
+          the assignee's hands is the rarer, backwards step, so it stays in
+          the menu — same shape and placement as `Undo Merge Done` below.
+          Gated by the shared canMoveNeedsReview, so whoever may complete it
+          may also hand it back: creator, assignee (retracting their own
+          submission) or admin, matching the server. */}
+      {task.status === "NEEDS_REVIEW" && canMoveNeedsReview(task, user) && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
+          {ACTION_LABELS.UNDO_REVIEW}
+        </button>
+      )}
       {task.status === "MERGE_DONE" && isAssignee && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
           Undo Merge Done
@@ -1423,10 +1435,10 @@ const TaskCard = memo(({
   /* Actions menu: hamburger next to the row's primary action (see the
      collapsed row below), holding Share plus the secondary ladder
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
-     Done). Cancel's confirm/done UI renders inside the same panel so it
-     stays visible once triggered, matching the in-place-swap behavior it
-     always had. stopBubble on the wrapping span keeps clicks in this subtree
-     from also toggling the collapsed row's expand/collapse. The panel is
+     Done, Undo Review). Cancel's confirm/done UI renders inside the same
+     panel so it stays visible once triggered, matching the in-place-swap
+     behavior it always had. stopBubble on the wrapping span keeps clicks in this
+     subtree from also toggling the collapsed row's expand/collapse. The panel is
      portaled to the body (#122) but still renders inside that span in the React
      tree, and React events propagate through the React tree rather than the DOM
      one, so the span still covers it — the panel repeats stopBubble anyway,

@@ -26,6 +26,12 @@
   standard flow: `Open -> Claimed -> Completed -> Archived`, with
   `Needs Review` as a side-branch off `Claimed` (not part of the forward
   flow)
+- From `Needs Review` the task can go forward to `Completed` or back to
+  `Claimed`. Both moves are open to the task's creator, its assignee, or an
+  admin (`canMoveNeedsReview`) — a wider gate than the `Merge Done -> Claimed`
+  undo, because review is not a handoff to one named person. In the web UI the
+  forward move is the collapsed row's quick action; the move back to `Claimed`
+  is the hamburger's `Undo Review` entry.
 
 ## Reopen / Restore
 
