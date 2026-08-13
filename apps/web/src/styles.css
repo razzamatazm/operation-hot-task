@@ -2,6 +2,12 @@
 
 /* ── Light theme (warm ledger) ────────────────────────────── */
 :root {
+  /* Tells the browser which native chrome (placeholder text, scrollbars,
+     form-control defaults) to draw. Without this, dark/contrast themes were
+     handing UA form controls to the browser's light-mode defaults, which is
+     why placeholder text and unstyled chrome went near-invisible on a dark
+     panel. */
+  color-scheme: light;
   --bg: #f5f3ef;
   --bg-soft: #ece9e2;
   --panel: #fdfcfa;
@@ -42,13 +48,18 @@
 
 /* ── Dark theme (deep navy) ───────────────────────────────── */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #111318;
   --bg-soft: #1a1d25;
   --panel: #1e2129;
   --ink: #e8e6e1;
   --ink-secondary: #a09b91;
-  --muted: #706c63;
-  --line: #2e313a;
+  /* Brightened from #706c63 (2026-08-13, dark mode legibility) — 3.08:1
+     against --panel failed normal-text AA; #8d887e clears 4.5:1. */
+  --muted: #8d887e;
+  /* Brightened from #2e313a — 1.24:1 against --panel made input/panel
+     borders nearly invisible; #686b73 clears the 3:1 UI-component bar. */
+  --line: #686b73;
   --line-soft: #262930;
   --brand: #6da3e0;
   --brand-hover: #8bb8ec;
@@ -79,6 +90,7 @@
 
 /* ── Contrast theme ───────────────────────────────────────── */
 :root[data-theme="contrast"] {
+  color-scheme: dark;
   --bg: #000;
   --bg-soft: #111;
   --panel: #000;
