@@ -2725,17 +2725,14 @@ button.btn-good:hover {
 /* Collapsed grouped row: stripe | pair | title | due | action */
 .task-card-grouped {
   display: grid;
-  /* FIXED columns, deliberately (#116). Every row is its own grid, so a
-     content-sized column (`max-content` for the pair, `auto` for the action
-     cell) resolves to a different width on each row and nothing lines up
-     down the list — the pair, due, hamburger and button used to drift up to
-     86px between neighbouring rows. Only the title column is elastic
-     (`minmax(0, 1fr)`), so it stays the one that gives, via ellipsis. */
-  /* Fits the widest pair the column actually renders — measured at 191px for
-     "Johanna → Unclaimed" ("Unclaimed" is the longest token, and it pairs with
-     the longest first name). Anything longer than this wraps rather than
-     truncating; see .task-card-pair. */
-  --pair-col-w: 196px;
+  /* The action column is FIXED, deliberately (#116). Every row is its own
+     grid, so a content-sized action cell (`auto`) resolves to a different
+     width on each row and the hamburger drifts down the list — measured up
+     to 86px between neighbouring rows, because the hamburger sits left of a
+     button whose label ("Claim" vs "Approve Merge") sets the cell width.
+     Right-aligning is not enough on its own; the width has to be reserved.
+     Only the title column is elastic (`minmax(0, 1fr)`), so it stays the one
+     that gives, via ellipsis. */
   /* One shared width for every quick action, so Claim and Approve Merge are
      the same control. "Approve Merge" is the longest label that lands here
      and measures ~112px at this font size — 116px clears it. */
@@ -2743,10 +2740,20 @@ button.btn-good:hover {
   /* hamburger (32px) + gap (6px) + button. Reserved on every row, including
      rows with no action, so the two never trade places. */
   --action-col-w: calc(var(--quick-action-w) + 38px);
-  grid-template-columns: 4px minmax(0, 1fr) var(--pair-col-w) clamp(60px, 8vw, 110px) var(--action-col-w);
-  grid-template-areas: "stripe title pair due action";
+  /* Two rows at every width — title/action above, pair/due below. This used
+     to be the sub-780px layout only, with a single-line "title pair due
+     action" arrangement above it; the reflow is gone deliberately. The pair
+     no longer competes with the title for horizontal room, so it needs no
+     fixed --pair-col-w reservation (which is what left ~38px of dead space
+     between the names and the due stamp on a typical row) and no
+     ellipsizing. The action column stays FIXED — see #116 below. */
+  grid-template-columns: 4px minmax(0, 1fr) var(--action-col-w);
+  grid-template-areas:
+    "stripe title action"
+    "stripe pair  due";
   align-items: center;
   gap: clamp(8px, 1.4vw, 14px);
+  row-gap: 6px;
   padding: 7px 14px 7px 0;
   min-height: 46px;
   cursor: pointer;
@@ -2765,12 +2772,11 @@ button.btn-good:hover {
 
 /* Assigner→assignee, one line: avatar pill + arrow, not two stacked
    "ASSIGNEE"/"ASSIGNER" label rows. */
-/* Wrap, never truncate. The column is a fixed 196px (see --pair-col-w), sized
-   past the widest pair the app renders (~191px, "Johanna → Unclaimed"), so this
-   should effectively never fire — but if an unusually long name shows up the pair
-   drops to a second line rather than ellipsizing a first name, which is a
-   standing rule (see .task-card-pair-name). Same treatment the stacked
-   breakpoint already applies. */
+/* Wrap, never truncate. The pair now has its own row and shares it only with
+   the due stamp, so it has far more room than the old fixed 196px column gave
+   it and this should effectively never fire — but if an unusually long name
+   shows up the pair drops to a second line rather than ellipsizing a first
+   name, which is a standing rule (see .task-card-pair-name). */
 .task-card-pair {
   grid-area: pair;
   display: flex; flex-wrap: wrap;
@@ -2801,10 +2807,14 @@ button.btn-good:hover {
 .task-card-grouped .task-card-collapsed-type .poop-track { margin-left: 6px; padding: 0; }
 .task-card-grouped .task-card-collapsed-type .poop-slot { font-size: 11px; }
 
-/* Due: label over value, right-aligned. Red when overdue, muted when done. */
+/* Due: label + value on one line, right-aligned under the action column.
+   Red when overdue, muted when done. Side by side rather than stacked
+   because the due row has no competing content once the action sits on the
+   row above — one line reads cleaner than two ("OVERDUE BY" / "83d"). */
 .task-card-grouped-due {
   grid-area: due;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  display: flex; flex-direction: row; align-items: baseline; gap: 6px;
+  justify-self: end;
   text-align: right; min-width: 0;
 }
 .task-card-grouped-due-label {
@@ -2866,50 +2876,41 @@ button.btn-good:hover {
   justify-self: stretch;
 }
 
-/* Mini (closed) grouped rows: tighter, no action column. */
-.task-card-grouped-mini { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
+/* Mini (closed) grouped rows: tighter, no action column.
+   These stay on ONE line while active rows stack. Closed tasks are the
+   bulk of the list and carry no action button, so the second row would buy
+   nothing and cost height — stacking took a mini from 48px to 74px, taller
+   than an active row used to be. The pair keeps a fixed reservation here
+   for the same reason the action column does (#116): on a single line a
+   content-sized pair resolves per row and walks the due stamp sideways. */
+.task-card-grouped-mini {
+  min-height: 34px; padding-top: 4px; padding-bottom: 4px;
+  grid-template-columns: 4px minmax(0, 1fr) 168px 72px 32px;
+  grid-template-areas: "stripe title pair due action";
+  row-gap: 0;
+}
+/* Sits on the title's line, right-aligned, rather than under it. */
+.task-card-grouped-mini .task-card-grouped-due { justify-self: end; }
+/* A mini never renders a quick action — measured 117 of 117 rows carrying
+   nothing but the hamburger — so it reserves the hamburger's 32px only,
+   not the full --action-col-w. Reserving the button slot stranded the
+   hamburger 136px short of the row's right edge and left the whole
+   pair / done-time / hamburger cluster floating in the middle of the row.
+   The three mini columns are still FIXED (#116) so they align mini-to-mini;
+   they are just sized to what a mini actually renders — measured across the
+   same 117 rows, widest pair 164px ("Suzie → Unclaimed") and widest
+   done-time 65px. Net effect: the cluster's right edge lines up with the
+   quick-action button's right edge on the active rows above it. */
+.task-card-grouped-mini .task-card-action-cell {
+  grid-template-columns: 32px;
+  justify-self: end;
+}
 .task-card-grouped-mini .task-card-collapsed-type { font-size: 0.82rem; font-weight: 600; }
 .task-card-grouped-mini .task-card-pair-name { font-size: 0.74rem; }
 
-/* Below ~780px the row reflows to two lines: title (+ poops + folder link,
-   already stacked internally) full-width on top; pair bottom-left,
-   action+due bottom-right. Replaces the old single-row-shared-column
-   layout, which squeezed the title column against an unbounded action
-   column once the hamburger doubled its width — title text would wrap
-   into the due/action corner. */
-@media (max-width: 780px) {
-  .task-card-grouped {
-    grid-template-columns: 4px 1fr minmax(128px, max-content);
-    grid-template-areas:
-      "stripe title  action"
-      "stripe pair   due";
-    row-gap: 6px;
-  }
-  .task-card-grouped-stripe { grid-area: stripe; }
-  .task-card-pair { grid-area: pair; flex-wrap: wrap; row-gap: 2px; }
-  .task-card-grouped .task-card-collapsed-title { grid-area: title; }
-  /* Label + value side by side here instead of stacked — the due row has
-     no competing content once action moved to the row above it, so one
-     line reads cleaner than two ("OVERDUE BY" / "83d" wrapping). */
-  .task-card-grouped-due {
-    grid-area: due;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 6px;
-    justify-self: end;
-  }
-  /* The stacked layout is unchanged by #116's fixed desktop columns — it has
-     its own row for the action, so it never had the alignment problem and
-     doesn't want the fixed tracks. Put the cell back to a content-sized flex
-     row and let the button size to its own label, exactly as before. */
-  .task-card-action-cell {
-    grid-area: action;
-    justify-self: end;
-    display: flex;
-    grid-template-columns: none;
-  }
-  .task-card-action-cell .task-card-quick-action { width: auto; max-width: none; }
-  /* Same content-sizing for the waiting indicator (#117) — the stacked row
-     has no fixed action column to align to. */
-  .task-card-action-cell .task-card-quick-action-waiting { width: auto; }
-}
+/* The two-line arrangement this breakpoint used to introduce is now the base
+   layout at every width (see .task-card-grouped), so there is no reflow left
+   to describe here. The one thing the old breakpoint did that the base rule
+   deliberately does NOT do is un-fix the action cell — see the #116 note on
+   .task-card-grouped for why the reserved width has to survive at every
+   width, not just wide ones. */
