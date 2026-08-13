@@ -388,6 +388,94 @@ const placePanel = (
   };
 };
 
+/* Everything a panel needs to live outside the card that owns it (#113, #122):
+   the trigger/panel ref pair (they're no longer ancestor/descendant once
+   portaled), the fixed placement and its re-placement on scroll and resize, and
+   outside-click dismissal. Returns the inline style the portaled panel spreads
+   onto itself.
+
+   Escape deliberately stays with the caller — the share popover has to swallow
+   it (`stopPropagation`) so Escape inside the picker doesn't also close the
+   create-task form it can be embedded in, while the actions menu wants a
+   document-level listener because focus is usually still on the row. */
+const useAnchoredPanel = <T extends HTMLElement>({
+  open,
+  align,
+  fallbackWidth,
+  onDismiss,
+  /* Bump this when the panel's contents change size while open, so an
+     up-flipped panel re-anchors to its new height. */
+  remeasureKey,
+  /* A second panel this one hosts, itself portaled and so not a DOM descendant
+     — clicks in it must not read as "outside". */
+  keepOpenWithin
+}: {
+  open: boolean;
+  align: "left" | "right";
+  fallbackWidth: number;
+  onDismiss: () => void;
+  remeasureKey?: unknown;
+  keepOpenWithin?: string;
+}) => {
+  const triggerRef = useRef<T | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  /* Held in a ref so a caller's inline `close` doesn't re-subscribe the
+     document listener on every render. */
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const panel = panelRef.current;
+    setPos(placePanel(
+      trigger.getBoundingClientRect(),
+      panel?.offsetWidth || fallbackWidth,
+      panel?.offsetHeight ?? 0,
+      align
+    ));
+  }, [align, fallbackWidth]);
+
+  /* Layout effect, not effect: the panel renders hidden for one commit while
+     `pos` is still null, and this measures and places it before the browser
+     paints, so there's no visible jump. Scroll is captured so scrolling
+     containers re-anchor it too, rather than letting it detach and float. */
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, remeasureKey, place]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      if (keepOpenWithin && (target as HTMLElement).closest?.(keepOpenWithin)) return;
+      dismissRef.current();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open, keepOpenWithin]);
+
+  return {
+    triggerRef,
+    panelRef,
+    /* Hidden — but still laid out, so it can be measured — until `place` runs. */
+    style: { top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? undefined : "hidden" } as CSSProperties
+  };
+};
+
 /* ── Share popover ───────────────────────────────────────────
    A compact icon trigger (#58) that opens an anchored panel with the
    people-picker, optional note, and Copy link. Collapses the share UI behind a
@@ -431,11 +519,6 @@ const SharePopover = ({
   const [note, setNote] = useState("");
   const [state, setState] = useState<"idle" | "sending">("idle");
   const [copied, setCopied] = useState(false);
-  /* Trigger and panel are no longer ancestor/descendant — the panel is portaled
-     — so both the hit test and the positioning need their own refs. */
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const selectId = useId();
   const { showToast } = useToast();
 
@@ -444,53 +527,17 @@ const SharePopover = ({
     setOpen(false);
     setCopied(false);
     setState("idle");
-    setPos(null);
   };
 
-  /* Anchor the fixed panel to the trigger — see `placePanel`. Left-aligned:
-     the trigger is a menu row or an inline icon, both of which have room to
-     their right. */
-  const place = useCallback(() => {
-    const trigger = triggerRef.current;
-    if (!trigger) return;
-    const panel = panelRef.current;
-    setPos(placePanel(
-      trigger.getBoundingClientRect(),
-      panel?.offsetWidth || SHARE_PANEL_WIDTH,
-      panel?.offsetHeight ?? 0,
-      "left"
-    ));
-  }, []);
-
-  /* Layout effect, not effect: the panel renders hidden for one commit while
-     `pos` is still null, and this measures and places it before the browser
-     paints, so there's no visible jump. Re-places on scroll (capture, to catch
-     scrolling containers too) and on resize so the panel stays anchored rather
-     than detaching and floating. */
-  useLayoutEffect(() => {
-    if (!open) return;
-    place();
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
-  }, [open, place]);
-
-  /* Dismiss on an outside mousedown while open. Trigger and panel are two
-     separate regions now — testing only one would close the popover the instant
-     it opened. Esc is handled on the panel. */
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: globalThis.MouseEvent) => {
-      const target = e.target as Node;
-      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      close();
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  /* Left-aligned: the trigger is a menu row or an inline icon, and both have
+     room to their right. Esc is handled on the panel itself, not here — see
+     `useAnchoredPanel`. */
+  const { triggerRef, panelRef, style: panelStyle } = useAnchoredPanel<HTMLButtonElement>({
+    open,
+    align: "left",
+    fallbackWidth: SHARE_PANEL_WIDTH,
+    onDismiss: close
+  });
 
   const handleShare = async () => {
     if (!targetId) return;
@@ -544,9 +591,10 @@ const SharePopover = ({
           className="share-pop-panel"
           role="dialog"
           aria-label="Share this task"
-          /* Hidden (but still laid out, so it can be measured) until `place`
-             has run — see the layout effect above. */
-          style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? undefined : "hidden" }}
+          style={panelStyle}
+          /* Esc closes the popover and stops there: this picker can be embedded
+             in the create-task form, whose own Esc handler would otherwise throw
+             away the whole draft. */
           onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
         >
           <label className="share-pop-label" htmlFor={selectId}>Share</label>
@@ -884,15 +932,6 @@ const TaskCard = memo(({
      in the collapsed row's action cell — open regardless of whether the
      row itself is expanded. */
   const [menuOpen, setMenuOpen] = useState(false);
-  /* The panel is portaled to document.body and fixed-positioned from the
-     hamburger's rect (#122) — as an absolutely-positioned descendant it was
-     clipped away by `.task-card`'s `overflow: hidden`, which on a collapsed row
-     cut off all but an ~8px sliver. Trigger and panel are no longer
-     ancestor/descendant, so both the positioning and the outside-click hit test
-     need their own refs. */
-  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const menuPanelRef = useRef<HTMLDivElement | null>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -901,72 +940,46 @@ const TaskCard = memo(({
     const id = setTimeout(() => setCancelStage("idle"), 1200);
     return () => clearTimeout(id);
   }, [cancelStage]);
-  const closeMenu = useCallback(() => {
-    setMenuOpen(false);
-    setMenuPos(null);
-  }, []);
-  /* Right-aligned: the hamburger sits to the LEFT of the primary action button,
-     so a left-anchored panel would drift under that button and off the card's
-     right edge. Growing leftward keeps it clear — this is what the old
-     `right: 0` absolute rule did. */
-  const placeMenu = useCallback(() => {
-    const trigger = menuTriggerRef.current;
-    if (!trigger) return;
-    const panel = menuPanelRef.current;
-    setMenuPos(placePanel(
-      trigger.getBoundingClientRect(),
-      panel?.offsetWidth || MENU_PANEL_WIDTH,
-      panel?.offsetHeight ?? 0,
-      "right"
-    ));
-  }, []);
-  /* Layout effect, not effect: the panel renders hidden for one commit while
-     `menuPos` is still null, and this measures and places it before paint, so
-     there's no visible jump. `cancelStage` is a dependency because the confirm
-     row and the "Cancelled ✓" flash swap the panel's contents and therefore its
-     height, which changes where an up-flipped panel has to sit. Re-places on
-     scroll (capture, to catch scrolling containers) and on resize. */
-  useLayoutEffect(() => {
-    if (!menuOpen) return;
-    placeMenu();
-    window.addEventListener("scroll", placeMenu, true);
-    window.addEventListener("resize", placeMenu);
-    return () => {
-      window.removeEventListener("scroll", placeMenu, true);
-      window.removeEventListener("resize", placeMenu);
-    };
-  }, [menuOpen, cancelStage, placeMenu]);
-  /* Dismiss on outside mousedown or Escape (#122 — the menu had neither).
-     Trigger and panel are two separate regions now, so both have to be hit
-     tested; checking only one would close the menu the instant it opened. The
-     share popover the menu hosts is portaled to the body as well (#113), so it
-     is a third region — without that exemption, picking a person would close
-     the menu and take the popover down with it. */
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  /* The panel is portaled to document.body and fixed-positioned from the
+     hamburger's rect (#122) — as an absolutely-positioned descendant it was
+     clipped away by `.task-card`'s `overflow: hidden`, which on a collapsed row
+     cut off all but an ~8px sliver.
+
+     Right-aligned: the hamburger sits to the LEFT of the primary action button,
+     so a left-anchored panel would drift under it and off the card's right edge.
+     `cancelStage` is the remeasure key — the confirm row and the "Cancelled ✓"
+     flash swap the panel's contents and so its height, which moves where an
+     up-flipped panel has to sit. The share popover the menu hosts is portaled to
+     the body too, so it needs the outside-click exemption: without it, picking a
+     person would close the menu and take the popover down with it. */
+  const { triggerRef: menuTriggerRef, panelRef: menuPanelRef, style: menuPanelStyle } =
+    useAnchoredPanel<HTMLButtonElement>({
+      open: menuOpen,
+      align: "right",
+      fallbackWidth: MENU_PANEL_WIDTH,
+      onDismiss: closeMenu,
+      remeasureKey: cancelStage,
+      keepOpenWithin: ".share-pop-panel"
+    });
+  /* Escape closes the menu (#122 — it had no dismissal at all). Focus is
+     usually still on the row, so this listens on the document rather than the
+     panel. Two exemptions, both for Esc handlers that already live inside the
+     panel and would otherwise fire together with this one: the share popover,
+     and any text field in the panel (the "Add a note" composer clears its draft
+     on Esc — losing the draft AND the menu in one keypress is not the ask). */
   useEffect(() => {
     if (!menuOpen) return;
-    const insideMenu = (target: EventTarget | null): boolean =>
-      !!target &&
-      (menuTriggerRef.current?.contains(target as Node) ||
-        menuPanelRef.current?.contains(target as Node) ||
-        !!(target as HTMLElement).closest?.(".share-pop-panel"));
-    const onDown = (e: globalThis.MouseEvent) => {
-      if (insideMenu(e.target)) return;
-      closeMenu();
-    };
     const onKey = (e: globalThis.KeyboardEvent) => {
-      /* Esc inside the share popover belongs to that popover — it closes there
-         and the menu stays put. */
       if (e.key !== "Escape") return;
-      if ((e.target as HTMLElement | null)?.closest?.(".share-pop-panel")) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.(".share-pop-panel")) return;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && menuPanelRef.current?.contains(target)) return;
       closeMenu();
     };
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen, closeMenu]);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen, closeMenu, menuPanelRef]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
   /* Who may attach a review note: the task's creator, its assignee, or an admin.
@@ -1412,12 +1425,13 @@ const TaskCard = memo(({
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
      Done). Cancel's confirm/done UI renders inside the same panel so it
      stays visible once triggered, matching the in-place-swap behavior it
-     always had. stopBubble on the wrapping span keeps clicks on the trigger
-     from also toggling the collapsed row's expand/collapse — and since the
-     panel is portaled to the body (#122) it is no longer inside that span, so
-     it carries its own stopBubble. A React portal still bubbles events through
-     the React tree, so without it every button in the panel would toggle the
-     row. */
+     always had. stopBubble on the wrapping span keeps clicks in this subtree
+     from also toggling the collapsed row's expand/collapse. The panel is
+     portaled to the body (#122) but still renders inside that span in the React
+     tree, and React events propagate through the React tree rather than the DOM
+     one, so the span still covers it — the panel repeats stopBubble anyway,
+     because relying on a DOM-detached ancestor for that is exactly the kind of
+     thing a later refactor breaks silently. */
   const menuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || cancelStage !== "idle");
   const actionsMenu = menuHasContent && (
     <span onClick={stopBubble} className="task-card-menu">
@@ -1442,9 +1456,7 @@ const TaskCard = memo(({
           className="task-card-menu-panel"
           role="menu"
           onClick={stopBubble}
-          /* Hidden (but still laid out, so it can be measured) until `placeMenu`
-             has run — see the layout effect above. */
-          style={{ top: menuPos?.top ?? 0, left: menuPos?.left ?? 0, visibility: menuPos ? undefined : "hidden" }}
+          style={menuPanelStyle}
         >
           {cancelBlock}
           {secondaryActionsBlock}

@@ -158,24 +158,34 @@ stripe, and the grouped-row shadow all depend on it — so any panel taller
 than a collapsed row has to leave the card instead. Both the share popover
 (`.share-pop-panel`, #113) and the hamburger's actions menu
 (`.task-card-menu-panel`, #122) are `createPortal`'d to `document.body` and
-`position: fixed`, placed from their trigger's `getBoundingClientRect()` by
-the shared `placePanel` helper in `App.tsx`: prefer downward, flip up only
-when below can't fit and above can, clamp both axes to the viewport, and
-re-place on capture-phase `scroll` and on `resize`. The menu right-aligns
-to its trigger (the hamburger sits left of the quick action); the share
-popover left-aligns. z-index: menu 55, share popover 60 — the popover opens
-out of the menu and layers over it.
+`position: fixed`. Both go through the `useAnchoredPanel` hook in `App.tsx`,
+which owns the trigger/panel ref pair, the placement (`placePanel`: prefer
+downward, flip up only when below can't fit and above can, clamp both axes
+to the viewport), re-placement on capture-phase `scroll` and on `resize`,
+and outside-click dismissal. The menu right-aligns to its trigger (the
+hamburger sits left of the quick action); the share popover left-aligns.
+z-index: menu 55, share popover 60 — the popover opens out of the menu and
+layers over it.
 
-Two consequences of portaling, both easy to regress:
+Things portaling makes easy to get wrong:
 
-- The panel is no longer a DOM descendant of the row, so **outside-click
-  dismissal has to hit-test each region separately** — trigger, panel, and
-  (for the menu) the share popover it hosts. Testing only one closes the
-  panel the instant it opens, or tears the popover down mid-share.
-- The panel is no longer inside the `stopPropagation` span that shields the
-  row's expand/collapse toggle, so it carries **its own `stopBubble`**.
-  React portals still bubble through the React tree; without it every button
-  in the panel would also toggle the row.
+- The panel isn't a DOM descendant of the row, so **outside-click dismissal
+  hit-tests each region separately** — trigger, panel, and any panel *this*
+  panel hosts (`keepOpenWithin`, which the menu points at
+  `.share-pop-panel`). Testing only one closes the panel the instant it
+  opens, or tears the share popover down mid-share.
+- **Escape stays with each caller**, deliberately. The share popover
+  swallows it (`stopPropagation` on the panel) because the picker can be
+  embedded in the create-task form, whose own Esc handler would bin the
+  draft. The menu listens on the `document` (focus is usually still on the
+  row) and exempts two targets whose own Esc handlers live inside it: the
+  share popover, and any text field in the panel — the "Add a note" composer
+  clears its draft on Esc, and one keypress shouldn't take the draft and the
+  menu.
+- React events propagate through the **React** tree, not the DOM one, so the
+  wrapping `stopPropagation` span still shields the portaled panel from
+  toggling the row. The panel repeats `stopBubble` anyway — depending on a
+  DOM-detached ancestor for that is what a later refactor breaks silently.
 
 ### Empty action slot — three-way resolution (#117)
 
