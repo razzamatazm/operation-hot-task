@@ -217,8 +217,11 @@ The `primaryAction` ladder covers one status-and-role case per branch
 blank by default — a bare hamburger with dead space beside it read as a
 rendering failure on your own tasks. In order:
 
-1. **`Waiting on <first name>`** — you're a party to the task (creator or
-   assignee) and the flow is waiting on the *other* party. Whose move it is
+1. **`Waiting on <first name>`** — the flow is waiting on somebody who isn't
+   the viewer. Shown to **observers too**, not only the creator and assignee:
+   it is passive information, it says the same thing the Assigner/Assignee
+   columns already say, and these are precisely the statuses where the row
+   would otherwise render dead space. Whose move it is
    comes from `pendingPartyFor` in `packages/shared/src/workflow.ts` —
    `MERGE_DONE`→creator, `MERGE_APPROVED`→assignee, `AWAITING_ITEMS`→creator,
    `PENDING_APPROVAL`→assignee — never re-derived in the view. Rendered as a

@@ -1170,11 +1170,15 @@ const TaskCard = memo(({
      produced nothing (#117). An empty slot used to read as a rendering
      failure on your own tasks. In order:
 
-       1. `Waiting on <first name>` — you're a party to the task and the flow
-          is waiting on the *other* party (pendingPartyFor, from the shared
-          workflow module). Passive label, never a button: the ball is
-          legitimately in someone else's court, so offering a destructive
-          action here would be wrong.
+       1. `Waiting on <first name>` — the flow is waiting on someone who
+          isn't you (pendingPartyFor, from the shared workflow module).
+          Passive label, never a button: the ball is legitimately in someone
+          else's court, so offering a destructive action here would be wrong.
+          Shown to observers too, not just the creator and assignee (#117
+          originally gated it on being a party). It states whose move it is,
+          which is the same thing the Assigner/Assignee columns already tell
+          an observer, and the slot is otherwise dead space on exactly the
+          statuses where the row has the least to say.
        2. Cancel — you created it and it's still cancellable. Deliberately the
           *creator* condition, not the shared canCancelTask (which also allows
           admins): a destructive action must not appear in an admin's row for
@@ -1185,7 +1189,7 @@ const TaskCard = memo(({
   const pendingParty = pendingPartyFor(task);
   const waitingOn = pendingParty === "CREATOR" ? task.createdBy : pendingParty === "ASSIGNEE" ? task.assignee : undefined;
   const waitingLabel =
-    !primaryAction && (isCreator || isAssignee) && waitingOn && waitingOn.id !== user.id
+    !primaryAction && waitingOn && waitingOn.id !== user.id
       ? `Waiting on ${firstName(waitingOn.displayName)}`
       : null;
   /* `transitions` already carries the status's allowed moves, so CANCELLED
