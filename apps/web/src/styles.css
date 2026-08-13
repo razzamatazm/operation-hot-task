@@ -2833,7 +2833,25 @@ button.btn-good:hover {
 }
 .task-card-action-cell .task-card-menu { grid-column: 1; }
 .task-card-action-cell .task-card-quick-action,
+.task-card-action-cell .task-card-quick-action-waiting,
 .task-card-action-cell .task-card-quick-action-empty { grid-column: 2; }
+/* Passive "Waiting on <name>" indicator (#117) — a label, not a button:
+   muted mono, no border, no fill, no pointer. Takes the same
+   --quick-action-w the buttons take so the column stays aligned whichever
+   of the three things lands in the slot. */
+.task-card-action-cell .task-card-quick-action-waiting {
+  width: var(--quick-action-w);
+  justify-self: stretch;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* One width for every quick action, whatever the label (#116). Was
    `width: auto; max-width: none` (#91), which sized each button to its own
    label and is exactly what made the row ragged. Labels are now short enough
@@ -2888,4 +2906,7 @@ button.btn-good:hover {
     grid-template-columns: none;
   }
   .task-card-action-cell .task-card-quick-action { width: auto; max-width: none; }
+  /* Same content-sizing for the waiting indicator (#117) — the stacked row
+     has no fixed action column to align to. */
+  .task-card-action-cell .task-card-quick-action-waiting { width: auto; }
 }
