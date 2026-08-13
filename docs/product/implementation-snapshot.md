@@ -5,6 +5,10 @@ Verified against the repo and local run on `2026-05-04`.
 - Monorepo with:
   - `apps/web`: React + Vite Teams tab UI
   - `apps/server`: Express API, scheduler, SSE stream, Teams bot endpoint, notification plumbing
+    - Task-mutating routes respond as soon as the store write and the SSE
+      broadcast are done; notification fan-out and activity-signal evaluation
+      run after the response, chained per task (#119). See
+      [notifications-bot.md](notifications-bot.md#delivery-timing).
   - `packages/shared`: shared task types, workflow rules, due-date logic
   - `teams-app`: Teams manifest template and icon assets
 - Local development uses:
