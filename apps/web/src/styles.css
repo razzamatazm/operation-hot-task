@@ -2885,12 +2885,26 @@ button.btn-good:hover {
    content-sized pair resolves per row and walks the due stamp sideways. */
 .task-card-grouped-mini {
   min-height: 34px; padding-top: 4px; padding-bottom: 4px;
-  grid-template-columns: 4px minmax(0, 1fr) 176px clamp(60px, 8vw, 110px) var(--action-col-w);
+  grid-template-columns: 4px minmax(0, 1fr) 168px 72px 32px;
   grid-template-areas: "stripe title pair due action";
   row-gap: 0;
 }
 /* Sits on the title's line, right-aligned, rather than under it. */
 .task-card-grouped-mini .task-card-grouped-due { justify-self: end; }
+/* A mini never renders a quick action — measured 117 of 117 rows carrying
+   nothing but the hamburger — so it reserves the hamburger's 32px only,
+   not the full --action-col-w. Reserving the button slot stranded the
+   hamburger 136px short of the row's right edge and left the whole
+   pair / done-time / hamburger cluster floating in the middle of the row.
+   The three mini columns are still FIXED (#116) so they align mini-to-mini;
+   they are just sized to what a mini actually renders — measured across the
+   same 117 rows, widest pair 164px ("Suzie → Unclaimed") and widest
+   done-time 65px. Net effect: the cluster's right edge lines up with the
+   quick-action button's right edge on the active rows above it. */
+.task-card-grouped-mini .task-card-action-cell {
+  grid-template-columns: 32px;
+  justify-self: end;
+}
 .task-card-grouped-mini .task-card-collapsed-type { font-size: 0.82rem; font-weight: 600; }
 .task-card-grouped-mini .task-card-pair-name { font-size: 0.74rem; }
 
