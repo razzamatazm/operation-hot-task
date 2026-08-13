@@ -54,7 +54,10 @@ const setup = async () => {
    MERGE_DONE → MERGE_APPROVED path, so advance along the shared flow rather
    than assuming CLAIMED → COMPLETED. */
 const createCompleted = async (service, taskType = "VALUE") => {
-  const oooDates = taskType === "OOO" ? { startDate: "2026-08-10", returnDate: "2026-08-12" } : {};
+  // Relative to today, not hardcoded: createTask rejects an OOO whose return
+  // date resolves to a due time in the past, so fixed dates rot into a failure.
+  const isoDay = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+  const oooDates = taskType === "OOO" ? { startDate: isoDay(1), returnDate: isoDay(3) } : {};
   const task = await service.createTask(
     { folderName: "Note Sim", taskType, notes: "base notes here", ...oooDates },
     CREATOR

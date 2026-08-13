@@ -49,9 +49,16 @@ const setup = async () => {
 };
 
 // Return the events emitted while `fn` runs (by slicing the shared buffer).
-const capture = async (events, fn) => {
+// Notification fan-out is dispatched off the request path (#119), so wait for
+// the service's outstanding background work to settle before reading the buffer
+// — never a sleep, this awaits the real completion.
+const capture = async (service, events, fn) => {
+  // Drain anything still in flight from earlier setup calls first, so the slice
+  // below only contains what `fn` itself caused.
+  await service.settleBackgroundWork();
   const start = events.length;
   const result = await fn();
+  await service.settleBackgroundWork();
   return { result, emitted: events.slice(start) };
 };
 
@@ -104,7 +111,7 @@ await check("CLAIMED → AWAITING_ITEMS is rejected without a note", async () =>
 await check("hand-back with a note succeeds, records it, and DMs only the creator", async () => {
   const { service, events } = await setup();
   const id = await createClaimedFraud(service);
-  const { result, emitted } = await capture(events, () =>
+  const { result, emitted } = await capture(service, events, () =>
     service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "Need 2023 tax returns")
   );
   assert.equal(result.status, "AWAITING_ITEMS");
@@ -132,7 +139,7 @@ await check("PENDING_APPROVAL entry recomputes a fresh EOD dueAt and DMs the che
   const originalDueAt = beforeAwaiting.dueAt;
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "Need proof of funds");
 
-  const { result, emitted } = await capture(events, () =>
+  const { result, emitted } = await capture(service, events, () =>
     service.transitionStatus(id, "PENDING_APPROVAL", CREATOR)
   );
   assert.equal(result.status, "PENDING_APPROVAL");
