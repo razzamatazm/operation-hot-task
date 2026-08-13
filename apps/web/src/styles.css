@@ -57,9 +57,10 @@
   /* Brightened from #706c63 (2026-08-13, dark mode legibility) — 3.08:1
      against --panel failed normal-text AA; #8d887e clears 4.5:1. */
   --muted: #8d887e;
-  /* Brightened from #2e313a — 1.24:1 against --panel made input/panel
-     borders nearly invisible; #686b73 clears the 3:1 UI-component bar. */
-  --line: #686b73;
+  /* Brightened from #2e313a (1.24:1) then again from #686b73 (3.02:1) —
+     a 1px hairline at the 3:1 UI-component minimum still read as
+     invisible in practice; #989ca4 (5.85:1) is unambiguous at a glance. */
+  --line: #989ca4;
   --line-soft: #262930;
   --brand: #6da3e0;
   --brand-hover: #8bb8ec;
@@ -355,7 +356,12 @@ input, select, textarea {
   padding: 7px 9px;
   font: inherit;
   font-size: 0.85rem;
-  background: var(--panel);
+  /* A same-color fill on --panel left the field's only edge to a thin
+     border, which read as invisible even at a "passing" contrast ratio
+     (dark-mode legibility fix, 2026-08-13). Nudging the fill toward --ink
+     gives every field a visible recessed box against whatever surface
+     it's on, light or dark, without hard-coding a color. */
+  background: color-mix(in srgb, var(--panel), var(--ink) 6%);
   color: var(--ink);
   transition: border-color 0.15s;
 }
