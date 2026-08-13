@@ -48,10 +48,11 @@ const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
 
 export class TaskService {
-  /* Post-response fan-out currently in flight (#119). Every entry is a promise
-     that has already had its rejection handled by `background`, so awaiting the
-     set can never reject. */
-  private readonly outstandingBackgroundWork = new Set<Promise<void>>();
+  /* Post-response fan-out currently in flight (#119), one chain per task id.
+     Every entry has already had its rejection handled by `background`, so
+     awaiting them can never reject. Entries are dropped as they drain, so this
+     stays bounded by the number of tasks being acted on right now. */
+  private readonly backgroundChains = new Map<string, Promise<void>>();
 
   constructor(
     private readonly store: TaskStore,
@@ -465,135 +466,163 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
-    this.background(async () => {
+    this.background(
+      () => this.notifyStatusChange({ updated, task, next, user, outstandingNote, now }),
+      { method: "transitionStatus", taskId: updated.id }
+    );
+
+    return updated;
+  }
+
+  /* The whole notification fan-out for a status change, in one place. Extracted
+     verbatim from transitionStatus (#119) — the sequence and its conditions are
+     unchanged, it just no longer nests a 125-line if-cascade inside a closure
+     inside the method that computes the transition. Runs in the background,
+     chained per task, so the relative order below is what actually reaches
+     Teams. */
+  private async notifyStatusChange({
+    updated,
+    task,
+    next,
+    user,
+    outstandingNote,
+    now
+  }: {
+    /* The already-persisted task, post-transition. */
+    updated: LoanTask;
+    /* Its pre-transition state — only the participant ids are read, for the
+       NEEDS_REVIEW recipient list. */
+    task: LoanTask;
+    next: TaskStatus;
+    user: UserIdentity;
+    outstandingNote: string | undefined;
+    now: string;
+  }): Promise<void> {
+    await this.notify({
+      type: next === "ARCHIVED" ? "TASK_ARCHIVED" : "TASK_STATUS_CHANGED",
+      task: updated,
+      actor: { id: user.id, displayName: user.displayName },
+      message: `${user.displayName} moved ${updated.folderName} to ${next}`,
+      target: "IN_APP"
+    });
+
+    // Re-open (back to OPEN with no assignee) restores the claimable channel
+    // card. When an assignee is retained the task returns to CLAIMED, so the
+    // card stays in its claimed state and needs no flip.
+    if (updated.status === "OPEN") {
       await this.notify({
-        type: next === "ARCHIVED" ? "TASK_ARCHIVED" : "TASK_STATUS_CHANGED",
+        type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `${user.displayName} moved ${updated.folderName} to ${next}`,
-        target: "IN_APP"
+        message: `${updated.folderName} is back up for grabs`,
+        target: "CHANNEL_REOPENED"
       });
+    }
 
-      // Re-open (back to OPEN with no assignee) restores the claimable channel
-      // card. When an assignee is retained the task returns to CLAIMED, so the
-      // card stays in its claimed state and needs no flip.
-      if (updated.status === "OPEN") {
+    if (next === "NEEDS_REVIEW") {
+      const recipients = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id) && id !== user.id);
+      if (recipients.length > 0) {
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: updated,
           actor: { id: user.id, displayName: user.displayName },
-          message: `${updated.folderName} is back up for grabs`,
-          target: "CHANNEL_REOPENED"
+          message: `${updated.folderName} needs your eyes`,
+          target: "ACTIVITY_FEED",
+          recipientUserIds: recipients
         });
       }
+    }
 
-      if (next === "NEEDS_REVIEW") {
-        const recipients = [task.createdBy.id, task.assignee?.id].filter((id): id is string => Boolean(id) && id !== user.id);
-        if (recipients.length > 0) {
+    if (next === "MERGE_DONE" || next === "COMPLETED") {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: next === "COMPLETED" ? `Done and dusted 🎉` : `Merge done — almost home`,
+        target: "DM",
+        recipientUserIds: [updated.createdBy.id]
+      });
+    }
+
+    if (next === "COMPLETED") {
+      // Silently edit the channel card to its terminal completed state.
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.folderName} completed`,
+        target: "CHANNEL_COMPLETED"
+      });
+    }
+
+    if (next === "CANCELLED") {
+      // Silently edit the channel card to its terminal cancelled state (covers
+      // both a creator's card-tap Cancel and a cancel from the web app).
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `${updated.folderName} cancelled`,
+        target: "CHANNEL_CANCELLED"
+      });
+    }
+
+    if (next === "MERGE_APPROVED" && updated.assignee) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `Got the green light`,
+        target: "DM",
+        recipientUserIds: [updated.assignee.id]
+      });
+    }
+
+    // FRAUD entry to AWAITING_ITEMS (private — no channel post): exactly one
+    // lifecycle DM to the creator that the ball is now in their court, plus the
+    // outstanding-items note itself as a DM note card so the two participants
+    // have somewhere to chat. Never repeated; the reminder engine stays silent
+    // here (AWAITING_ITEMS is not in ACTIVE_STATUSES and never reads overdue).
+    if (next === "AWAITING_ITEMS") {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `Fraud check came back with outstanding items — it's in your court`,
+        target: "DM",
+        recipientUserIds: [updated.createdBy.id]
+      });
+      if (outstandingNote) {
+        const noteRecipients = Array.from(
+          new Set([updated.createdBy.id, updated.assignee?.id].filter((id): id is string => Boolean(id)))
+        );
+        if (noteRecipients.length > 0) {
           await this.notify({
             type: "TASK_STATUS_CHANGED",
             task: updated,
             actor: { id: user.id, displayName: user.displayName },
-            message: `${updated.folderName} needs your eyes`,
-            target: "ACTIVITY_FEED",
-            recipientUserIds: recipients
+            message: outstandingNote,
+            target: "DM_NOTE",
+            recipientUserIds: noteRecipients
           });
         }
       }
+    }
 
-      if (next === "MERGE_DONE" || next === "COMPLETED") {
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: next === "COMPLETED" ? `Done and dusted 🎉` : `Merge done — almost home`,
-          target: "DM",
-          recipientUserIds: [updated.createdBy.id]
-        });
-      }
-
-      if (next === "COMPLETED") {
-        // Silently edit the channel card to its terminal completed state.
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: `${updated.folderName} completed`,
-          target: "CHANNEL_COMPLETED"
-        });
-      }
-
-      if (next === "CANCELLED") {
-        // Silently edit the channel card to its terminal cancelled state (covers
-        // both a creator's card-tap Cancel and a cancel from the web app).
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: `${updated.folderName} cancelled`,
-          target: "CHANNEL_CANCELLED"
-        });
-      }
-
-      if (next === "MERGE_APPROVED" && updated.assignee) {
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: `Got the green light`,
-          target: "DM",
-          recipientUserIds: [updated.assignee.id]
-        });
-      }
-
-      // FRAUD entry to AWAITING_ITEMS (private — no channel post): exactly one
-      // lifecycle DM to the creator that the ball is now in their court, plus the
-      // outstanding-items note itself as a DM note card so the two participants
-      // have somewhere to chat. Never repeated; the reminder engine stays silent
-      // here (AWAITING_ITEMS is not in ACTIVE_STATUSES and never reads overdue).
-      if (next === "AWAITING_ITEMS") {
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: `Fraud check came back with outstanding items — it's in your court`,
-          target: "DM",
-          recipientUserIds: [updated.createdBy.id]
-        });
-        if (outstandingNote) {
-          const noteRecipients = Array.from(
-            new Set([updated.createdBy.id, updated.assignee?.id].filter((id): id is string => Boolean(id)))
-          );
-          if (noteRecipients.length > 0) {
-            await this.notify({
-              type: "TASK_STATUS_CHANGED",
-              task: updated,
-              actor: { id: user.id, displayName: user.displayName },
-              message: outstandingNote,
-              target: "DM_NOTE",
-              recipientUserIds: noteRecipients
-            });
-          }
-        }
-      }
-
-      // FRAUD entry to PENDING_APPROVAL (private — no channel post): exactly one DM
-      // to the checker (assignee) that the items are back for review. The fresh
-      // end-of-day clock (set above) then hands off to the normal reminder engine.
-      if (next === "PENDING_APPROVAL" && updated.assignee) {
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: `Items are back — ready for your final review`,
-          target: "DM",
-          recipientUserIds: [updated.assignee.id]
-        });
-      }
-      await this.evaluateActivitySignals({ now: new Date(now) });
-    }, { method: "transitionStatus", taskId: updated.id });
-
-    return updated;
+    // FRAUD entry to PENDING_APPROVAL (private — no channel post): exactly one DM
+    // to the checker (assignee) that the items are back for review. The fresh
+    // end-of-day clock (set above) then hands off to the normal reminder engine.
+    if (next === "PENDING_APPROVAL" && updated.assignee) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: user.id, displayName: user.displayName },
+        message: `Items are back — ready for your final review`,
+        target: "DM",
+        recipientUserIds: [updated.assignee.id]
+      });
+    }
+    await this.evaluateActivitySignals({ now: new Date(now) });
   }
 
   async addReviewNote(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
@@ -1165,9 +1194,19 @@ export class TaskService {
      so the awaits inside it still run in order — a channel post can never land
      before its in-app counterpart. Never float a bare promise instead: an
      unhandled rejection is a hard process crash in Node, so the rejection is
-     caught and logged here, mirroring `notify`'s own failure path. */
+     caught and logged here, mirroring `notify`'s own failure path.
+
+     Work is chained PER TASK rather than run free. Awaiting used to give a
+     second request on the same task an implicit guarantee — claim's fan-out had
+     finished before transition's could start — and dropping the await would
+     otherwise let a CHANNEL_COMPLETED card edit overtake the CHANNEL_CLAIMED one
+     that should precede it. Chaining per task id restores exactly that ordering.
+     It is deliberately not ONE global chain: fan-out for unrelated tasks already
+     ran concurrently today (concurrent requests), and a single queue would let
+     one hanging notifier stall every other task's notifications forever. */
   private background(work: () => Promise<void>, context: { method: string; taskId: string }): void {
-    const running = (async () => {
+    const previous = this.backgroundChains.get(context.taskId) ?? Promise.resolve();
+    const next = previous.then(async () => {
       try {
         await work();
       } catch (error) {
@@ -1177,21 +1216,23 @@ export class TaskService {
           error: error instanceof Error ? error.message : String(error)
         });
       }
-    })();
-    this.outstandingBackgroundWork.add(running);
-    void running.then(() => {
-      this.outstandingBackgroundWork.delete(running);
+    });
+    this.backgroundChains.set(context.taskId, next);
+    void next.then(() => {
+      // Only drop it if nothing else has extended this task's chain meanwhile.
+      if (this.backgroundChains.get(context.taskId) === next) {
+        this.backgroundChains.delete(context.taskId);
+      }
     });
   }
 
-  /* Await every outstanding background fan-out. For tests only: the sim tests
-     drive the service directly and assert that notifications have been
-     dispatched by the time a call resolves. They await this instead of sleeping.
-     Loops because a settling chain can enqueue nothing new today, but the loop
-     keeps that assumption from silently breaking. */
+  /* Await every outstanding background fan-out. For tests: the sim tests drive
+     the service directly and assert that notifications have been dispatched by
+     the time a call resolves. They await this instead of sleeping. The loop is
+     load-bearing — a chain can be extended while we're awaiting it. */
   async settleBackgroundWork(): Promise<void> {
-    while (this.outstandingBackgroundWork.size > 0) {
-      await Promise.all([...this.outstandingBackgroundWork]);
+    while (this.backgroundChains.size > 0) {
+      await Promise.all([...this.backgroundChains.values()]);
     }
   }
 

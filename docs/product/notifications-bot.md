@@ -78,6 +78,34 @@
 - Copy is intentionally personable/casual (e.g. "tossed a new file check on the
   pile", "grabbed this one — on it now"), low on emoji.
 
+## Delivery Timing
+
+Notification fan-out runs **after** the HTTP response, not before it (#119). A
+task-mutating request is only obliged to wait for two things: the store write,
+and the in-memory SSE broadcast that drives live updates for connected web
+clients. Everything else — every notification above, plus the activity-signal
+evaluation pass — is dispatched by `TaskService`'s private `background` helper
+once the response is already on its way.
+
+What this means in practice:
+
+- **A slow or hanging Teams post no longer stretches the API response.** It used
+  to: the notifier swallows its own errors, so a degraded notifier surfaced only
+  as a slow request, which is what let a user click Create twice (#115).
+- **Delivery is best-effort, and always was.** A failure is caught and logged
+  (`background_work_failed`, alongside the existing `notification_send_failed`)
+  and never fails the request. There is no retry and no dead-letter queue.
+- **Order is preserved per task.** Background work is chained by task id, so a
+  task's notifications go out in the same relative order as before — a
+  `CHANNEL_COMPLETED` card edit can't overtake the `CHANNEL_CLAIMED` one that
+  should precede it. Unrelated tasks fan out concurrently, as they already did
+  for concurrent requests.
+- **`runMaintenance` is the exception.** The scheduler's pass still awaits its
+  own notifications, because nothing is waiting on it and its counts are its
+  return value.
+- `shareTask`'s reachability probe (`canReachDm`) stays on the request path,
+  because `delivered` is part of the response body.
+
 ## Bot v1 Scope
 
 - Notifications/reminders

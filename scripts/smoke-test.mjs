@@ -84,6 +84,13 @@ const createServer = async (port, extraEnv = {}, { botReferences } = {}) => {
   const dataFile = path.join(tempDir, "tasks.json");
   const botRefs = path.join(tempDir, "bot-references.json");
   const activityStateFile = path.join(tempDir, "activity-feed-state.json");
+  /* Users and admin settings must be temp-scoped too. Left unset they fall back
+     to the repo's committed data dir, which a local dev server also writes to —
+     so anyone who had run `npm run dev` (and thereby registered an extra admin)
+     would see the "cannot demote the last admin" case fail here for reasons
+     that have nothing to do with the code under test. */
+  const usersFile = path.join(tempDir, "users.json");
+  const adminSettingsFile = path.join(tempDir, "admin-settings.json");
 
   // Optionally pre-seed stored bot DM references so the share flow can report
   // delivered=true for a "bot-onboarded" user (issue #41). Written before the
@@ -102,6 +109,8 @@ const createServer = async (port, extraEnv = {}, { botReferences } = {}) => {
       DATA_FILE: dataFile,
       BOT_REFERENCES_FILE: botRefs,
       ACTIVITY_FEED_STATE_FILE: activityStateFile,
+      USERS_FILE: usersFile,
+      ADMIN_SETTINGS_FILE: adminSettingsFile,
       ...extraEnv
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -982,6 +991,11 @@ const run = async () => {
         ]
       }
     );
+    // The share target has to be a known user. This server has its own isolated
+    // user store, so introduce the file checker with one authenticated request
+    // (/me resolves and upserts the caller) rather than relying on whatever happens
+    // to be sitting in the repo's shared data dir.
+    await request(deliveredServer.baseUrl, "GET", "/me", { user: users.fileChecker });
     const created = await request(deliveredServer.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: { folderName: "Delivered Share", taskType: "LOI", notes: "delivered test" }

@@ -70,7 +70,7 @@ const setup = async (notifyImpl) => {
     originalBroadcast(message);
   };
   const service = new TaskService(store, notifier, hub, config);
-  return { service, events, broadcasts };
+  return { service, store, events, broadcasts };
 };
 
 let passed = 0;
@@ -136,6 +136,38 @@ await check("claim and transition also return without waiting on fan-out", async
   assert.deepEqual(claimTargets, ["DM_CLAIM", "DM", "CHANNEL_CLAIMED", "DM_CHAT_SEED"]);
 });
 
+await check("two requests on one task keep their fan-out in order", async () => {
+  // Awaiting used to give the second request an implicit guarantee: claim's
+  // notifications were all sent before transition's could start. Backgrounding
+  // per task preserves that. A slow first notification must NOT let the later
+  // request's channel edit overtake the earlier one.
+  // Stall the FIRST notification of the claim chain. Unchained, the later
+  // transition's fan-out would sail past it and invert the card edits.
+  const { service, events } = await setup(async (event) => {
+    if (event.target === "DM_CLAIM") {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  });
+
+  const task = await service.createTask(
+    { folderName: "Ordering Sim", taskType: "VALUE", notes: "n" },
+    CREATOR
+  );
+  await service.claimTask(task.id, CHECKER);
+  await service.transitionStatus(task.id, "COMPLETED", CHECKER);
+  await service.settleBackgroundWork();
+
+  const targets = events.map((e) => e.target);
+  assert.ok(
+    targets.indexOf("CHANNEL_CLAIMED") < targets.indexOf("CHANNEL_COMPLETED"),
+    `the claimed card edit still precedes the completed one (got ${targets.join(" -> ")})`
+  );
+  assert.ok(
+    targets.indexOf("CHANNEL") < targets.indexOf("CHANNEL_CLAIMED"),
+    "the create's channel post still precedes the claim's card edit"
+  );
+});
+
 await check("shareTask returns its delivered flag without waiting on the DM send", async () => {
   const stall = gate();
   const { service, events } = await setup(() => stall.opened);
@@ -183,14 +215,39 @@ await check("a throwing notifier fails neither the request nor the process", asy
 });
 
 await check("runMaintenance still awaits its own notifications", async () => {
-  const seen = [];
-  const { service } = await setup(async (event) => {
-    seen.push(event.target);
-  });
+  // Seed an overdue CLAIMED task straight into the store so maintenance has a
+  // reminder to send, then assert it has ALREADY been dispatched the moment
+  // runMaintenance resolves — with no settleBackgroundWork call in between.
+  // That is the assertion that fails if maintenance is ever backgrounded too.
+  const { service, store, events } = await setup();
+  const past = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  await store.replaceTasks([
+    {
+      id: "maintenance-overdue",
+      folderName: "Maintenance Sim",
+      loanName: "Maintenance Sim",
+      taskType: "LOI",
+      dueAt: past,
+      urgency: "RED",
+      points: 0,
+      notes: "overdue",
+      status: "CLAIMED",
+      createdAt: past,
+      updatedAt: past,
+      createdBy: { id: CREATOR.id, displayName: CREATOR.displayName },
+      assignee: { id: CHECKER.id, displayName: CHECKER.displayName }
+    }
+  ]);
+
+  const before = events.length;
   const result = await service.runMaintenance();
-  // Nothing was outstanding when runMaintenance resolved — it is scheduler-driven
-  // and deliberately not backgrounded.
-  assert.deepEqual(result, { reminded: 0, purged: 0, autoArchived: 0 });
+
+  assert.equal(result.reminded, 1, "maintenance still reports accurate counts");
+  assert.equal(
+    events.slice(before).filter((e) => e.type === "TASK_REMINDER").length,
+    1,
+    "the reminder was dispatched before runMaintenance resolved — not backgrounded"
+  );
 });
 
 console.log(`\nAll ${passed} background fan-out checks passed.`);
