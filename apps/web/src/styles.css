@@ -1461,8 +1461,8 @@ button.btn-good:hover {
   top: calc(100% + 6px);
   /* Right-anchored to the trigger, not left — the hamburger sits to the
      left of the primary action button, so a left-anchored panel would
-     drift under that button and toward the card's right edge on long
-     labels ("Submit for Approval"). Growing left instead keeps it clear. */
+     drift under that button and toward the card's right edge. Growing left
+     instead keeps it clear. */
   right: 0;
   z-index: 20;
   display: flex;
@@ -2722,12 +2722,25 @@ button.btn-good:hover {
 /* Collapsed grouped row: stripe | pair | title | due | action */
 .task-card-grouped {
   display: grid;
-  /* Title first (its minmax(0, 1fr) column is always the one that gives,
-     via ellipsis), then the pair sitting immediately left of due — both
-     size to content instead of a clamped column, so full names never
-     truncate (see .task-card-pair-name). Only falls to a second line at
-     the ~780px stacked breakpoint below. */
-  grid-template-columns: 4px minmax(0, 1fr) max-content clamp(60px, 8vw, 110px) auto;
+  /* FIXED columns, deliberately (#116). Every row is its own grid, so a
+     content-sized column (`max-content` for the pair, `auto` for the action
+     cell) resolves to a different width on each row and nothing lines up
+     down the list — the pair, due, hamburger and button used to drift up to
+     86px between neighbouring rows. Only the title column is elastic
+     (`minmax(0, 1fr)`), so it stays the one that gives, via ellipsis. */
+  /* Fits the widest pair the column actually renders — measured at 191px for
+     "Johanna → Unclaimed" ("Unclaimed" is the longest token, and it pairs with
+     the longest first name). Anything longer than this wraps rather than
+     truncating; see .task-card-pair. */
+  --pair-col-w: 196px;
+  /* One shared width for every quick action, so Claim and Approve Merge are
+     the same control. "Approve Merge" is the longest label that lands here
+     and measures ~112px at this font size — 116px clears it. */
+  --quick-action-w: 116px;
+  /* hamburger (32px) + gap (6px) + button. Reserved on every row, including
+     rows with no action, so the two never trade places. */
+  --action-col-w: calc(var(--quick-action-w) + 38px);
+  grid-template-columns: 4px minmax(0, 1fr) var(--pair-col-w) clamp(60px, 8vw, 110px) var(--action-col-w);
   grid-template-areas: "stripe title pair due action";
   align-items: center;
   gap: clamp(8px, 1.4vw, 14px);
@@ -2749,7 +2762,17 @@ button.btn-good:hover {
 
 /* Assigner→assignee, one line: avatar pill + arrow, not two stacked
    "ASSIGNEE"/"ASSIGNER" label rows. */
-.task-card-pair { grid-area: pair; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+/* Wrap, never truncate. The column is a fixed 196px (see --pair-col-w), sized
+   past the widest pair the app renders (~191px, "Johanna → Unclaimed"), so this
+   should effectively never fire — but if an unusually long name shows up the pair
+   drops to a second line rather than ellipsizing a first name, which is a
+   standing rule (see .task-card-pair-name). Same treatment the stacked
+   breakpoint already applies. */
+.task-card-pair {
+  grid-area: pair;
+  display: flex; flex-wrap: wrap;
+  align-items: center; gap: 6px; row-gap: 2px; min-width: 0;
+}
 .task-card-pair-person { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .task-card-pair-avatar {
   width: 20px; height: 20px; border-radius: 50%; flex: none;
@@ -2796,11 +2819,31 @@ button.btn-good:hover {
 /* Wraps the primary action + the hamburger menu, so both land together in
    the grid's single "action" column/area. One button style for the
    primary action, regardless of kind — see quickActionClass in App.tsx. */
-.task-card-action-cell { grid-area: action; display: flex; align-items: center; gap: 6px; }
-/* The action grid column is `auto` here (#91) — size the button to its own
-   label instead of the shared 116px cap, so a long one ("Submit for
-   Approval", "Mark Merge Done") never clips or overlaps the due column. */
-.task-card-action-cell .task-card-quick-action { width: auto; max-width: none; }
+/* Two fixed tracks, not a flex row (#116): the hamburger and the button each
+   get their own column and are placed by name, so a row missing one doesn't
+   slide the other left. Rows with no action at all still reserve column 2.
+   Assigning by grid-column (rather than source order) is what makes that work
+   — the hamburger is optional and renders first in the DOM. */
+.task-card-action-cell {
+  grid-area: action;
+  display: grid;
+  grid-template-columns: 32px var(--quick-action-w);
+  align-items: center;
+  gap: 6px;
+}
+.task-card-action-cell .task-card-menu { grid-column: 1; }
+.task-card-action-cell .task-card-quick-action,
+.task-card-action-cell .task-card-quick-action-empty { grid-column: 2; }
+/* One width for every quick action, whatever the label (#116). Was
+   `width: auto; max-width: none` (#91), which sized each button to its own
+   label and is exactly what made the row ragged. Labels are now short enough
+   to fit (see ACTION_LABELS in packages/shared) — "Approve Merge" is the
+   longest and sets the ceiling. */
+.task-card-action-cell .task-card-quick-action {
+  width: var(--quick-action-w);
+  max-width: none;
+  justify-self: stretch;
+}
 
 /* Mini (closed) grouped rows: tighter, no action column. */
 .task-card-grouped-mini { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
@@ -2834,5 +2877,15 @@ button.btn-good:hover {
     gap: 6px;
     justify-self: end;
   }
-  .task-card-action-cell { grid-area: action; justify-self: end; }
+  /* The stacked layout is unchanged by #116's fixed desktop columns — it has
+     its own row for the action, so it never had the alignment problem and
+     doesn't want the fixed tracks. Put the cell back to a content-sized flex
+     row and let the button size to its own label, exactly as before. */
+  .task-card-action-cell {
+    grid-area: action;
+    justify-self: end;
+    display: flex;
+    grid-template-columns: none;
+  }
+  .task-card-action-cell .task-card-quick-action { width: auto; max-width: none; }
 }

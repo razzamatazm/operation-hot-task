@@ -22,7 +22,7 @@ task. Non-FRAUD task types never enter these statuses.
 - `Claimed -> Awaiting Items` — **checker only** (assignee or admin); the
   "Send Outstanding Items" action.
 - `Awaiting Items -> Pending Approval` — **requester only** (creator or
-  admin); the "Submit for Approval" action.
+  admin); the "Submit" action.
 - `Pending Approval -> Completed` — **checker only** (assignee/admin,
   FILE_CHECKER); the "Approve" action, gated by the normal completion rule.
 
@@ -145,7 +145,7 @@ FRAUD tasks render a shared, **role-aware** button set (`fraudCardActions` in
 `packages/shared/src/fraud.ts`) on both the bot DM cards and the web courts
 view, so both surfaces show the same actions to the same viewer — checker:
 "Send Outstanding Items" (note) then "Approve" / "Send Back" (note);
-requester: "Submit for Approval" and "Release for any fraud checker".
+requester: "Submit" and "Release for any fraud checker".
 Note-required moves open an inline note box whose text posts as the
 transition's `reviewNotes`. The user-facing phase names are **Outstanding
 Items** and **Final Approval** across both surfaces.

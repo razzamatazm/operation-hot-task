@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -1007,7 +1007,7 @@ const TaskCard = memo(({
 
   /* FRAUD two-phase role-aware buttons (#39), shared with the bot cards so both
      surfaces show the same set. Empty for non-FRAUD. `fraudQuick` is the single
-     plain forward move (Submit for Approval / Approve) promoted to the collapsed
+     plain forward move (Submit / Approve) promoted to the collapsed
      quick-action slot; note-required moves (Send Outstanding Items / Send Back)
      and Release live in the expanded body where the note box fits. */
   const fraudActions = fraudCardActions(task, user.id);
@@ -1025,20 +1025,20 @@ const TaskCard = memo(({
   let primaryAction: QuickAction | null = null;
   if (showActions) {
     if ((task.status === "OPEN" || isReleasedForClaim) && !isCreator && canClaimTask(task, user)) {
-      primaryAction = { label: "Claim", kind: "good", run: () => { void onClaim(task.id); } };
+      primaryAction = { label: ACTION_LABELS.CLAIM, kind: "good", run: () => { void onClaim(task.id); } };
     } else if (fraudQuick && fraudQuick.targetStatus) {
       const target = fraudQuick.targetStatus;
       primaryAction = { label: fraudQuick.label, kind: "good", run: () => { void onTransition(task.id, target); } };
     } else if (task.status === "CLAIMED" && isAssignee && task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE")) {
-      primaryAction = { label: "Mark Merge Done", kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
+      primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
     } else if (task.status === "CLAIMED" && isAssignee && transitions.includes("COMPLETED")) {
-      primaryAction = { label: "Complete", kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "MERGE_DONE" && isCreator) {
-      primaryAction = { label: "Approve", kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
+      primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
     } else if (task.status === "MERGE_APPROVED" && isAssignee) {
-      primaryAction = { label: "Complete", kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "COMPLETED" && isCreator) {
-      primaryAction = { label: "Archive", kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };
+      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };
     }
     /* Re-open is intentionally NOT a quick-action — it lives in the
        expanded body. Closed mini rows show Archive (creator-only) or
@@ -1205,7 +1205,7 @@ const TaskCard = memo(({
       )}
       {task.status === "COMPLETED" && isCreator && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "ARCHIVED"); }}>
-          Archive
+          {ACTION_LABELS.ARCHIVE}
         </button>
       )}
       {(task.status === "COMPLETED" || task.status === "ARCHIVED") && (isCreator || isAssignee) && (

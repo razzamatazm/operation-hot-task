@@ -412,8 +412,10 @@ const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardDa
   return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), ...(showAdvance && advance ? { advance } : {}) };
 };
 
-/* The contextual "move it forward" button (Mark Merge Done / Approve Merge /
-   Complete). Empty when there's no forward step. */
+/* The contextual "move it forward" button (Merge Done / Approve Merge /
+   Complete). Title comes from botPrimaryAdvance, i.e. the shared
+   ACTION_LABELS — the bot never words an action itself (#116).
+   Empty when there's no forward step. */
 const advanceButton = (taskId: string, advance?: AdvanceAction): Record<string, unknown>[] =>
   advance
     ? [{ type: "Action.Execute", title: advance.label, verb: "transitionTask", data: { taskId, targetStatus: advance.status } }]

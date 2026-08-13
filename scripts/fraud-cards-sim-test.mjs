@@ -68,13 +68,13 @@ check("CLAIMED: checker sees Send Outstanding Items (note), creator sees nothing
 });
 
 // --- AWAITING_ITEMS ---------------------------------------------------------
-check("AWAITING_ITEMS: creator sees Submit for Approval (plain), checker sees nothing", () => {
+check("AWAITING_ITEMS: creator sees Submit (plain), checker sees nothing", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.deepEqual(fraudCardActions(t, CREATOR.id), [
-    { kind: "transition", label: "Submit for Approval", targetStatus: "PENDING_APPROVAL" }
+    { kind: "transition", label: "Submit", targetStatus: "PENDING_APPROVAL" }
   ]);
   assert.deepEqual(fraudCardActions(t, CHECKER.id), []);
-  assert.deepEqual(botPrimaryAdvance(t), { status: "PENDING_APPROVAL", label: "Submit for Approval" });
+  assert.deepEqual(botPrimaryAdvance(t), { status: "PENDING_APPROVAL", label: "Submit" });
 });
 
 // --- PENDING_APPROVAL -------------------------------------------------------
