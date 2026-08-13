@@ -2758,8 +2758,10 @@ export const App = () => {
       })
       .catch(() => {
         /* Plain browser (no Teams host) or SSO failure. In dev, keep the
-           mock user + selector. In prod surface that sign-in is required. */
-        applyTheme("light");
+           mock user + selector. In prod surface that sign-in is required.
+           No Teams host means no theme signal either, so fall back to the
+           OS/browser preference instead of hardcoding light. */
+        applyTheme(window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         if (!IS_DEV) {
           setError("Unable to sign in. Open this app from Microsoft Teams.");
         }
