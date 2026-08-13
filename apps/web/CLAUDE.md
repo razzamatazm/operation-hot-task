@@ -166,12 +166,25 @@ stripe | pair          | due
 **Mini (closed) rows stay on one line.** They carry no quick action, so a
 second row would buy nothing and cost height — stacking took a mini from
 48px to 74px, taller than an active row used to be, across the ~117 closed
-rows in a typical list. They keep the single-line template, including a
-fixed 176px pair reservation (same reasoning as #116: on one line a
-content-sized pair walks the due stamp sideways). Their hamburger shares
-the active rows' alignment. They do still host the hamburger — it is how a
-closed task reaches Re-open / Archive — so never `display: none` the
-action cell on a mini.
+rows in a typical list. They keep a single-line template, with all three
+right-hand tracks fixed (same reasoning as #116: on one line a
+content-sized column resolves per row and walks its neighbours sideways),
+sized to what a mini actually renders rather than to the active row's
+reservations:
+
+```
+4px    | minmax(0,1fr) | 168px | 72px | 32px
+stripe | title         | pair  | due  | action
+```
+
+`168px` and `72px` clear the widest pair and done-time measured across the
+closed rows (164px / 65px); `32px` is the hamburger alone. A mini never
+renders a quick action, so reserving the full `--action-col-w` stranded its
+hamburger 136px short of the row's right edge. The cluster's right edge
+therefore lines up with the **quick action button's** right edge on the
+active rows — not with their hamburger, which sits a track further left.
+Minis do still host a hamburger — it is how a closed task reaches
+Re-open / Archive — so never `display: none` the action cell on a mini.
 
 ### Panels that escape the card (#113, #122)
 
@@ -237,10 +250,18 @@ rendering failure on your own tasks. In order:
    `cancelStage` to `confirming` and opens the menu panel, so the existing
    two-step "Cancel this task?" confirm and its "Cancelled ✓" flash are
    reused verbatim — there is no second confirm component and no undo flow.
-3. **The reserved spacer** (`.task-card-quick-action-empty`) — observers, and
-   anyone else with no standing. Unchanged.
+3. **The reserved spacer** (`.task-card-quick-action-empty`) — anyone the two
+   rules above didn't catch: statuses with no pending party (`OPEN`,
+   `CLAIMED`, `NEEDS_REVIEW`, the closed ones) where the viewer has no
+   action. Observers no longer land here on the four `pendingPartyFor`
+   statuses — they get rule 1. **This reverses #117**, whose acceptance
+   criteria listed "Observer — neither creator nor assignee → reserved
+   spacer, unchanged"; the slot reading as a missing control was judged
+   worse than telling an observer whose move it is.
 
-All three are suppressed on mini (closed) rows, which have no action column.
+All three are suppressed on mini (closed) rows — see `{!mini && ...}` in
+`TaskCard`. Minis have no quick *action*, but they do have an action
+**column**: a 32px track holding the hamburger.
 
 Action labels come from `ACTION_LABELS` in `packages/shared`, never from
 literals in `App.tsx`. The web row, the expanded body, and the Teams bot's
@@ -256,7 +277,8 @@ reintroduce the auto-width override that breakpoint used to apply.
 
 Closed statuses (`COMPLETED` / `CANCELLED` / `ARCHIVED`) drop into the
 bottom of the grid as `.task-card-collapsed-mini` rows: half height
-(~28px min), no poop, no action column, no "Assigner/Assignee" labels
+(~28px min), no poop, no quick action (the hamburger stays), no
+"Assigner/Assignee" labels
 above the values. Title font shrinks. Clicking still expands to reveal
 full actions (Re-open / Archive). A task that was reopened back into an
 active status shows a **Restore** button in the expanded body (via

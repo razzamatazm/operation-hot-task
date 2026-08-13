@@ -2722,7 +2722,8 @@ button.btn-good:hover {
    outset shadow. No-op under contrast, which intentionally has no shadows. */
 .task-card-grouped-wrap.task-card-grouped-open { box-shadow: var(--shadow-sm); }
 
-/* Collapsed grouped row: stripe | pair | title | due | action */
+/* Collapsed grouped row, two lines: stripe | title | action
+                                     stripe | pair  | due    */
 .task-card-grouped {
   display: grid;
   /* The action column is FIXED, deliberately (#116). Every row is its own
@@ -2876,7 +2877,9 @@ button.btn-good:hover {
   justify-self: stretch;
 }
 
-/* Mini (closed) grouped rows: tighter, no action column.
+/* Mini (closed) grouped rows: tighter, and no quick action — the hamburger
+   still rides in the action cell (see the rule below; never display:none it,
+   it is how a closed task reaches Re-open / Archive).
    These stay on ONE line while active rows stack. Closed tasks are the
    bulk of the list and carry no action button, so the second row would buy
    nothing and cost height — stacking took a mini from 48px to 74px, taller
@@ -2889,8 +2892,6 @@ button.btn-good:hover {
   grid-template-areas: "stripe title pair due action";
   row-gap: 0;
 }
-/* Sits on the title's line, right-aligned, rather than under it. */
-.task-card-grouped-mini .task-card-grouped-due { justify-self: end; }
 /* A mini never renders a quick action — measured 117 of 117 rows carrying
    nothing but the hamburger — so it reserves the hamburger's 32px only,
    not the full --action-col-w. Reserving the button slot stranded the
