@@ -54,17 +54,26 @@
   --panel: #1e2129;
   --ink: #e8e6e1;
   --ink-secondary: #a09b91;
-  /* Brightened from #706c63 (2026-08-13, dark mode legibility) — 3.08:1
-     against --panel failed normal-text AA; #8d887e clears 4.5:1. */
-  --muted: #8d887e;
+  /* 2026-08-13 dark-mode legibility pass, settled via prototype/dark-palette
+     (?palette=a/b/c): #706c63 (3.08:1, AA fail) → #8d887e (4.56:1, still
+     read as muddy brown) → #b3b5ba (7.84:1), neutral with no warm cast,
+     one step down from --ink instead of three. */
+  --muted: #b3b5ba;
   /* Brightened from #2e313a (1.24:1) then again from #686b73 (3.02:1) —
      a 1px hairline at the 3:1 UI-component minimum still read as
      invisible in practice; #989ca4 (5.85:1) is unambiguous at a glance. */
   --line: #989ca4;
-  --line-soft: #262930;
-  --brand: #6da3e0;
-  --brand-hover: #8bb8ec;
-  --brand-soft: #1c2a3d;
+  /* Brightened from #262930 (1.24:1 vs --panel — same "same color as its
+     container" problem as --line had) so task cards get a visible resting
+     border instead of relying on shadow alone. Stays under --line's 5.85:1
+     so cards read as one step down from the modal, not equal to it. */
+  --line-soft: #75787f;
+  /* Swapped from SaaS-blue (#6da3e0) to an amber/gold "rubber-stamp ink"
+     accent — apps/web/CLAUDE.md's aesthetic direction is explicitly "not
+     a SaaS-blue dashboard." Won the A/B/C prototype vote. */
+  --brand: #c9903f;
+  --brand-hover: #dba566;
+  --brand-soft: #2c2216;
   --good: #5ec97e;
   --good-bg: #1a2e22;
   --warn: #e0b44a;
@@ -77,7 +86,7 @@
   --row-hover: rgba(255, 255, 255, 0.035);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-  --focus-ring: 0 0 0 2px rgba(109, 163, 224, 0.35);
+  --focus-ring: 0 0 0 2px rgba(201, 144, 63, 0.35);
   --avatar-1: #e0b44a;
   --avatar-2: #6da3e0;
   --avatar-3: #4fc4b0;
@@ -255,7 +264,10 @@ h1, h2, h3, h4 {
 .form-panel {
   width: 100%;
   max-width: 760px;
-  border: 1px solid var(--line);
+  /* 2px, not 1px — a hairline the same weight as an input border let the
+     modal blend into the page behind it; the popover needs to read as a
+     distinct layer above the app. */
+  border: 2px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
   padding: 18px 20px;
