@@ -330,6 +330,26 @@ h1, h2, h3, h4 {
   letter-spacing: 0;
 }
 
+/* The at-creation Share/Assign block (issue #46 + ADR-0002). A non-label field
+   because it heads a segmented control as well as a select — a <label> wrapping
+   both would hand a click on the heading to the wrong control. Mirrors the
+   label heading style so it still reads as one of the form's fields. */
+.form-direct {
+  display: grid;
+  gap: 4px;
+}
+.form-direct-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* FRAUD outstanding-items seeder on the create form (#69). A non-label field so
    the heading never steals focus to one of the remove buttons; mirrors the
    label heading style and reuses the card checklist's add row. */
@@ -1584,6 +1604,14 @@ button.btn-good:hover {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+}
+/* A handoff (ADR-0002) can be refused by the server — ineligible recipient,
+   closed task, lost race — so the reason lands in the panel next to the picker
+   that has to change, not only in a toast that floats away from it. */
+.share-pop-error {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--bad);
 }
 
 /* Upward-opening panels (share popover, #59) and rising toasts (#60). Mirrors

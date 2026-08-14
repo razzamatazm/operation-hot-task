@@ -56,6 +56,26 @@
   **Open in Hot Task** deep link, and a contextual **advance/complete**
   button. This is the one surface where due date is shown in user-facing UI —
   see [due-date-urgency.md](due-date-urgency.md).
+- **Handoff** (`POST /tasks/:id/assign`, see
+  [ADR-0002](../adr/0002-task-handoff.md)): **DMs only — no channel post and no
+  activity-feed alert.** A handoff is a conversation between two people, and the
+  channel already saw the task when it was created.
+  - The new assignee gets a `DM_ASSIGN` card: the same full-details `detailCard`
+    the claimer's `DM_CLAIM` uses, so it carries the contextual
+    advance/complete button and the **Open in Hot Task** deep link. Title reads
+    "&lt;actor&gt; assigned &lt;folder&gt; to you". An optional note (≤ 280
+    chars) rides quoted at the top of the card body, exactly as `DM_SHARE`'s
+    does. The note is **never** written as a review note — that would fire the
+    separate `DM_NOTE` fan-out and DM everyone twice.
+  - A **displaced assignee** gets a one-line DM: "&lt;actor&gt; passed
+    &lt;folder&gt; to &lt;new assignee&gt;". Anyone may pull a task out from
+    under anyone, so that is never silent.
+- **Task created already handed off** (`assigneeUserId` on the create payload):
+  the channel post uses the **claimed-card** variant instead of the claimable
+  one — announced, with no Claim button to appear and then vanish. Deliberately
+  quiet: channel messages set no `channelData.notification.alert`, and the
+  activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
+  which this isn't. The recipient still gets the `DM_ASSIGN` card.
 - `Merge Done` and `Completed`: DM task creator
 - `Merge Approved`: DM task assignee
 - Notes: DM counterpart user as an **interactive note card** — shows the

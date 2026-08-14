@@ -52,6 +52,14 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/unclaim`
   - `POST /api/tasks/:taskId/release` (FRAUD: release a `Pending Approval` task
     back to the checker pool — creator/admin only)
+  - `POST /api/tasks/:taskId/assign` — Handoff (see
+    [ADR-0002](../adr/0002-task-handoff.md)): set `assignee` to someone else.
+    Body `{ assigneeUserId, note? }` (note ≤ 280). Any authenticated user may
+    call it; eligibility is checked on the **recipient** (a Fraud Check only
+    goes to a `FILE_CHECKER`). `OPEN` → `CLAIMED`; an in-flight task swaps
+    assignee with its status unchanged; closed tasks are rejected; handing a
+    task to its current assignee is a no-op. A task can also be born handed off
+    via `assigneeUserId` / `assigneeNote` on `POST /api/tasks`.
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)

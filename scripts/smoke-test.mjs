@@ -4,8 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import net from "node:net";
 
-const BASE_PORT = 4100;
+/* 4100 is also the local dev server's port, so `npm run dev` and this suite
+   can't both have it. It's a preference, not a requirement — createServer walks
+   up to the first free port — and SMOKE_PORT overrides the starting point. */
+const BASE_PORT = Number(process.env.SMOKE_PORT ?? 4100);
 
 // Identities aligned with the DEV_USERS list in apps/web/src/App.tsx so any
 // task that somehow leaks into dev data is at least tagged to a real current
@@ -79,7 +83,32 @@ const expectStatus = (actual, expected, label, payload) => {
   }
 };
 
-const createServer = async (port, extraEnv = {}, { botReferences } = {}) => {
+/* Is this port free for us to bind? A port already held by something else —
+   `npm run dev` uses 4100, the same default this suite does — used to be
+   invisible: our child died of EADDRINUSE while the health probe cheerfully got
+   its 200 from the squatter, and the whole suite then exercised THAT server's
+   code. Probing first (and the child-exit guard in createServer) closes it. */
+const portIsFree = (port) =>
+  new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port, "127.0.0.1");
+  });
+
+/* First free port at or after `preferred`, so a running dev server just moves
+   the suite along instead of breaking it. */
+const freePortFrom = async (preferred) => {
+  for (let port = preferred; port < preferred + 50; port += 1) {
+    if (await portIsFree(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No free port found near ${preferred}`);
+};
+
+const createServer = async (preferredPort, extraEnv = {}, { botReferences } = {}) => {
+  const port = await freePortFrom(preferredPort);
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "loan-smoke-"));
   const dataFile = path.join(tempDir, "tasks.json");
   const botRefs = path.join(tempDir, "bot-references.json");
@@ -119,10 +148,24 @@ const createServer = async (port, extraEnv = {}, { botReferences } = {}) => {
   child.stdout.on("data", (chunk) => logs.push(String(chunk)));
   child.stderr.on("data", (chunk) => logs.push(String(chunk)));
 
+  /* If our child dies (EADDRINUSE is the usual reason — `npm run dev` already
+     holds this port) the health probe below would happily get a 200 from the
+     STRANGER that owns it, and the whole suite would then test that server's
+     code instead of the build under test. Silent false passes, so: notice the
+     exit and fail loudly. Set SMOKE_PORT to run alongside a dev server. */
+  let childExited = false;
+  child.once("exit", () => { childExited = true; });
+
   const baseUrl = `http://127.0.0.1:${port}`;
 
   let healthy = false;
   for (let i = 0; i < 12; i += 1) {
+    if (childExited) {
+      throw new Error(
+        `Server exited before becoming healthy — port ${port} is probably already in use ` +
+        `(set SMOKE_PORT to pick another). Logs:\n${logs.join("")}`
+      );
+    }
     try {
       const health = await fetch(`${baseUrl}/api/health`);
       if (health.status === 200) {
@@ -771,7 +814,9 @@ const run = async () => {
     const shareId = shareTask.json.task.id;
 
     // Any authenticated user can read the minimal people directory (not admin-
-    // gated). It exposes id + displayName only, and includes known users.
+    // gated). It exposes id + displayName + roles only, and includes known
+    // users. Roles arrived with the Handoff (ADR-0002) so the picker can filter
+    // to people eligible to work the task; email/active stay admin-only.
     const directoryDenied = await request(server.baseUrl, "GET", "/users/directory", {
       user: users.creator
     });
@@ -782,10 +827,14 @@ const run = async () => {
       "directory includes a known user"
     );
     assert.ok(
-      directoryDenied.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id"),
-      "directory entries expose only id + displayName"
+      directoryDenied.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id,roles"),
+      "directory entries expose only id + displayName + roles"
     );
-    pushPass("people directory is readable by any authenticated user, id + name only");
+    assert.ok(
+      directoryDenied.json.users.every((u) => Array.isArray(u.roles)),
+      "every directory entry carries a roles array the picker can filter on"
+    );
+    pushPass("people directory is readable by any authenticated user, id + name + roles only");
 
     const shareOk = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
       user: users.creator,
@@ -835,6 +884,132 @@ const run = async () => {
     });
     expectStatus(shareUnknownTask.status, 404, "share of unknown task is rejected", shareUnknownTask.json);
     pushPass("share validates target user and task existence");
+
+    // ── Hand a task off to someone (ADR-0002) ────────────────
+    // Unlike /share above, this one moves the task into the recipient's court.
+    const handoffTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Hand Me Over", taskType: "LOI", notes: "handoff test" }
+    });
+    const handoffId = handoffTask.json.task.id;
+
+    // Anyone authenticated may hand off — this actor is neither creator nor
+    // assignee — and an OPEN task lands CLAIMED on the recipient.
+    const assigned = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+      user: users.otherOfficer,
+      body: { assigneeUserId: users.fileChecker.id, note: "you know this file" }
+    });
+    expectStatus(assigned.status, 200, "handoff by an uninvolved user", assigned.json);
+    assert.equal(assigned.json.task.status, "CLAIMED", "OPEN task is claimed by the handoff");
+    assert.equal(assigned.json.task.assignee.id, users.fileChecker.id, "recipient becomes the assignee");
+    pushPass("any authenticated user can hand off an OPEN task, which lands CLAIMED");
+
+    // Reassign in place: status untouched, and the audit trail names both ends.
+    const reassigned = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+      user: users.admin,
+      body: { assigneeUserId: users.creator.id }
+    });
+    expectStatus(reassigned.status, 200, "reassign an in-flight task", reassigned.json);
+    assert.equal(reassigned.json.task.status, "CLAIMED", "status is untouched by a reassignment");
+    assert.equal(reassigned.json.task.assignee.id, users.creator.id, "assignee swapped");
+
+    const handoffHistory = await request(server.baseUrl, "GET", `/tasks/${handoffId}/history`, {
+      user: users.creator
+    });
+    const assignRows = handoffHistory.json.history.filter((event) => event.action === "TASK_ASSIGNED");
+    assert.equal(assignRows.length, 2, "each handoff is recorded");
+    assert.ok(/^Assigned to /.test(assignRows[0].detail), "first handoff reads as an assignment");
+    assert.ok(/^Reassigned from /.test(assignRows[1].detail), "second reads as a reassignment");
+    pushPass("handoff swaps the assignee in place and is recorded in history");
+
+    // Handing it to whoever already holds it is a no-op, not an error.
+    const noop = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+      user: users.admin,
+      body: { assigneeUserId: users.creator.id }
+    });
+    expectStatus(noop.status, 200, "handoff to the current assignee is a no-op", noop.json);
+    assert.equal(noop.json.task.updatedAt, reassigned.json.task.updatedAt, "the task is returned unchanged");
+
+    // Eligibility is enforced on the RECIPIENT: a fraud check only goes to a
+    // file checker, even when a file checker is the one handing it over.
+    const fraudHandoff = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Fraud Handoff", taskType: "FRAUD", notes: "needs a checker" }
+    });
+    const fraudHandoffId = fraudHandoff.json.task.id;
+    const ineligible = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
+      user: users.fileChecker,
+      body: { assigneeUserId: users.otherOfficer.id }
+    });
+    expectStatus(ineligible.status, 400, "fraud handoff to a non-checker is rejected", ineligible.json);
+    assert.match(ineligible.json.error, /file checker/i, "the refusal names the fix");
+    const stillOpen = await request(server.baseUrl, "GET", `/tasks/${fraudHandoffId}`, { user: users.creator });
+    assert.equal(stillOpen.json.task.status, "OPEN", "the refused handoff changed nothing");
+
+    const eligible = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
+      user: users.creator,
+      body: { assigneeUserId: users.fileChecker.id }
+    });
+    expectStatus(eligible.status, 200, "fraud handoff to a file checker is allowed", eligible.json);
+    pushPass("handoff eligibility is enforced on the recipient, not the actor");
+
+    // A closed task is out of play.
+    await request(server.baseUrl, "POST", `/tasks/${handoffId}/transition`, {
+      user: users.creator,
+      body: { status: "COMPLETED" }
+    });
+    const closedHandoff = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+      user: users.admin,
+      body: { assigneeUserId: users.fileChecker.id }
+    });
+    expectStatus(closedHandoff.status, 400, "handoff of a closed task is rejected", closedHandoff.json);
+    assert.match(closedHandoff.json.error, /closed/i, "the refusal says why");
+
+    const assignNoTarget = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
+      user: users.creator,
+      body: {}
+    });
+    expectStatus(assignNoTarget.status, 400, "handoff without assigneeUserId is rejected", assignNoTarget.json);
+
+    const assignUnknownUser = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
+      user: users.creator,
+      body: { assigneeUserId: "nobody-here" }
+    });
+    expectStatus(assignUnknownUser.status, 404, "handoff to an unknown user is rejected", assignUnknownUser.json);
+
+    const assignUnknownTask = await request(server.baseUrl, "POST", "/tasks/nonexistent-task/assign", {
+      user: users.creator,
+      body: { assigneeUserId: users.fileChecker.id }
+    });
+    expectStatus(assignUnknownTask.status, 404, "handoff of an unknown task is rejected", assignUnknownTask.json);
+    pushPass("handoff refuses closed tasks and validates its target and task");
+
+    // Born assigned: `assigneeUserId` on the create payload, one operation.
+    const bornAssigned = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Born Assigned",
+        taskType: "LOI",
+        notes: "already yours",
+        assigneeUserId: users.fileChecker.id,
+        assigneeNote: "all yours"
+      }
+    });
+    expectStatus(bornAssigned.status, 201, "create with an assignee", bornAssigned.json);
+    assert.equal(bornAssigned.json.task.status, "CLAIMED", "a task born assigned is CLAIMED, never OPEN");
+    assert.equal(bornAssigned.json.task.assignee.id, users.fileChecker.id, "assigned to the chosen person");
+
+    const bornIneligible = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Born Wrong",
+        taskType: "FRAUD",
+        notes: "no",
+        assigneeUserId: users.otherOfficer.id
+      }
+    });
+    expectStatus(bornIneligible.status, 400, "create assigning a fraud check to a non-checker", bornIneligible.json);
+    pushPass("a task can be created already handed off, with the same eligibility rule");
 
     const integrationDisabled = await request(server.baseUrl, "POST", "/integrations/tasks", {
       body: {

@@ -1,5 +1,5 @@
 import { Request, Response, Router } from "express";
-import { UserIdentity, UserRole, nextFlowStatuses } from "@loan-tasks/shared";
+import { UserIdentity, UserRole, canWorkTaskType, nextFlowStatuses } from "@loan-tasks/shared";
 import { AuthError, authenticate } from "./auth.js";
 import { resolveUserByEmail } from "./graph-users.js";
 import { config } from "./config.js";
@@ -11,6 +11,7 @@ import { ActivityFeedClient } from "./activity-feed.js";
 import { SettingsStore } from "./settings-store.js";
 import { LoanService } from "./loan-service.js";
 import {
+  assignSchema,
   checklistItemCheckedSchema,
   checklistItemCheckerNoteSchema,
   checklistItemNoteSchema,
@@ -52,7 +53,9 @@ const toCreateInput = (body: unknown) => {
     ...(parsed.urgency ? { urgency: parsed.urgency } : {}),
     ...(parsed.points ? { points: parsed.points } : {}),
     ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {}),
-    ...(parsed.initialItems && parsed.initialItems.length > 0 ? { initialItems: parsed.initialItems } : {})
+    ...(parsed.initialItems && parsed.initialItems.length > 0 ? { initialItems: parsed.initialItems } : {}),
+    ...(parsed.assigneeUserId ? { assigneeUserId: parsed.assigneeUserId } : {}),
+    ...(parsed.assigneeUserId && parsed.assigneeNote?.trim() ? { assigneeNote: parsed.assigneeNote.trim() } : {})
   };
 };
 
@@ -170,15 +173,18 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   });
 
   /* Any authenticated user: minimal read-only people directory for the share
-     people-picker (issue #41). Returns only id + displayName for active users —
-     no roles, email, or status — so it's safe to expose beyond admins (the full
-     `/users` list below stays admin-only). */
+     and handoff people-pickers (issue #41, ADR-0002). Returns id, displayName
+     and roles for active users — no email or status. Roles are here so the
+     handoff picker can filter to FILE_CHECKERs on a Fraud Check rather than
+     offering people the server will reject; they're already visible in the
+     admin panel, so this exposes nothing new. The full `/users` list below
+     stays admin-only. */
   router.get("/users/directory", async (req, res) => {
     try {
       await getActor(req);
       const users = (await userStore.list())
         .filter((user) => user.active !== false)
-        .map((user) => ({ id: user.id, displayName: user.displayName }));
+        .map((user) => ({ id: user.id, displayName: user.displayName, roles: user.roles }));
       res.json({ users });
     } catch (error) {
       sendError(res, error, "Failed to list users");
@@ -363,6 +369,23 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     try {
       const input = toCreateInput(req.body);
       const user = await getActor(req);
+      // Handoff at creation (ADR-0002): resolve the recipient and check they can
+      // work this task type before anything is written, so the task is born
+      // assigned in one operation rather than created-then-assigned.
+      if (input.assigneeUserId) {
+        const target = await userStore.get(input.assigneeUserId);
+        if (!target || target.active === false) {
+          res.status(404).json({ error: "User not found" });
+          return;
+        }
+        if (!canWorkTaskType(input.taskType, target)) {
+          res.status(400).json({ error: `${target.displayName} can't take a Fraud Check — that needs a file checker` });
+          return;
+        }
+        const task = await service.createTask(input, user, { id: target.id, displayName: target.displayName });
+        res.status(201).json({ task });
+        return;
+      }
       const task = await service.createTask(input, user);
       res.status(201).json({ task });
     } catch (error) {
@@ -608,6 +631,37 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ ok: true, delivered });
     } catch (error) {
       sendError(res, error, "Failed to share task");
+    }
+  });
+
+  /* Handoff (ADR-0002): point the task AT someone — this one does touch
+     `assignee`, unlike /share above. Anyone authenticated may hand a task off;
+     eligibility is enforced on the RECIPIENT (a Fraud Check only goes to a file
+     checker), and the service rejects closed tasks. Validates that the task and
+     the target user both exist, matching /share's shape. */
+  router.post("/tasks/:taskId/assign", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const { assigneeUserId, note } = assignSchema.parse(req.body);
+      const task = await service.getTask(req.params.taskId);
+      if (!task) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+      const target = await userStore.get(assigneeUserId);
+      if (!target || target.active === false) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      const updated = await service.assignTask({
+        taskId: task.id,
+        target,
+        actor,
+        ...(note?.trim() ? { note: note.trim() } : {})
+      });
+      res.json({ task: updated });
+    } catch (error) {
+      sendError(res, error, "Failed to assign task");
     }
   });
 

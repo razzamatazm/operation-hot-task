@@ -99,7 +99,18 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // recorded so later updates can reply/refresh in place. The headline
       // ("Tyler needs an LOI checked") already names the type, so no tag.
       const card = this.buildChannelCard(event.task);
-      await this.botClient.postTaskCard(event.task.id, card.title, card.detail, card.openUrl, card.summary, event.task.createdBy.id);
+      // A task born assigned (Handoff at creation, ADR-0002) is announced with
+      // the claimed-card variant instead — no Claim button to appear and then
+      // vanish. Deliberately quiet: channel posts set no activity alert.
+      await this.botClient.postTaskCard(
+        event.task.id,
+        card.title,
+        card.detail,
+        card.openUrl,
+        card.summary,
+        event.task.createdBy.id,
+        event.task.assignee?.displayName
+      );
       await this.webhookIfBroadcasting({ title: card.summary, text: card.detail });
       return;
     }
@@ -156,7 +167,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (
-      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE") &&
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE" || event.target === "DM_ASSIGN") &&
       !config.enableDmNotifications
     ) {
       return;
@@ -235,6 +246,50 @@ export class TeamsNotificationProvider implements NotificationProvider {
         return;
       }
       await this.botClient.sendToDms(`${typeLabel} - ${event.message}`);
+      return;
+    }
+
+    if (event.target === "DM_ASSIGN") {
+      // Handoff (ADR-0002): somebody pointed this task AT the recipient — they
+      // now own it. Same full-details card the claimer gets, so it carries the
+      // advance/complete button and the "Open in Hot Task" deep link; only the
+      // title differs. The handoff note, when there is one, leads the body the
+      // way DM_SHARE's does, so the personal line reads first. It is never
+      // written as a review note — that would double-notify via DM_NOTE.
+      const lines =
+        event.task.taskType === "OOO"
+          ? [
+              `Type: Out of Office`,
+              `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
+              `Details: ${event.task.folderName}`
+            ]
+          : [
+              `Type: ${typeLabel}`,
+              `How Bad: ${howBad}`,
+              `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
+              `Due: ${formatWallDate(event.task.dueAt)}`,
+              ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
+              ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
+            ];
+      if (event.note?.trim()) {
+        lines.unshift(`"${event.note.trim()}"`, "");
+      }
+      // Same carve-out as DM_CLAIM: FRAUD's forward move is note-required and
+      // lives on the two-phase chat card, so the plain detail card omits it.
+      const advance = event.task.taskType === "FRAUD" ? undefined : botPrimaryAdvance(event.task);
+      const assignOpenUrl = taskDeepLink(event.task.id, event.task.folderName);
+      const title = `${event.actor.displayName} assigned ${event.task.folderName} to you`;
+      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
+          taskId: event.task.id,
+          title,
+          detail: lines.join("\n"),
+          ...(assignOpenUrl ? { openUrl: assignOpenUrl } : {}),
+          ...(advance ? { advance } : {})
+        });
+        return;
+      }
+      await this.botClient.sendToDms(`${typeLabel} - ${title}`);
       return;
     }
 

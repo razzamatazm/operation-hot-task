@@ -9,10 +9,12 @@ import {
   TaskStatus,
   UserIdentity,
   addChecklistItem,
+  canAssignTaskTo,
   canClaimTask,
   canDeleteChecklistItem,
   canEditChecklist,
   checklistSeat,
+  CLOSED_STATUSES,
   commitChecklistItems,
   canTransitionStatus,
   canUnclaimTask,
@@ -82,7 +84,18 @@ export class TaskService {
     return this.store.allHistoryForTask(taskId);
   }
 
-  async createTask(input: CreateTaskInput, user: UserIdentity): Promise<LoanTask> {
+  /* Create a task, optionally already handed off (ADR-0002). `assignee` is the
+     resolved identity behind `input.assigneeUserId` — the route looks it up and
+     checks `canAssignTaskTo`, because this service has no user store. When it's
+     present the task is born CLAIMED in ONE operation: a create-then-assign
+     follow-up would post the normal claimable channel card first and then edit
+     the Claim button away, which the channel sees as a button that appears and
+     vanishes, and it would race the backgrounded fan-out. */
+  async createTask(
+    input: CreateTaskInput,
+    user: UserIdentity,
+    assignee?: Pick<UserIdentity, "id" | "displayName">
+  ): Promise<LoanTask> {
     const now = new Date();
     const isOoo = input.taskType === "OOO";
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
@@ -148,10 +161,13 @@ export class TaskService {
       urgency,
       points,
       notes: input.notes.trim(),
-      status: "OPEN",
+      // Born assigned (Handoff at creation) → CLAIMED, exactly the end state a
+      // claim by that person would have produced.
+      status: assignee ? "CLAIMED" : "OPEN",
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       createdBy: { id: user.id, displayName: user.displayName },
+      ...(assignee ? { assignee: { id: assignee.id, displayName: assignee.displayName } } : {}),
       ...(isOoo && startDate ? { startDate } : {}),
       ...(isOoo && returnDate ? { returnDate } : {}),
       ...(!isOoo && resolvedLink ? { humperdinkLink: resolvedLink } : {}),
@@ -164,6 +180,13 @@ export class TaskService {
 
     const event = this.makeHistory(task.id, user, "TASK_CREATED", `Created ${task.taskType} task`);
     await this.store.upsertTask(task, event);
+    if (assignee) {
+      // The handoff is an event in its own right, so it gets its own audit row
+      // rather than hiding inside "Created …".
+      await this.store.appendHistory(
+        this.makeHistory(task.id, user, "TASK_ASSIGNED", `Assigned to ${assignee.displayName} by ${user.displayName} at creation`)
+      );
+    }
     this.events.broadcast({ type: "task.changed", payload: task });
 
     this.background(async () => {
@@ -174,6 +197,9 @@ export class TaskService {
         message: createdMessage,
         target: "IN_APP"
       });
+      // The channel post is the same one either way; the provider picks the
+      // claimed-card variant off `task.assignee` so a born-assigned task is
+      // announced without a dead Claim button.
       await this.notify({
         type: "TASK_CREATED",
         task,
@@ -181,6 +207,20 @@ export class TaskService {
         message: createdMessage,
         target: "CHANNEL"
       });
+      if (assignee) {
+        // The recipient still gets the same handoff DM the assign route sends —
+        // being picked at creation is how they find out the task exists.
+        const assigneeNote = input.assigneeNote?.trim() || undefined;
+        await this.notify({
+          type: "TASK_CREATED",
+          task,
+          actor: task.createdBy,
+          message: `${user.displayName} assigned ${task.folderName} to you`,
+          target: "DM_ASSIGN",
+          recipientUserIds: [assignee.id],
+          ...(assigneeNote ? { note: assigneeNote } : {})
+        });
+      }
       await this.evaluateActivitySignals({ now });
     }, { method: "createTask", taskId: task.id });
 
@@ -906,6 +946,92 @@ export class TaskService {
     }, { method: "shareTask", taskId: task.id });
 
     return { task, delivered };
+  }
+
+  /* Handoff (ADR-0002): point a task at somebody else. Deliberately a sibling of
+     `claimTask` rather than a reuse of it — claim couples actor and assignee
+     (`assignee = user`), and decoupling it there would contort the one path
+     every claim in the app goes through.
+
+     Rules, all settled in ADR-0002:
+       - Anyone authenticated may hand off; eligibility is checked on the
+         RECIPIENT (`canAssignTaskTo`), which the route has already validated
+         and we re-check here because this is the authority.
+       - OPEN → CLAIMED (same end state as if they'd claimed it themselves).
+         Anything already in flight — CLAIMED, NEEDS_REVIEW, and FRAUD's
+         AWAITING_ITEMS / PENDING_APPROVAL — swaps assignee IN PLACE, status
+         untouched: "the wrong checker picked this up" is the main reason anyone
+         reaches for this, and that task is by definition not OPEN.
+       - Handing a task to whoever already holds it is a no-op, not an error.
+       - DMs only. No channel post, no activity-feed alert: a handoff is a
+         conversation between two people and the channel already saw the task.
+       - The note rides the recipient's card only. It is never written as a
+         review note — that would fire the DM_NOTE fan-out and double-notify. */
+  async assignTask(params: {
+    taskId: string;
+    target: UserIdentity;
+    actor: UserIdentity;
+    note?: string;
+  }): Promise<LoanTask> {
+    const task = await this.requireTask(params.taskId);
+    const note = params.note?.trim() || undefined;
+
+    // Already theirs: nothing to do, and nobody to notify.
+    if (task.assignee?.id === params.target.id) {
+      return task;
+    }
+    if (CLOSED_STATUSES.includes(task.status)) {
+      throw new Error("This task is closed — it can't be handed off");
+    }
+    if (!canAssignTaskTo(task, params.target)) {
+      throw new Error(`${params.target.displayName} can't take a Fraud Check — that needs a file checker`);
+    }
+
+    const previous = task.assignee;
+    const now = new Date().toISOString();
+    const updated: LoanTask = {
+      ...task,
+      status: task.status === "OPEN" ? "CLAIMED" : task.status,
+      assignee: { id: params.target.id, displayName: params.target.displayName },
+      updatedAt: now
+    };
+
+    const detail = previous
+      ? `Reassigned from ${previous.displayName} to ${params.target.displayName} by ${params.actor.displayName}`
+      : `Assigned to ${params.target.displayName} by ${params.actor.displayName}`;
+    const event = this.makeHistory(task.id, params.actor, "TASK_ASSIGNED", detail);
+    await this.store.upsertTask(updated, event);
+    this.events.broadcast({ type: "task.changed", payload: updated });
+
+    this.background(async () => {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: params.actor.id, displayName: params.actor.displayName },
+        message: `${params.actor.displayName} assigned ${updated.folderName} to you`,
+        target: "DM_ASSIGN",
+        recipientUserIds: [params.target.id],
+        ...(note ? { note } : {})
+      });
+      if (previous) {
+        // Anyone may pull a task out from under anyone, so the displaced
+        // assignee is always told. One line, no card — they have no move left.
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: params.actor.id, displayName: params.actor.displayName },
+          message: `${firstName(params.actor.displayName)} passed ${updated.folderName} to ${params.target.displayName}`,
+          target: "DM",
+          recipientUserIds: [previous.id]
+        });
+      }
+      // Recompute signal state so a handed-off OPEN task stops reading as
+      // claimable. This pass can't emit an alert on its own (reminders are
+      // gated behind allowReminders, which only runMaintenance sets).
+      await this.evaluateActivitySignals({ now: new Date(now) });
+    }, { method: "assignTask", taskId: updated.id });
+
+    return updated;
   }
 
   async runMaintenance(): Promise<{ reminded: number; purged: number; autoArchived: number }> {
