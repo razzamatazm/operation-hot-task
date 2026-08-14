@@ -60,11 +60,11 @@ check("fraudRoleFor maps assignee → CHECKER, creator → CREATOR, else OTHER",
 check("CLAIMED: checker sees Send Outstanding Items (note), creator sees nothing", () => {
   const t = makeFraudTask({ status: "CLAIMED" });
   assert.deepEqual(fraudCardActions(t, CHECKER.id), [
-    { kind: "transitionWithNote", label: "Send Outstanding Items", targetStatus: "AWAITING_ITEMS" }
+    { kind: "transitionWithNote", label: "Send Items", targetStatus: "AWAITING_ITEMS" }
   ]);
   assert.deepEqual(fraudCardActions(t, CREATOR.id), []);
   // The single forward step matches the checker's button.
-  assert.deepEqual(botPrimaryAdvance(t), { status: "AWAITING_ITEMS", label: "Send Outstanding Items" });
+  assert.deepEqual(botPrimaryAdvance(t), { status: "AWAITING_ITEMS", label: "Send Items" });
 });
 
 // --- AWAITING_ITEMS ---------------------------------------------------------

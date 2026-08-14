@@ -114,8 +114,12 @@ Each slot has one job. When adding info, replace something — don't append:
   `2d overdue`. Full absolute timestamp shows as `title` tooltip. Red +
   bold (`.task-card-collapsed-due-overdue`) when overdue.
 - **Action** — single contextual button (`Claim` / `Complete` /
-  `Merge Done` / `Approve Merge` / `Submit` / `Approve` / `Archive`).
-  Picked by the `primaryAction` ladder in `TaskCard`. When no action
+  `Merge Done` / `Approve Merge` / `Send Items` / `Submit` / `Approve` /
+  `Archive`). Picked by the `primaryAction` ladder in `TaskCard`.
+  `Send Items` is the one entry that can't complete from the row: it is
+  note-required, so with an empty checklist it expands the card and opens
+  the composer in the body instead of firing. It is worded short (not
+  "Send Outstanding Items") because the slot never resizes to its label. When no action
   applies the slot resolves three ways (see *Empty action slot* below).
   Hidden on mini.
 
@@ -341,9 +345,12 @@ nested card chrome, in this order:
    Horizontal at every width — the old vertical dot-list pushed the notes
    thread far down the card (#92) — and wraps to a second line rather than
    scrolling. It's the first child so the sibling-hairline rule skips it.
-2. **FRAUD forward moves**, when the task is in a FRAUD phase — those are
-   the job of the card in that phase, not administrivia, so they stay
-   visible rather than living in the hamburger.
+2. **FRAUD alternative moves**, when the task is in a FRAUD phase — those
+   are the job of the card in that phase, not administrivia, so they stay
+   visible rather than living in the hamburger. The phase's *forward* move
+   is promoted to the collapsed row's action slot instead (`fraudQuick`),
+   so what renders here is what the slot can't hold: `Send Back`, `Release`,
+   and the inline note composer.
 3. **Checklist** (FRAUD outstanding items), when there is one.
 4. **Notes** — originating note + reply thread + add-note input, all in one
    avatar/name/timestamp style. Thread caps at 180px
