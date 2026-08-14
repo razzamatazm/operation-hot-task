@@ -31,6 +31,7 @@ import path from "node:path";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
+import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
 import { canAssignTaskTo } from "../packages/shared/dist/workflow.js";
 
 const config = {
@@ -48,7 +49,11 @@ const CHECKER_2 = { id: "checker-2", displayName: "Robin Checker", roles: ["FILE
 const OFFICER = { id: "officer-1", displayName: "Sam Officer", roles: ["LOAN_OFFICER"] };
 const BYSTANDER = { id: "bystander-1", displayName: "Pat Bystander", roles: ["LOAN_OFFICER"] };
 
-const setup = async (notifyImpl) => {
+/* `withActivityFeed` wires a real ActivityFeedStateStore. Without one,
+   `evaluateActivitySignals` returns at its first line, so any assertion about
+   activity-feed alerts passes vacuously — which is exactly how a handoff could
+   emit one unnoticed. Tests that assert on ACTIVITY_FEED must opt in. */
+const setup = async (notifyImpl, { withActivityFeed = false } = {}) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "assign-sim-"));
   const store = new TaskStore(path.join(dir, "tasks.json"));
   await store.init();
@@ -60,7 +65,12 @@ const setup = async (notifyImpl) => {
     },
     canReachDm: async () => true
   };
-  const service = new TaskService(store, notifier, new SseHub(), config);
+  let feedState;
+  if (withActivityFeed) {
+    feedState = new ActivityFeedStateStore(path.join(dir, "activity-feed.json"));
+    await feedState.init();
+  }
+  const service = new TaskService(store, notifier, new SseHub(), config, feedState);
   return { service, events };
 };
 
@@ -150,6 +160,15 @@ await check("closed tasks are refused", async () => {
     );
     const after = await ctx.service.getTask(task.id);
     assert.equal(after.assignee?.id, OFFICER.id, `${closed} keeps its original assignee`);
+
+    /* Closed beats the no-op shortcut. Naming the person who already holds it
+       must not slip past the closed check — otherwise whether the API rejects
+       you depends on who you happened to name. */
+    await assert.rejects(
+      () => ctx.service.assignTask({ taskId: task.id, target: OFFICER, actor: CREATOR }),
+      /closed/i,
+      `${closed} is refused even when the target already holds it`
+    );
   }
 });
 
@@ -228,6 +247,32 @@ await check("the recipient gets a DM_ASSIGN card and nothing hits the channel", 
   assert.deepEqual(targeted(emitted, "DM_NOTE"), [], "the note never becomes a review note");
   const after = await ctx.service.getTask(task.id);
   assert.equal(after.reviewNotes ?? undefined, undefined, "and it is not stored on the task");
+});
+
+await check("handing off a NEEDS_REVIEW task fires no activity-feed alert", async () => {
+  /* The regression the DM-only rule actually needs. A handoff moves the task
+     into the recipient's court, minting a fresh `<them>:NEEDS_REVIEW:<task>`
+     signal key — and the new-signal branch of evaluateActivitySignals pushes
+     unconditionally (`allowReminders` gates only the REPEAT branch). So the
+     recipient got a feed alert on top of their DM_ASSIGN card. */
+  const ctx = await setup(undefined, { withActivityFeed: true });
+  for (const user of [CREATOR, OFFICER, BYSTANDER]) {
+    await ctx.service.registerUser(user);
+  }
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER);
+
+  const { emitted } = await capture(ctx, () =>
+    ctx.service.assignTask({ taskId: task.id, target: BYSTANDER, actor: CREATOR })
+  );
+
+  assert.equal(targeted(emitted, "DM_ASSIGN").length, 1, "the recipient still gets their card");
+  assert.deepEqual(
+    targeted(emitted, "ACTIVITY_FEED"),
+    [],
+    "but no feed alert — ADR-0002 says DMs only"
+  );
 });
 
 await check("a displaced assignee gets a one-line DM", async () => {

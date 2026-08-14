@@ -976,12 +976,15 @@ export class TaskService {
     const task = await this.requireTask(params.taskId);
     const note = params.note?.trim() || undefined;
 
+    /* Closed first, then the no-op. A closed task is rejected even when the
+       target already holds it — otherwise the API quietly 200s on a handoff of
+       a COMPLETED task, and "was it rejected?" depends on who you named. */
+    if (CLOSED_STATUSES.includes(task.status)) {
+      throw new Error("This task is closed — it can't be handed off");
+    }
     // Already theirs: nothing to do, and nobody to notify.
     if (task.assignee?.id === params.target.id) {
       return task;
-    }
-    if (CLOSED_STATUSES.includes(task.status)) {
-      throw new Error("This task is closed — it can't be handed off");
     }
     if (!canAssignTaskTo(task, params.target)) {
       throw new Error(`${params.target.displayName} can't take a Fraud Check — that needs a file checker`);
@@ -1025,10 +1028,14 @@ export class TaskService {
           recipientUserIds: [previous.id]
         });
       }
-      // Recompute signal state so a handed-off OPEN task stops reading as
-      // claimable. This pass can't emit an alert on its own (reminders are
-      // gated behind allowReminders, which only runMaintenance sets).
-      await this.evaluateActivitySignals({ now: new Date(now) });
+      /* Recompute signal state so a handed-off OPEN task stops reading as
+         claimable — but silently. A handoff moves the task into the recipient's
+         court, which mints fresh signal keys under their id (NEEDS_REVIEW,
+         OVERDUE); those would fire an activity-feed alert on first sight, since
+         the new-signal branch pushes unconditionally and `allowReminders` gates
+         only the repeat branch. ADR-0002 says DMs only, and they already have
+         the DM_ASSIGN card. */
+      await this.evaluateActivitySignals({ now: new Date(now), alertOnNewSignals: false });
     }, { method: "assignTask", taskId: updated.id });
 
     return updated;
@@ -1137,13 +1144,21 @@ export class TaskService {
     };
   }
 
+  /* `alertOnNewSignals: false` seeds newly-appeared signal keys into the
+     snapshot without notifying anyone for them. Only the handoff path wants
+     this: it must recompute state (so a handed-off OPEN task stops reading as
+     claimable) while staying DM-only per ADR-0002. The recipient still enters
+     the normal reminder cadence on the next `runMaintenance` pass — they're
+     silenced for this instant, not exempted. */
   private async evaluateActivitySignals({
     now,
     allowReminders = false,
+    alertOnNewSignals = true,
     tasks
   }: {
     now: Date;
     allowReminders?: boolean;
+    alertOnNewSignals?: boolean;
     tasks?: LoanTask[];
   }): Promise<void> {
     if (!this.activityFeedState) {
@@ -1174,11 +1189,13 @@ export class TaskService {
           lastNotifiedAt: nowIso,
           lastReminderAt: nowIso
         });
-        notifications.push({
-          recipientUserIds: [signal.userId],
-          task: signal.task,
-          message: signal.message
-        });
+        if (alertOnNewSignals) {
+          notifications.push({
+            recipientUserIds: [signal.userId],
+            task: signal.task,
+            message: signal.message
+          });
+        }
         continue;
       }
 
