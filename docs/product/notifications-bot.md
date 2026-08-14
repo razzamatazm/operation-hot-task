@@ -38,6 +38,15 @@
     carrying the task id as `subEntityId`. The web app reads it (teams-js
     `page.subPageId`) and expands + scrolls to that task. Requires
     `TEAMS_APP_ID`; the button is omitted when it's unset.
+  - The link is built by `teamsTaskDeepLink(appId, taskId, opts?)` in
+    `packages/shared/src/deep-link.ts` — one builder for every surface (bot
+    cards, activity feed, and the web app's "Copy link", which fetches the app
+    id from `GET /api/config`). It takes two optional params beyond the id:
+    `label` (the task's folder name, so the link unfurls readably when pasted
+    into a chat) and `webUrl` (where to send someone with no Teams client).
+    The server's `webUrl` comes from the **optional** `APP_BASE_URL` env var
+    and the param is omitted entirely when it's unset; the web app passes its
+    own `window.location.origin`.
 - Task claimed/unclaimed: posted as a **reply in the task's existing thread**
   (not a new full-channel broadcast). Falls back to a fresh channel post if
   the root message id is unknown (e.g. the bot restarted, or the task predates
@@ -130,6 +139,10 @@ What this means in practice:
 - Left-rail icon dot is not used
 - Teams activity feed is used instead
 - Activity type is `systemDefault` for v1
+- The notification's topic `webUrl` is the same shared `teamsTaskDeepLink`
+  the bot cards use (no task id → the bare tab link). It used to be a
+  near-duplicate builder here that emitted `{subEntityId, taskId}`; the
+  canonical context shape is `{subEntityId}` alone.
 - Activity feed alerts trigger on:
   - State change
   - Hourly reminder cadence during business hours

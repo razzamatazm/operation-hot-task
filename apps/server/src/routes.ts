@@ -97,6 +97,17 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     res.json({ ok: true, clients: sse.count() });
   });
 
+  /* Runtime client config. The web app calls this on boot (alongside /me) to
+     learn the Teams app id so it can build the same deep link the bot does —
+     it can't read TEAMS_APP_ID, which is server-only env. Deliberately not on
+     /me (that stays about identity) and deliberately not a build-time VITE_
+     var, so the server can change the app id without rebuilding the bundle.
+     The app id isn't a secret — it's in the published Teams manifest — so this
+     route is unauthenticated, like /health. */
+  router.get("/config", (_req, res) => {
+    res.json({ teamsAppId: config.teamsAppId?.trim() || null });
+  });
+
   /* Resolve the caller's identity from the SSO bearer token (or dev
      headers). The web app calls this on boot to populate the current user. */
   router.get("/me", async (req, res) => {

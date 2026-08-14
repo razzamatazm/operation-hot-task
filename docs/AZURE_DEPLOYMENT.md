@@ -82,6 +82,22 @@ export TEAMS_DOMAIN="${AZ_WEBAPP_NAME}.azurewebsites.net"
 `webApplicationInfo` (the SSO block) is filled automatically from
 `TEAMS_APP_ID` + `TEAMS_DOMAIN` — no manual manifest edits needed.
 
+### Optional: `APP_BASE_URL`
+
+Every Teams deep link the server emits (bot cards, activity feed) can carry a
+`webUrl` — where to send someone who has no Teams client. It comes from the
+optional `APP_BASE_URL` app setting:
+
+```bash
+az webapp config appsettings set \
+  --resource-group "${AZ_RESOURCE_GROUP}" --name "${AZ_WEBAPP_NAME}" \
+  --settings APP_BASE_URL="https://${AZ_WEBAPP_NAME}.azurewebsites.net"
+```
+
+Leave it unset and the `webUrl` param is simply omitted — nothing breaks, and
+Teams still opens its own client. The web app never needs it: it uses its own
+`window.location.origin`.
+
 Output zip:
 - `teams-app/operation-hot-task-teams.zip`
 

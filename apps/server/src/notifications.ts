@@ -1,4 +1,4 @@
-import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions } from "@loan-tasks/shared";
+import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient } from "./bot.js";
@@ -12,18 +12,18 @@ export interface NotificationProvider {
   canReachDm(userId: string): Promise<boolean>;
 }
 
-/* Teams deep link to the Hot Task tab, focused on a specific task via
-   subEntityId (teams-js surfaces it as page.subPageId, which the web app reads
-   to expand + scroll to the card). Requires TEAMS_APP_ID; without it we can't
-   build a valid entity link, so the card simply omits the button. The
-   `loan-tasks-home` entity id matches the static tab in the Teams manifest. */
-const teamsTaskDeepLink = (taskId: string): string | undefined => {
-  if (!config.teamsAppId) {
-    return undefined;
-  }
-  const context = encodeURIComponent(JSON.stringify({ subEntityId: taskId }));
-  return `https://teams.microsoft.com/l/entity/${config.teamsAppId}/loan-tasks-home?context=${context}`;
-};
+/* Teams deep link to the Hot Task tab, focused on a specific task. The builder
+   itself lives in `packages/shared` (deep-link.ts) so the bot, the activity
+   feed, and the web app's "Copy link" all emit the same URL; this wrapper only
+   binds the server's config to it. Requires TEAMS_APP_ID — without it there's
+   no valid entity link, so the card simply omits the button. `label` (the
+   folder name) makes the link unfurl readably when pasted into a chat;
+   `webUrl` is only attached when APP_BASE_URL is configured. */
+const taskDeepLink = (taskId: string, label?: string): string | undefined =>
+  teamsTaskDeepLink(config.teamsAppId, taskId, {
+    ...(label ? { label } : {}),
+    ...(config.appBaseUrl ? { webUrl: config.appBaseUrl } : {})
+  });
 
 const sendWebhook = async (payload: { title: string; text: string }): Promise<void> => {
   if (!config.webhookUrl) {
@@ -59,7 +59,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
      task. Uses the creator's name for the headline so it reads the same on a
      re-open as it did at creation, regardless of who triggered the change. */
   private buildChannelCard(task: NotificationEvent["task"]): { title: string; detail: string; summary: string; openUrl?: string } {
-    const openUrl = teamsTaskDeepLink(task.id);
+    const openUrl = taskDeepLink(task.id, task.folderName);
     const summary = formatNewTaskHeadline(task.createdBy.displayName, task.taskType);
     if (task.taskType === "OOO") {
       return {
@@ -224,7 +224,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
       if (event.note?.trim()) {
         lines.unshift(`"${event.note.trim()}"`, "");
       }
-      const openUrl = teamsTaskDeepLink(event.task.id);
+      const openUrl = taskDeepLink(event.task.id, event.task.folderName);
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
         await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
           taskId: event.task.id,
@@ -261,12 +261,13 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // on the two-phase chat card (DM_CHAT_SEED), so the plain detail card omits
       // it — a buttonless advance here would post a blank note the server rejects.
       const advance = event.task.taskType === "FRAUD" ? undefined : botPrimaryAdvance(event.task);
+      const claimOpenUrl = taskDeepLink(event.task.id, event.task.folderName);
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
         await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
           taskId: event.task.id,
           title: `You claimed ${event.task.folderName}`,
           detail: lines.join("\n"),
-          ...(teamsTaskDeepLink(event.task.id) ? { openUrl: teamsTaskDeepLink(event.task.id) as string } : {}),
+          ...(claimOpenUrl ? { openUrl: claimOpenUrl } : {}),
           ...(advance ? { advance } : {})
         });
         return;

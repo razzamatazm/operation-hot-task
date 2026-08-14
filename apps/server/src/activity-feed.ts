@@ -1,3 +1,4 @@
+import { teamsTaskDeepLink } from "@loan-tasks/shared";
 import { config } from "./config.js";
 
 interface GraphTokenResponse {
@@ -44,6 +45,7 @@ export class ActivityFeedClient {
     }
 
     const token = await this.getToken();
+    const topicUrl = this.buildTaskDeepLink(taskId);
     for (const userIdRaw of new Set(userIds)) {
       const userId = userIdRaw.trim();
       if (!isLikelyAadObjectId(userId)) {
@@ -55,7 +57,7 @@ export class ActivityFeedClient {
         topic: {
           source: "text",
           value: "Hot Task",
-          webUrl: this.buildTaskDeepLink(taskId)
+          ...(topicUrl ? { webUrl: topicUrl } : {})
         },
         activityType: "systemDefault",
         previewText: {
@@ -112,12 +114,15 @@ export class ActivityFeedClient {
     return this.token.value;
   }
 
-  private buildTaskDeepLink(taskId?: string): string {
-    const base = `https://teams.microsoft.com/l/entity/${config.teamsAppId}/loan-tasks-home`;
-    if (!taskId) {
-      return base;
-    }
-    const context = encodeURIComponent(JSON.stringify({ subEntityId: taskId, taskId }));
-    return `${base}?context=${context}`;
+  /* Deep link for the notification's topic. Same shared builder the bot cards
+     use (packages/shared/deep-link.ts) — this used to be a near-duplicate that
+     emitted a different context shape (`{subEntityId, taskId}`); the canonical
+     shape is `{subEntityId}` alone. No task id → the bare tab link, which is
+     what a non-task notification wants. Returns undefined only when
+     TEAMS_APP_ID is unset, which can't happen while the client is enabled. */
+  private buildTaskDeepLink(taskId?: string): string | undefined {
+    return teamsTaskDeepLink(config.teamsAppId, taskId, {
+      ...(config.appBaseUrl ? { webUrl: config.appBaseUrl } : {})
+    });
   }
 }
