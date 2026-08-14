@@ -312,6 +312,60 @@ const ExpandAvatar = ({ name }: { name?: string }) => (
   <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
 );
 
+/* ── Status timeline (expanded body) ──────────────────────── */
+/* Rail of the task's lifecycle. NEEDS_REVIEW sits on the CLAIMED step (and
+   tags it); ARCHIVED reads as COMPLETED. The current in-flight step carries a
+   "NOW" (or "NEEDS REVIEW") chip. Removed in #106 alongside the two-column
+   expanded body, restored here — the expanded body is a single stacked column
+   now, so it renders as a compact horizontal rail at every width rather than
+   the old tall vertical dot-list. */
+const TIMELINE_LABELS: Record<string, string> = {
+  OPEN: "Opened",
+  CLAIMED: "Claimed",
+  MERGE_DONE: "Merge done",
+  MERGE_APPROVED: "Merge approved",
+  // FRAUD two-phase (#39): outstanding items sent to the requester, then the
+  // requester submits them back for the checker's final approval.
+  AWAITING_ITEMS: "Outstanding items",
+  PENDING_APPROVAL: "Final approval",
+  COMPLETED: "Completed",
+  NEEDS_REVIEW: "Needs review"
+};
+const Timeline = ({ task }: { task: LoanTask }) => {
+  const flow: TaskStatus[] =
+    task.taskType === "LOAN_DOCS"
+      ? ["OPEN", "CLAIMED", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED"]
+      : task.taskType === "FRAUD"
+        ? ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED"]
+        : ["OPEN", "CLAIMED", "COMPLETED"];
+  const effective: TaskStatus =
+    task.status === "NEEDS_REVIEW" ? "CLAIMED" : task.status === "ARCHIVED" ? "COMPLETED" : task.status;
+  const idx = flow.indexOf(effective);
+  return (
+    <div className="timeline">
+      {flow.map((s, i) => {
+        const done = i <= idx;
+        const current = i === idx && !CLOSED_STATUSES.includes(task.status);
+        const dotColor = done
+          ? s === "COMPLETED" && task.status === "COMPLETED"
+            ? "var(--good)"
+            : "var(--brand)"
+          : "var(--line)";
+        return (
+          <div key={s} className="tl-item">
+            <span className="tl-dot" style={{ background: dotColor }} />
+            <div className="tl-body">
+              <b style={{ color: done ? "var(--ink)" : "var(--muted)" }}>{TIMELINE_LABELS[s]}</b>
+              {current && task.status === "NEEDS_REVIEW" && <span className="tag tag-warn">NEEDS REVIEW</span>}
+              {current && task.status !== "NEEDS_REVIEW" && <span className="tag tag-brand">NOW</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 /* Standard three-connected-nodes "share" glyph (#58). Hand-rolled inline SVG —
    the app ships no icon library (only the logo SVG + Unicode marks), so this is
    the one reusable share icon every share affordance should use. Sized via
@@ -1543,14 +1597,15 @@ const TaskCard = memo(({
   );
 
   /* Expanded body: always a single stacked column, sections separated by a
-     hairline rather than nested card chrome. No progress stepper/timeline —
-     the collapsed row's own next-step button (Claim/Complete/Approve/...)
-     already says where a task sits in its flow, and most task types barely
-     have one anyway. No due-pill either — the collapsed row's own
-     OVERDUE/due chip already shows that. Secondary actions never show
-     here — they live in the row's hamburger instead. */
+     hairline rather than nested card chrome. Leads with the status timeline
+     (compact horizontal rail) so opening a card says where it sits in its
+     flow, then FRAUD forward moves → checklist → notes → Created/Due. No
+     due-pill — the collapsed row's own OVERDUE/due chip already shows that.
+     Secondary actions never show here — they live in the row's hamburger
+     instead. */
   const renderExpanded = () => (
     <div className="task-card-expanded">
+      <Timeline task={task} />
       {fraudActionsBlock}
       {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
       <div className="thread">{notesBlock}</div>
