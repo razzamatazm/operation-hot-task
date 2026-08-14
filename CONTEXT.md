@@ -43,6 +43,17 @@ A user who is the task's creator **or** its current assignee. The two people
 with a stake in the task. Contrast _Observer_.
 _Avoid_: owner (reserved — the grouped row labels the assignee column "Owner")
 
+**Handoff**:
+Putting a task into someone else's court directly, without waiting for them to
+claim it. Alongside claiming and releasing, the third — and only third-party —
+way a task's assignee changes. Handing off an unclaimed task lands it straight
+in the recipient's court; handing off a claimed one moves it out of the previous
+assignee's court and into the recipient's. Both people are told. Anyone may hand
+a task off, but only to someone eligible to work it.
+_Avoid_: "reassignment" as a separate concept — reassigning is just a handoff of
+an already-claimed task. (The control still reads "Reassign" when there is a
+current assignee, for clarity at the point of use.)
+
 **Observer**:
 A viewer who is neither creator nor assignee. Has no move to make, but still
 sees the task — visibility is deliberate, so an idle teammate feels the pull to
@@ -57,8 +68,10 @@ been _Message pulled_ in by an unread reply from the other party.
 
 **Up for grabs** (`pool`):
 `OPEN`, unclaimed tasks the viewer *didn't* create. Anyone may claim; first
-claim scores the points. (An `OPEN` task you created is **not** here — it's in
-`them`, since you're waiting on someone else to claim it.)
+claim scores the points. A _Handoff_ takes a task out of this bucket without a
+claim — the recipient scores it just the same. (An `OPEN` task you created is
+**not** here — it's in `them`, since you're waiting on someone else to claim
+it.)
 
 **In flight** (`them`):
 Everything not in your court and not closed: tasks whose current section another
