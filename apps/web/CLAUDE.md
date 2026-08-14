@@ -153,11 +153,18 @@ stripe | pair          | due
   longer competes with anything.
 - **due** — label and value side by side (not stacked), right-aligned so
   its right edge lines up with the action column above it. Built by
-  `groupedDue`, which is also where FRAUD's `AWAITING_ITEMS` swaps the
-  deadline for a neutral `WITH REQUESTER` / `WITH YOU` count-up — that status
-  is a wait on the requester and has never been overdue server-side (shared
-  `isOverdue`), so returning `overdue: false` there drops the red badge and
-  the row's red stripe together. See
+  `groupedDue`, which asks the **shared** `isOverdue` rather than re-deriving
+  `dueAt < now` — the row having its own copy of that rule is what let a
+  handed-off FRAUD check read `OVERDUE BY` while the server, the reminder
+  engine, and every other consumer agreed it wasn't overdue. Don't reintroduce
+  a local overdue test here; a status added to the shared exclusion list has to
+  reach both the badge and the red row stripe on its own.
+  `AWAITING_ITEMS` additionally swaps the deadline for a neutral
+  `WITH REQUESTER` / `WITH YOU` count-up (that is a display choice, made in
+  `groupedDue`; whether the task is *overdue* still isn't). The widest of those
+  labels measures ~125px against the 154px `due` track, so it fits without
+  wrapping — the label has no `nowrap`, so a longer one would grow row height
+  rather than shove its neighbours. See
   [fraud-workflow.md](../../docs/product/fraud-workflow.md#reminder-rules).
 - **action** (`--action-col-w`) — hamburger (32px) + 6px gap +
   `--quick-action-w` (116px). The cell is a two-track grid with the
