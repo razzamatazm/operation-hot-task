@@ -79,7 +79,18 @@ place, so a card's buttons always show the step that is actually next.
 - **Creates nothing, pings nobody.** Strictly an in-place edit: a participant
   with no card stays without one, nothing is repositioned, and no `summary` is
   set — the status change already had its own notification, and a second ping for
-  the same event is spam.
+  the same event is spam. This extends to failure: where a note-driven send
+  reposts a card whose stored activity id has gone stale, a sync does not — it
+  would surface as an unannounced DM. The dead id is left for the next
+  note-driven send to repair.
+- **Covers the paths that drop the assignee.** Unclaim and the fraud
+  `Release for any fraud checker` strip the assignee, so the person whose card is
+  now wrong is no longer a participant. Those callers name the ex-assignee
+  explicitly (`emitCardSync(task, [exAssigneeId])`) so their card is re-rendered
+  too. Claim syncs as well, so a card left over from an earlier claim is retired.
+- Who sees which button is one shared rule — `taskCardRecipients`
+  (`packages/shared/src/fraud.ts`) — used by the sync, the note card, and the
+  chat-seed card alike, so the three can't drift apart.
 - **Not terminal-only.** A *wrong* button is worse than a dead one: advancing a
   Loan Docs task in the tab re-arms the DM cards to `Approve Merge` rather than
   leaving `Merge Done` sitting there. Terminal cleanup is just the last step of
@@ -89,6 +100,10 @@ place, so a card's buttons always show the step that is actually next.
   action button is dropped. `Open in Hot Task` survives on the detail card.
   **COMPLETED keeps the note card's reply box** — `addCompletedNote` (issue #45)
   still accepts notes on a completed task — while CANCELLED/ARCHIVED lose it.
+  The card's Reply therefore routes through `TaskService.addNoteFromCard`, which
+  picks `addCompletedNote` for a COMPLETED task and `addReviewNote` otherwise;
+  wiring Reply straight to `addReviewNote` would make the surviving reply box a
+  button that always errors ("Notes cannot be added to closed tasks").
 - Per-viewer button rules match `DM_NOTE` exactly: `Complete` is the assignee's
   action, and a FRAUD task carries its role-aware two-phase set instead of the
   generic advance. The claim-detail card never carries a fraud button (that move

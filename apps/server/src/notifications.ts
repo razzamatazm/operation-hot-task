@@ -1,7 +1,7 @@
-import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions } from "@loan-tasks/shared";
+import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
-import { TeamsBotClient } from "./bot.js";
+import { TeamsBotClient, recentNoteThread } from "./bot.js";
 import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
@@ -159,29 +159,25 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // Deliberately above the enableDmNotifications gate: this sends nothing.
       // It only edits cards already in people's chats, and turning DMs off is no
       // reason to strand a live Complete button on a task that's already done.
-      const participants = Array.from(
-        new Set([event.task.createdBy.id, event.task.assignee?.id].filter((id): id is string => Boolean(id)))
-      );
-      if (participants.length === 0) {
+      // The task's own participants, plus anyone the caller names — an unclaim
+      // or a fraud release drops the assignee, and it's precisely that
+      // ex-assignee whose card is still offering a button they no longer have.
+      const advance = botPrimaryAdvance(event.task);
+      const recipients = taskCardRecipients(event.task, [
+        event.task.createdBy.id,
+        ...(event.task.assignee ? [event.task.assignee.id] : []),
+        ...(event.recipientUserIds ?? [])
+      ]);
+      if (recipients.length === 0) {
         return;
       }
-      const advance = botPrimaryAdvance(event.task);
-      const assigneeId = event.task.assignee?.id;
-      // Same viewer rules as DM_NOTE, so a synced card and a note-driven card
-      // never disagree about who gets the button.
-      const completeIsAssigneeOnly = advance?.status === "COMPLETED";
-      const isFraud = event.task.taskType === "FRAUD";
       await this.botClient.syncTaskCards({
         taskId: event.task.id,
         folder: event.task.folderName,
         status: event.task.status,
-        thread: (event.task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text })),
+        thread: recentNoteThread(event.task),
         ...(advance ? { advance } : {}),
-        recipients: participants.map((userId) => ({
-          userId,
-          showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
-          ...(isFraud ? { fraudActions: fraudCardActions(event.task, userId) } : {})
-        }))
+        recipients
       });
       return;
     }
@@ -202,23 +198,16 @@ export class TeamsNotificationProvider implements NotificationProvider {
         return;
       }
       const advance = botPrimaryAdvance(event.task);
-      const assigneeId = event.task.assignee?.id;
-      const completeIsAssigneeOnly = advance?.status === "COMPLETED";
-      const existing = (event.task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
+      const existing = recentNoteThread(event.task);
       const seeded =
         existing.length > 0
           ? existing
           : [{ author: "Hot Task", text: `${event.actor.displayName} claimed this — reply here to chat about it.` }];
-      const isFraud = event.task.taskType === "FRAUD";
-      const recipients = Array.from(new Set(event.recipientUserIds)).map((userId) => ({
-        userId,
-        showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
+      const recipients = taskCardRecipients(event.task, event.recipientUserIds).map((recipient) => ({
+        ...recipient,
         createIfMissing: true,
         reposition: true,
-        summary: `Chat opened for ${event.task.folderName}`,
-        // FRAUD cards carry the role-aware two-phase button set instead of the
-        // generic advance (empty for a participant with no move in this state).
-        ...(isFraud ? { fraudActions: fraudCardActions(event.task, userId) } : {})
+        summary: `Chat opened for ${event.task.folderName}`
       }));
       await this.botClient.syncNoteCards({
         taskId: event.task.id,
@@ -293,19 +282,15 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // it — a buttonless advance here would post a blank note the server rejects.
       const advance = event.task.taskType === "FRAUD" ? undefined : botPrimaryAdvance(event.task);
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
-        await this.botClient.sendDetailCardToUsers(
-          event.recipientUserIds,
-          {
-            taskId: event.task.id,
-            title: `You claimed ${event.task.folderName}`,
-            detail: lines.join("\n"),
-            ...(teamsTaskDeepLink(event.task.id) ? { openUrl: teamsTaskDeepLink(event.task.id) as string } : {}),
-            ...(advance ? { advance } : {})
-          },
-          // Tracked: this card carries an advance button, so it has to stay
-          // editable as the task moves on (see DM_CARD_SYNC).
-          true
-        );
+        // Tracked, because this card carries an advance button and so has to
+        // stay editable as the task moves on (see DM_CARD_SYNC).
+        await this.botClient.sendTrackedDetailCard(event.recipientUserIds, {
+          taskId: event.task.id,
+          title: `You claimed ${event.task.folderName}`,
+          detail: lines.join("\n"),
+          ...(teamsTaskDeepLink(event.task.id) ? { openUrl: teamsTaskDeepLink(event.task.id) as string } : {}),
+          ...(advance ? { advance } : {})
+        });
         return;
       }
       await this.botClient.sendToDms(`${typeLabel} - You claimed ${event.task.folderName}`);
@@ -319,9 +304,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
         // Last few notes for context, oldest → newest. Falls back to the raw
         // message if the task somehow carries no stored notes.
-        const thread = (event.task.reviewNotes ?? [])
-          .slice(-5)
-          .map((entry) => ({ author: entry.by.displayName, text: entry.text }));
+        const thread = recentNoteThread(event.task);
         const advance = botPrimaryAdvance(event.task);
         // Teams shows activity.summary in the feed/notification preview; without
         // it the bot DM reads "Sent a card". Surface the note's first line.
@@ -331,27 +314,20 @@ export class TeamsNotificationProvider implements NotificationProvider {
         const resolvedThread = thread.length > 0 ? thread : [{ author: event.actor.displayName, text: event.message }];
         // Recipients are the task's participants (creator + assignee), including
         // the note's author so their own DM card stays in sync when they post
-        // from the web app. Per recipient:
-        //  - showAdvance: "Complete" is the assignee's action, so only the
-        //    assignee sees it (other advances stay status-only, enforced on tap).
+        // from the web app. Which buttons each one sees is `taskCardRecipients`;
+        // this only adds the delivery behaviour, per recipient:
         //  - createIfMissing: don't spawn (and self-ping) a fresh card for the
         //    author of this note; only update theirs if it already exists.
         //  - summary: only ping non-authors.
         const authorId = event.actor.id;
-        const assigneeId = event.task.assignee?.id;
-        const completeIsAssigneeOnly = advance?.status === "COMPLETED";
-        const isFraud = event.task.taskType === "FRAUD";
-        const recipients = event.recipientUserIds.map((userId) => ({
-          userId,
-          showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
-          createIfMissing: userId !== authorId,
+        const recipients = taskCardRecipients(event.task, event.recipientUserIds).map((recipient) => ({
+          ...recipient,
+          createIfMissing: recipient.userId !== authorId,
           // The other party's card moves to the bottom so a new note isn't
           // stranded above older lifecycle DMs; the author's card updates in
           // place (no self-ping, no needless repost).
-          reposition: userId !== authorId,
-          ...(userId !== authorId ? { summary: summaryText } : {}),
-          // FRAUD cards carry the role-aware two-phase button set per recipient.
-          ...(isFraud ? { fraudActions: fraudCardActions(event.task, userId) } : {})
+          reposition: recipient.userId !== authorId,
+          ...(recipient.userId !== authorId ? { summary: summaryText } : {})
         }));
         await this.botClient.syncNoteCards({
           taskId: event.task.id,

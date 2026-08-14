@@ -29,7 +29,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { closedStateFor, detailCard, noteCard, noteCardDataFromTask } from "../apps/server/dist/bot.js";
+import { TeamsBotClient, closedStateFor, detailCard, noteCard, noteCardDataFromTask } from "../apps/server/dist/bot.js";
 import { TeamsNotificationProvider } from "../apps/server/dist/notifications.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -270,6 +270,33 @@ await check("a mid-flight step syncs too, so the button re-arms to the next one"
   assert.equal(syncs.length, 1);
   assert.equal(syncs[0].task.status, "MERGE_DONE");
   assert.equal(moved.status, "MERGE_DONE");
+  // The button doesn't just vanish — it becomes the *next* step's.
+  const card = noteCard(noteCardDataFromTask(syncs[0].task, CHECKER));
+  assert.deepEqual(actionTitles(card), ["Reply", "Approve Merge"]);
+});
+
+await check("unclaiming syncs the ex-assignee, who is no longer a participant", async () => {
+  const { service, events } = await serviceSetup();
+  const task = await service.createTask({ folderName: "Drop-1", taskType: "LOI", urgency: "GREEN", points: 1, notes: "" }, CREATOR);
+  await service.claimTask(task.id, CHECKER);
+  await settle();
+  events.length = 0;
+
+  const dropped = await service.unclaimTask(task.id, CHECKER);
+  await settle();
+
+  const sync = syncTargets(events).at(-1);
+  assert.equal(dropped.assignee, undefined, "unclaim strips the assignee");
+  // Without naming them the sync would skip the one person whose card is stale:
+  // the ex-assignee still holding a Complete button they've just lost.
+  assert.deepEqual(sync.recipientUserIds, [CHECKER.id]);
+  const { notifier, calls } = notifierSetup();
+  await notifier.notify(sync);
+  assert.ok(
+    calls[0].recipients.some((r) => r.userId === CHECKER.id),
+    "the ex-assignee is synced"
+  );
+  assert.equal(calls[0].recipients.find((r) => r.userId === CHECKER.id).showAdvance, false);
 });
 
 await check("re-opening a completed task syncs it back to a live status", async () => {
@@ -370,6 +397,158 @@ await check("auto-archiving retires the reply box the COMPLETED banner allowed",
   assert.equal(syncs.length, 1);
   assert.equal(syncs[0].task.status, "ARCHIVED");
   assert.equal(closedStateFor("ARCHIVED", "Old-1").allowReply, false);
+});
+
+// --- 4. TeamsBotClient, end to end over the card stores ---------------------
+
+/* A real TeamsBotClient with the Bot Framework connector stubbed out, so the
+   store round-trip (send -> record activity id -> edit that exact message) is
+   exercised for real rather than mocked at the notifier seam. `handleTransition`
+   and the private fields below are TypeScript-private only; this is a JS test
+   against dist, the same reach-into-internals the repo already does in
+   bot-dedupe-sim.mjs. */
+const botSetup = async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dm-card-bot-sim-"));
+  const dataFile = path.join(dir, "bot-references.json");
+  const reference = {
+    serviceUrl: "https://example.invalid",
+    conversation: { id: "dm-conversation-1" },
+    user: { id: "29:checker", aadObjectId: "aad-checker" }
+  };
+  await fs.writeFile(dataFile, JSON.stringify([{ key: `dm:${CHECKER.id}`, reference, scope: "DM", userId: CHECKER.id }]), "utf8");
+
+  const client = new TeamsBotClient("app-id", "app-password", undefined, dataFile);
+  await client.init();
+
+  const sent = [];
+  const updated = [];
+  let nextId = 0;
+  client.adapter.createConnectorClient = () => ({
+    conversations: {
+      sendToConversation: async (conversationId, activity) => {
+        nextId += 1;
+        sent.push({ conversationId, activity });
+        return { id: `activity-${nextId}` };
+      },
+      updateActivity: async (conversationId, activityId, activity) => {
+        updated.push({ conversationId, activityId, activity });
+        return { id: activityId };
+      },
+      deleteActivity: async () => {}
+    }
+  });
+  return { client, sent, updated };
+};
+
+const cardOf = (entry) => entry.activity.attachments[0].content;
+
+await check("the claim card is recorded on send, then edited in place on completion", async () => {
+  const { client, sent, updated } = await botSetup();
+  await client.sendTrackedDetailCard([CHECKER.id], {
+    taskId: "task-1",
+    title: "You claimed Smith-1042",
+    detail: "Type: LOI Check\nDue: Aug 14",
+    openUrl: "https://teams/x",
+    advance: { status: "COMPLETED", label: "Complete" }
+  });
+  assert.equal(sent.length, 1, "the claim card goes out once");
+  assert.deepEqual(actionTitles(cardOf(sent[0])), ["Complete", "Open in Hot Task"]);
+
+  await client.syncTaskCards({
+    taskId: "task-1",
+    folder: "Smith-1042",
+    status: "COMPLETED",
+    thread: [],
+    recipients: [{ userId: CHECKER.id, showAdvance: false }]
+  });
+
+  // The bug in one assertion: the card that was sent is edited, not re-sent.
+  assert.equal(sent.length, 1, "a sync must not put a new message in the chat");
+  const edit = updated.find((entry) => entry.activityId === "activity-1");
+  assert.ok(edit, "the recorded activity id is the one that gets updated");
+  assert.deepEqual(actionTitles(cardOf(edit)), ["Open in Hot Task"]);
+  assert.equal(headline(cardOf(edit)), "✅ Completed — Smith-1042");
+  assert.equal(cardOf(edit).body[1].text, "Type: LOI Check\nDue: Aug 14", "the stored detail block is replayed");
+});
+
+await check("a note card's Complete button is stripped by the same sync", async () => {
+  const { client, sent, updated } = await botSetup();
+  await client.syncNoteCards({
+    taskId: "task-2",
+    folder: "Jones-88",
+    thread: [{ author: "Casey", text: "on it" }],
+    advance: { status: "COMPLETED", label: "Complete" },
+    recipients: [{ userId: CHECKER.id, showAdvance: true, createIfMissing: true }]
+  });
+  assert.deepEqual(actionTitles(cardOf(sent[0])), ["Reply", "Complete"]);
+
+  await client.syncTaskCards({
+    taskId: "task-2",
+    folder: "Jones-88",
+    status: "COMPLETED",
+    thread: [{ author: "Casey", text: "on it" }],
+    recipients: [{ userId: CHECKER.id, showAdvance: false }]
+  });
+  assert.equal(sent.length, 1);
+  assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Reply"]);
+});
+
+await check("a silent sync never posts a replacement when the update is rejected", async () => {
+  const { client, sent, updated } = await botSetup();
+  await client.syncNoteCards({
+    taskId: "task-3",
+    folder: "Gone-1",
+    thread: [{ author: "Casey", text: "hi" }],
+    recipients: [{ userId: CHECKER.id, showAdvance: false, createIfMissing: true }]
+  });
+  assert.equal(sent.length, 1);
+  // Simulate a dead activity id (card deleted, or predating a redeploy).
+  client.adapter.createConnectorClient = () => ({
+    conversations: {
+      sendToConversation: async (conversationId, activity) => {
+        sent.push({ conversationId, activity });
+        return { id: "activity-resent" };
+      },
+      updateActivity: async () => {
+        throw new Error("Activity not found");
+      },
+      deleteActivity: async () => {}
+    }
+  });
+
+  await client.syncTaskCards({
+    taskId: "task-3",
+    folder: "Gone-1",
+    status: "COMPLETED",
+    thread: [],
+    recipients: [{ userId: CHECKER.id, showAdvance: false }]
+  });
+  // A background sync that resurfaces as a brand-new DM is exactly the
+  // unannounced ping this path is supposed to avoid. The dead id is left for
+  // the next note-driven send to repair.
+  assert.equal(sent.length, 1, "no replacement card was posted");
+  assert.equal(updated.length, 0);
+});
+
+await check("a rejected card tap asks for a re-sync and says so", async () => {
+  const { client } = await botSetup();
+  const resynced = [];
+  client.setCardResync(async (taskId) => {
+    resynced.push(taskId);
+  });
+  client.setTransitionHandler(
+    async () => CHECKER,
+    async () => {
+      throw new Error("Task cannot move to COMPLETED from COMPLETED");
+    }
+  );
+
+  const outcome = await client.handleTransition("task-9", "COMPLETED", "aad-checker");
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.message, /Refreshing this card\.$/);
+  // Fire-and-forget, so let the microtask queue drain before reading.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(resynced, ["task-9"], "the stale card is scheduled for repair");
 });
 
 console.log(`\n${passed} checks passed`);

@@ -79,7 +79,8 @@ const bootstrap = async (): Promise<void> => {
   );
   botClient.setNoteReplyHandler(
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
-    async (taskId, text, user) => service.addReviewNote(taskId, text, user)
+    // Not addReviewNote directly: a COMPLETED task's card keeps its reply box.
+    async (taskId, text, user) => service.addNoteFromCard(taskId, text, user)
   );
   botClient.setTransitionHandler(
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
