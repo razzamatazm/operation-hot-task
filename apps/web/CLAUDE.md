@@ -345,12 +345,14 @@ nested card chrome, in this order:
    Horizontal at every width — the old vertical dot-list pushed the notes
    thread far down the card (#92) — and wraps to a second line rather than
    scrolling. It's the first child so the sibling-hairline rule skips it.
-2. **FRAUD alternative moves**, when the task is in a FRAUD phase — those
-   are the job of the card in that phase, not administrivia, so they stay
-   visible rather than living in the hamburger. The phase's *forward* move
-   is promoted to the collapsed row's action slot instead (`fraudQuick`),
-   so what renders here is what the slot can't hold: `Send Back`, `Release`,
-   and the inline note composer.
+2. **FRAUD note composer**, and only when the row's own note-required move
+   has opened it. The body carries no fraud *buttons* at all: the phase's
+   forward move rides the collapsed row (`fraudQuick`) and the alternatives
+   (`Send Back`, `Release`) sit in the hamburger with the rest of the
+   secondary ladder. A lone `Send Back` used to float here directly above
+   the checklist, where it read as part of the outstanding-items list
+   rather than as the card's action. The composer stays because the row
+   can't host a textarea — it has nowhere else to go.
 3. **Checklist** (FRAUD outstanding items), when there is one.
 4. **Notes** — originating note + reply thread + add-note input, all in one
    avatar/name/timestamp style. Thread caps at 180px
@@ -359,8 +361,11 @@ nested card chrome, in this order:
 5. **Created / Due** — one compact meta row at the bottom.
 
 Everything else (Re-open, Add a note, Unclaim, Cancel, Archive, Restore,
-Share, Undo Merge Done) lives in the collapsed row's hamburger, not here —
-there is no actions card in the body anymore.
+Share, Undo Merge Done, and FRAUD's Send Back / Release) lives in the
+collapsed row's hamburger, not here — there is no actions card in the body
+anymore. `Send Back` is note-required, so it opens its composer inside the
+menu panel; that is fine, the panel already hosts the `Add a note` field and
+its Esc handler exempts text fields.
 
 ### Card variants (subtle, not loud)
 

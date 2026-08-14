@@ -1359,51 +1359,59 @@ const TaskCard = memo(({
     </div>
   );
 
-  /* FRAUD two-phase forward moves (#39) — the job of the card while it's in
-     this phase, not administrivia, so they stay visible in the expanded
-     body (not folded into the actions menu). The phase's forward move rides
-     the collapsed row instead; what's left here are the alternatives
-     (Send Back's inline note, Release's hand-off to the checker pool). Same
-     set the bot DM cards render. */
+  /* The expanded body carries no fraud *buttons*. The phase's forward move
+     rides the collapsed row (fraudQuick) and the alternatives sit in the
+     hamburger (fraudMenuActions) — a lone `Send Back` floating above the
+     outstanding items read as part of the checklist rather than as the
+     card's action. All that's left here is the composer the row's own
+     note-required move opens, which has nowhere else to go: the row can't
+     host a textarea. */
   const promotedNoteOpen = promotedNoteTarget !== undefined && openFraudNote === promotedNoteTarget;
-  const fraudActionsBlock = showActions && cancelStage === "idle" && (expandedFraudActions.length > 0 || promotedNoteOpen) && (
-    <div className="task-card-fraud">
-      {promotedNoteOpen && promotedNoteTarget && fraudNoteBox(promotedNoteTarget)}
-      {expandedFraudActions.map((action) => {
-        // A populated checklist already satisfies the server's
-        // "items or note" rule, so a transitionWithNote action
-        // fires immediately in that case — only an empty
-        // checklist still needs the note box gate (#84).
-        const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
-        const noteOpen = noteRequired && openFraudNote === action.targetStatus;
-        return (
-          <div key={action.label} className="task-card-fraud-action">
-            <button
-              type="button"
-              className={`btn-sm ${action.kind === "release" ? "btn-ghost" : "btn-good"}`}
-              aria-expanded={noteRequired ? noteOpen : undefined}
-              onClick={() => {
-                if (noteRequired && action.targetStatus) {
-                  setFraudNote("");
-                  setOpenFraudNote(noteOpen ? null : action.targetStatus);
-                } else {
-                  runFraudAction(action);
-                }
-              }}
-            >
-              {action.label}
-            </button>
-            {noteOpen && action.targetStatus && fraudNoteBox(action.targetStatus)}
-          </div>
-        );
-      })}
-    </div>
+  const fraudActionsBlock = showActions && cancelStage === "idle" && promotedNoteOpen && promotedNoteTarget && (
+    <div className="task-card-fraud">{fraudNoteBox(promotedNoteTarget)}</div>
   );
+
+  /* The alternatives to the phase's forward move (#39) — `Send Back`'s
+     bounce and `Release`'s hand-off to the checker pool. Both are steps
+     sideways or backwards, so they live in the menu next to `Undo Review`
+     and `Undo Merge Done` rather than in the body. Rendered inside the
+     hamburger; the note box opens in place, which the panel already
+     supports (its Esc handler exempts text fields). Same set the bot DM
+     cards render. */
+  const fraudMenuActions = expandedFraudActions.map((action) => {
+    // A populated checklist already satisfies the server's
+    // "items or note" rule, so a transitionWithNote action
+    // fires immediately in that case — only an empty
+    // checklist still needs the note box gate (#84).
+    const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
+    const noteOpen = noteRequired && openFraudNote === action.targetStatus;
+    return (
+      <div key={action.label} className="task-card-fraud-action">
+        <button
+          type="button"
+          className="btn-sm btn-ghost"
+          aria-expanded={noteRequired ? noteOpen : undefined}
+          onClick={() => {
+            if (noteRequired && action.targetStatus) {
+              setFraudNote("");
+              setOpenFraudNote(noteOpen ? null : action.targetStatus);
+            } else {
+              runFraudAction(action);
+            }
+          }}
+        >
+          {action.label}
+        </button>
+        {noteOpen && action.targetStatus && fraudNoteBox(action.targetStatus)}
+      </div>
+    );
+  });
 
   /* Everything else — the actions-menu ladder, rendered inside the
      hamburger (see actionsMenu below), not in the expanded body. */
   const secondaryActionsBlock = showActions && cancelStage === "idle" && (
     <>
+      {fraudMenuActions}
       {task.status === "OPEN" && isCreator && (
         <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
           Cancel Task
@@ -1524,7 +1532,8 @@ const TaskCard = memo(({
   /* Actions menu: hamburger next to the row's primary action (see the
      collapsed row below), holding Share plus the secondary ladder
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
-     Done, Undo Review). Cancel's confirm/done UI renders inside the same
+     Done, Undo Review, and FRAUD's Send Back / Release). Cancel's
+     confirm/done UI renders inside the same
      panel so it stays visible once triggered, matching the in-place-swap
      behavior it always had. stopBubble on the wrapping span keeps clicks in this
      subtree from also toggling the collapsed row's expand/collapse. The panel is
