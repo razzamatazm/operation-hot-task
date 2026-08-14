@@ -195,7 +195,12 @@ const run = async () => {
       const tasks = await store.allTasks();
       assert.equal(tasks[0].status, "COMPLETED");
       assert.ok(tasks[0].completedAt, "completedAt should be set");
-      assert.equal(notifier.events.filter((e) => e.type === "TASK_STATUS_CHANGED").length, 2);
+      // In-app event, the "welcome back" DM, and the silent DM card sync that
+      // retires the Complete button on the participants' existing cards.
+      assert.deepEqual(
+        notifier.events.filter((e) => e.type === "TASK_STATUS_CHANGED").map((e) => e.target),
+        ["IN_APP", "DM", "DM_CARD_SYNC"]
+      );
       pass("ooo task auto-completes at return-date due time");
     });
 
