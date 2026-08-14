@@ -99,11 +99,22 @@ Output zip:
 curl -s "https://${AZ_WEBAPP_NAME}.azurewebsites.net/api/health"
 ```
 
-### Bot endpoint reachable (expect 401/405 if no bot activity body)
+### Bot endpoint reachable
+
+The route is registered `POST`-only (`bot.ts` `register()`), so a plain
+`GET` returns **404** from Express — that is correct, not a failure. Test
+with a POST:
 
 ```bash
-curl -i "https://${AZ_WEBAPP_NAME}.azurewebsites.net/api/bot/messages"
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' -d '{}' \
+  "https://${AZ_WEBAPP_NAME}.azurewebsites.net/api/bot/messages"
 ```
+
+Expect **400** — the botbuilder adapter rejecting an unauthenticated
+activity, which means it is live. A **503** means `BOT_APP_ID` /
+`BOT_APP_PASSWORD` are missing from app settings; a **500** means the
+handler itself threw.
 
 ### CI still green
 
