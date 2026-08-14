@@ -329,18 +329,31 @@ no longer drives the stripe. OOO tasks have no stripe.
 
 ### Expanded body
 
-Two-column grid (`260px / 1fr`):
-- Left: meta block + `task-card-actions` (full button set, including
-  Unclaim, secondary Cancel, etc.). The `Creator: <name>` line is hidden
-  when the viewer is the creator — the right-edge stripe already says
-  "yours."
-- Right: notes panel + optional `task-card-review` thread + add-note input.
-  Thread caps at 180px (`.task-card-review-list` `max-height`) with internal
-  scroll and auto-scroll-to-newest on new entries / re-open.
+One stacked column (#106), sections separated by a hairline rather than
+nested card chrome, in this order:
 
-Quick action in collapsed row is a *subset* of these — the expanded
-panel is where the long tail lives. Don't promote rare actions to the
-collapsed row.
+1. **Status timeline** (`.timeline`) — horizontal rail of the task's
+   lifecycle, one dot + label per step, with a `NOW` (or `NEEDS REVIEW`)
+   tag on the current in-flight step. Flow comes from the task type:
+   LOAN_DOCS gets the merge steps, FRAUD gets the two-phase checklist
+   steps, everything else is Opened → Claimed → Completed. `NEEDS_REVIEW`
+   renders on the `CLAIMED` step; `ARCHIVED` reads as `COMPLETED`.
+   Horizontal at every width — the old vertical dot-list pushed the notes
+   thread far down the card (#92) — and wraps to a second line rather than
+   scrolling. It's the first child so the sibling-hairline rule skips it.
+2. **FRAUD forward moves**, when the task is in a FRAUD phase — those are
+   the job of the card in that phase, not administrivia, so they stay
+   visible rather than living in the hamburger.
+3. **Checklist** (FRAUD outstanding items), when there is one.
+4. **Notes** — originating note + reply thread + add-note input, all in one
+   avatar/name/timestamp style. Thread caps at 180px
+   (`.task-card-review-list` `max-height`) with internal scroll and
+   auto-scroll-to-newest on new entries / re-open.
+5. **Created / Due** — one compact meta row at the bottom.
+
+Everything else (Re-open, Add a note, Unclaim, Cancel, Archive, Restore,
+Share, Undo Merge Done) lives in the collapsed row's hamburger, not here —
+there is no actions card in the body anymore.
 
 ### Card variants (subtle, not loud)
 
