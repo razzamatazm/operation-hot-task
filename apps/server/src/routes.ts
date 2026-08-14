@@ -1,5 +1,5 @@
 import { Request, Response, Router } from "express";
-import { UserIdentity, UserRole, canWorkTaskType, nextFlowStatuses } from "@loan-tasks/shared";
+import { UserIdentity, UserRole, assignRefusalMessage, canWorkTaskType, nextFlowStatuses } from "@loan-tasks/shared";
 import { AuthError, authenticate } from "./auth.js";
 import { resolveUserByEmail } from "./graph-users.js";
 import { config } from "./config.js";
@@ -379,7 +379,7 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
           return;
         }
         if (!canWorkTaskType(input.taskType, target)) {
-          res.status(400).json({ error: `${target.displayName} can't take a Fraud Check — that needs a file checker` });
+          res.status(400).json({ error: assignRefusalMessage(input.taskType, target.displayName) });
           return;
         }
         const task = await service.createTask(input, user, { id: target.id, displayName: target.displayName });

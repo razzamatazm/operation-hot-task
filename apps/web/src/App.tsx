@@ -721,8 +721,7 @@ const SharePopover = ({
    AND two outside-click/Escape exemptions the hamburger menu keys off that
    class selector (`keepOpenWithin`, and the menu's Esc handler). Dropping the
    class in favour of a fresh one would close the menu out from under this panel
-   the moment you clicked into it. `.assign-pop-panel` rides along purely as a
-   hook for anything that later needs to tell the two apart.
+   the moment you clicked into it.
 
    Unlike share, a handoff can be REJECTED by the server (ineligible recipient,
    task closed, lost race), so the failure lands inline next to the picker
@@ -732,7 +731,8 @@ const AssignPopover = ({
   candidates,
   onAssign
 }: {
-  /* "Assign" on an unclaimed task, "Reassign" once it has an assignee. */
+  /* ACTION_LABELS.ASSIGN on an unclaimed task, ACTION_LABELS.REASSIGN once it
+     has an assignee. Picked by the caller, never composed here. */
   label: string;
   /* Eligible recipients, pre-filtered by the caller (every active user who can
      work this task, minus whoever already holds it — self included). */
@@ -798,7 +798,7 @@ const AssignPopover = ({
       {open && createPortal(
         <div
           ref={panelRef}
-          className="share-pop-panel assign-pop-panel"
+          className="share-pop-panel"
           role="dialog"
           aria-label="Hand this task to someone"
           style={panelStyle}
@@ -1717,7 +1717,7 @@ const TaskCard = memo(({
      closed task, where `canAssignTaskTo` also empties the candidate list. */
   const assignMenuItemBlock = !isClosed && assignCandidates.length > 0 && (
     <AssignPopover
-      label={task.assignee ? "Reassign" : "Assign"}
+      label={task.assignee ? ACTION_LABELS.REASSIGN : ACTION_LABELS.ASSIGN}
       candidates={assignCandidates}
       onAssign={(assigneeUserId, note) => onAssign(task.id, assigneeUserId, note)}
     />
@@ -2693,9 +2693,9 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     // the task in the pool; ASSIGN hands it straight to them, so the task is
     // born CLAIMED. One picker, one note, one action — never both, because two
     // DMs about the same brand-new task is exactly the noise we're avoiding.
-    directMode: "share" as "share" | "assign",
-    directUserId: "",
-    directNote: ""
+    pickerMode: "share" as "share" | "assign",
+    recipientUserId: "",
+    recipientNote: ""
   });
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. */
@@ -2755,22 +2755,22 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
      (they already know about their own task); Assign includes them, because
      assigning a task to yourself at creation is just claiming it up front, and
      narrows to people who can actually work this task type. */
-  const directCandidates = useMemo(
+  const recipientCandidates = useMemo(
     () =>
-      form.directMode === "assign"
+      form.pickerMode === "assign"
         ? directory.filter((u) => canWorkTaskType(form.taskType, u))
         : directory.filter((u) => u.id !== user.id),
-    [directory, form.directMode, form.taskType, user.id]
+    [directory, form.pickerMode, form.taskType, user.id]
   );
 
   /* Switching to Assign, or to a Fraud Check, can make the current pick
      ineligible. Drop it rather than leave a selection showing that the server
      would reject at submit. */
   useEffect(() => {
-    if (form.directUserId && !directCandidates.some((c) => c.id === form.directUserId)) {
-      setForm((c) => ({ ...c, directUserId: "" }));
+    if (form.recipientUserId && !recipientCandidates.some((c) => c.id === form.recipientUserId)) {
+      setForm((c) => ({ ...c, recipientUserId: "" }));
     }
-  }, [directCandidates, form.directUserId]);
+  }, [recipientCandidates, form.recipientUserId]);
 
   const handleSubmit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -2785,7 +2785,7 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
     // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
     // ship the outstanding items the creator already knows about.
-    const assignAtCreate = Boolean(form.directUserId) && form.directMode === "assign";
+    const assignAtCreate = Boolean(form.recipientUserId) && form.pickerMode === "assign";
     const seededItems =
       form.taskType === "FRAUD"
         ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
@@ -2806,8 +2806,8 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
       // stays a follow-up call (below) because its response carries the
       // `delivered` reachability flag, which the create response has no place
       // to hold.
-      ...(assignAtCreate ? { assigneeUserId: form.directUserId } : {}),
-      ...(assignAtCreate && form.directNote.trim() ? { assigneeNote: form.directNote.trim() } : {})
+      ...(assignAtCreate ? { assigneeUserId: form.recipientUserId } : {}),
+      ...(assignAtCreate && form.recipientNote.trim() ? { assigneeNote: form.recipientNote.trim() } : {})
     };
 
     setSubmitting(true);
@@ -2820,8 +2820,8 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
       // mid-flight.
       await onCreate(
         payload,
-        assignAtCreate ? "" : form.directUserId,
-        form.directNote.trim() || undefined
+        assignAtCreate ? "" : form.recipientUserId,
+        form.recipientNote.trim() || undefined
       );
       onClose();
     } catch {
@@ -3082,49 +3082,49 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
             only go to a file checker, same rule the server enforces — and a
             selection that stops being eligible is dropped rather than left to
             fail at submit. Hidden when there's nobody to point at. */}
-        {directCandidates.length > 0 && (
+        {recipientCandidates.length > 0 && (
           <div className="span-full form-direct">
             <div className="form-direct-head">
               <span>
-                {form.directMode === "assign" ? "Assign Directly" : "Share Directly"}
+                {form.pickerMode === "assign" ? "Assign Directly" : "Share Directly"}
                 <span className="form-label-optional"> - Optional</span>
               </span>
               <div className="seg" role="group" aria-label="Share or assign">
                 <button
                   type="button"
-                  className={form.directMode === "share" ? "seg-on" : ""}
-                  aria-pressed={form.directMode === "share"}
-                  onClick={() => setForm((c) => ({ ...c, directMode: "share" }))}
+                  className={form.pickerMode === "share" ? "seg-on" : ""}
+                  aria-pressed={form.pickerMode === "share"}
+                  onClick={() => setForm((c) => ({ ...c, pickerMode: "share" }))}
                 >
                   Share
                 </button>
                 <button
                   type="button"
-                  className={form.directMode === "assign" ? "seg-on" : ""}
-                  aria-pressed={form.directMode === "assign"}
-                  onClick={() => setForm((c) => ({ ...c, directMode: "assign" }))}
+                  className={form.pickerMode === "assign" ? "seg-on" : ""}
+                  aria-pressed={form.pickerMode === "assign"}
+                  onClick={() => setForm((c) => ({ ...c, pickerMode: "assign" }))}
                 >
-                  Assign
+                  {ACTION_LABELS.ASSIGN}
                 </button>
               </div>
             </div>
             <select
-              aria-label={form.directMode === "assign" ? "Assign to" : "Share with"}
-              value={form.directUserId}
-              onChange={(e) => setForm((c) => ({ ...c, directUserId: e.target.value }))}
+              aria-label={form.pickerMode === "assign" ? "Assign to" : "Share with"}
+              value={form.recipientUserId}
+              onChange={(e) => setForm((c) => ({ ...c, recipientUserId: e.target.value }))}
             >
               <option value="">No one — just create it</option>
-              {directCandidates.map((u) => (
+              {recipientCandidates.map((u) => (
                 <option key={u.id} value={u.id}>{u.displayName}</option>
               ))}
             </select>
-            {form.directUserId && (
+            {form.recipientUserId && (
               <input
                 type="text"
-                value={form.directNote}
+                value={form.recipientNote}
                 placeholder="Add a note (optional)"
                 maxLength={280}
-                onChange={(e) => setForm((c) => ({ ...c, directNote: e.target.value }))}
+                onChange={(e) => setForm((c) => ({ ...c, recipientNote: e.target.value }))}
               />
             )}
           </div>

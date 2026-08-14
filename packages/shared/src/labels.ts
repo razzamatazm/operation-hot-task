@@ -35,7 +35,16 @@ export const ACTION_LABELS = {
   /* Row-level Cancel (#117): the creator's terminal fallback in the collapsed
      row's action slot. Same wording as the hamburger's Cancel entry — it drives
      the same two-step confirm. */
-  CANCEL: "Cancel"
+  CANCEL: "Cancel",
+  /* Handoff (ADR-0002). Two labels for one action, picked on whether the task
+     already has an assignee: handing off an unclaimed task and taking one off
+     somebody are the same operation, but a menu reading "Assign" over a task
+     that already has an owner hides that someone is about to be displaced.
+     CONTEXT.md's glossary deliberately keeps "reassignment" out of the domain
+     language — this is a point-of-use label, not a second concept. Menu-only,
+     never the collapsed row, so neither is bound by the 116px slot. */
+  ASSIGN: "Assign",
+  REASSIGN: "Reassign"
 } as const;
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;

@@ -1,5 +1,5 @@
 import { ACTION_LABELS } from "./labels.js";
-import { AppConfig, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
+import { AppConfig, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -398,6 +398,14 @@ export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boole
    payload) has to check the recipient before the task exists. */
 export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean =>
   taskType !== "FRAUD" || hasRole(user, "FILE_CHECKER");
+
+/* The refusal a rejected handoff shows. Both enforcement points — the route
+   (create-with-assignee) and `TaskService.assignTask` — surface this exact
+   string, and the web popover renders it inline next to the picker, so it is
+   user-facing copy and belongs beside the rule it explains rather than being
+   retyped at each throw site. */
+export const assignRefusalMessage = (taskType: TaskType, targetName: string): string =>
+  `${targetName} can't take a ${TASK_TYPE_LABELS[taskType]} — that needs a file checker`;
 
 export const canUnclaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.status !== "CLAIMED") {

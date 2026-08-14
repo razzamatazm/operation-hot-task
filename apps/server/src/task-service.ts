@@ -9,6 +9,7 @@ import {
   TaskStatus,
   UserIdentity,
   addChecklistItem,
+  assignRefusalMessage,
   canAssignTaskTo,
   canClaimTask,
   canDeleteChecklistItem,
@@ -987,7 +988,7 @@ export class TaskService {
       return task;
     }
     if (!canAssignTaskTo(task, params.target)) {
-      throw new Error(`${params.target.displayName} can't take a Fraud Check — that needs a file checker`);
+      throw new Error(assignRefusalMessage(task.taskType, params.target.displayName));
     }
 
     const previous = task.assignee;
