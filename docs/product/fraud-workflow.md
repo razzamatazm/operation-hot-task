@@ -20,7 +20,7 @@ task. Non-FRAUD task types never enter these statuses.
 ## Forward Moves And Who Can Make Them
 
 - `Claimed -> Awaiting Items` — **checker only** (assignee or admin); the
-  "Send Outstanding Items" action.
+  "Send Items" action.
 - `Awaiting Items -> Pending Approval` — **requester only** (creator or
   admin); the "Submit" action.
 - `Pending Approval -> Completed` — **checker only** (assignee/admin,
@@ -68,16 +68,15 @@ Rules:
 - **Ordering.** Stable add-order (#96, reverses the earlier float-to-top
   rule) — checking or unchecking an item never changes its position. No
   manual reorder in v1.
-- **Pass counter.** `checklistPass` starts at 1 on the first "Send
-  Outstanding Items" and increments on each bounce-back; new items stamp the
-  current pass in `addedOnPass`.
+- **Pass counter.** `checklistPass` starts at 1 on the first "Send Items"
+  and increments on each bounce-back; new items stamp the current pass in
+  `addedOnPass`.
 - **Creator seeds at creation (#69).** On a FRAUD create the requester may
   seed the checklist with outstanding items they already know about
   (`CreateTaskInput.initialItems: { text }[]`). They persist as creator-added
   draft items on pass 0. While the task is `Open` (pre-claim) the creator is
   the active editing seat, so gated deletion lets them manage their own
-  seeds until a checker claims and the first "Send Outstanding Items" commits
-  them.
+  seeds until a checker claims and the first "Send Items" commits them.
 - **Turn permissions** (server-enforced via `canEditChecklist`): `Open`
   (pre-claim) = the creator seeds / manages their own draft list (add / edit
   own text / toggle / note); `Claimed` = the checker builds the list;
@@ -97,7 +96,7 @@ Rules:
 
 ## Note-Required Hand-Back
 
-Any move *into* `Awaiting Items` (the initial "Send Outstanding Items" or a
+Any move *into* `Awaiting Items` (the initial "Send Items" or a
 "Send Back") must carry **either** a non-empty checklist **or** a non-empty
 note describing what's outstanding — an empty hand-back (no items, no note)
 is rejected. When present, the note rides in on the transition as
@@ -144,7 +143,7 @@ Poop points are awarded only when the task reaches the final `Completed`
 FRAUD tasks render a shared, **role-aware** button set (`fraudCardActions` in
 `packages/shared/src/fraud.ts`) on both the bot DM cards and the web courts
 view, so both surfaces show the same actions to the same viewer — checker:
-"Send Outstanding Items" (note) then "Approve" / "Send Back" (note);
+"Send Items" (note) then "Approve" / "Send Back" (note);
 requester: "Submit" and "Release for any fraud checker".
 Note-required moves open an inline note box whose text posts as the
 transition's `reviewNotes`. The user-facing phase names are **Outstanding

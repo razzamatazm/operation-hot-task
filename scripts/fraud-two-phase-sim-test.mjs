@@ -201,7 +201,7 @@ check("AWAITING_ITEMS never overdue and fully silent", () => {
 check("botPrimaryAdvance labels the correct single fraud step per state", () => {
   assert.deepEqual(botPrimaryAdvance(makeFraudTask({ status: "CLAIMED" })), {
     status: "AWAITING_ITEMS",
-    label: "Send Outstanding Items"
+    label: "Send Items"
   });
   assert.deepEqual(botPrimaryAdvance(makeFraudTask({ status: "AWAITING_ITEMS" })), {
     status: "PENDING_APPROVAL",
