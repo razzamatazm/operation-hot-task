@@ -152,7 +152,13 @@ stripe | pair          | due
   widest pair the app renders is 190px (`Johanna → Unclaimed`), which no
   longer competes with anything.
 - **due** — label and value side by side (not stacked), right-aligned so
-  its right edge lines up with the action column above it.
+  its right edge lines up with the action column above it. Built by
+  `groupedDue`, which is also where FRAUD's `AWAITING_ITEMS` swaps the
+  deadline for a neutral `WITH REQUESTER` / `WITH YOU` count-up — that status
+  is a wait on the requester and has never been overdue server-side (shared
+  `isOverdue`), so returning `overdue: false` there drops the red badge and
+  the row's red stripe together. See
+  [fraud-workflow.md](../../docs/product/fraud-workflow.md#reminder-rules).
 - **action** (`--action-col-w`) — hamburger (32px) + 6px gap +
   `--quick-action-w` (116px). The cell is a two-track grid with the
   hamburger and the button placed by `grid-column`, not by source order,

@@ -204,7 +204,8 @@ const liveCountdown = (dueIso: string, nowMs: number): { overdue: boolean; text:
    distance so quiet tasks don't shout a precise number. */
 const groupedDue = (
   task: LoanTask,
-  nowMs: number
+  nowMs: number,
+  viewerIsRequester: boolean
 ): { label: string; value: string; overdue: boolean; done: boolean } => {
   if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
     const stamp = task.completedAt ?? task.archivedAt;
@@ -219,6 +220,23 @@ const groupedDue = (
   }
   if (task.taskType === "OOO") {
     return { label: "RETURNS", value: formatPtDateOnly(task.dueAt), overdue: false, done: false };
+  }
+  // FRAUD AWAITING_ITEMS is a wait on the requester, not a deadline the
+  // checker is missing — the shared `isOverdue` has excluded it all along and
+  // this row was the one surface still deriving overdue on its own from
+  // `dueAt`, so a handed-off task kept reading "OVERDUE BY 2h 45m" at nobody.
+  // Same slot, same format, counting up from the hand-off instead: neutral
+  // styling (`overdue: false` also drops the row's red stripe), and worded for
+  // whichever seat is looking. Pre-existing tasks have no `awaitingItemsSince`
+  // — `updatedAt` is a rough stand-in until their next hand-off stamps one.
+  if (task.status === "AWAITING_ITEMS") {
+    const since = task.awaitingItemsSince ?? task.updatedAt;
+    return {
+      label: viewerIsRequester ? "WITH YOU" : "WITH REQUESTER",
+      value: liveCountdown(since, nowMs).text,
+      overdue: false,
+      done: false
+    };
   }
   const cd = liveCountdown(task.dueAt, nowMs);
   if (cd.overdue) return { label: "OVERDUE BY", value: cd.text, overdue: true, done: false };
@@ -1162,7 +1180,12 @@ const TaskCard = memo(({
     ? (task.completedAt ? `Completed ${formatDate(task.completedAt)}` : undefined)
     : task.taskType === "OOO"
       ? undefined
-      : `Due ${formatDate(task.dueAt)}`;
+      : task.status === "AWAITING_ITEMS"
+        // The badge no longer shows a deadline here, so neither should its
+        // tooltip — "Due <date>" on a task whose clock is explicitly the
+        // requester's is the same wrong claim in smaller text.
+        ? `Sent to requester ${formatDate(task.awaitingItemsSince ?? task.updatedAt)}`
+        : `Due ${formatDate(task.dueAt)}`;
   const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
 
   /* FRAUD two-phase role-aware buttons (#39), shared with the bot cards so both
@@ -1658,7 +1681,7 @@ const TaskCard = memo(({
      bold in whichever slot it appears (#93) — pure "is this name mine", not
      conditional on which role the viewer is looking from. */
   const ownerName = task.assignee?.displayName;
-  const due = groupedDue(task, now ?? Date.now());
+  const due = groupedDue(task, now ?? Date.now(), isCreator);
   const groupedOverdue = due.overdue;
 
   return (
