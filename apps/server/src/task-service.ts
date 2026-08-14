@@ -450,6 +450,10 @@ export class TaskService {
     // `addedOnPass`, so the UI can flag "added this round."
     if (next === "AWAITING_ITEMS") {
       updated.checklistPass = (task.checklistPass ?? 0) + 1;
+      // Anchor for the web row's "with requester" counter. Stamped on every
+      // entry, so a Send Back restarts the clock from that hand-back rather
+      // than accumulating across passes.
+      updated.awaitingItemsSince = now;
     }
     // FRAUD gated deletion (#66): entering AWAITING_ITEMS (checker's initial
     // send or a bounce-back) or PENDING_APPROVAL (creator's submit) is a

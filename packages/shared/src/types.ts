@@ -192,6 +192,14 @@ export interface LoanTask {
       each bounce-back (PENDING_APPROVAL → AWAITING_ITEMS). New items record the
       pass they were added on (`ChecklistItem.addedOnPass`). */
   checklistPass?: number;
+  /** FRAUD only: when the checker last handed the task to the requester, i.e.
+      the most recent entry into AWAITING_ITEMS (initial send or a Send Back).
+      `updatedAt` can't stand in for this — it is rewritten on every checklist
+      edit, which is exactly what the requester does while holding the task, so
+      the "with requester" counter would reset each time they tick an item.
+      Set on entry, never cleared: nothing reads it in other statuses and
+      keeping it leaves a record of the last hand-off. */
+  awaitingItemsSince?: string;
 }
 
 export interface TaskHistoryEvent {

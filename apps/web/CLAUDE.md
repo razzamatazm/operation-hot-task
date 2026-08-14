@@ -152,7 +152,20 @@ stripe | pair          | due
   widest pair the app renders is 190px (`Johanna → Unclaimed`), which no
   longer competes with anything.
 - **due** — label and value side by side (not stacked), right-aligned so
-  its right edge lines up with the action column above it.
+  its right edge lines up with the action column above it. Built by
+  `groupedDue`, which asks the **shared** `isOverdue` rather than re-deriving
+  `dueAt < now` — the row having its own copy of that rule is what let a
+  handed-off FRAUD check read `OVERDUE BY` while the server, the reminder
+  engine, and every other consumer agreed it wasn't overdue. Don't reintroduce
+  a local overdue test here; a status added to the shared exclusion list has to
+  reach both the badge and the red row stripe on its own.
+  `AWAITING_ITEMS` additionally swaps the deadline for a neutral
+  `WITH REQUESTER` / `WITH YOU` count-up (that is a display choice, made in
+  `groupedDue`; whether the task is *overdue* still isn't). The widest of those
+  labels measures ~125px against the 154px `due` track, so it fits without
+  wrapping — the label has no `nowrap`, so a longer one would grow row height
+  rather than shove its neighbours. See
+  [fraud-workflow.md](../../docs/product/fraud-workflow.md#reminder-rules).
 - **action** (`--action-col-w`) — hamburger (32px) + 6px gap +
   `--quick-action-w` (116px). The cell is a two-track grid with the
   hamburger and the button placed by `grid-column`, not by source order,
