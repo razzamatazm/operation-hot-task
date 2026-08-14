@@ -242,7 +242,11 @@ export interface NotificationEvent {
   task: LoanTask;
   actor: Pick<UserIdentity, "id" | "displayName">;
   message: string;
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "ACTIVITY_FEED";
+  /* DM_CARD_SYNC is not a message — it's a silent in-place refresh of the DM
+     cards already sitting in participants' chats, so their buttons track the
+     task's live status instead of freezing at whatever step they were sent at.
+     Emitted on every status change; creates nothing, pings nobody. */
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* Free-text note from the actor, surfaced in the recipient's card (issue #41
      share). Optional — only DM_SHARE uses it today. */

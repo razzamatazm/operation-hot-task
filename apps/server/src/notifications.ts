@@ -155,6 +155,37 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
+    if (event.target === "DM_CARD_SYNC") {
+      // Deliberately above the enableDmNotifications gate: this sends nothing.
+      // It only edits cards already in people's chats, and turning DMs off is no
+      // reason to strand a live Complete button on a task that's already done.
+      const participants = Array.from(
+        new Set([event.task.createdBy.id, event.task.assignee?.id].filter((id): id is string => Boolean(id)))
+      );
+      if (participants.length === 0) {
+        return;
+      }
+      const advance = botPrimaryAdvance(event.task);
+      const assigneeId = event.task.assignee?.id;
+      // Same viewer rules as DM_NOTE, so a synced card and a note-driven card
+      // never disagree about who gets the button.
+      const completeIsAssigneeOnly = advance?.status === "COMPLETED";
+      const isFraud = event.task.taskType === "FRAUD";
+      await this.botClient.syncTaskCards({
+        taskId: event.task.id,
+        folder: event.task.folderName,
+        status: event.task.status,
+        thread: (event.task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text })),
+        ...(advance ? { advance } : {}),
+        recipients: participants.map((userId) => ({
+          userId,
+          showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === assigneeId),
+          ...(isFraud ? { fraudActions: fraudCardActions(event.task, userId) } : {})
+        }))
+      });
+      return;
+    }
+
     if (
       (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE") &&
       !config.enableDmNotifications
@@ -262,13 +293,19 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // it — a buttonless advance here would post a blank note the server rejects.
       const advance = event.task.taskType === "FRAUD" ? undefined : botPrimaryAdvance(event.task);
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
-        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
-          taskId: event.task.id,
-          title: `You claimed ${event.task.folderName}`,
-          detail: lines.join("\n"),
-          ...(teamsTaskDeepLink(event.task.id) ? { openUrl: teamsTaskDeepLink(event.task.id) as string } : {}),
-          ...(advance ? { advance } : {})
-        });
+        await this.botClient.sendDetailCardToUsers(
+          event.recipientUserIds,
+          {
+            taskId: event.task.id,
+            title: `You claimed ${event.task.folderName}`,
+            detail: lines.join("\n"),
+            ...(teamsTaskDeepLink(event.task.id) ? { openUrl: teamsTaskDeepLink(event.task.id) as string } : {}),
+            ...(advance ? { advance } : {})
+          },
+          // Tracked: this card carries an advance button, so it has to stay
+          // editable as the task moves on (see DM_CARD_SYNC).
+          true
+        );
         return;
       }
       await this.botClient.sendToDms(`${typeLabel} - You claimed ${event.task.folderName}`);

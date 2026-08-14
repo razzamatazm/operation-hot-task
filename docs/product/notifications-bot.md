@@ -46,7 +46,8 @@
   type, How Bad, urgency time-frame, **due date**, notes, Humperdink link, an
   **Open in Hot Task** deep link, and a contextual **advance/complete**
   button. This is the one surface where due date is shown in user-facing UI —
-  see [due-date-urgency.md](due-date-urgency.md).
+  see [due-date-urgency.md](due-date-urgency.md). Where it lands is recorded so
+  it stays editable — see [DM Card Sync](#dm-card-sync).
 - `Merge Done` and `Completed`: DM task creator
 - `Merge Approved`: DM task assignee
 - Notes: DM counterpart user as an **interactive note card** — shows the
@@ -61,6 +62,49 @@
 - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM
   goes to creator
 
+## DM Card Sync
+
+Channel cards have always tracked a task's status. **DM cards now do too.** Every
+status change — from the tab, from a card tap, or from the scheduler — ends with
+a silent `DM_CARD_SYNC` that re-renders each participant's existing DM cards in
+place, so a card's buttons always show the step that is actually next.
+
+- Covers both DM card kinds: the interactive note/chat card
+  (`apps/server/data/bot-note-cards.json`) and the claim-detail card
+  (`apps/server/data/bot-detail-cards.json`). The claim card used to be
+  fire-and-forget — its activity id was discarded, so its **Complete** button
+  could never be taken away once the task moved on. It is now recorded at send
+  time, along with the rendered title/detail so a re-render replays the body
+  (due date, notes, Humperdink) verbatim.
+- **Creates nothing, pings nobody.** Strictly an in-place edit: a participant
+  with no card stays without one, nothing is repositioned, and no `summary` is
+  set — the status change already had its own notification, and a second ping for
+  the same event is spam.
+- **Not terminal-only.** A *wrong* button is worse than a dead one: advancing a
+  Loan Docs task in the tab re-arms the DM cards to `Approve Merge` rather than
+  leaving `Merge Done` sitting there. Terminal cleanup is just the last step of
+  the same rule, which is also why a **re-open re-arms the cards for free**.
+- At a terminal status the card becomes a record: a banner (`✅ Completed —
+  <folder>` / `🚫 Cancelled` / `📦 Archived`) replaces the headline and every
+  action button is dropped. `Open in Hot Task` survives on the detail card.
+  **COMPLETED keeps the note card's reply box** — `addCompletedNote` (issue #45)
+  still accepts notes on a completed task — while CANCELLED/ARCHIVED lose it.
+- Per-viewer button rules match `DM_NOTE` exactly: `Complete` is the assignee's
+  action, and a FRAUD task carries its role-aware two-phase set instead of the
+  generic advance. The claim-detail card never carries a fraud button (that move
+  is note-required and lives on the chat card).
+- Runs **above** the `enableDmNotifications` gate, since it sends nothing —
+  turning DMs off is no reason to strand a live button on a finished task.
+- **Self-heal.** Sync is best-effort and never retried (see Delivery Timing), so
+  an update can be dropped. A rejected card tap therefore triggers a re-sync for
+  that task (`TaskService.resyncTaskCards`) alongside its toast, so a stale card
+  repairs itself the first time anyone touches it instead of staying dead.
+- **Known gap:** `bot-note-cards.json`, `bot-detail-cards.json`, and
+  `bot-task-threads.json` are never pruned — one entry per task, forever. Left
+  deliberately: deleting an entry at terminal would break both the self-heal and
+  re-open (`repostReopenedTask` needs the thread record). If growth matters it's
+  a retention-sweep concern, not a completion one.
+
 ## Card Interactions
 
 - Tapping **Claim** on a card resolves the Teams user (`from.aadObjectId`) to a
@@ -72,7 +116,8 @@
   Docs; Complete otherwise), then transition via the task service and refresh to
   a confirmation card that offers the *next* step — so a user can step a task all
   the way through from one card. Permission is enforced at transition time
-  (toast on failure); the button is status-driven, not role-filtered.
+  (toast on failure); the button is status-driven, not role-filtered. A failed
+  tap also kicks off a card re-sync — see [DM Card Sync](#dm-card-sync).
 - **Fraud two-phase buttons** are the exception — see
   [fraud-workflow.md](fraud-workflow.md#fraud-card-buttons).
 - Copy is intentionally personable/casual (e.g. "tossed a new file check on the

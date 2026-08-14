@@ -91,6 +91,8 @@ const bootstrap = async (): Promise<void> => {
   );
   // Lets the user-specific card refresh read live task state (creator → Cancel).
   botClient.setTaskLookup(async (taskId) => service.getTask(taskId));
+  // Lets a rejected card tap repair the stale card that offered the button.
+  botClient.setCardResync(async (taskId) => service.resyncTaskCards(taskId));
 
   app.use(cors());
   app.use(express.json());
