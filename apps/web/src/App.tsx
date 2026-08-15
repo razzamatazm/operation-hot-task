@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -198,13 +198,28 @@ const liveCountdown = (dueIso: string, nowMs: number): { overdue: boolean; text:
   return { overdue: diff < 0, text };
 };
 
+/* When the checker last handed this task to the requester. `awaitingItemsSince`
+   is stamped on every entry into AWAITING_ITEMS; tasks already in that status
+   before the field existed have none, and fall back to `updatedAt` until their
+   next hand-off stamps one. The fallback is deliberately rough — it drifts
+   forward on the requester's own checklist edits, which is exactly why the
+   stored anchor exists. */
+const handedOffAt = (task: LoanTask): string => task.awaitingItemsSince ?? task.updatedAt;
+
+/* Same shape as liveCountdown, read forwards: how long since `sinceIso`.
+   liveCountdown is a count *down* whose `.overdue` flag is meaningless when the
+   timestamp is already in the past, so this wraps it rather than letting call
+   sites pass a past date to a function documented to count toward a deadline. */
+const elapsedSince = (sinceIso: string, nowMs: number): string => liveCountdown(sinceIso, nowMs).text;
+
 /* The label-over-value "DUE IN / 6h" cell shown in a grouped row. Closed
    tasks read "✓ Nm ago"; OOO reads its return date. Within 4h (or overdue) we
    show the live ticking value; further out we fall back to a calm coarse
    distance so quiet tasks don't shout a precise number. */
 const groupedDue = (
   task: LoanTask,
-  nowMs: number
+  nowMs: number,
+  viewerIsRequester: boolean
 ): { label: string; value: string; overdue: boolean; done: boolean } => {
   if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
     const stamp = task.completedAt ?? task.archivedAt;
@@ -220,8 +235,27 @@ const groupedDue = (
   if (task.taskType === "OOO") {
     return { label: "RETURNS", value: formatPtDateOnly(task.dueAt), overdue: false, done: false };
   }
+  // FRAUD AWAITING_ITEMS is a wait on the requester, not a deadline the checker
+  // is missing, so the row shows how long the requester has held it instead of
+  // a deadline — same slot, same format, counting up, worded for whichever seat
+  // is looking. This branch is a display choice; whether the task is *overdue*
+  // is not decided here, see the shared call below.
+  if (task.status === "AWAITING_ITEMS") {
+    return {
+      label: viewerIsRequester ? "WITH YOU" : "WITH REQUESTER",
+      value: elapsedSince(handedOffAt(task), nowMs),
+      overdue: false,
+      done: false
+    };
+  }
   const cd = liveCountdown(task.dueAt, nowMs);
-  if (cd.overdue) return { label: "OVERDUE BY", value: cd.text, overdue: true, done: false };
+  // Overdue is the shared rule's call, never this row's. It was the row
+  // re-deriving `dueAt < now` locally that let a handed-off fraud check read
+  // "OVERDUE BY 2h 45m" while the server, the reminder engine and every other
+  // consumer already agreed it wasn't overdue. Delegating means the next status
+  // added to the shared exclusion list reaches the badge and the red row stripe
+  // without anyone remembering this file exists.
+  if (isOverdue(task, new Date(nowMs))) return { label: "OVERDUE BY", value: cd.text, overdue: true, done: false };
   if (new Date(task.dueAt).getTime() - nowMs <= 4 * 3600000) {
     return { label: "DUE IN", value: cd.text, overdue: false, done: false };
   }
@@ -1158,11 +1192,20 @@ const TaskCard = memo(({
   };
   const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
 
-  const dueTitle = task.status === "COMPLETED" || task.status === "ARCHIVED"
-    ? (task.completedAt ? `Completed ${formatDate(task.completedAt)}` : undefined)
-    : task.taskType === "OOO"
-      ? undefined
-      : `Due ${formatDate(task.dueAt)}`;
+  /* Tooltip for the due cell. AWAITING_ITEMS gets the hand-off stamp rather
+     than a deadline: the badge no longer claims one, and "Due <date>" on a task
+     whose clock is explicitly the requester's is the same wrong claim in
+     smaller text. The expanded body's meta row says the same thing in its own
+     markup — keep the two in step. */
+  const dueMeta = ((): { label: string; value: string } | undefined => {
+    if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
+      return task.completedAt ? { label: "Completed", value: formatDate(task.completedAt) } : undefined;
+    }
+    if (task.taskType === "OOO") return undefined;
+    if (task.status === "AWAITING_ITEMS") return { label: "Sent to requester", value: formatDate(handedOffAt(task)) };
+    return { label: "Due", value: formatDate(task.dueAt) };
+  })();
+  const dueTitle = dueMeta ? `${dueMeta.label} ${dueMeta.value}` : undefined;
   const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
 
   /* FRAUD two-phase role-aware buttons (#39), shared with the bot cards so both
@@ -1630,6 +1673,10 @@ const TaskCard = memo(({
       <span><b>Created</b> {formatDate(task.createdAt)}</span>
       {task.taskType === "OOO" ? (
         <span><b>Returns</b> {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
+      ) : task.status === "AWAITING_ITEMS" ? (
+        // Matches the collapsed row's tooltip — the deadline is the requester's
+        // now, so neither surface quotes one.
+        <span><b>Sent to requester</b> {formatDate(handedOffAt(task))}</span>
       ) : (
         <span><b>Due</b> {formatDate(task.dueAt)}</span>
       )}
@@ -1658,7 +1705,7 @@ const TaskCard = memo(({
      bold in whichever slot it appears (#93) — pure "is this name mine", not
      conditional on which role the viewer is looking from. */
   const ownerName = task.assignee?.displayName;
-  const due = groupedDue(task, now ?? Date.now());
+  const due = groupedDue(task, now ?? Date.now(), isCreator);
   const groupedOverdue = due.overdue;
 
   return (
