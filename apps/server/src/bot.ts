@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { CreateTaskInput, FraudCardAction, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
+import { CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -21,7 +21,10 @@ interface StoredReference {
    every channel the bot lives in, so this is an array. */
 interface StoredThread {
   taskId: string;
-  posts: Array<{ reference: Partial<ConversationReference>; activityId: string }>;
+  /* `userId` is recorded for DM posts so a later status-driven re-sync can
+     rebuild each recipient's card with the buttons *that* viewer should see.
+     Absent on channel posts (and on DM entries written before it existed). */
+  posts: Array<{ reference: Partial<ConversationReference>; activityId: string; userId?: string }>;
   /* The claimable-card content, kept so the user-specific refresh can rebuild
      the creator's Cancel view (and the OPEN base card) without re-deriving it. */
   card?: { title: string; detail: string; openUrl?: string; creatorUserIds?: string[] };
@@ -352,6 +355,16 @@ interface NoteCardData {
   /* Fraud two-phase buttons. Its presence (even as []) marks the card as a fraud
      card, so `noteCard` uses this button set instead of the generic advance. */
   fraudActions?: FraudCardAction[];
+  /* Set once the task reaches a terminal status: the card becomes a record
+     rather than a control surface, so every advance/fraud button is dropped.
+     `allowReply` keeps the reply box for COMPLETED, where addCompletedNote
+     (issue #45) still accepts notes; CANCELLED/ARCHIVED lose it too. */
+  closed?: ClosedCardState;
+}
+
+interface ClosedCardState {
+  label: string;
+  allowReply: boolean;
 }
 
 interface ConfirmData {
@@ -391,25 +404,39 @@ const STATUS_DISPLAY: Record<TaskStatus, string> = {
   ARCHIVED: "archived"
 };
 
-/* Last few notes for a card thread, oldest → newest. */
-const threadFromTask = (task: LoanTask): NoteThreadEntry[] =>
+/* Last few notes for a card thread, oldest → newest. Exported because every
+   card-sending path in the notification layer needs the same window. */
+export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
   (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
 
 /* Build note-card data from a task (used to refresh after a reply). The
    advance/Complete button is only offered to a viewer allowed to perform it
    (e.g. Complete is the assignee's action, not the creator's) — without this
    the reply-box refresh would re-add Complete for anyone. */
-const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
+export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
+  const closed = closedStateFor(task.status, task.folderName);
   // FRAUD cards carry the role-aware two-phase button set (keyed off the viewer)
   // instead of the generic single advance. The key is always present for a fraud
   // task (empty when this viewer has no action in this state) so `noteCard`
   // routes to the fraud button set and never re-adds the generic advance.
   if (task.taskType === "FRAUD") {
-    return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), fraudActions: fraudCardActions(task, viewer?.id) };
+    return {
+      taskId: task.id,
+      folder: task.folderName,
+      thread: recentNoteThread(task),
+      fraudActions: fraudCardActions(task, viewer?.id),
+      ...(closed ? { closed } : {})
+    };
   }
   const advance = botPrimaryAdvance(task);
   const showAdvance = advance && (!viewer || canTransitionStatus(task, advance.status, viewer).ok);
-  return { taskId: task.id, folder: task.folderName, thread: threadFromTask(task), ...(showAdvance && advance ? { advance } : {}) };
+  return {
+    taskId: task.id,
+    folder: task.folderName,
+    thread: recentNoteThread(task),
+    ...(showAdvance && advance ? { advance } : {}),
+    ...(closed ? { closed } : {})
+  };
 };
 
 /* The contextual "move it forward" button (Merge Done / Approve Merge /
@@ -450,42 +477,80 @@ const fraudActionButtons = (taskId: string, actions: FraudCardAction[]): Record<
    an inline reply box that posts straight back as another note, and a contextual
    advance/complete button. The reply box persists so users can send several
    messages in a row. */
-const noteCard = (data: NoteCardData): Record<string, unknown> => ({
-  $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-  type: "AdaptiveCard",
-  version: "1.4",
-  body: [
-    { type: "TextBlock", text: `Conversation on ${data.folder}`, weight: "Bolder", wrap: true },
-    ...data.thread.map((entry) => ({
-      type: "TextBlock",
-      text: `**${entry.author}:** ${entry.text}`,
-      wrap: true,
-      spacing: "Small"
-    })),
-    { type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }
-  ],
-  actions: [
-    { type: "Action.Execute", title: "Reply", verb: "replyNote", data: { taskId: data.taskId, folder: data.folder } },
-    // A fraud card (fraudActions present, even when empty) drives its own
-    // role-aware button set; every other card keeps the single advance button.
-    ...(data.fraudActions !== undefined ? fraudActionButtons(data.taskId, data.fraudActions) : advanceButton(data.taskId, data.advance))
-  ]
-});
+export const noteCard = (data: NoteCardData): Record<string, unknown> => {
+  const canReply = !data.closed || data.closed.allowReply;
+  return {
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    type: "AdaptiveCard",
+    version: "1.4",
+    body: [
+      // A closed task leads with its terminal banner; the conversation stays
+      // below it, since the point of keeping the card is keeping the history.
+      ...(data.closed ? [{ type: "TextBlock", text: data.closed.label, weight: "Bolder", wrap: true, size: "Medium" }] : []),
+      { type: "TextBlock", text: `Conversation on ${data.folder}`, weight: "Bolder", wrap: true },
+      ...data.thread.map((entry) => ({
+        type: "TextBlock",
+        text: `**${entry.author}:** ${entry.text}`,
+        wrap: true,
+        spacing: "Small"
+      })),
+      ...(canReply ? [{ type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }] : [])
+    ],
+    actions: [
+      ...(canReply
+        ? [{ type: "Action.Execute", title: "Reply", verb: "replyNote", data: { taskId: data.taskId, folder: data.folder } }]
+        : []),
+      // A closed task has no forward step, so it carries no action buttons. A
+      // fraud card (fraudActions present, even when empty) otherwise drives its
+      // own role-aware set; every other card keeps the single advance button.
+      ...(data.closed
+        ? []
+        : data.fraudActions !== undefined
+          ? fraudActionButtons(data.taskId, data.fraudActions)
+          : advanceButton(data.taskId, data.advance))
+    ]
+  };
+};
 
-/* Full-details DM card sent to whoever claims a task. */
-const detailCard = (opts: { taskId: string; title: string; detail: string; openUrl?: string; advance?: AdvanceAction }): Record<string, unknown> => ({
+/* Full-details DM card sent to whoever claims a task. `closed` replaces the
+   title with the terminal banner and drops the advance button — the details and
+   the Open in Hot Task link stay, so the card is still a useful record. */
+export const detailCard = (opts: {
+  taskId: string;
+  title: string;
+  detail: string;
+  openUrl?: string;
+  advance?: AdvanceAction;
+  closed?: ClosedCardState;
+}): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
-    { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
+    { type: "TextBlock", text: opts.closed ? opts.closed.label : opts.title, weight: "Bolder", wrap: true, size: "Medium" },
     { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small" }
   ],
   actions: [
-    ...advanceButton(opts.taskId, opts.advance),
+    ...(opts.closed ? [] : advanceButton(opts.taskId, opts.advance)),
     ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
   ]
 });
+
+/* The terminal banner a DM card carries once its task is closed, and whether the
+   note card keeps its reply box. Undefined while the task is still live, which
+   is what makes a re-open re-arm the buttons for free. */
+export const closedStateFor = (status: TaskStatus, folder: string): ClosedCardState | undefined => {
+  if (status === "COMPLETED") {
+    return { label: `✅ Completed — ${folder}`, allowReply: true };
+  }
+  if (status === "CANCELLED") {
+    return { label: `🚫 Cancelled — ${folder}`, allowReply: false };
+  }
+  if (status === "ARCHIVED") {
+    return { label: `📦 Archived — ${folder}`, allowReply: false };
+  }
+  return undefined;
+};
 
 /* Card a card is refreshed to after a successful transition — confirms the move
    and offers the next forward step if there is one. */
@@ -1382,6 +1447,10 @@ export class TeamsBotClient {
      recipient DM. Lets a note posted from the web app update the existing DM
      card in place instead of sending a brand-new card each time. */
   private readonly noteCards: ThreadStore;
+  /* Per-task DM claim-detail cards, same shape as the note-card store. Without
+     this the claim card was fire-and-forget: its activity id was discarded, so
+     its Complete button could never be taken away once the task moved on. */
+  private readonly detailCards: ThreadStore;
   private taskCreator?: BotTaskCreator;
   private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
@@ -1389,6 +1458,7 @@ export class TeamsBotClient {
   private taskTransitioner?: (taskId: string, status: TaskStatus, user: UserIdentity, reviewNotes?: string) => Promise<LoanTask>;
   private taskReleaser?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private taskLookup?: (taskId: string) => Promise<LoanTask | undefined>;
+  private cardResync?: (taskId: string) => Promise<void>;
   private notificationChannelResolver?: () => Promise<string | undefined>;
 
   constructor(
@@ -1404,6 +1474,7 @@ export class TeamsBotClient {
     this.store = new ReferenceStore(dataFile);
     this.threads = new ThreadStore(path.join(path.dirname(dataFile), "bot-task-threads.json"));
     this.noteCards = new ThreadStore(path.join(path.dirname(dataFile), "bot-note-cards.json"));
+    this.detailCards = new ThreadStore(path.join(path.dirname(dataFile), "bot-detail-cards.json"));
 
     if (appId && appPassword) {
       this.adapter = new BotFrameworkAdapter({
@@ -1440,6 +1511,13 @@ export class TeamsBotClient {
      creator's view from live state. */
   setTaskLookup(lookup: (taskId: string) => Promise<LoanTask | undefined>): void {
     this.taskLookup = lookup;
+  }
+
+  /* Re-run a task's DM card sync on demand. Card sync is best-effort and never
+     retried, so an update can be dropped; wiring this lets a card that failed to
+     update repair itself the first time someone taps a button on it. */
+  setCardResync(resync: (taskId: string) => Promise<void>): void {
+    this.cardResync = resync;
   }
 
   setTaskCreator(taskCreator: BotTaskCreator): void {
@@ -1520,7 +1598,7 @@ export class TeamsBotClient {
       const task = await this.taskTransitioner(taskId, targetStatus as TaskStatus, user, reviewNotes);
       return { ok: true, message: "Done.", confirm: this.confirmFor(task, user) };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Couldn't update that task." };
+      return this.staleTapOutcome(taskId, error, "Couldn't update that task.");
     }
   }
 
@@ -1547,8 +1625,21 @@ export class TeamsBotClient {
         }
       };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Couldn't release that task." };
+      return this.staleTapOutcome(taskId, error, "Couldn't release that task.");
     }
+  }
+
+  /* A rejected card action usually means the card is out of date — the task moved
+     on somewhere else and this button shouldn't still be here. Kick off a re-sync
+     so the card repairs itself, and say so, rather than leaving a dead button the
+     user can keep tapping. Fire-and-forget: the invoke response shouldn't wait on
+     a Teams round-trip, and a failed repair must not swallow the real error. */
+  private staleTapOutcome(taskId: string, error: unknown, fallback: string): TransitionOutcome {
+    const reason = error instanceof Error ? error.message : fallback;
+    void Promise.resolve(this.cardResync?.(taskId)).catch((resyncError) => {
+      console.error("bot_card_resync_failed", resyncError);
+    });
+    return { ok: false, message: `${reason} Refreshing this card.` };
   }
 
   /* Build the confirm card shown after a card-tap transition. The forward button
@@ -1678,7 +1769,15 @@ export class TeamsBotClient {
     folder: string;
     thread: NoteThreadEntry[];
     advance?: AdvanceAction;
-    recipients: Array<{ userId: string; showAdvance: boolean; createIfMissing: boolean; reposition?: boolean; summary?: string; fraudActions?: FraudCardAction[] }>;
+    /* Terminal banner for a closed task — drops every action button. */
+    closed?: ClosedCardState;
+    /* A silent status re-sync, which must not put a new message in anyone's
+       chat: it edits what's already there or does nothing. Without this, a card
+       whose stored id has gone stale would be reposted, turning a background
+       sync into an unannounced DM. The dead id is left for the next note-driven
+       send to repair. */
+    silent?: boolean;
+    recipients: Array<TaskCardRecipient & { createIfMissing: boolean; reposition?: boolean; summary?: string }>;
   }): Promise<void> {
     if (!this.adapter || opts.recipients.length === 0) {
       return;
@@ -1698,7 +1797,8 @@ export class TeamsBotClient {
             ? { fraudActions: recipient.fraudActions }
             : recipient.showAdvance && opts.advance
               ? { advance: opts.advance }
-              : {})
+              : {}),
+          ...(opts.closed ? { closed: opts.closed } : {})
         })
       );
       const activity: Partial<Activity> = {
@@ -1726,7 +1826,7 @@ export class TeamsBotClient {
           }
         } else if (prior) {
           const updated = await this.proactiveUpdate(entry.reference, prior.activityId, activity);
-          if (!updated) {
+          if (!updated && !opts.silent) {
             // Stale id (card deleted, or predates a redeploy) — repost fresh and
             // repair the stored id so the note isn't lost.
             const activityId = await this.proactiveSend(entry.reference, activity);
@@ -1737,7 +1837,7 @@ export class TeamsBotClient {
         } else if (recipient.createIfMissing) {
           const activityId = await this.proactiveSend(entry.reference, activity);
           if (activityId) {
-            posts.push({ reference: entry.reference, activityId });
+            posts.push({ reference: entry.reference, activityId, userId: recipient.userId });
           }
         }
       }
@@ -1755,7 +1855,9 @@ export class TeamsBotClient {
     return (await this.dmReferencesFor([userId])).length > 0;
   }
 
-  /* DM a full-details card (e.g. to whoever just claimed a task). */
+  /* DM a full-details card and forget about it — used by the share flow (issue
+     #41), whose card carries no action buttons to go stale and whose body holds
+     the sharer's personal note that a rebuild-from-task would throw away. */
   async sendDetailCardToUsers(
     userIds: string[],
     detail: { taskId: string; title: string; detail: string; openUrl?: string; advance?: AdvanceAction }
@@ -1763,8 +1865,121 @@ export class TeamsBotClient {
     if (!this.adapter || userIds.length === 0) {
       return;
     }
-    // The card title (e.g. "You claimed <folder>") doubles as the feed preview.
+    // The card title (e.g. "Dana shared <folder> with you") doubles as the feed
+    // preview.
     await this.sendCardToReferences(await this.dmReferencesFor(userIds), CardFactory.adaptiveCard(detailCard(detail)), detail.title);
+  }
+
+  /* DM the claim card, recording where each copy landed (activity id +
+     recipient) plus the rendered title/detail. That record is what lets
+     `syncTaskCards` edit the exact message later — without it, the card's
+     Complete button outlives the task, which is the bug this whole path exists
+     to fix. */
+  async sendTrackedDetailCard(
+    userIds: string[],
+    detail: { taskId: string; title: string; detail: string; openUrl?: string; advance?: AdvanceAction }
+  ): Promise<void> {
+    if (!this.adapter || userIds.length === 0) {
+      return;
+    }
+    const card = CardFactory.adaptiveCard(detailCard(detail));
+    const activity: Partial<Activity> = { type: "message", attachments: [card], summary: detail.title };
+    const existing = await this.detailCards.get(detail.taskId);
+    const posts: StoredThread["posts"] = existing?.posts ? [...existing.posts] : [];
+    for (const userId of Array.from(new Set(userIds))) {
+      for (const entry of await this.dmReferencesFor([userId])) {
+        const activityId = await this.proactiveSend(entry.reference, activity);
+        if (!activityId) {
+          continue;
+        }
+        // Re-claiming sends a fresh card; the old id is dead to us, so replace
+        // rather than accumulate two entries for the same conversation.
+        const idx = posts.findIndex((post) => post.reference.conversation?.id === entry.reference.conversation?.id);
+        const post = { reference: entry.reference, activityId, userId };
+        if (idx >= 0) {
+          posts[idx] = post;
+        } else {
+          posts.push(post);
+        }
+      }
+    }
+    if (posts.length > 0) {
+      await this.detailCards.save({
+        taskId: detail.taskId,
+        posts,
+        card: { title: detail.title, detail: detail.detail, ...(detail.openUrl ? { openUrl: detail.openUrl } : {}) }
+      });
+    }
+  }
+
+  /* Silently re-render every DM card already sitting in a participant's chat so
+     its buttons match the task's live status — the DM counterpart of
+     markTaskClaimed/markTaskCompleted on the channel side.
+
+     Strictly an in-place edit: nothing is created (a participant with no card
+     stays without one), nothing is repositioned, and no `summary` is set, so
+     nobody is re-pinged for a change they were already told about through the
+     normal notification. Best-effort, like every other proactive write here. */
+  async syncTaskCards(opts: {
+    taskId: string;
+    folder: string;
+    status: TaskStatus;
+    thread: NoteThreadEntry[];
+    advance?: AdvanceAction;
+    recipients: TaskCardRecipient[];
+  }): Promise<void> {
+    const closed = closedStateFor(opts.status, opts.folder);
+    await this.syncNoteCards({
+      taskId: opts.taskId,
+      folder: opts.folder,
+      thread: opts.thread,
+      ...(opts.advance ? { advance: opts.advance } : {}),
+      ...(closed ? { closed } : {}),
+      silent: true,
+      recipients: opts.recipients.map((recipient) => ({
+        ...recipient,
+        createIfMissing: false,
+        reposition: false
+      }))
+    });
+    await this.syncDetailCards({ ...opts, ...(closed ? { closed } : {}) });
+  }
+
+  /* Re-render the tracked claim-detail card(s) for a task. The body is replayed
+     from what was stored at send time (so the due date / notes / Humperdink
+     block survives verbatim); only the title and the advance button move. */
+  private async syncDetailCards(opts: {
+    taskId: string;
+    advance?: AdvanceAction;
+    closed?: ClosedCardState;
+    recipients: TaskCardRecipient[];
+  }): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+    const entry = await this.detailCards.get(opts.taskId);
+    if (!entry?.card) {
+      return;
+    }
+    for (const post of entry.posts) {
+      // A fraud task's forward move is note-required and lives on the chat card,
+      // so the detail card never carries a button for it — same rule as the
+      // card's original send in the DM_CLAIM handler.
+      const recipient = post.userId ? opts.recipients.find((candidate) => candidate.userId === post.userId) : undefined;
+      const showAdvance = Boolean(recipient?.showAdvance) && recipient?.fraudActions === undefined;
+      const card = detailCard({
+        taskId: opts.taskId,
+        title: entry.card.title,
+        detail: entry.card.detail,
+        ...(entry.card.openUrl ? { openUrl: entry.card.openUrl } : {}),
+        ...(showAdvance && opts.advance ? { advance: opts.advance } : {}),
+        ...(opts.closed ? { closed: opts.closed } : {})
+      });
+      await this.proactiveUpdate(post.reference, post.activityId, {
+        type: "message",
+        attachments: [CardFactory.adaptiveCard(card)]
+      });
+    }
   }
 
   private async handleClaim(taskId: string, aadObjectId: string | undefined, _displayName: string): Promise<ClaimOutcome> {
@@ -1937,6 +2152,7 @@ export class TeamsBotClient {
     await this.store.init();
     await this.threads.init();
     await this.noteCards.init();
+    await this.detailCards.init();
   }
 
   isEnabled(): boolean {

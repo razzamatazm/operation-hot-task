@@ -278,6 +278,10 @@ export class TaskService {
         target: "DM_CHAT_SEED",
         recipientUserIds: [updated.createdBy.id, user.id]
       });
+      // Claiming is a status change like any other; the cards just sent above
+      // are already correct, but a card left over from an earlier claim (or a
+      // FRAUD release and re-claim) is not.
+      await this.emitCardSync(updated);
       await this.evaluateActivitySignals({ now: new Date(now) });
     }, { method: "claimTask", taskId: updated.id });
 
@@ -313,6 +317,9 @@ export class TaskService {
         message: `${updated.folderName} is back up for grabs`,
         target: "CHANNEL_REOPENED"
       });
+      // The ex-assignee is no longer on the task, so name them explicitly — their
+      // DM card is the one still offering a Complete button they've just lost.
+      await this.emitCardSync(updated, task.assignee ? [task.assignee.id] : []);
       await this.evaluateActivitySignals({ now: new Date(now) });
     }, { method: "unclaimTask", taskId: updated.id });
 
@@ -360,6 +367,9 @@ export class TaskService {
         message: `${updated.folderName} is up for grabs — final approval needed`,
         target: "IN_APP"
       });
+      // Release strips the assignee without changing status, so the released
+      // checker keeps a card offering Approve / Send Back until it's re-rendered.
+      await this.emitCardSync(updated, task.assignee ? [task.assignee.id] : []);
       await this.evaluateActivitySignals({ now: new Date(now) });
     }, { method: "releaseForAnyChecker", taskId: updated.id });
 
@@ -626,7 +636,38 @@ export class TaskService {
         recipientUserIds: [updated.assignee.id]
       });
     }
+
+    // Last word on the task's DM cards: every branch above may have sent or
+    // rebuilt one, so the sync runs after them and leaves each participant's card
+    // showing the step that's actually next. Unconditional — a card frozen on a
+    // stale button is a bug at every status, not just the terminal ones.
+    await this.emitCardSync(updated);
     await this.evaluateActivitySignals({ now: new Date(now) });
+  }
+
+  /* Silently bring a task's DM cards back in line with its live status. Called on
+     demand when a card action is rejected — the bot's self-heal for a sync that
+     was dropped, since delivery is best-effort and never retried. */
+  async resyncTaskCards(taskId: string): Promise<void> {
+    const task = await this.store.findTask(taskId);
+    if (task) {
+      await this.emitCardSync(task);
+    }
+  }
+
+  /* Ask the notification layer to re-render this task's existing DM cards.
+     `alsoNotify` names people who should still be synced even though they're no
+     longer participants — an unclaim or a fraud release strips the assignee, and
+     it's exactly that ex-assignee holding a card with a button they've lost. */
+  private async emitCardSync(task: LoanTask, alsoNotify: string[] = []): Promise<void> {
+    await this.notify({
+      type: "TASK_STATUS_CHANGED",
+      task,
+      actor: { id: "system", displayName: "Hot Task" },
+      message: `${task.folderName} cards synced`,
+      target: "DM_CARD_SYNC",
+      ...(alsoNotify.length > 0 ? { recipientUserIds: alsoNotify } : {})
+    });
   }
 
   async addReviewNote(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
@@ -641,6 +682,20 @@ export class TaskService {
     }
 
     return this.appendReviewNote(task, text, user);
+  }
+
+  /* A reply typed into a DM note card. The card is the one surface that stays
+     open on a COMPLETED task — its reply box deliberately survives the terminal
+     re-render, because addCompletedNote (#45) exists so people can keep talking
+     about finished work — so route that case there instead of at addReviewNote,
+     which rejects any closed task. Every other status takes the normal path,
+     including CANCELLED/ARCHIVED (whose cards drop the reply box anyway, and
+     whose rejection here is the invariant, not a bug). */
+  async addNoteFromCard(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    return task.status === "COMPLETED"
+      ? this.addCompletedNote(taskId, text, user)
+      : this.addReviewNote(taskId, text, user);
   }
 
   /* Add a note to an already-COMPLETED task (issue #45 — the card's "Add a note"
@@ -952,6 +1007,9 @@ export class TaskService {
           target: "DM",
           recipientUserIds: [next.createdBy.id]
         });
+        // The scheduler closes this task without going through transitionStatus,
+        // so it has to retire the DM cards itself.
+        await this.emitCardSync(next);
       }
 
       // Auto-archive completed/cancelled tasks after 14 days to keep active queues clean.
@@ -966,6 +1024,8 @@ export class TaskService {
             updatedAt: nowIso
           };
           autoArchived += 1;
+          // Archiving retires the reply box the COMPLETED banner still allowed.
+          await this.emitCardSync(next);
         }
       }
 

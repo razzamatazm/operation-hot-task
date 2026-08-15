@@ -1,5 +1,6 @@
 import { ACTION_LABELS } from "./labels.js";
 import { LoanTask, TaskStatus } from "./types.js";
+import { botPrimaryAdvance } from "./workflow.js";
 
 /* A single role-aware fraud button (#39). `transition` is a plain one-tap move
    (Submit / Approve); `transitionWithNote` reveals an inline note
@@ -64,4 +65,35 @@ export const fraudCardActions = (task: LoanTask, viewerId?: string): FraudCardAc
     }
   }
   return [];
+};
+
+/* Who gets a DM card for a task, and which buttons they should see on it.
+
+   One rule, three consumers on the server: the note card sent when a note is
+   posted, the chat card seeded on claim, and the silent re-sync that keeps both
+   in step with the task's status. They used to spell it out separately and were
+   held in agreement only by convention — a viewer could be offered a button on
+   one path that the next path took away.
+
+   `showAdvance` gates the single forward step: Complete is the assignee's
+   action, so nobody else is offered it, while earlier steps stay status-driven
+   (the real permission is re-checked on every tap). A FRAUD task carries its
+   role-aware two-phase set instead, which is why `fraudActions` is
+   present-but-possibly-empty for fraud and absent otherwise — that presence is
+   what tells the card which button set to render. */
+export interface TaskCardRecipient {
+  userId: string;
+  showAdvance: boolean;
+  fraudActions?: FraudCardAction[];
+}
+
+export const taskCardRecipients = (task: LoanTask, userIds: string[]): TaskCardRecipient[] => {
+  const advance = botPrimaryAdvance(task);
+  const completeIsAssigneeOnly = advance?.status === "COMPLETED";
+  const isFraud = task.taskType === "FRAUD";
+  return Array.from(new Set(userIds.filter((id) => id.trim().length > 0))).map((userId) => ({
+    userId,
+    showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === task.assignee?.id),
+    ...(isFraud ? { fraudActions: fraudCardActions(task, userId) } : {})
+  }));
 };
