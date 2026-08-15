@@ -325,7 +325,8 @@ export class TeamsNotificationProvider implements NotificationProvider {
 
     if (event.target === "DM_CLAIM") {
       // Full-details card to whoever claimed the task — the surface that shows
-      // due date, plus the advance/complete button and the deep link.
+      // due date, plus the advance/complete button and the deep link. Tracked
+      // via withAdvance, so DM_CARD_SYNC can refresh it (#136).
       await this.sendTaskDetailDm(event, {
         title: `You claimed ${event.task.folderName}`,
         withDue: true,

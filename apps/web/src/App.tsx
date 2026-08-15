@@ -1146,7 +1146,9 @@ const TaskCard = memo(({
   /* Hand the task to someone else (ADR-0002). Rejects with the server's message
      so the popover can show the refusal inline. */
   onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
-  /* Selectable people for the share and handoff pickers (active users). */
+  /* Selectable people for the share and handoff pickers (active users). The
+     handoff picker needs roles too, so this is DirectoryUser rather than a bare
+     id/name pair. */
   directory: DirectoryUser[];
   /* Teams app id from GET /api/config, or null when the server has no
      TEAMS_APP_ID. Drives whether "Copy link" copies a Teams deep link. */
@@ -3194,7 +3196,9 @@ export const App = () => {
   /* When set, the task list is filtered to a single Loan and shows its
      editable header (ADR-0001: click a loan name to filter + edit). */
   const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
-  /* Selectable people for the share picker (issue #41). Active users, id + name. */
+  /* Selectable people for the share and handoff pickers (issue #41, ADR-0002).
+     Active users; carries roles so the handoff picker can filter to file
+     checkers on a Fraud Check. */
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   /* Teams app id from GET /api/config — runtime config, not a build-time VITE_
      var, so the server can change it without rebuilding the bundle. null until
