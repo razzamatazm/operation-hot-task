@@ -66,6 +66,10 @@ const claimedFraud = async (service) => {
   return task.id;
 };
 
+/* Push the wall clock past the next millisecond, so two writes in a row get
+   distinguishable ISO stamps. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 2));
+
 let passed = 0;
 const check = async (label, fn) => {
   await fn();
@@ -229,6 +233,33 @@ await check("bounce-back increments the pass counter; new items stamp the new pa
   assert.equal(bounced.checklistPass, 2);
   const added = await service.addChecklistItem(id, "item 2", CHECKER);
   assert.equal(added.checklist.find((i) => i.text === "item 2").addedOnPass, 2);
+});
+
+await check("awaitingItemsSince stamps each hand-off and survives the requester's checklist edits", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "W-2", CHECKER);
+  const itemId = withItem.checklist[0].id;
+  const sent = await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  assert.ok(sent.awaitingItemsSince, "stamped on the checker's initial send");
+  assert.equal(sent.awaitingItemsSince, sent.updatedAt);
+
+  // The requester working the checklist rewrites updatedAt — the anchor must
+  // not move with it, or the web row's "with requester" counter resets every
+  // time they tick an item. The sleeps only force a measurable gap: ISO stamps
+  // are millisecond-resolution and these calls otherwise land in the same one,
+  // which would make the "moved / did not move" comparisons meaningless.
+  await tick();
+  const ticked = await service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR);
+  assert.equal(ticked.awaitingItemsSince, sent.awaitingItemsSince, "anchor held across a checklist edit");
+  assert.notEqual(ticked.updatedAt, ticked.awaitingItemsSince, "updatedAt moved, anchor did not");
+
+  // Send Back restarts the clock rather than accumulating across passes.
+  await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+  await tick();
+  const bounced = await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "still need more");
+  assert.notEqual(bounced.awaitingItemsSince, sent.awaitingItemsSince, "re-stamped on Send Back");
+  assert.equal(bounced.awaitingItemsSince, bounced.updatedAt);
 });
 
 await check("approval gate: creator cannot approve; checker approves with exceptions (unresolved item)", async () => {

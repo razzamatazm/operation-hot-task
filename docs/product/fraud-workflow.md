@@ -110,6 +110,13 @@ cards.)
 - `Awaiting Items` is a wait on the requester and is **fully silent** — it is
   never overdue and is excluded from the reminder engine. The checker is not
   pinged while the requester holds the ball.
+- The web row honours this too: instead of a red `OVERDUE BY` badge it shows a
+  neutral count-up in the same slot — `WITH REQUESTER` to the checker and
+  anyone observing, `WITH YOU` to the requester. It counts from
+  `awaitingItemsSince`, stamped on every entry into the status, so a **Send
+  Back** restarts it rather than accumulating across passes. (`updatedAt`
+  can't serve as the anchor — the requester's own checklist edits rewrite it.)
+  Bot cards are static snapshots and carry no counter.
 - Entering `Pending Approval` sets a **fresh end-of-day (`Yellow`) clock**
   (recomputed `dueAt`, cleared reminder stamp), then hands off to the normal
   reminder engine (quiet the rest of today, hourly the next business
