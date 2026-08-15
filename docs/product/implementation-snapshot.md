@@ -31,6 +31,11 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
 
 - Health:
   - `GET /api/health`
+- Client config:
+  - `GET /api/config` → `{ teamsAppId: string | null }`. Unauthenticated
+    runtime config the web app fetches on boot so it can build the same Teams
+    deep link the bot does (`TEAMS_APP_ID` is server-only env). Deliberately
+    not part of `/me`, which stays about identity.
 - Loans (ADR-0001):
   - `GET /api/loans` (list; `?q=` fuzzy search for the create-form typeahead)
   - `POST /api/loans` (create; dedupes by canonical link / normalized name)

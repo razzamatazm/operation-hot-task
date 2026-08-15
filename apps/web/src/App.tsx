@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -584,6 +584,7 @@ const SharePopover = ({
   candidates,
   onShare,
   link,
+  webLink,
   asMenuItem
 }: {
   /* People the picker offers — pre-filtered by the caller (excludes creator,
@@ -592,9 +593,14 @@ const SharePopover = ({
   /* Fire the share. Resolves with whether the DM actually reached them; rejects
      on request failure so the panel can show inline status. */
   onShare: (targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
-  /* Copy-link target (in-app deep link). null/undefined hides the Copy link
-     button — e.g. when there's no task id yet. */
+  /* Copy-link target — the Teams deep link when the app id is known, the raw
+     web URL otherwise. null/undefined hides the Copy link button — e.g. when
+     there's no task id yet. */
   link?: string | null;
+  /* Dev-only second target: the raw `#task-<id>` web URL, for testing the
+     browser path when `link` is the Teams deep link. The extra button renders
+     only under IS_DEV, so it's tree-shaken from a prod build. */
+  webLink?: string | null;
   /* Render the trigger as the word "Share" in a full-width menu row instead
      of the icon-only square button, for use inside the actions menu. */
   asMenuItem?: boolean;
@@ -606,14 +612,15 @@ const SharePopover = ({
   const [targetId, setTargetId] = useState("");
   const [note, setNote] = useState("");
   const [state, setState] = useState<"idle" | "sending">("idle");
-  const [copied, setCopied] = useState(false);
+  /* Which copy button just fired, so only that one flashes "Copied ✓". */
+  const [copied, setCopied] = useState<"none" | "teams" | "web">("none");
   const selectId = useId();
   const { showToast } = useToast();
 
   /* Close and reset the transient flags so the next open starts clean. */
   const close = () => {
     setOpen(false);
-    setCopied(false);
+    setCopied("none");
     setState("idle");
   };
 
@@ -645,14 +652,16 @@ const SharePopover = ({
     }
   };
 
-  /* Copy the in-app deep link (`#task-<id>` anchor scrolls the row into view).
-     The person-picker above is the real deliverable; this is the lightweight
-     "share link". Keep the "Copied ✓" flash, then auto-dismiss the popover (#60). */
-  const handleCopy = async () => {
-    if (!link) return;
+  /* Copy a link to this task. `link` is the Teams deep link whenever the app
+     id is known — a raw web URL pasted into Teams opens a browser and hits the
+     SSO wall, so the copy target is the thing that actually works inside
+     Teams. The person-picker above is the real deliverable; this is the
+     lightweight "share link". Keep the "Copied ✓" flash, then auto-dismiss the
+     popover (#60). */
+  const handleCopy = async (value: string, which: "teams" | "web") => {
     try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
+      await navigator.clipboard.writeText(value);
+      setCopied(which);
       setTimeout(close, 1100);
     } catch {
       /* clipboard unavailable — ignore */
@@ -710,8 +719,16 @@ const SharePopover = ({
               {state === "sending" ? "Sharing…" : "Share"}
             </button>
             {link && (
-              <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopy()}>
-                {copied ? "Copied ✓" : "Copy link"}
+              <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopy(link, "teams")}>
+                {copied === "teams" ? "Copied ✓" : "Copy link"}
+              </button>
+            )}
+            {/* Dev-only escape hatch: the plain browser URL, for testing the
+                non-Teams path. IS_DEV is statically false in a prod build, so
+                this button is tree-shaken out (same trick as DEV_USERS). */}
+            {IS_DEV && webLink && webLink !== link && (
+              <button type="button" className="btn-sm btn-ghost" onClick={() => void handleCopy(webLink, "web")}>
+                {copied === "web" ? "Copied ✓" : "Copy web link"}
               </button>
             )}
           </div>
@@ -964,6 +981,7 @@ const TaskCard = memo(({
   onShare,
   checklist,
   directory,
+  teamsAppId,
   showActions,
   seenNoteAt,
   onMarkNoteSeen,
@@ -992,6 +1010,9 @@ const TaskCard = memo(({
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
   /* Selectable people for the share picker (active users, id + name). */
   directory: Array<{ id: string; displayName: string }>;
+  /* Teams app id from GET /api/config, or null when the server has no
+     TEAMS_APP_ID. Drives whether "Copy link" copies a Teams deep link. */
+  teamsAppId: string | null;
   showActions: boolean;
   seenNoteAt?: string;
   onMarkNoteSeen?: (taskId: string, at: string) => void;
@@ -1143,9 +1164,20 @@ const TaskCard = memo(({
   const shareCandidates = directory.filter(
     (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
   );
-  /* In-app deep link to this task (the `#task-<id>` anchor matches the card's
-     element id, so it scrolls the row into view) — the Copy link target. */
-  const shareLink = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
+  /* Two links to this task:
+     - `webShareLink` — the plain browser URL. The `#task-<id>` fragment is
+       parsed on boot and fed to the focus mechanism, so it expands + scrolls
+       to the row. Pasted into Teams it opens a browser and hits the SSO wall,
+       which is why it is no longer the default copy target.
+     - `shareLink` — the Teams deep link, built by the same shared builder the
+       bot uses, carrying the folder name as `label` (so the link unfurls
+       readably in a chat) and this origin as `webUrl` (where to send someone
+       with no Teams client). Falls back to the web URL when the server has no
+       TEAMS_APP_ID (local dev). */
+  const webShareLink = `${window.location.origin}${window.location.pathname}#task-${task.id}`;
+  const shareLink =
+    teamsTaskDeepLink(teamsAppId, task.id, { label: task.folderName, webUrl: window.location.origin }) ??
+    webShareLink;
 
   const isClosed = CLOSED_STATUSES.includes(task.status);
   const isObserver = !isCreator && !isAssignee;
@@ -1568,6 +1600,7 @@ const TaskCard = memo(({
       candidates={shareCandidates}
       onShare={(targetUserId, note) => onShare(task.id, targetUserId, note)}
       link={shareLink}
+      webLink={webShareLink}
       asMenuItem
     />
   );
@@ -1843,6 +1876,7 @@ const CardList = ({
   onShare,
   checklist,
   directory,
+  teamsAppId,
   showActions,
   emptyMessage,
   seenNotesAt,
@@ -1865,6 +1899,7 @@ const CardList = ({
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
   checklist: ChecklistApi;
   directory: Array<{ id: string; displayName: string }>;
+  teamsAppId: string | null;
   showActions: boolean;
   emptyMessage: string;
   seenNotesAt?: Record<string, string>;
@@ -1899,6 +1934,7 @@ const CardList = ({
           onShare={onShare}
           checklist={checklist}
           directory={directory}
+          teamsAppId={teamsAppId}
           showActions={showActions}
           pulsing={pulsingIds?.has(task.id) ?? false}
           {...(now !== undefined && !CLOSED_STATUSES.includes(task.status) ? { now } : {})}
@@ -2920,6 +2956,11 @@ export const App = () => {
   const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
   /* Selectable people for the share picker (issue #41). Active users, id + name. */
   const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
+  /* Teams app id from GET /api/config — runtime config, not a build-time VITE_
+     var, so the server can change it without rebuilding the bundle. null until
+     the fetch lands (or when the server has no TEAMS_APP_ID), in which case
+     "Copy link" falls back to the plain web URL. */
+  const [teamsAppId, setTeamsAppId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /* Whether the New Task form is open. Only App state the create form needs —
      it flips on open/close, never per keystroke, so the whole form-input state
@@ -3151,6 +3192,33 @@ export const App = () => {
          suggestions, so swallow rather than blocking the task view. */
     }
   }, [user]);
+
+  /* Runtime client config. Unauthenticated and independent of SSO, so it runs
+     on its own rather than waiting on the Teams handshake — /me stays about
+     identity. A failure just leaves the app id null, which degrades "Copy
+     link" to the web URL. */
+  useEffect(() => {
+    fetch(`${API_BASE}/config`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { teamsAppId?: string | null } | null) => {
+        setTeamsAppId(data?.teamsAppId?.trim() || null);
+      })
+      .catch(() => {});
+  }, []);
+
+  /* Boot-time URL parsing: `#task-<id>` (what "Copy web link" produces) and
+     `?taskId=<id>`. Both feed the same `focusTaskId` mechanism the Teams deep
+     link uses, so the task is expanded + scrolled to once it has loaded — the
+     browser's native fragment scroll silently no-ops when the task hasn't been
+     fetched yet, is filtered out, or sits on another tab. */
+  useEffect(() => {
+    const fromHash = /^#task-(.+)$/.exec(window.location.hash)?.[1];
+    const fromQuery = new URLSearchParams(window.location.search).get("taskId");
+    const taskId = fromHash ?? fromQuery;
+    if (taskId) {
+      setFocusTaskId(taskId);
+    }
+  }, []);
 
   useEffect(() => {
     teamsApp
@@ -3536,6 +3604,7 @@ export const App = () => {
       onShare,
       checklist: checklistApi,
       directory,
+      teamsAppId,
       showActions: true,
       seenNotesAt,
       onMarkNoteSeen: markNoteSeen,

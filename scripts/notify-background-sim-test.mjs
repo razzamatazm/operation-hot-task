@@ -48,7 +48,15 @@ const gate = () => {
   return { opened, open: () => open() };
 };
 
-const setup = async (notifyImpl) => {
+/* Business hours wide open. `runMaintenance` only sends reminders inside the
+   configured window, so a suite about fan-out TIMING that inherits the real
+   8:30–17:30 PT window silently becomes a test of what time of day it is: it
+   passes during the working day and fails every evening, on every branch,
+   including a pristine main. Reminder-window behaviour has its own coverage in
+   the scheduler sim, which controls its clock properly. */
+const ALWAYS_OPEN_CONFIG = { ...config, businessStartHour: 0, businessStartMinute: 0, businessEndHour: 23, businessEndMinute: 59 };
+
+const setup = async (notifyImpl, appConfig = config) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "notify-bg-sim-"));
   const store = new TaskStore(path.join(dir, "tasks.json"));
   await store.init();
@@ -69,7 +77,7 @@ const setup = async (notifyImpl) => {
     broadcasts.push(message);
     originalBroadcast(message);
   };
-  const service = new TaskService(store, notifier, hub, config);
+  const service = new TaskService(store, notifier, hub, appConfig);
   return { service, store, events, broadcasts };
 };
 
@@ -219,7 +227,7 @@ await check("runMaintenance still awaits its own notifications", async () => {
   // reminder to send, then assert it has ALREADY been dispatched the moment
   // runMaintenance resolves — with no settleBackgroundWork call in between.
   // That is the assertion that fails if maintenance is ever backgrounded too.
-  const { service, store, events } = await setup();
+  const { service, store, events } = await setup(undefined, ALWAYS_OPEN_CONFIG);
   const past = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
   await store.replaceTasks([
     {

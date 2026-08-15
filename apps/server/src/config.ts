@@ -57,6 +57,11 @@ export const config = {
   graphClientSecret: process.env.GRAPH_CLIENT_SECRET,
   graphBaseUrl: process.env.GRAPH_BASE_URL ?? "https://graph.microsoft.com/v1.0",
   teamsAppId: process.env.TEAMS_APP_ID,
+  /* Public https origin of the deployed web app, e.g.
+     https://hot-task.azurewebsites.net. Optional: when set, deep links carry
+     it as `webUrl` so someone without a Teams client still lands somewhere.
+     When unset the param is omitted entirely — deploys keep working. */
+  appBaseUrl: process.env.APP_BASE_URL,
   usersFile: resolveServerPath(process.env.USERS_FILE, "data/users.json"),
   /* Entra SSO token validation (Phase 2). When tenant + at least one
      accepted audience are set, the server verifies bearer tokens against
