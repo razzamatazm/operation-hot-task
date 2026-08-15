@@ -47,7 +47,11 @@ export const createTaskSchema = z.object({
   serverLocation: z.string().optional(),
   // FRAUD only (#69): outstanding items the creator seeds at creation. Optional
   // (zero is fine). Ignored server-side for non-FRAUD task types.
-  initialItems: z.array(z.object({ text: z.string().min(1).max(500) })).optional()
+  initialItems: z.array(z.object({ text: z.string().min(1).max(500) })).optional(),
+  // Handoff at creation (ADR-0002): the task is born assigned to this user and
+  // lands CLAIMED. The route resolves the id and checks recipient eligibility.
+  assigneeUserId: z.string().min(1).optional(),
+  assigneeNote: z.string().max(280).optional()
 }).superRefine((value, ctx) => {
   const hasFolderName = Boolean(value.folderName?.trim());
   const hasLoanName = Boolean(value.loanName?.trim());
@@ -136,6 +140,13 @@ export const updatePointsSchema = z.object({
 export const transitionSchema = z.object({
   status: z.enum(["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED", "CANCELLED", "ARCHIVED"]),
   reviewNotes: z.string().min(1).max(1000).optional()
+});
+
+/* Handoff (ADR-0002). The note is capped at 280 like the share popover's — it
+   is a one-line "here, this is yours", not a work item. */
+export const assignSchema = z.object({
+  assigneeUserId: z.string().min(1),
+  note: z.string().max(280).optional()
 });
 
 export const reviewNoteSchema = z.object({

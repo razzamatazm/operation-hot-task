@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canClaimTask, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -266,6 +266,12 @@ const firstName = (displayName: string | undefined): string => {
   if (!displayName) return "";
   return displayName.split(/\s+/)[0] ?? displayName;
 };
+
+/* One active person from GET /api/users/directory — what both people-pickers
+   (share, handoff) offer. `roles` came with the Handoff (ADR-0002): the handoff
+   picker filters to people who can actually work the task, so a Fraud Check
+   never offers someone the server would reject. */
+type DirectoryUser = { id: string; displayName: string; roles: UserRole[] };
 
 /* LOAN_DOCS and FRAUD have multiple stages between claim and complete. Stage
    suffix rides on the title as a hyphen suffix so the type label stays terse.
@@ -589,7 +595,7 @@ const SharePopover = ({
 }: {
   /* People the picker offers — pre-filtered by the caller (excludes creator,
      assignee, and self per #41). */
-  candidates: Array<{ id: string; displayName: string }>;
+  candidates: DirectoryUser[];
   /* Fire the share. Resolves with whether the DM actually reached them; rejects
      on request failure so the panel can show inline status. */
   onShare: (targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
@@ -731,6 +737,134 @@ const SharePopover = ({
                 {copied === "web" ? "Copied ✓" : "Copy web link"}
               </button>
             )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+/* ── Handoff popover (ADR-0002) ───────────────────────────────
+   Hands the task to someone else: person picker + optional note + one button.
+   A sibling of SharePopover rather than a mode of it — share DMs somebody about
+   a task, this one moves the task into their court, and mixing the two into one
+   control makes it too easy to fire the wrong one.
+
+   It reuses SharePopover's panel wholesale: `.share-pop-panel` carries the CSS
+   AND two outside-click/Escape exemptions the hamburger menu keys off that
+   class selector (`keepOpenWithin`, and the menu's Esc handler). Dropping the
+   class in favour of a fresh one would close the menu out from under this panel
+   the moment you clicked into it.
+
+   Unlike share, a handoff can be REJECTED by the server (ineligible recipient,
+   task closed, lost race), so the failure lands inline next to the picker
+   instead of only in a toast — the message names the fix. */
+const AssignPopover = ({
+  label,
+  candidates,
+  onAssign
+}: {
+  /* ACTION_LABELS.ASSIGN on an unclaimed task, ACTION_LABELS.REASSIGN once it
+     has an assignee. Picked by the caller, never composed here. */
+  label: string;
+  /* Eligible recipients, pre-filtered by the caller (every active user who can
+     work this task, minus whoever already holds it — self included). */
+  candidates: DirectoryUser[];
+  /* Fire the handoff. Rejects with the server's message on refusal. */
+  onAssign: (targetUserId: string, note?: string) => Promise<void>;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [targetId, setTargetId] = useState("");
+  const [note, setNote] = useState("");
+  const [state, setState] = useState<"idle" | "sending">("idle");
+  /* Server refusal, shown in the panel. Cleared on any edit so a stale reason
+     never sits under a changed selection. */
+  const [error, setError] = useState<string | null>(null);
+  const selectId = useId();
+  const { showToast } = useToast();
+
+  const close = () => {
+    setOpen(false);
+    setState("idle");
+    setError(null);
+  };
+
+  /* Left-aligned like the share popover, and remeasured when the inline error
+     appears — it changes the panel's height, which moves an up-flipped panel. */
+  const { triggerRef, panelRef, style: panelStyle } = useAnchoredPanel<HTMLButtonElement>({
+    open,
+    align: "left",
+    fallbackWidth: SHARE_PANEL_WIDTH,
+    onDismiss: close,
+    remeasureKey: error
+  });
+
+  const handleAssign = async () => {
+    if (!targetId) return;
+    setState("sending");
+    setError(null);
+    try {
+      await onAssign(targetId, note.trim() || undefined);
+      const name = candidates.find((c) => c.id === targetId)?.displayName;
+      setTargetId("");
+      setNote("");
+      showToast(name ? `Handed to ${firstName(name)}` : "Handed off", { variant: "success" });
+      close();
+    } catch (err) {
+      setState("idle");
+      setError(err instanceof Error ? err.message : "Couldn't hand this off — try again");
+    }
+  };
+
+  return (
+    <div className="share-pop">
+      <button
+        type="button"
+        ref={triggerRef}
+        className="btn-sm btn-ghost"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        {label}
+      </button>
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="share-pop-panel"
+          role="dialog"
+          aria-label="Hand this task to someone"
+          style={panelStyle}
+          /* Same reason as the share popover: this panel can open inside the
+             create-task form, whose Esc handler would bin the whole draft. */
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
+        >
+          <label className="share-pop-label" htmlFor={selectId}>{label}</label>
+          <select
+            id={selectId}
+            value={targetId}
+            onChange={(e) => { setTargetId(e.target.value); setError(null); }}
+            autoFocus
+          >
+            <option value="">Choose a person…</option>
+            {candidates.map((p) => (
+              <option key={p.id} value={p.id}>{p.displayName}</option>
+            ))}
+          </select>
+          <input
+            className="share-pop-note"
+            type="text"
+            value={note}
+            placeholder="Add a note (optional)"
+            maxLength={280}
+            onChange={(e) => { setNote(e.target.value); setError(null); }}
+          />
+          {error && <div className="share-pop-error" role="alert">{error}</div>}
+          <div className="share-pop-actions">
+            <button type="button" className="btn-sm" disabled={!targetId || state === "sending"} onClick={() => void handleAssign()}>
+              {state === "sending" ? "Handing off…" : label}
+            </button>
           </div>
         </div>,
         document.body
@@ -979,6 +1113,7 @@ const TaskCard = memo(({
   onUpdatePoints,
   onFilterLoan,
   onShare,
+  onAssign,
   checklist,
   directory,
   teamsAppId,
@@ -1008,8 +1143,13 @@ const TaskCard = memo(({
      DM actually reached them; rejects on request failure so the card can show
      inline status. */
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
-  /* Selectable people for the share picker (active users, id + name). */
-  directory: Array<{ id: string; displayName: string }>;
+  /* Hand the task to someone else (ADR-0002). Rejects with the server's message
+     so the popover can show the refusal inline. */
+  onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
+  /* Selectable people for the share and handoff pickers (active users). The
+     handoff picker needs roles too, so this is DirectoryUser rather than a bare
+     id/name pair. */
+  directory: DirectoryUser[];
   /* Teams app id from GET /api/config, or null when the server has no
      TEAMS_APP_ID. Drives whether "Copy link" copies a Teams deep link. */
   teamsAppId: string | null;
@@ -1163,6 +1303,16 @@ const TaskCard = memo(({
      only offers genuinely new recipients (issue #41). */
   const shareCandidates = directory.filter(
     (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
+  );
+  /* Handoff candidates (ADR-0002) — a deliberately different set from share's.
+     Everyone eligible to work this task except whoever already holds it
+     (handing it to them is a no-op), INCLUDING yourself: self-handoff is just a
+     claim, and it is sometimes the only way to take a task you can't otherwise
+     claim. The creator stays in the list too — they may well be the right
+     person. `canAssignTaskTo` is the same predicate the server enforces, so a
+     Fraud Check only ever offers file checkers. */
+  const assignCandidates = directory.filter(
+    (p) => p.id !== task.assignee?.id && canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles })
   );
   /* Two links to this task:
      - `webShareLink` — the plain browser URL. The `#task-<id>` fragment is
@@ -1605,6 +1755,19 @@ const TaskCard = memo(({
     />
   );
 
+  /* Handoff (ADR-0002): a menu row of its own, next to Share but never merged
+     with it — share tells someone about a task, this moves it into their court.
+     Reads "Assign" while nobody holds it and "Reassign" once someone does.
+     Visible to everyone (anyone may hand a task off) and hidden entirely on a
+     closed task, where `canAssignTaskTo` also empties the candidate list. */
+  const assignMenuItemBlock = !isClosed && assignCandidates.length > 0 && (
+    <AssignPopover
+      label={task.assignee ? ACTION_LABELS.REASSIGN : ACTION_LABELS.ASSIGN}
+      candidates={assignCandidates}
+      onAssign={(assigneeUserId, note) => onAssign(task.id, assigneeUserId, note)}
+    />
+  );
+
   /* Actions menu: hamburger next to the row's primary action (see the
      collapsed row below), holding Share plus the secondary ladder
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
@@ -1618,7 +1781,7 @@ const TaskCard = memo(({
      one, so the span still covers it — the panel repeats stopBubble anyway,
      because relying on a DOM-detached ancestor for that is exactly the kind of
      thing a later refactor breaks silently. */
-  const menuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || cancelStage !== "idle");
+  const menuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || assignMenuItemBlock || cancelStage !== "idle");
   const actionsMenu = menuHasContent && (
     <span onClick={stopBubble} className="task-card-menu">
       <button
@@ -1647,6 +1810,7 @@ const TaskCard = memo(({
           {cancelBlock}
           {secondaryActionsBlock}
           {shareMenuItemBlock}
+          {assignMenuItemBlock}
         </div>,
         document.body
       )}
@@ -1874,6 +2038,7 @@ const CardList = ({
   onUpdatePoints,
   onFilterLoan,
   onShare,
+  onAssign,
   checklist,
   directory,
   teamsAppId,
@@ -1897,8 +2062,9 @@ const CardList = ({
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   onFilterLoan?: (loanId: string) => void;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
+  onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
   checklist: ChecklistApi;
-  directory: Array<{ id: string; displayName: string }>;
+  directory: DirectoryUser[];
   teamsAppId: string | null;
   showActions: boolean;
   emptyMessage: string;
@@ -1932,6 +2098,7 @@ const CardList = ({
           onUpdatePoints={onUpdatePoints}
           {...(onFilterLoan ? { onFilterLoan } : {})}
           onShare={onShare}
+          onAssign={onAssign}
           checklist={checklist}
           directory={directory}
           teamsAppId={teamsAppId}
@@ -2543,7 +2710,7 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
    presentational — it builds the payload and closes on success. */
 interface CreateTaskFormProps {
   loans: Loan[];
-  directory: Array<{ id: string; displayName: string }>;
+  directory: DirectoryUser[];
   user: UserIdentity;
   tasks: LoanTask[];
   onClose: () => void;
@@ -2551,7 +2718,7 @@ interface CreateTaskFormProps {
      delivered/couldn't-reach toast, and refresh. Resolves once the task is
      created; rejects only when the create itself fails (App has already shown
      the error toast) so the form stays open for a retry. */
-  onCreate: (payload: CreateTaskInput, shareWithUserId: string) => Promise<void>;
+  onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
 }
 
 const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: CreateTaskFormProps) => {
@@ -2570,9 +2737,14 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     // to-add list of item texts; mapped to the `initialItems` payload and
     // persisted as creator-added draft checklist items server-side.
     initialItems: [] as string[],
-    // "Make sure X sees this" at creation (issue #46): optional target who gets
-    // the same share DM #41 sends, fired right after the task is persisted.
-    shareWithUserId: ""
+    // One optional person at creation, and one of two things to do with them
+    // (issue #46 + ADR-0002): SHARE sends them the #41 heads-up DM and leaves
+    // the task in the pool; ASSIGN hands it straight to them, so the task is
+    // born CLAIMED. One picker, one note, one action — never both, because two
+    // DMs about the same brand-new task is exactly the noise we're avoiding.
+    pickerMode: "share" as "share" | "assign",
+    recipientUserId: "",
+    recipientNote: ""
   });
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. */
@@ -2628,6 +2800,27 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     showToast("Linked to an existing loan", { variant: "success" });
   };
 
+  /* Who the one at-creation picker offers, per mode. Share excludes the creator
+     (they already know about their own task); Assign includes them, because
+     assigning a task to yourself at creation is just claiming it up front, and
+     narrows to people who can actually work this task type. */
+  const recipientCandidates = useMemo(
+    () =>
+      form.pickerMode === "assign"
+        ? directory.filter((u) => canWorkTaskType(form.taskType, u))
+        : directory.filter((u) => u.id !== user.id),
+    [directory, form.pickerMode, form.taskType, user.id]
+  );
+
+  /* Switching to Assign, or to a Fraud Check, can make the current pick
+     ineligible. Drop it rather than leave a selection showing that the server
+     would reject at submit. */
+  useEffect(() => {
+    if (form.recipientUserId && !recipientCandidates.some((c) => c.id === form.recipientUserId)) {
+      setForm((c) => ({ ...c, recipientUserId: "" }));
+    }
+  }, [recipientCandidates, form.recipientUserId]);
+
   const handleSubmit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     // Re-entry guard (#115). Covers every submit path, not just the button:
@@ -2641,6 +2834,7 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
     // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
     // ship the outstanding items the creator already knows about.
+    const assignAtCreate = Boolean(form.recipientUserId) && form.pickerMode === "assign";
     const seededItems =
       form.taskType === "FRAUD"
         ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
@@ -2653,7 +2847,16 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
       ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {}),
-      ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {})
+      ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {}),
+      // The two branches are deliberately asymmetric. A handoff rides the create
+      // payload so the task is born assigned in ONE call — creating it first and
+      // assigning after would post a claimable channel card and then edit the
+      // Claim button away, and would race the backgrounded fan-out. A share
+      // stays a follow-up call (below) because its response carries the
+      // `delivered` reachability flag, which the create response has no place
+      // to hold.
+      ...(assignAtCreate ? { assigneeUserId: form.recipientUserId } : {}),
+      ...(assignAtCreate && form.recipientNote.trim() ? { assigneeNote: form.recipientNote.trim() } : {})
     };
 
     setSubmitting(true);
@@ -2664,7 +2867,11 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
       // onCreate deliberately resolves only after the share follow-up too, so
       // the pending state spans the whole wait rather than going idle-looking
       // mid-flight.
-      await onCreate(payload, form.shareWithUserId);
+      await onCreate(
+        payload,
+        assignAtCreate ? "" : form.recipientUserId,
+        form.recipientNote.trim() || undefined
+      );
       onClose();
     } catch {
       /* create failed — App surfaced the error; leave the form open to retry */
@@ -2917,24 +3124,59 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
             />
           </label>
         )}
-        {/* "Make sure someone sees this" (issue #46): optional at-creation
-            share. Reuses #41's people directory + share endpoint; excludes
-            the creator. Hidden when nobody else is in the directory. */}
-        {directory.some((u) => u.id !== user.id) && (
-          <label className="span-full">
-            <span>Share Directly <span className="form-label-optional">- Optional</span></span>
+        {/* One person, one of two things to do with them (issue #46 +
+            ADR-0002). Share = "make sure they see this", task stays in the
+            pool. Assign = hand it to them, task is born CLAIMED. The picker
+            narrows to eligible recipients in Assign mode — a Fraud Check can
+            only go to a file checker, same rule the server enforces — and a
+            selection that stops being eligible is dropped rather than left to
+            fail at submit. Hidden when there's nobody to point at. */}
+        {recipientCandidates.length > 0 && (
+          <div className="span-full form-direct">
+            <div className="form-direct-head">
+              <span>
+                {form.pickerMode === "assign" ? "Assign Directly" : "Share Directly"}
+                <span className="form-label-optional"> - Optional</span>
+              </span>
+              <div className="seg" role="group" aria-label="Share or assign">
+                <button
+                  type="button"
+                  className={form.pickerMode === "share" ? "seg-on" : ""}
+                  aria-pressed={form.pickerMode === "share"}
+                  onClick={() => setForm((c) => ({ ...c, pickerMode: "share" }))}
+                >
+                  Share
+                </button>
+                <button
+                  type="button"
+                  className={form.pickerMode === "assign" ? "seg-on" : ""}
+                  aria-pressed={form.pickerMode === "assign"}
+                  onClick={() => setForm((c) => ({ ...c, pickerMode: "assign" }))}
+                >
+                  {ACTION_LABELS.ASSIGN}
+                </button>
+              </div>
+            </div>
             <select
-              value={form.shareWithUserId}
-              onChange={(e) => setForm((c) => ({ ...c, shareWithUserId: e.target.value }))}
+              aria-label={form.pickerMode === "assign" ? "Assign to" : "Share with"}
+              value={form.recipientUserId}
+              onChange={(e) => setForm((c) => ({ ...c, recipientUserId: e.target.value }))}
             >
               <option value="">No one — just create it</option>
-              {directory
-                .filter((u) => u.id !== user.id)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>{u.displayName}</option>
-                ))}
+              {recipientCandidates.map((u) => (
+                <option key={u.id} value={u.id}>{u.displayName}</option>
+              ))}
             </select>
-          </label>
+            {form.recipientUserId && (
+              <input
+                type="text"
+                value={form.recipientNote}
+                placeholder="Add a note (optional)"
+                maxLength={280}
+                onChange={(e) => setForm((c) => ({ ...c, recipientNote: e.target.value }))}
+              />
+            )}
+          </div>
         )}
         <div className="form-actions">
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
@@ -2954,8 +3196,10 @@ export const App = () => {
   /* When set, the task list is filtered to a single Loan and shows its
      editable header (ADR-0001: click a loan name to filter + edit). */
   const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
-  /* Selectable people for the share picker (issue #41). Active users, id + name. */
-  const [directory, setDirectory] = useState<Array<{ id: string; displayName: string }>>([]);
+  /* Selectable people for the share and handoff pickers (issue #41, ADR-0002).
+     Active users; carries roles so the handoff picker can filter to file
+     checkers on a Fraud Check. */
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   /* Teams app id from GET /api/config — runtime config, not a build-time VITE_
      var, so the server can change it without rebuilding the bundle. null until
      the fetch lands (or when the server has no TEAMS_APP_ID), in which case
@@ -3272,7 +3516,7 @@ export const App = () => {
     /* Load the people directory for the share picker (issue #41). Same
        gate as the task fetch: hold until a real identity resolves in prod. */
     if (!IS_DEV && !user.id) return;
-    apiRequest<{ users: Array<{ id: string; displayName: string }> }>("/users/directory", { method: "GET" }, user)
+    apiRequest<{ users: DirectoryUser[] }>("/users/directory", { method: "GET" }, user)
       .then((data) => setDirectory(data.users))
       .catch(() => {});
   }, [user.id]);
@@ -3297,7 +3541,7 @@ export const App = () => {
      the post-create share — so the child stays presentational. Resolves once
      the task is persisted (the child then closes itself); rejects only when the
      create itself fails, after surfacing the error, so the form stays open. */
-  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string): Promise<void> => {
+  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string, note?: string): Promise<void> => {
     let created: { task: LoanTask };
     try {
       created = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
@@ -3306,6 +3550,12 @@ export const App = () => {
       throw err;
     }
     setError(null);
+    // Born assigned (ADR-0002): the handoff already happened inside the create
+    // call, so there's nothing to fire here — just confirm it landed.
+    if (payload.assigneeUserId) {
+      const assignee = directory.find((u) => u.id === payload.assigneeUserId);
+      showToast(`Created and handed to ${assignee ? firstName(assignee.displayName) : "them"} ✓`, { variant: "success" });
+    }
     // "Make sure X sees this" (issue #46): the share has to fire AFTER the task
     // is persisted, so it's a follow-up call to #41's endpoint using the new
     // task id — deliberately decoupled so a failed/undelivered share never
@@ -3316,7 +3566,7 @@ export const App = () => {
       const target = directory.find((u) => u.id === shareWithUserId);
       const targetName = target ? firstName(target.displayName) : "them";
       try {
-        const { delivered } = await onShare(created.task.id, shareWithUserId);
+        const { delivered } = await onShare(created.task.id, shareWithUserId, note);
         if (delivered) {
           showToast(`Sent ${targetName} a heads-up about this task ✓`, { variant: "success" });
         } else {
@@ -3487,6 +3737,20 @@ export const App = () => {
     }
   }, [user, showToast]);
 
+  /* Hand a task to someone else (ADR-0002). Rethrows the server's message so
+     the popover can show a refusal (ineligible recipient, closed task, lost
+     race) inline next to the picker — no toast here, the popover owns both
+     outcomes. */
+  const onAssign = useCallback(async (taskId: string, assigneeUserId: string, note?: string): Promise<void> => {
+    await apiRequest<{ task: LoanTask }>(
+      `/tasks/${taskId}/assign`,
+      { method: "POST", body: JSON.stringify({ assigneeUserId, ...(note ? { note } : {}) }) },
+      user
+    );
+    setError(null);
+    await refresh();
+  }, [user, refresh]);
+
   /* Stable so it doesn't defeat TaskCard's memo (#73) — was an inline arrow
      rebuilt inside `cardProps` every render. */
   const onFilterLoan = useCallback((loanId: string): void => {
@@ -3602,6 +3866,7 @@ export const App = () => {
       onUpdatePoints,
       onFilterLoan,
       onShare,
+      onAssign,
       checklist: checklistApi,
       directory,
       teamsAppId,

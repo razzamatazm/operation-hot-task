@@ -617,15 +617,18 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
 
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card, but
-   "Open in Hot Task" stays so the card is still useful after claiming. */
-const claimedCard = (outcome: ClaimOutcome, openUrl?: string): Record<string, unknown> => ({
+   "Open in Hot Task" stays so the card is still useful after claiming.
+   `assigneeLine` overrides the default "Claimed by X" attribution: a task born
+   assigned (Handoff at creation, ADR-0002) posts this same card, and nobody
+   claimed that one. */
+const claimedCard = (outcome: ClaimOutcome, openUrl?: string, assigneeLine?: string): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
     { type: "TextBlock", text: outcome.message, weight: "Bolder", wrap: true, size: "Medium" },
     ...(outcome.assignee
-      ? [{ type: "TextBlock", text: `Claimed by ${outcome.assignee}`, wrap: true, spacing: "Small", isSubtle: true }]
+      ? [{ type: "TextBlock", text: assigneeLine ?? `Claimed by ${outcome.assignee}`, wrap: true, spacing: "Small", isSubtle: true }]
       : [])
   ],
   ...(openUrl ? { actions: [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: openUrl }] } : {})
@@ -2348,23 +2351,30 @@ export class TeamsBotClient {
 
   /* Post a freshly created task as an Adaptive Card with a one-tap Claim
      button, recording each channel thread so later updates can reply/update.
-     `creatorAadObjectId` opts the creator into the user-specific Cancel view. */
+     `creatorAadObjectId` opts the creator into the user-specific Cancel view.
+
+     `assignedTo` is the Handoff-at-creation case (ADR-0002): the task is born
+     CLAIMED, so it posts the claimed-card variant — announced, but with no
+     Claim button to appear and immediately vanish. The thread is still
+     recorded, so completion/cancellation still edit this card in place. */
   async postTaskCard(
     taskId: string,
     title: string,
     detail: string,
     openUrl?: string,
     summary?: string,
-    creatorAadObjectId?: string
+    creatorAadObjectId?: string,
+    assignedTo?: string
   ): Promise<void> {
     if (!this.adapter) {
       return;
     }
     const references = await this.targetChannelReferences();
     const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
-    const activity = MessageFactory.attachment(
-      CardFactory.adaptiveCard(adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds }))
-    );
+    const card = assignedTo
+      ? claimedCard({ ok: true, message: title, assignee: assignedTo }, openUrl, `Assigned to ${assignedTo}`)
+      : adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
+    const activity = MessageFactory.attachment(CardFactory.adaptiveCard(card));
     // Short channel-list preview / notification text (otherwise Teams says
     // "Card"); the full headline + folder lives in the card body.
     activity.summary = summary?.trim() || plainSummary(title);

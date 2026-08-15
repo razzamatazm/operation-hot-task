@@ -210,7 +210,10 @@ stripe, and the grouped-row shadow all depend on it — so any panel taller
 than a collapsed row has to leave the card instead. Both the share popover
 (`.share-pop-panel`, #113) and the hamburger's actions menu
 (`.task-card-menu-panel`, #122) are `createPortal`'d to `document.body` and
-`position: fixed`. Both go through the `useAnchoredPanel` hook in `App.tsx`,
+`position: fixed`. So is the handoff popover (ADR-0002), which reuses
+`.share-pop-panel` wholesale — that class is what the menu's outside-click
+(`keepOpenWithin`) and Escape exemptions key off, so a fresh class would close
+the menu out from under it. All three go through the `useAnchoredPanel` hook in `App.tsx`,
 which owns the trigger/panel ref pair, the placement (`placePanel`: prefer
 downward, flip up only when below can't fit and above can, clamp both axes
 to the viewport), re-placement on capture-phase `scroll` and on `resize`,
@@ -374,7 +377,7 @@ nested card chrome, in this order:
 5. **Created / Due** — one compact meta row at the bottom.
 
 Everything else (Re-open, Add a note, Unclaim, Cancel, Archive, Restore,
-Share, Undo Merge Done, and FRAUD's Send Back / Release) lives in the
+Share, Assign/Reassign, Undo Merge Done, and FRAUD's Send Back / Release) lives in the
 collapsed row's hamburger, not here — there is no actions card in the body
 anymore. `Send Back` is note-required, so it opens its composer inside the
 menu panel; that is fine, the panel already hosts the `Add a note` field and

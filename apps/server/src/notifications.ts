@@ -80,6 +80,71 @@ export class TeamsNotificationProvider implements NotificationProvider {
     };
   }
 
+  /* The three DM surfaces that send a full task detail card — DM_SHARE,
+     DM_ASSIGN and DM_CLAIM — differ in exactly three ways: the title, whether
+     the body carries a Due line, and whether the card offers the
+     advance/complete button. Everything else is identical: the OOO/non-OOO
+     body split, How Bad, urgency, notes, the Humperdink link, a quoted note
+     leading the body, the deep link, and the plain-DM fallback when there's no
+     targeted recipient. It lives here once so a change to the card body can't
+     land on two of the three and drift the way the labels did.
+
+     `withAdvance` also decides whether the card is TRACKED (#136). The two are
+     the same question asked twice: a card offering a forward move is exactly a
+     card that goes stale when the task moves, so it has to stay editable for
+     DM_CARD_SYNC to refresh it. DM_SHARE offers no move and needs no tracking;
+     DM_CLAIM and the handoff's DM_ASSIGN both do. */
+  private async sendTaskDetailDm(
+    event: NotificationEvent,
+    options: { title: string; withDue: boolean; withAdvance: boolean; fallbackText?: string }
+  ): Promise<void> {
+    const typeLabel = TASK_TYPE_LABELS[event.task.taskType];
+    const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
+    const lines =
+      event.task.taskType === "OOO"
+        ? [
+            `Type: Out of Office`,
+            `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
+            `Details: ${event.task.folderName}`
+          ]
+        : [
+            `Type: ${typeLabel}`,
+            `How Bad: ${howBad}`,
+            `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
+            ...(options.withDue ? [`Due: ${formatWallDate(event.task.dueAt)}`] : []),
+            ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
+            ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
+          ];
+    // A personal note (share or handoff) leads the body, above the task
+    // details, so the "hey, look at this" reads before the metadata.
+    if (event.note?.trim()) {
+      lines.unshift(`"${event.note.trim()}"`, "");
+    }
+    /* FRAUD's forward move is note-required (Send Outstanding Items) and lives
+       on the two-phase chat card (DM_CHAT_SEED), so the plain detail card omits
+       it — a buttonless advance here would post a blank note the server
+       rejects. */
+    const advance =
+      options.withAdvance && event.task.taskType !== "FRAUD" ? botPrimaryAdvance(event.task) : undefined;
+    const openUrl = taskDeepLink(event.task.id, event.task.folderName);
+    if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
+      const card = {
+        taskId: event.task.id,
+        title: options.title,
+        detail: lines.join("\n"),
+        ...(openUrl ? { openUrl } : {}),
+        ...(advance ? { advance } : {})
+      };
+      if (options.withAdvance) {
+        await this.botClient.sendTrackedDetailCard(event.recipientUserIds, card);
+      } else {
+        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, card);
+      }
+      return;
+    }
+    await this.botClient.sendToDms(`${typeLabel} - ${options.fallbackText ?? options.title}`);
+  }
+
   async canReachDm(userId: string): Promise<boolean> {
     if (!config.enableDmNotifications) {
       return false;
@@ -99,7 +164,18 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // recorded so later updates can reply/refresh in place. The headline
       // ("Tyler needs an LOI checked") already names the type, so no tag.
       const card = this.buildChannelCard(event.task);
-      await this.botClient.postTaskCard(event.task.id, card.title, card.detail, card.openUrl, card.summary, event.task.createdBy.id);
+      // A task born assigned (Handoff at creation, ADR-0002) is announced with
+      // the claimed-card variant instead — no Claim button to appear and then
+      // vanish. Deliberately quiet: channel posts set no activity alert.
+      await this.botClient.postTaskCard(
+        event.task.id,
+        card.title,
+        card.detail,
+        card.openUrl,
+        card.summary,
+        event.task.createdBy.id,
+        event.task.assignee?.displayName
+      );
       await this.webhookIfBroadcasting({ title: card.summary, text: card.detail });
       return;
     }
@@ -183,7 +259,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (
-      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE") &&
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE" || event.target === "DM_ASSIGN") &&
       !config.enableDmNotifications
     ) {
       return;
@@ -220,81 +296,42 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "DM_SHARE") {
-      // Someone pointed a specific person at this task from the dashboard. DM
-      // only the target (never the creator/assignee) a full-details card that
-      // deep-links straight to the task — no advance/claim button, since the
-      // target isn't necessarily going to work it. Falls back to a plain DM.
-      const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
-      const lines =
-        event.task.taskType === "OOO"
-          ? [
-              `Type: Out of Office`,
-              `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
-              `Details: ${event.task.folderName}`
-            ]
-          : [
-              `Type: ${typeLabel}`,
-              `How Bad: ${howBad}`,
-              `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
-              ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
-              ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
-            ];
-      // The sharer's own note (when provided) leads the card body, above the
-      // task details, so the personal "hey, look at this" reads first.
-      if (event.note?.trim()) {
-        lines.unshift(`"${event.note.trim()}"`, "");
-      }
-      const openUrl = taskDeepLink(event.task.id, event.task.folderName);
-      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
-        await this.botClient.sendDetailCardToUsers(event.recipientUserIds, {
-          taskId: event.task.id,
-          title: `${event.actor.displayName} shared ${event.task.folderName} with you`,
-          detail: lines.join("\n"),
-          ...(openUrl ? { openUrl } : {})
-        });
-        return;
-      }
-      await this.botClient.sendToDms(`${typeLabel} - ${event.message}`);
+      /* Someone pointed a specific person at this task from the dashboard. DM
+         only the target (never the creator/assignee). No Due line and no
+         advance button: the target isn't necessarily going to work it, so the
+         card informs rather than offering a move. */
+      await this.sendTaskDetailDm(event, {
+        title: `${event.actor.displayName} shared ${event.task.folderName} with you`,
+        withDue: false,
+        withAdvance: false,
+        fallbackText: event.message
+      });
+      return;
+    }
+
+    if (event.target === "DM_ASSIGN") {
+      /* Handoff (ADR-0002): somebody pointed this task AT the recipient — they
+         own it now. Exactly the card a claimer gets, because they're in exactly
+         the position a claimer is in: Due line and advance button included.
+         Only the title differs. The handoff note is never written as a review
+         note — that would double-notify via DM_NOTE. */
+      await this.sendTaskDetailDm(event, {
+        title: `${event.actor.displayName} assigned ${event.task.folderName} to you`,
+        withDue: true,
+        withAdvance: true
+      });
       return;
     }
 
     if (event.target === "DM_CLAIM") {
-      // Full-details card to whoever claimed the task, with an advance/complete
-      // button and a deep link. Falls back to a plain DM if no recipient.
-      const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
-      const lines =
-        event.task.taskType === "OOO"
-          ? [
-              `Type: Out of Office`,
-              `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
-              `Details: ${event.task.folderName}`
-            ]
-          : [
-              `Type: ${typeLabel}`,
-              `How Bad: ${howBad}`,
-              `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
-              `Due: ${formatWallDate(event.task.dueAt)}`,
-              ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
-              ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
-            ];
-      // FRAUD's forward move is note-required (Send Outstanding Items) and lives
-      // on the two-phase chat card (DM_CHAT_SEED), so the plain detail card omits
-      // it — a buttonless advance here would post a blank note the server rejects.
-      const advance = event.task.taskType === "FRAUD" ? undefined : botPrimaryAdvance(event.task);
-      const claimOpenUrl = taskDeepLink(event.task.id, event.task.folderName);
-      if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
-        // Tracked, because this card carries an advance button and so has to
-        // stay editable as the task moves on (see DM_CARD_SYNC).
-        await this.botClient.sendTrackedDetailCard(event.recipientUserIds, {
-          taskId: event.task.id,
-          title: `You claimed ${event.task.folderName}`,
-          detail: lines.join("\n"),
-          ...(claimOpenUrl ? { openUrl: claimOpenUrl } : {}),
-          ...(advance ? { advance } : {})
-        });
-        return;
-      }
-      await this.botClient.sendToDms(`${typeLabel} - You claimed ${event.task.folderName}`);
+      // Full-details card to whoever claimed the task — the surface that shows
+      // due date, plus the advance/complete button and the deep link. Tracked
+      // via withAdvance, so DM_CARD_SYNC can refresh it (#136).
+      await this.sendTaskDetailDm(event, {
+        title: `You claimed ${event.task.folderName}`,
+        withDue: true,
+        withAdvance: true
+      });
       return;
     }
 

@@ -12,9 +12,20 @@
   - Notes
 - Optional fields:
   - Non-OOO only: Humperdink Link
-  - All types: `Share Directly` — pick a person from the directory to DM
-    about this task at creation time (`shareWithUserId`); the picker is
-    hidden if there's no one else to share with
+  - All types: one person picker with a **Share / Assign** toggle, plus one
+    optional note. It is either a share or a handoff, never both — two DMs about
+    the same brand-new task is exactly the noise this avoids. Hidden when
+    there's nobody to point at.
+    - **Share** — DM them about the task; it stays in the pool. Fires as a
+      follow-up call to `POST /tasks/:id/share` right after the task is
+      persisted, because that response carries the `delivered` reachability flag
+      the toast reports and the create response has no place to hold it.
+    - **Assign** — hand the task to them (see
+      [ADR-0002](../adr/0002-task-handoff.md)). Rides the create payload
+      (`assigneeUserId`, `assigneeNote`) so the task is born `Claimed` in ONE
+      call; create-then-assign would post a claimable channel card and then edit
+      the Claim button away. The picker narrows to people eligible to work the
+      task, so a Fraud Check only offers file checkers.
 - Folder Name is the canonical task name
 - There is no separate file name field
 - OOO UI wording:

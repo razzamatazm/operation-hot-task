@@ -1,5 +1,5 @@
 import { ACTION_LABELS } from "./labels.js";
-import { AppConfig, LoanTask, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
+import { AppConfig, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -374,6 +374,38 @@ export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   }
   return true;
 };
+
+/* Handoff (ADR-0002): may this task be handed to this person?
+   Eligibility is checked on the RECIPIENT, never the actor — anyone
+   authenticated may hand a task off, but only to someone who could work it.
+   FRAUD mirrors `canClaimTask` above: fraud checks are FILE_CHECKER-only, so a
+   handoff can't route one to someone who then can't complete it. Closed tasks
+   (COMPLETED / CANCELLED / ARCHIVED) are out of play entirely.
+
+   Self-handoff is deliberately allowed: it is just a claim, and is sometimes
+   the only way to take a task that `canClaimTask` won't let you claim (already
+   claimed by someone else). Handing a task to whoever already holds it is a
+   no-op, not an error, and the caller treats it as such. */
+export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boolean => {
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return false;
+  }
+  return canWorkTaskType(task.taskType, targetUser);
+};
+
+/* The role half of `canAssignTaskTo`, split out for the one caller that has no
+   task yet: creating a task already handed off (`assigneeUserId` on the create
+   payload) has to check the recipient before the task exists. */
+export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean =>
+  taskType !== "FRAUD" || hasRole(user, "FILE_CHECKER");
+
+/* The refusal a rejected handoff shows. Both enforcement points — the route
+   (create-with-assignee) and `TaskService.assignTask` — surface this exact
+   string, and the web popover renders it inline next to the picker, so it is
+   user-facing copy and belongs beside the rule it explains rather than being
+   retyped at each throw site. */
+export const assignRefusalMessage = (taskType: TaskType, targetName: string): string =>
+  `${targetName} can't take a ${TASK_TYPE_LABELS[taskType]} — that needs a file checker`;
 
 export const canUnclaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.status !== "CLAIMED") {
