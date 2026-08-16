@@ -7,7 +7,8 @@ targeting real Azure AD (Entra) identities.
 Status: **Phases 1 & 2 done** (2026-05-29). Phases 3–4 not started.
 
 > **Phase 2 notes / deviations**
-> - **No drizzle.** The app is file-JSON storage (see CLAUDE.md), so the
+> - **No drizzle.** The app is file-JSON storage (see
+>   `docs/product/implementation-snapshot.md`), so the
 >   "users table" is a file-based `UserStore` (`apps/server/src/user-store.ts`,
 >   `data/users.json`) mirroring `TaskStore`'s contract — same swap-to-Azure-SQL
 >   story. `PersistedUser`: `id` (=oid), `email?`, `displayName`, `roles`,

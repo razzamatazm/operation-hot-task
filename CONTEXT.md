@@ -41,7 +41,8 @@ court. A message only ever *adds* a court, never removes one.
 **Party**:
 A user who is the task's creator **or** its current assignee. The two people
 with a stake in the task. Contrast _Observer_.
-_Avoid_: owner (reserved — the grouped row labels the assignee column "Owner")
+_Avoid_: owner on its own (ambiguous — use _Chain owner_ for the party who owns
+the current section; the row columns are labelled ASSIGNER / ASSIGNEE)
 
 **Handoff**:
 Putting a task into someone else's court directly, without waiting for them to
@@ -81,13 +82,16 @@ de-emphasised, below.
 _Avoid_: "waiting on others" (only some of the bucket is something you wait on)
 
 **Done** (`done`):
-Closed tasks (`COMPLETED` / `ARCHIVED`). `CANCELLED` is excluded from the grid
-entirely (still counted in admin Metrics).
+Closed tasks (`COMPLETED` / `ARCHIVED` / `CANCELLED`). All three ride the same
+`CLOSED_TTL_DAYS` retention window and drop off the bottom once they age past
+it; admin Metrics counts every status regardless of that filter. See
+[status-model.md](docs/product/status-model.md#done-view-retention-ui).
 
 ### Views
 
 **Grouped view** (a.k.a. **Courts view**):
-The task list split into the four court buckets.
+The task list split into the four court buckets. The default; the choice is
+persisted per browser.
 
 **Flat view**:
 The single unified list, sorted by status then due, with no sections — the

@@ -1,9 +1,8 @@
 # CLAUDE.md (apps/web)
 
-Design / UI reference for `apps/web`. Product rules, workflow, and backend
-contracts live in [../../AGENTS.md](../../AGENTS.md) — read that first for
-non-visual decisions. Repo-wide git workflow and agent skills live in the
-root [CLAUDE.md](../../CLAUDE.md).
+Design / UI reference for `apps/web`. Everything non-visual — product rules,
+workflow, backend contracts, git workflow, agent conventions — starts at
+[../../AGENTS.md](../../AGENTS.md).
 
 ## Aesthetic Direction
 
@@ -79,6 +78,12 @@ Every task the viewer is allowed to see lives in one list (`unifiedTasks`
 in `App.tsx`). No more separate My / Available / Recent sections —
 Assigner and Assignee columns carry "whose court" on every row, so the
 viewer can scan involvement at a glance.
+
+That one list renders either **grouped** (court sections, the default) or
+**flat**; the toggle lives on the section header. The bucket sort described
+under *Auto-expand and bucket sort* below is the **flat** ordering. Grouped
+sections come from `buildCourtSections` and follow
+[CONTEXT.md](../../CONTEXT.md#the-four-courts).
 
 ### Collapsed row (the main list view)
 

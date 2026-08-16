@@ -26,10 +26,20 @@ Every task the viewer is allowed to see lives in one list (`unifiedTasks` in
 `apps/web/src/App.tsx`) — no separate My / Available / Recent sections.
 Assigner and Assignee columns carry "whose court" on every row.
 
-- Sorted into 4 buckets, newest-first within each: Celebrating (just
-  completed by the viewer) → `OPEN` → in-flight (`CLAIMED` /
-  `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED` / `AWAITING_ITEMS` /
-  `PENDING_APPROVAL`) → closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`).
+The same list renders two ways, user-selectable from the section header and
+persisted per browser:
+
+- **Grouped ("courts") view — the default.** Sectioned into the four courts
+  (`Finished` when applicable → `Needs you` → `Up for grabs` → `In flight` →
+  `Done`) by `buildCourtSections`. Court definitions and the message-pull rule
+  live in [CONTEXT.md](../../CONTEXT.md#the-four-courts).
+- **Flat view.** One list, no sections, sorted into 4 buckets newest-first
+  within each: Celebrating (just completed by the viewer) → `OPEN` →
+  in-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED` /
+  `AWAITING_ITEMS` / `PENDING_APPROVAL`) → closed (`COMPLETED` / `CANCELLED` /
+  `ARCHIVED`).
+
+Both views share one retention filter and one card component:
 - Closed tasks render as half-height "mini rows" at the bottom of the grid
   (no poop/action columns) rather than living in a separate archived view.
   They're retained for `CLOSED_TTL_DAYS` before dropping off — see

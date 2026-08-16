@@ -3797,7 +3797,7 @@ export const App = () => {
 
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
 
-  /* Re-bucket an already-filtered task list (CANCELLED dropped, TTL applied)
+  /* Re-bucket an already-filtered task list (closed-task TTL applied)
      into the grouped view's courts. A completion the viewer created pins to a
      "Just finished" section at the very top (kept until they archive it) and
      is held out of Done so it isn't listed twice; everyone else's completions
