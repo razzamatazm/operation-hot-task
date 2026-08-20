@@ -8,7 +8,8 @@ import { v4 as uuid } from "uuid";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import { SseHub } from "../apps/server/dist/sse.js";
-import { computeDueAtFromReturnDate } from "../packages/shared/dist/workflow.js";
+import { computeDueAtFromReturnDate, canCompleteTask } from "../packages/shared/dist/workflow.js";
+import { SYSTEM_ACTOR, isSystemActor } from "../packages/shared/dist/types.js";
 
 const appConfig = {
   businessTimezone: "America/Los_Angeles",
@@ -201,8 +202,26 @@ const run = async () => {
         notifier.events.filter((e) => e.type === "TASK_STATUS_CHANGED").map((e) => e.target),
         ["IN_APP", "DM", "DM_CARD_SYNC"]
       );
-      pass("ooo task auto-completes at return-date due time");
+      const history = await store.allHistoryForTask(ooo.id);
+      const autoComplete = history.find((e) => e.detail === "AUTO_COMPLETED_RETURN_DATE");
+      assert.ok(autoComplete, "the auto-completion is recorded in history");
+      assert.ok(isSystemActor(autoComplete.by), "recorded against the SYSTEM actor, not a borrowed ADMIN");
+      pass("ooo task auto-completes at return-date due time, driven by SYSTEM");
     });
+
+    /* SYSTEM carries no roles at all — it gets past the actor gates on the
+       strength of its id, so stripping ADMIN's workflow powers (#143) can't
+       take OOO auto-completion down with it. */
+    assert.deepEqual(SYSTEM_ACTOR.roles, [], "SYSTEM holds no roles");
+    {
+      const fraud = makeTask({ taskType: "FRAUD", status: "CLAIMED" });
+      const strangerWithRole = { id: "nobody", displayName: "Nobody", roles: ["FILE_CHECKER"] };
+      assert.ok(canCompleteTask(fraud, SYSTEM_ACTOR), "SYSTEM passes the actor gate it holds no role or seat for");
+      assert.ok(!canCompleteTask(fraud, strangerWithRole), "a human who is neither party still cannot");
+      const closed = makeTask({ status: "ARCHIVED" });
+      assert.ok(!canCompleteTask(closed, SYSTEM_ACTOR), "SYSTEM still cannot make a move the flow disallows");
+      pass("SYSTEM bypasses actor gates but not flow legality");
+    }
 
     await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
       const alreadyCompletedOoo = makeTask({
