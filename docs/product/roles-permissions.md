@@ -6,11 +6,34 @@
   - Admins
 - File checkers are a subset of loan officers
 - Only file checkers can claim and complete Fraud Check tasks
+- **Admin is back-end access only** — see
+  [ADR-0003](../adr/0003-creator-is-never-assignee.md). An admin manages users,
+  roles and system config and can see every task, but holds no power over
+  anyone else's work and no seat on any task: no cancelling, unclaiming,
+  completing, restoring, transitioning, releasing, note-adding, points-editing
+  or checklist-editing on tasks they neither created nor were assigned.
 - Fraud Check tasks run a two-phase completion (see
   [fraud-workflow.md](fraud-workflow.md)): the checker (assignee) sends
   outstanding items and approves; the requester (creator) submits items back
   and can release for any fraud checker
-- `Cancelled` can be set by task creator or admin
+- `Cancelled` can be set by the task creator
+
+## You Cannot Work Your Own Task
+
+A task's **creator is never its assignee** — it is a request for someone else to
+act, so the two ends of it are always two different people. See
+[ADR-0003](../adr/0003-creator-is-never-assignee.md).
+
+- Enforced at **every** door an assignee can come through: claiming, handoff,
+  handing a task to yourself, and `assigneeUserId` at creation.
+- It is a property of the task (`createdBy.id !== assignee.id`), not of the
+  actor, so a **third party cannot hand a task back to its creator** either.
+- No task type is exempt. An OOO task's creator is the person going out and its
+  assignee is the person covering — you cannot cover for yourself.
+- No admin override and no escape hatch. If the only available file checker
+  files a Fraud Check, nobody can work it and someone else has to file it —
+  the create form warns at that point rather than failing silently at claim
+  time.
 
 ## Handoff (Assigning A Task To Someone Else)
 
@@ -26,7 +49,10 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   to eligible people; the server rejects the rest (`canAssignTaskTo` in
   `packages/shared/src/workflow.ts`).
 - Handing a task to yourself is allowed — it is just a claim, and sometimes the
-  only way to take a task you couldn't otherwise claim.
+  only way to take a task you couldn't otherwise claim. **Except for the
+  creator**, who can never end up as assignee by any route (see above).
+- Handoff is also the answer when an assignee goes quiet: anyone may hand their
+  task to someone else, which is why no admin override is needed for it.
 - Status: `Open` → `Claimed`; a task already in flight (`Claimed`,
   `Needs Review`, Fraud's `Awaiting Items` / `Pending Approval`) swaps assignee
   in place with its status untouched. Closed tasks (`Completed` / `Archived` /
@@ -40,7 +66,7 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
 - `GET /api/users/directory` returns `roles` alongside `id`/`displayName` so the
   picker can filter to file checkers on a Fraud Check.
 - `Claimed -> Needs Review` can be done by assignee or creator
-- `Needs Review -> Claimed` and `Needs Review -> Completed` do not require admin
+- `Needs Review -> Claimed` and `Needs Review -> Completed` are creator/assignee
 
 ## Admin Panel (Users & Roles)
 
@@ -51,6 +77,11 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   `POST /api/users`; deactivate / reactivate via `PATCH /api/users/:id`;
   permanently remove via `DELETE /api/users/:id`
 - Deactivated users keep their record + roles but are blocked at auth (403)
+- Removing a user's `FILE_CHECKER` role, or deactivating them, **auto-releases
+  their live Fraud Checks** back to the pool — the checker seat requires a live
+  role, so the task would otherwise strand. The panel warns which tasks it is
+  about to release (see
+  [fraud-workflow.md](fraud-workflow.md#seats))
 - Guards: cannot deactivate/remove yourself; cannot remove or demote the
   last active admin
 - Newly auto-created users (default `LOAN_OFFICER`, never edited) are

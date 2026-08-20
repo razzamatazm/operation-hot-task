@@ -3,6 +3,10 @@
 ## Claiming Rules
 
 - Claiming is first-come-first-serve
+- **You cannot claim a task you created** — a task's creator is never its
+  assignee, by any route. See
+  [roles-permissions.md](roles-permissions.md#you-cannot-work-your-own-task)
+  and [ADR-0003](../adr/0003-creator-is-never-assignee.md)
 - Unclaim is allowed
 - Claim tasks section is hidden when there are no claimable tasks
 

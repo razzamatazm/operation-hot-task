@@ -16,19 +16,19 @@
   appended to `reviewNotes` server-side while the status stays `Completed` — no
   transient reopen, so `reopenedFrom`/`completedAt` are untouched and one
   "note added" history event is recorded. Applies to every task type;
-  creator/assignee/admin only. `Cancelled`/`Archived` stay closed to notes.
+  creator/assignee only. `Cancelled`/`Archived` stay closed to notes.
 - Loan Docs lifecycle:
   - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
   - `Merge Done -> Claimed` is allowed as a backward/undo move (assignee or
-    admin), and `Merge Done` / `Merge Approved` can both be `Cancelled`
-    (creator or admin)
+    ), and `Merge Done` / `Merge Approved` can both be `Cancelled`
+    (creator only)
 - Non-Loan-Docs, non-Fraud task types (LOI, Buddy Chat, Value, OOO) use the
   standard flow: `Open -> Claimed -> Completed -> Archived`, with
   `Needs Review` as a side-branch off `Claimed` (not part of the forward
   flow)
 - From `Needs Review` the task can go forward to `Completed` or back to
   `Claimed`. Both moves are open to the task's creator, its assignee, or an
-  admin (`canMoveNeedsReview`) — a wider gate than the `Merge Done -> Claimed`
+  (`canMoveNeedsReview`) — a wider gate than the `Merge Done -> Claimed`
   undo, because review is not a handoff to one named person. In the web UI the
   forward move is the collapsed row's quick action; the move back to `Claimed`
   is the hamburger's `Undo Review` entry.
@@ -40,8 +40,7 @@
   on the task as `reopenedFrom`.
 - A reopened task offers a **Restore** action that returns it to exactly that
   prior closed status (`Completed` or `Archived`, never just `Open`). Restore
-  is permitted for whoever could reopen it — task creator or assignee (plus
-  admin) — and is intentionally NOT assignee-only the way `Complete` is, so a
+  is permitted for whoever could reopen it — task creator or assignee — and is intentionally NOT assignee-only the way `Complete` is, so a
   creator who reopened their own task can close it back out without the
   assignee acting.
 - `reopenedFrom` is cleared as soon as the task reaches any closed status

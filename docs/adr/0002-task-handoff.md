@@ -1,6 +1,9 @@
 # 0002. Tasks can be handed off to another user
 
-Status: Accepted.
+Status: Accepted; the self-handoff rule below is superseded by
+[ADR-0003](0003-creator-is-never-assignee.md) — a task's creator can never
+become its assignee, by any route, including handing it to themselves or being
+handed it by a third party. Handoff-to-self remains available to everyone else.
 
 ## Context
 
