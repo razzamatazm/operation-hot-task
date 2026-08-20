@@ -62,7 +62,9 @@ const bootstrap = async (): Promise<void> => {
     archiveRetentionDays: appConfig.archiveRetentionDays
   };
 
-  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient, settingsStore);
+  const notifier = new TeamsNotificationProvider(botClient, activityFeedClient, settingsStore, async (userId) =>
+    userStore.getIdentity(userId)
+  );
   const loanService = new LoanService(loanStore, store, sse);
   // One-time, idempotent migration (ADR-0001): back existing non-OOO tasks
   // with Loan records + loanId. Safe to run every boot — only touches tasks

@@ -96,7 +96,7 @@ check("adder can delete their OWN fresh draft on their active turn", () => {
   const claimed = makeFraudTask({ status: "CLAIMED" });
   const draftItem = item({ id: "a", addedBy: "checker", draft: true });
   assert.ok(canDeleteChecklistItem(claimed, CHECKER, draftItem), "checker deletes own draft in CLAIMED");
-  assert.ok(canDeleteChecklistItem(claimed, ADMIN, item({ id: "a", addedBy: "checker", draft: true })), "admin (checker seat) too");
+  assert.ok(!canDeleteChecklistItem(claimed, ADMIN, item({ id: "a", addedBy: "checker", draft: true })), "an admin who is neither party holds no seat, so no delete");
   // Creator in AWAITING_ITEMS (their turn) deletes a creator-added draft.
   const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.ok(canDeleteChecklistItem(awaiting, CREATOR, item({ id: "b", addedBy: "creator", draft: true })), "creator deletes own draft in AWAITING_ITEMS");
@@ -220,7 +220,7 @@ check("CLAIMED (initial pass): checker builds; creator/outsider cannot", () => {
   const t = makeFraudTask({ status: "CLAIMED" });
   assert.ok(canEditChecklist(t, CHECKER, "add"));
   assert.ok(canEditChecklist(t, CHECKER, "editText"));
-  assert.ok(canEditChecklist(t, ADMIN, "add"));
+  assert.ok(!canEditChecklist(t, ADMIN, "add"), "ADMIN grants back-end access, not a seat");
   assert.ok(!canEditChecklist(t, CREATOR, "add"));
   assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
 });
@@ -249,8 +249,14 @@ check("PENDING_APPROVAL (checker's turn): checker edits/adds/rechecks/notes; cre
 check("checklistSeat derives addedBy from the actor's real seat", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.equal(checklistSeat(t, CHECKER), "checker", "assignee is the checker");
-  assert.equal(checklistSeat(t, CREATOR), "creator", "task creator is the creator");
-  assert.equal(checklistSeat(t, ADMIN), "checker", "an admin holding neither seat acts for the checker");
+  assert.equal(checklistSeat(t, CREATOR), "creator", "task creator is the requester");
+  // Was "checker": an admin used to satisfy both seat predicates at once, which
+  // is how they ended up able to write a note in the requester's name.
+  assert.equal(checklistSeat(t, ADMIN), null, "an admin holding neither seat holds no seat");
+  assert.equal(checklistSeat(t, OUTSIDER), null, "a stranger holds no seat");
+  const demoted = { ...CHECKER, roles: ["LOAN_OFFICER"] };
+  assert.equal(checklistSeat(t, demoted), null, "the assignee who lost FILE_CHECKER vacates the checker seat");
+  assert.ok(!canEditChecklist(makeFraudTask({ status: "CLAIMED" }), demoted, "add"), "and with it, the checklist");
 });
 
 check("no checklist edits on non-FRAUD or closed tasks", () => {
