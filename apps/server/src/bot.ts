@@ -424,7 +424,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
       taskId: task.id,
       folder: task.folderName,
       thread: recentNoteThread(task),
-      fraudActions: fraudCardActions(task, viewer?.id),
+      fraudActions: fraudCardActions(task, viewer),
       ...(closed ? { closed } : {})
     };
   }

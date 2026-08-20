@@ -153,10 +153,14 @@ const notifierSetup = () => {
       calls.push(opts);
     }
   };
+  /* Card recipients arrive as bare ids; the fraud button set needs live roles,
+     so the provider looks them up. Anyone unknown resolves roleless. */
+  const directory = new Map([CHECKER, CREATOR].map((u) => [u.id, u]));
   const notifier = new TeamsNotificationProvider(
     botClient,
     { isEnabled: () => false, sendToUsers: async () => {} },
-    { getNotificationChannelId: async () => "channel-1" }
+    { getNotificationChannelId: async () => "channel-1" },
+    async (userId) => directory.get(userId)
   );
   return { notifier, calls };
 };

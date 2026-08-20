@@ -1,5 +1,5 @@
 import { Request } from "express";
-import { UserIdentity, UserRole } from "@loan-tasks/shared";
+import { isSystemActor, UserIdentity, UserRole } from "@loan-tasks/shared";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { config } from "./config.js";
 
@@ -88,6 +88,9 @@ const verifyToken = async (token: string): Promise<AuthIdentity> => {
   if (!id) {
     throw new AuthError("Token missing subject");
   }
+  if (isSystemActor({ id })) {
+    throw new AuthError("`system` is a reserved identity", 403);
+  }
   const displayName = payload.name ?? payload.preferred_username ?? payload.upn ?? "Teams User";
   const email = payload.preferred_username ?? payload.upn ?? payload.email;
   return { id, displayName, ...(email ? { email } : {}) };
@@ -95,6 +98,11 @@ const verifyToken = async (token: string): Promise<AuthIdentity> => {
 
 const headerIdentity = (req: Request): AuthIdentity => {
   const id = String(req.header("x-user-id") ?? "local-user");
+  /* `system` is the scheduler's reserved identity and bypasses the actor gates
+     (ADR-0003). No request may claim it, not even on the dev header path. */
+  if (isSystemActor({ id })) {
+    throw new AuthError("`system` is a reserved identity", 403);
+  }
   const displayName = String(req.header("x-user-name") ?? "Local User");
   const headerRoles = parseRoles(req.header("x-user-roles") ?? undefined);
   return { id, displayName, headerRoles };

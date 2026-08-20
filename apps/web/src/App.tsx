@@ -1428,7 +1428,7 @@ const TaskCard = memo(({
      surfaces show the same set. Empty for non-FRAUD. `fraudQuick` is the phase's
      one forward move, promoted to the collapsed quick-action slot; the leftovers
      (Send Back, Release) live in the expanded body. */
-  const fraudActions = fraudCardActions(task, user.id);
+  const fraudActions = fraudCardActions(task, user);
   const fraudHasChecklist = (task.checklist?.length ?? 0) > 0;
   /* Prefer the plain one-tap move (Submit / Approve). Falling back to the
      note-required one is what puts `Send Items` in the row on a CLAIMED check,

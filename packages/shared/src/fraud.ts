@@ -1,5 +1,5 @@
 import { ACTION_LABELS } from "./labels.js";
-import { LoanTask, TaskStatus } from "./types.js";
+import { LoanTask, TaskStatus, UserIdentity } from "./types.js";
 import { botPrimaryAdvance } from "./workflow.js";
 
 /* A single role-aware fraud button (#39). `transition` is a plain one-tap move
@@ -14,20 +14,41 @@ export interface FraudCardAction {
   targetStatus?: TaskStatus;
 }
 
-export type FraudRole = "CHECKER" | "CREATOR" | "OTHER";
+/* Which side of a Fraud Check's exchange a person occupies *on this task*.
+   `null` is a real answer: most people hold no seat on most tasks. */
+export type FraudSeat = "checker" | "requester" | null;
 
-/* A viewer's role relative to a FRAUD task, decided by id. The participants are
-   the assignee (fraud checker) and the creator (requester); anyone else is
-   OTHER. The server re-checks the real permission on every action, so this only
-   decides which buttons to *show*. */
-export const fraudRoleFor = (task: LoanTask, viewerId?: string): FraudRole => {
-  if (viewerId && task.assignee?.id === viewerId) {
-    return "CHECKER";
+/* The one definition of who holds which seat on a Fraud Check (ADR-0003).
+
+   There used to be two, and they disagreed. The card actions decided purely by
+   id — no role requirement, no admin case — while the checklist required
+   FILE_CHECKER and counted an ADMIN as *both* seats at once. So an admin was
+   both seats in one file and neither in the other, and someone who had lost
+   FILE_CHECKER was still "the checker" to the buttons but not to the checklist.
+
+   Three rules, and they are the whole of it:
+
+     - The checker seat needs the assignee AND a live FILE_CHECKER role. A role
+       gates entry to a seat; it is not a seat, and it stays a live requirement
+       — lose the role and you vacate the seat you were holding.
+     - The requester seat is the task's creator. No role gates it: anybody can
+       ask for a file to be checked.
+     - ADMIN grants no seat. Back-end access is not a second identity.
+
+   Seat is derived from **identity, never from status** — that is what keeps
+   `addedBy` honest when a seat acts off-turn. At most one seat per person: the
+   creator is never the assignee, so the two can't collide. */
+export const fraudSeat = (task: LoanTask, user: Pick<UserIdentity, "id" | "roles">): FraudSeat => {
+  if (task.taskType !== "FRAUD") {
+    return null;
   }
-  if (viewerId && task.createdBy.id === viewerId) {
-    return "CREATOR";
+  if (task.assignee?.id === user.id) {
+    return user.roles.includes("FILE_CHECKER") ? "checker" : null;
   }
-  return "OTHER";
+  if (task.createdBy.id === user.id) {
+    return "requester";
+  }
+  return null;
 };
 
 /* Role-aware fraud buttons by (status, role) (#39). Empty for non-FRAUD tasks
@@ -38,27 +59,27 @@ export const fraudRoleFor = (task: LoanTask, viewerId?: string): FraudRole => {
                            creator: Release for any fraud checker (while assigned)
    `botPrimaryAdvance` gives the single forward step; this adds the extra
    role-specific buttons (Send Back, Release) the primary advance can't express. */
-export const fraudCardActions = (task: LoanTask, viewerId?: string): FraudCardAction[] => {
-  if (task.taskType !== "FRAUD") {
+export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id" | "roles">): FraudCardAction[] => {
+  if (task.taskType !== "FRAUD" || !viewer) {
     return [];
   }
-  const role = fraudRoleFor(task, viewerId);
+  const role = fraudSeat(task, viewer);
   if (task.status === "CLAIMED") {
-    return role === "CHECKER"
+    return role === "checker"
       ? [{ kind: "transitionWithNote", label: ACTION_LABELS.SEND_OUTSTANDING_ITEMS, targetStatus: "AWAITING_ITEMS" }]
       : [];
   }
   if (task.status === "AWAITING_ITEMS") {
-    return role === "CREATOR" ? [{ kind: "transition", label: ACTION_LABELS.SUBMIT, targetStatus: "PENDING_APPROVAL" }] : [];
+    return role === "requester" ? [{ kind: "transition", label: ACTION_LABELS.SUBMIT, targetStatus: "PENDING_APPROVAL" }] : [];
   }
   if (task.status === "PENDING_APPROVAL") {
-    if (role === "CHECKER") {
+    if (role === "checker") {
       return [
         { kind: "transition", label: ACTION_LABELS.APPROVE, targetStatus: "COMPLETED" },
         { kind: "transitionWithNote", label: ACTION_LABELS.SEND_BACK, targetStatus: "AWAITING_ITEMS" }
       ];
     }
-    if (role === "CREATOR") {
+    if (role === "requester") {
       // Only meaningful while the original checker still holds it; once released
       // (unassigned) there's nothing more for the creator to do here.
       return task.assignee ? [{ kind: "release", label: ACTION_LABELS.RELEASE }] : [];
@@ -87,13 +108,23 @@ export interface TaskCardRecipient {
   fraudActions?: FraudCardAction[];
 }
 
-export const taskCardRecipients = (task: LoanTask, userIds: string[]): TaskCardRecipient[] => {
+/* Takes identities rather than ids because a fraud card's button set now turns
+   on the viewer's seat, and a seat needs a live role to enter. */
+export const taskCardRecipients = (task: LoanTask, viewers: Array<Pick<UserIdentity, "id" | "roles">>): TaskCardRecipient[] => {
   const advance = botPrimaryAdvance(task);
   const completeIsAssigneeOnly = advance?.status === "COMPLETED";
   const isFraud = task.taskType === "FRAUD";
-  return Array.from(new Set(userIds.filter((id) => id.trim().length > 0))).map((userId) => ({
-    userId,
-    showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || userId === task.assignee?.id),
-    ...(isFraud ? { fraudActions: fraudCardActions(task, userId) } : {})
+  const seen = new Set<string>();
+  const unique = viewers.filter((viewer) => {
+    if (viewer.id.trim().length === 0 || seen.has(viewer.id)) {
+      return false;
+    }
+    seen.add(viewer.id);
+    return true;
+  });
+  return unique.map((viewer) => ({
+    userId: viewer.id,
+    showAdvance: Boolean(advance) && (!completeIsAssigneeOnly || viewer.id === task.assignee?.id),
+    ...(isFraud ? { fraudActions: fraudCardActions(task, viewer) } : {})
   }));
 };
