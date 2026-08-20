@@ -50,7 +50,8 @@ claim it. Alongside claiming and releasing, the third — and only third-party �
 way a task's assignee changes. Handing off an unclaimed task lands it straight
 in the recipient's court; handing off a claimed one moves it out of the previous
 assignee's court and into the recipient's. Both people are told. Anyone may hand
-a task off, but only to someone eligible to work it.
+a task off, but only to someone eligible to work it — never to the task's
+creator, who is barred by _Second pair of hands_ no matter who does the handing.
 _Avoid_: "reassignment" as a separate concept — reassigning is just a handoff of
 an already-claimed task. (The control still reads "Reassign" when there is a
 current assignee, for clarity at the point of use.)
@@ -60,6 +61,40 @@ A viewer who is neither creator nor assignee. Has no move to make, but still
 sees the task — visibility is deliberate, so an idle teammate feels the pull to
 claim when unclaimed/in-flight work is piling up. Observer in-flight tasks are
 de-emphasised relative to a viewer's own.
+
+### Seats and roles
+
+**Second pair of hands**:
+The invariant that a task's creator is never its assignee. A task is a request
+for someone else to act, so the two ends of it are always two different people —
+enforced wherever an assignee is set, not just where one is claimed, and true of
+every task type. See [ADR-0003](docs/adr/0003-creator-is-never-assignee.md).
+
+**Seat**:
+Which side of a task's exchange a person occupies *on that task* — the checker
+or the requester of a Fraud Check. A fact about the task, distinct from _Role_
+(what you are allowed to do anywhere) and from _Party_ (creator-or-assignee,
+which is type-agnostic and takes no side).
+_Avoid_: using "role" for this — a role gates entry to a seat, it is not one
+
+**Role**:
+An org-wide capability a person carries between tasks: loan officer, file
+checker, admin. Grants entry to a _Seat_ and nothing more; a file checker holds
+the checker seat only on tasks they are actually assigned. Losing a role
+vacates the seats it was holding.
+
+**Resolve**:
+Ticking an outstanding item — recording that it was collected or isn't needed.
+A fact about the world rather than a move in the exchange, so it is open to
+both _Seats_ at any live status and never passes the ball. Contrast the
+_Completion chain_, which only hand-offs advance.
+_Avoid_: "waive"/"N-A" as separate states (one checked state covers both; the
+per-item note carries the reason)
+
+**Back-end access**:
+The whole of what _admin_ means. Managing users and roles, system config, and
+seeing every task. Admin is not a second identity: it confers no power over
+anyone else's work, and never a _Seat_.
 
 ### The four courts
 

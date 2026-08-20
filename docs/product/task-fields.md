@@ -21,11 +21,16 @@
       persisted, because that response carries the `delivered` reachability flag
       the toast reports and the create response has no place to hold it.
     - **Assign** — hand the task to them (see
-      [ADR-0002](../adr/0002-task-handoff.md)). Rides the create payload
+      [ADR-0002](../adr/0002-task-handoff.md)). Never yourself: a task's creator
+      can never be its assignee
+      ([ADR-0003](../adr/0003-creator-is-never-assignee.md)), so the picker
+      excludes you. Rides the create payload
       (`assigneeUserId`, `assigneeNote`) so the task is born `Claimed` in ONE
       call; create-then-assign would post a claimable channel card and then edit
       the Claim button away. The picker narrows to people eligible to work the
-      task, so a Fraud Check only offers file checkers.
+      task, so a Fraud Check only offers file checkers. If you are the only
+      eligible file checker, the form says so up front — nobody will be able to
+      claim it, and someone else needs to file it.
 - Folder Name is the canonical task name
 - There is no separate file name field
 - OOO UI wording:

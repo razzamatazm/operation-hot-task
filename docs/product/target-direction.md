@@ -8,6 +8,20 @@ Not yet implemented — do not present as current state. Everything else under
   [implementation-snapshot.md](implementation-snapshot.md).
 - **Inbound task creation from the in-house web app** via API/button click
   (phase 2). v1 has no LOS/CRM integration.
+- **Decided, documented, not yet built** (tracked by
+  [#137](https://github.com/razzamatazm/operation-hot-task/issues/137), tickets
+  #138-#146). Unusually, these rules are written up in the product docs as if
+  current, because they are the target an agent implements against — the code
+  is what changes, not the docs. Remove this entry once the tickets land.
+  - A task's creator is never its assignee, enforced at every door —
+    [ADR-0003](../adr/0003-creator-is-never-assignee.md),
+    [roles-permissions.md](roles-permissions.md#you-cannot-work-your-own-task)
+  - Admin is back-end access only; the workflow overrides are gone —
+    [roles-permissions.md](roles-permissions.md)
+  - One seat function, the checker seat requiring a live `FILE_CHECKER`, and
+    auto-release on demotion — [fraud-workflow.md](fraud-workflow.md#seats)
+  - Checklist permissions collapsed to two rules, one `+ note` per row, and the
+    adder's initials chip — [fraud-workflow.md](fraud-workflow.md)
 
 Shipped, previously listed here: the Teams tab, the notification bot, Entra ID
 SSO, and the Azure Web App deployment all exist. See

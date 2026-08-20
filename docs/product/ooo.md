@@ -8,5 +8,7 @@
 - OOO auto-completes from active statuses when the return due time is reached
 - OOO uses existing people model:
   - Creator = out-of-office person
-  - Assignee = covering person when claimed
+  - Assignee = covering person when claimed — never the creator; you cannot be
+    your own OOO coverage
+    ([ADR-0003](../adr/0003-creator-is-never-assignee.md))
 - OOO keeps standard claim/unclaim flow using `Open` and `Claimed`

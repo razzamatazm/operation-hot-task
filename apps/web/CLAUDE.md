@@ -374,7 +374,13 @@ nested card chrome, in this order:
    the checklist, where it read as part of the outstanding-items list
    rather than as the card's action. The composer stays because the row
    can't host a textarea — it has nowhere else to go.
-3. **Checklist** (FRAUD outstanding items), when there is one.
+3. **Checklist** (FRAUD outstanding items), when there is one. Each row is
+   checkbox → adder's colored initials chip (same per-person color as the
+   header's assigner→assignee pair, `avatarStyle`) → text → the note
+   affordance. **One** `+ note` per row, never two: the button writes the
+   viewer's own seat's note field, and a viewer holds one seat or none. An
+   existing note drops below the row with the author's full name, not a chip —
+   it's a sentence attributed to a person.
 4. **Notes** — originating note + reply thread + add-note input, all in one
    avatar/name/timestamp style. Thread caps at 180px
    (`.task-card-review-list` `max-height`) with internal scroll and

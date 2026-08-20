@@ -51,7 +51,7 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/claim`
   - `POST /api/tasks/:taskId/unclaim`
   - `POST /api/tasks/:taskId/release` (FRAUD: release a `Pending Approval` task
-    back to the checker pool — creator/admin only)
+    back to the checker pool — the creator only)
   - `POST /api/tasks/:taskId/assign` — Handoff (see
     [ADR-0002](../adr/0002-task-handoff.md)): set `assignee` to someone else.
     Body `{ assigneeUserId, note? }` (note ≤ 280). Any authenticated user may
@@ -64,7 +64,7 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/points`
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
   - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
-    without reopening it — creator/assignee/admin; the card's "Add a note"
+    without reopening it — creator/assignee; the card's "Add a note"
     affordance)
   - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
     endpoints, each server-enforcing the turn/permission + gated-deletion /
