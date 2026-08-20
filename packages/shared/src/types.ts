@@ -88,6 +88,22 @@ export const URGENCY_TIMEFRAMES: Record<UrgencyLevel, string> = {
 export const USER_ROLES = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
+/* The scheduler acts without a human behind it. It used to borrow ADMIN to do
+   that, which conflated "administers the system" with "acts on its own" — see
+   ADR-0003. It is an identity, not a role: SYSTEM carries no roles at all, and
+   the actor gates in workflow.ts let it past on the strength of its id.
+   `system` is reserved: `authenticate` refuses any inbound request claiming it,
+   so only in-process callers can ever be this actor. */
+export const SYSTEM_ACTOR_ID = "system";
+
+export const SYSTEM_ACTOR: UserIdentity = {
+  id: SYSTEM_ACTOR_ID,
+  displayName: "Task Scheduler",
+  roles: []
+};
+
+export const isSystemActor = (user: Pick<UserIdentity, "id">): boolean => user.id === SYSTEM_ACTOR_ID;
+
 export const TASK_STATUSES = [
   "OPEN",
   "CLAIMED",
