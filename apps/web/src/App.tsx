@@ -903,6 +903,38 @@ const TrashIcon = () => (
   </svg>
 );
 
+/* Whose requirement is this? `addedBy` records the seat that asked for the
+   item, so it resolves to one of the task's two people. Not who ticked it —
+   that isn't stored (deliberately out of scope in #137), and the chip would be
+   lying if it implied otherwise.
+
+   The checker seat can be vacant — a released Fraud Check has items but no
+   assignee — so the name is optional and the chip falls back to a neutral
+   placeholder rather than guessing. */
+const checklistAdder = (task: LoanTask, addedBy: ChecklistItem["addedBy"]): { id?: string; name?: string; seat: string } =>
+  addedBy === "checker"
+    ? { ...(task.assignee ? { id: task.assignee.id, name: task.assignee.displayName } : {}), seat: "the file checker" }
+    : { id: task.createdBy.id, name: task.createdBy.displayName, seat: "the requester" };
+
+/* The adder's initials chip. Same `avatarStyle` hash as the card header's
+   assigner/assignee pair, so a person is one colour everywhere and the mapping
+   is learned once — there are only ever two people on a task, so it reads as
+   two colours rather than a palette. */
+const ChecklistAdderChip = ({ task, addedBy }: { task: LoanTask; addedBy: ChecklistItem["addedBy"] }) => {
+  const adder = checklistAdder(task, addedBy);
+  const label = adder.name ? `Added by ${adder.name}` : `Added by ${adder.seat}`;
+  return (
+    <span
+      className={`checklist-adder${adder.id ? "" : " checklist-adder-none"}`}
+      style={adder.id ? avatarStyle(adder.id) : undefined}
+      title={label}
+      aria-label={label}
+    >
+      {initialsOf(adder.name)}
+    </span>
+  );
+};
+
 const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentity; api: ChecklistApi }) => {
   const [newItem, setNewItem] = useState("");
   /* One inline editor open at a time: which item + which field. */
@@ -971,6 +1003,8 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                   >
                     {item.checked && <CheckIcon />}
                   </button>
+
+                  <ChecklistAdderChip task={task} addedBy={item.addedBy} />
 
                   {editingText ? (
                     <input

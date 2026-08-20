@@ -1258,6 +1258,24 @@ button.btn-good:hover {
   border-color: var(--good);
   color: var(--on-accent);
 }
+/* Adder chip (#141): whose requirement this is, between the checkbox and the
+   text. Smaller than the card header's 20px pair avatar because it sits on a
+   denser row, but the same shape and the same per-person colour. `flex: none`
+   keeps it off the text's slack so the row holds at narrow widths. */
+.checklist-adder {
+  width: 17px; height: 17px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  background: var(--bg-soft); color: var(--ink-secondary);
+  border: 1px solid var(--line-soft);
+  font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: 0.5rem;
+  cursor: default;
+}
+/* A released Fraud Check has checker items but no assignee to attribute them
+   to — dashed, like the pair's empty assignee slot. */
+.checklist-adder-none { background: transparent; border: 1.5px dashed var(--line); color: var(--muted); }
+/* A resolved item's chip recedes with the rest of the row. */
+.checklist-item-done .checklist-adder { opacity: 0.55; }
+
 .checklist-item-text {
   flex: 1 1 auto;
   text-align: left;
