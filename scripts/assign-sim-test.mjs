@@ -22,6 +22,10 @@
  *   - A task created with an assignee is born CLAIMED in ONE operation, and its
  *     channel post still goes out (as the claimed-card variant, which the
  *     notifications provider picks off task.assignee).
+ *   - Second pair of hands (ADR-0003): the creator is refused at all four doors
+ *     an assignee comes through — claim, self-handoff, a third party handing it
+ *     back, and assignment at creation — while a NON-creator's self-handoff
+ *     survives.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -366,6 +370,101 @@ await check("a task created without an assignee is unchanged", async () => {
     ["IN_APP", "CHANNEL"],
     "and fans out exactly as it did before the Handoff existed"
   );
+});
+
+/* ── Second pair of hands (ADR-0003) ───────────────────────────────────────
+   Four doors, one rule. The creator is refused at each; the affordance that
+   survives is a non-creator handing a task to themselves. */
+
+await check("door 1: a creator cannot claim their own task", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await assert.rejects(
+    () => ctx.service.claimTask(task.id, CREATOR),
+    /second pair of hands/,
+    "refused, and the refusal says which rule refused"
+  );
+  const stored = await ctx.service.getTask(task.id);
+  assert.equal(stored.status, "OPEN", "the refused claim changed nothing");
+  assert.equal(stored.assignee, undefined);
+});
+
+await check("door 2: a creator cannot hand their own task to themselves", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await assert.rejects(
+    () => ctx.service.assignTask({ taskId: task.id, target: CREATOR, actor: CREATOR }),
+    /second pair of hands/,
+    "self-handoff is not a way around the claim rule"
+  );
+  assert.equal((await ctx.service.getTask(task.id)).assignee, undefined);
+});
+
+await check("door 3: a third party cannot hand a task back to its creator", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+  // The rule is a property of the TASK, not the actor: a bystander who has
+  // broken none of it themselves still can't put the creator on their own
+  // request.
+  await assert.rejects(
+    () => ctx.service.assignTask({ taskId: task.id, target: CREATOR, actor: BYSTANDER }),
+    /second pair of hands/
+  );
+  assert.equal((await ctx.service.getTask(task.id)).assignee.id, OFFICER.id, "the assignee is untouched");
+});
+
+await check("door 4: a task cannot be born assigned to its own creator", async () => {
+  const ctx = await setup();
+  await assert.rejects(
+    () =>
+      ctx.service.createTask(
+        { folderName: "Born To Myself", taskType: "VALUE", notes: "n" },
+        CREATOR,
+        CREATOR
+      ),
+    /second pair of hands/
+  );
+  assert.deepEqual(await ctx.service.listTasks(CREATOR), [], "and no task is written");
+});
+
+await check("the affordance that survives: a non-creator hands a task to themselves", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+  // Taking work off someone who is stuck or away. Still allowed (ADR-0002) —
+  // it is only the creator ADR-0003 bars.
+  const taken = await ctx.service.assignTask({ taskId: task.id, target: BYSTANDER, actor: BYSTANDER });
+  assert.equal(taken.assignee.id, BYSTANDER.id);
+});
+
+await check("no task type is exempt, including OOO and FRAUD", async () => {
+  const ctx = await setup();
+
+  // OOO: the creator is the person going out, the assignee is the person
+  // covering, and you cannot cover for yourself.
+  const ooo = await ctx.service.createTask(
+    {
+      folderName: "Beach Week",
+      taskType: "OOO",
+      notes: "out",
+      startDate: "2026-09-01",
+      returnDate: "2026-09-08"
+    },
+    CREATOR
+  );
+  await assert.rejects(() => ctx.service.claimTask(ooo.id, CREATOR), /second pair of hands/);
+
+  // FRAUD: a file checker cannot check a file they filed themselves — the
+  // separation of duties the check exists for.
+  const fraud = await ctx.service.createTask(
+    { folderName: "My Own File", taskType: "FRAUD", notes: "check it" },
+    CHECKER
+  );
+  await assert.rejects(() => ctx.service.claimTask(fraud.id, CHECKER), /second pair of hands/);
+  // ...but anyone else holding the role still can.
+  const claimed = await ctx.service.claimTask(fraud.id, CHECKER_2);
+  assert.equal(claimed.assignee.id, CHECKER_2.id);
 });
 
 console.log(`\nAll ${passed} Handoff checks passed.`);

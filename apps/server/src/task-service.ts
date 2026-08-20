@@ -19,6 +19,8 @@ import {
   commitChecklistItems,
   canTransitionStatus,
   canUnclaimTask,
+  assigneeRefusal,
+  claimRefusalMessage,
   editChecklistItemText,
   removeChecklistItem,
   setChecklistItemChecked,
@@ -95,7 +97,9 @@ export class TaskService {
   async createTask(
     input: CreateTaskInput,
     user: UserIdentity,
-    assignee?: Pick<UserIdentity, "id" | "displayName">
+    /* Full identity, not a name/id pair: the eligibility check below needs the
+       recipient's live roles. */
+    assignee?: UserIdentity
   ): Promise<LoanTask> {
     const now = new Date();
     const isOoo = input.taskType === "OOO";
@@ -149,6 +153,20 @@ export class TaskService {
           continue;
         }
         seededChecklist = addChecklistItem(seededChecklist, { id: uuid(), text, addedBy: "creator", addedOnPass: 0 });
+      }
+    }
+
+    /* Door four of four (ADR-0003): a task can be born assigned, and it must
+       not be born assigned to its own creator. The guard lives here rather than
+       in the route so one seam covers it — the route only resolves the id to an
+       identity. */
+    if (assignee) {
+      const refusal = assigneeRefusal(
+        { taskType: input.taskType, createdBy: { id: user.id, displayName: user.displayName } },
+        assignee
+      );
+      if (refusal) {
+        throw new Error(refusal);
       }
     }
 
@@ -255,7 +273,7 @@ export class TaskService {
     const task = await this.requireTask(taskId);
 
     if (!canClaimTask(task, user)) {
-      throw new Error("Task cannot be claimed by this user");
+      throw new Error(claimRefusalMessage(task, user));
     }
 
     const now = new Date().toISOString();
@@ -1047,7 +1065,7 @@ export class TaskService {
       return task;
     }
     if (!canAssignTaskTo(task, params.target)) {
-      throw new Error(assignRefusalMessage(task.taskType, params.target.displayName));
+      throw new Error(assigneeRefusal(task, params.target) ?? "This task can't be handed off");
     }
 
     const previous = task.assignee;

@@ -358,22 +358,65 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
 
 const hasRole = (user: UserIdentity, role: "FILE_CHECKER" | "ADMIN"): boolean => user.roles.includes(role);
 
+/* Second pair of hands (ADR-0003): a task is a request for someone *else* to
+   act, so its creator is never its assignee. You can't have a Buddy Chat with
+   yourself, you can't cover your own vacation, and the whole point of a Fraud
+   Check is that a second person looks at the file.
+
+   This is a property of the TASK, not of the actor, which is why it reads off
+   `task.createdBy` and never off who is asking: a third party handing a task
+   back to its creator is refused on exactly the same grounds as the creator
+   claiming it. No task type is exempt, and there is no admin override. */
+const CREATOR_IS_ASSIGNEE = "created this task — a task takes a second pair of hands";
+
+/* The whole of "may this person be this task's assignee", as a reason or
+   `undefined` for yes. One function so the four doors an assignee can come
+   through — claim, handoff, self-handoff, and assignment at creation — give the
+   same answer AND the same explanation. Takes only the two fields it needs, so
+   the create path can ask before the task exists.
+
+   Does not consider status: a closed task rejects a handoff for its own
+   reasons, which is `canAssignTaskTo`'s business. */
+export const assigneeRefusal = (
+  task: Pick<LoanTask, "taskType" | "createdBy">,
+  candidate: UserIdentity
+): string | undefined => {
+  if (task.createdBy.id === candidate.id) {
+    return `${candidate.displayName} ${CREATOR_IS_ASSIGNEE}`;
+  }
+  if (!canWorkTaskType(task.taskType, candidate)) {
+    return assignRefusalMessage(task.taskType, candidate.displayName);
+  }
+  return undefined;
+};
+
+export const canBeAssignee = (
+  task: Pick<LoanTask, "taskType" | "createdBy">,
+  candidate: UserIdentity
+): boolean => assigneeRefusal(task, candidate) === undefined;
+
 export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
+  // Door one of four: claiming. The type/role rule and the second-pair-of-hands
+  // rule both live in `canBeAssignee`, so this only decides *when* a claim is
+  // on offer.
+  if (!canBeAssignee(task, user)) {
+    return false;
+  }
   // FRAUD "release for any fraud checker" support: a PENDING_APPROVAL task whose
   // original checker has been unassigned can be picked up by any FILE_CHECKER, so
   // final approval isn't blocked on one person. Any other status still requires
   // OPEN below.
   if (task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" && !task.assignee) {
-    return hasRole(user, "FILE_CHECKER");
+    return true;
   }
-  if (task.status !== "OPEN") {
-    return false;
-  }
-  if (task.taskType === "FRAUD" && !hasRole(user, "FILE_CHECKER")) {
-    return false;
-  }
-  return true;
+  return task.status === "OPEN";
 };
+
+/* Why this user can't claim this task. `canClaimTask` is the gate; this is the
+   sentence shown when it says no, so a refusal reads as a rule rather than a
+   bug. */
+export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string =>
+  assigneeRefusal(task, user) ?? "This task isn't up for grabs right now";
 
 /* Handoff (ADR-0002): may this task be handed to this person?
    Eligibility is checked on the RECIPIENT, never the actor — anyone
@@ -385,12 +428,16 @@ export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
    Self-handoff is deliberately allowed: it is just a claim, and is sometimes
    the only way to take a task that `canClaimTask` won't let you claim (already
    claimed by someone else). Handing a task to whoever already holds it is a
-   no-op, not an error, and the caller treats it as such. */
+   no-op, not an error, and the caller treats it as such.
+
+   ADR-0003 narrows that one step: self-handoff survives for everyone EXCEPT the
+   task's creator, who is refused here like anyone else routing a task back to
+   it. That's the door ADR-0002's version left open. */
 export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boolean => {
   if (CLOSED_STATUSES.includes(task.status)) {
     return false;
   }
-  return canWorkTaskType(task.taskType, targetUser);
+  return canBeAssignee(task, targetUser);
 };
 
 /* The role half of `canAssignTaskTo`, split out for the one caller that has no
