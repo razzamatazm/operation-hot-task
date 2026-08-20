@@ -16,11 +16,12 @@
  */
 import assert from "node:assert/strict";
 
-import { fraudCardActions, fraudRoleFor } from "../packages/shared/dist/fraud.js";
+import { fraudCardActions, fraudSeat } from "../packages/shared/dist/fraud.js";
 import { botPrimaryAdvance } from "../packages/shared/dist/workflow.js";
 
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };
 const CREATOR = { id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
+const OUTSIDER = { id: "rando-1", displayName: "Sam Nobody", roles: ["LOAN_OFFICER"] };
 
 const makeFraudTask = (overrides = {}) => ({
   id: "task-fraud-1",
@@ -48,21 +49,52 @@ const check = (label, fn) => {
 console.log("FRAUD two-phase bot-cards sim");
 
 // --- Role resolution -------------------------------------------------------
-check("fraudRoleFor maps assignee → CHECKER, creator → CREATOR, else OTHER", () => {
+check("fraudSeat maps assignee → checker, creator → requester, else null", () => {
   const t = makeFraudTask();
-  assert.equal(fraudRoleFor(t, CHECKER.id), "CHECKER");
-  assert.equal(fraudRoleFor(t, CREATOR.id), "CREATOR");
-  assert.equal(fraudRoleFor(t, "someone-else"), "OTHER");
-  assert.equal(fraudRoleFor(t, undefined), "OTHER");
+  assert.equal(fraudSeat(t, CHECKER), "checker");
+  assert.equal(fraudSeat(t, CREATOR), "requester");
+  assert.equal(fraudSeat(t, OUTSIDER), null);
+});
+
+/* The exhaustive truth table for the one seat function. Seat is derived from
+   identity, never from status, so the answer is the same in every live state. */
+check("fraudSeat: a role gates entry to a seat, and ADMIN is not a seat", () => {
+  const t = makeFraudTask();
+  const DEMOTED_CHECKER = { ...CHECKER, roles: ["LOAN_OFFICER"] };
+  const ADMIN = { id: "admin-1", displayName: "Alex Admin", roles: ["FILE_CHECKER", "ADMIN"] };
+  const ADMIN_CREATOR = { ...ADMIN, id: CREATOR.id };
+  const ADMIN_ASSIGNEE = { ...ADMIN, id: CHECKER.id };
+
+  for (const status of ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    const at = makeFraudTask({ status });
+    assert.equal(fraudSeat(at, CHECKER), "checker", `assignee + FILE_CHECKER holds the checker seat in ${status}`);
+    assert.equal(fraudSeat(at, CREATOR), "requester", `the creator holds the requester seat in ${status}`);
+    assert.equal(fraudSeat(at, DEMOTED_CHECKER), null, `the assignee who lost FILE_CHECKER holds no seat in ${status}`);
+    assert.equal(fraudSeat(at, ADMIN), null, `an admin who is neither party holds no seat in ${status}`);
+    assert.equal(fraudSeat(at, OUTSIDER), null, `a stranger holds no seat in ${status}`);
+    // Being an admin never adds a seat you don't otherwise hold, and never a second one.
+    assert.equal(fraudSeat(at, ADMIN_CREATOR), "requester", `an admin who is the creator holds only the requester seat in ${status}`);
+    assert.equal(fraudSeat(at, ADMIN_ASSIGNEE), "checker", `an admin who is the assignee holds only the checker seat in ${status}`);
+  }
+
+  // No assignee yet: nobody holds the checker seat.
+  const unclaimed = makeFraudTask({ status: "OPEN", assignee: undefined });
+  assert.equal(fraudSeat(unclaimed, CHECKER), null, "no assignee, no checker seat");
+  assert.equal(fraudSeat(unclaimed, CREATOR), "requester", "the requester seat exists from the start");
+
+  // Seats are a fraud concept; a non-FRAUD task has none.
+  const value = makeFraudTask({ taskType: "VALUE" });
+  assert.equal(fraudSeat(value, CHECKER), null);
+  assert.equal(fraudSeat(value, CREATOR), null);
 });
 
 // --- CLAIMED ----------------------------------------------------------------
 check("CLAIMED: checker sees Send Outstanding Items (note), creator sees nothing", () => {
   const t = makeFraudTask({ status: "CLAIMED" });
-  assert.deepEqual(fraudCardActions(t, CHECKER.id), [
+  assert.deepEqual(fraudCardActions(t, CHECKER), [
     { kind: "transitionWithNote", label: "Send Items", targetStatus: "AWAITING_ITEMS" }
   ]);
-  assert.deepEqual(fraudCardActions(t, CREATOR.id), []);
+  assert.deepEqual(fraudCardActions(t, CREATOR), []);
   // The single forward step matches the checker's button.
   assert.deepEqual(botPrimaryAdvance(t), { status: "AWAITING_ITEMS", label: "Send Items" });
 });
@@ -70,17 +102,17 @@ check("CLAIMED: checker sees Send Outstanding Items (note), creator sees nothing
 // --- AWAITING_ITEMS ---------------------------------------------------------
 check("AWAITING_ITEMS: creator sees Submit (plain), checker sees nothing", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
-  assert.deepEqual(fraudCardActions(t, CREATOR.id), [
+  assert.deepEqual(fraudCardActions(t, CREATOR), [
     { kind: "transition", label: "Submit", targetStatus: "PENDING_APPROVAL" }
   ]);
-  assert.deepEqual(fraudCardActions(t, CHECKER.id), []);
+  assert.deepEqual(fraudCardActions(t, CHECKER), []);
   assert.deepEqual(botPrimaryAdvance(t), { status: "PENDING_APPROVAL", label: "Submit" });
 });
 
 // --- PENDING_APPROVAL -------------------------------------------------------
 check("PENDING_APPROVAL: checker sees Approve + Send Back (note)", () => {
   const t = makeFraudTask({ status: "PENDING_APPROVAL" });
-  assert.deepEqual(fraudCardActions(t, CHECKER.id), [
+  assert.deepEqual(fraudCardActions(t, CHECKER), [
     { kind: "transition", label: "Approve", targetStatus: "COMPLETED" },
     { kind: "transitionWithNote", label: "Send Back", targetStatus: "AWAITING_ITEMS" }
   ]);
@@ -89,18 +121,18 @@ check("PENDING_APPROVAL: checker sees Approve + Send Back (note)", () => {
 
 check("PENDING_APPROVAL: creator sees Release while still assigned, nothing once released", () => {
   const assigned = makeFraudTask({ status: "PENDING_APPROVAL" });
-  assert.deepEqual(fraudCardActions(assigned, CREATOR.id), [
+  assert.deepEqual(fraudCardActions(assigned, CREATOR), [
     { kind: "release", label: "Release for any fraud checker" }
   ]);
   const released = makeFraudTask({ status: "PENDING_APPROVAL", assignee: undefined });
-  assert.deepEqual(fraudCardActions(released, CREATOR.id), []);
+  assert.deepEqual(fraudCardActions(released, CREATOR), []);
 });
 
 // --- Note-required moves carry a target the card submits as reviewNotes ------
 check("only Send Outstanding Items / Send Back are note-required", () => {
   const noteMoves = [
-    ...fraudCardActions(makeFraudTask({ status: "CLAIMED" }), CHECKER.id),
-    ...fraudCardActions(makeFraudTask({ status: "PENDING_APPROVAL" }), CHECKER.id)
+    ...fraudCardActions(makeFraudTask({ status: "CLAIMED" }), CHECKER),
+    ...fraudCardActions(makeFraudTask({ status: "PENDING_APPROVAL" }), CHECKER)
   ].filter((a) => a.kind === "transitionWithNote");
   assert.equal(noteMoves.length, 2);
   for (const move of noteMoves) {
@@ -112,8 +144,8 @@ check("only Send Outstanding Items / Send Back are note-required", () => {
 check("non-FRAUD tasks get no fraud buttons in any state", () => {
   for (const status of ["OPEN", "CLAIMED", "COMPLETED"]) {
     const t = makeFraudTask({ taskType: "VALUE", status });
-    assert.deepEqual(fraudCardActions(t, CHECKER.id), []);
-    assert.deepEqual(fraudCardActions(t, CREATOR.id), []);
+    assert.deepEqual(fraudCardActions(t, CHECKER), []);
+    assert.deepEqual(fraudCardActions(t, CREATOR), []);
   }
 });
 
@@ -121,8 +153,8 @@ check("non-FRAUD tasks get no fraud buttons in any state", () => {
 check("no fraud buttons in OPEN or terminal states", () => {
   for (const status of ["OPEN", "COMPLETED", "CANCELLED", "ARCHIVED"]) {
     const t = makeFraudTask({ status });
-    assert.deepEqual(fraudCardActions(t, CHECKER.id), []);
-    assert.deepEqual(fraudCardActions(t, CREATOR.id), []);
+    assert.deepEqual(fraudCardActions(t, CHECKER), []);
+    assert.deepEqual(fraudCardActions(t, CREATOR), []);
   }
 });
 

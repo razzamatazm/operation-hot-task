@@ -1,3 +1,4 @@
+import { fraudSeat } from "./fraud.js";
 import { LoanTask, UserIdentity } from "./types.js";
 
 /* Structured outstanding-items checklist for FRAUD checks (#44). Replaces the
@@ -135,27 +136,18 @@ export const allChecklistResolved = (items: ChecklistItem[]): boolean => items.e
 /* Count of unresolved (unchecked) items. */
 export const unresolvedCount = (items: ChecklistItem[]): number => items.filter((item) => !item.checked).length;
 
-const hasRole = (user: UserIdentity, role: "FILE_CHECKER" | "ADMIN"): boolean => user.roles.includes(role);
-
-/* Is this user acting as the fraud CHECKER for the task? The assignee (or an
-   admin), and — because it's a FRAUD task — a FILE_CHECKER. Mirrors
-   workflow.ts canFraudCheckerAct so the checklist gate agrees with the
-   lifecycle gate. */
-const isChecker = (task: LoanTask, user: UserIdentity): boolean =>
-  hasRole(user, "FILE_CHECKER") && (task.assignee?.id === user.id || hasRole(user, "ADMIN"));
-
-/* Is this user acting as the CREATOR (requester) for the task? The task creator
-   or an admin. */
-const isCreator = (task: LoanTask, user: UserIdentity): boolean =>
-  task.createdBy.id === user.id || hasRole(user, "ADMIN");
-
-/* Which seat an actor occupies when adding an item — decides `addedBy`, so a
-   creator-added item is reliably flagged for the checker. The assignee is the
-   checker; otherwise the task creator is the creator; an admin holding neither
-   seat is acting for the checker. Derived server-side, never trusted from the
-   client. */
-export const checklistSeat = (task: LoanTask, user: UserIdentity): "checker" | "creator" =>
-  task.assignee?.id === user.id ? "checker" : task.createdBy.id === user.id ? "creator" : "checker";
+/* The seat vocabulary stored on an item. `fraudSeat` calls the non-checker
+   seat the *requester* — the clearer name, since the seat is about which side
+   of the exchange you're on — but `addedBy` has said "creator" since #44 and
+   there is live fraud-check data using it, so the boundary translates rather
+   than migrating. */
+export const checklistSeat = (task: LoanTask, user: UserIdentity): "checker" | "creator" | null => {
+  const seat = fraudSeat(task, user);
+  if (seat === "checker") {
+    return "checker";
+  }
+  return seat === "requester" ? "creator" : null;
+};
 
 /* The distinct checklist operations, gated by turn (#44 permissions-by-turn):
      - OPEN (pre-claim, creator's turn #69): the creator seeds/manages their own
@@ -179,11 +171,12 @@ export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: Checkli
   if (task.taskType !== "FRAUD") {
     return false;
   }
-  const checker = isChecker(task, user);
-  const creator = isCreator(task, user);
-  if (!checker && !creator) {
+  const seat = checklistSeat(task, user);
+  if (!seat) {
     return false;
   }
+  const checker = seat === "checker";
+  const creator = seat === "creator";
 
   switch (task.status) {
     case "OPEN":
@@ -251,16 +244,14 @@ export const canDeleteChecklistItem = (task: LoanTask, user: UserIdentity, item:
   if (task.taskType !== "FRAUD") {
     return false;
   }
-  const checker = isChecker(task, user);
-  const creator = isCreator(task, user);
-  if (!checker && !creator) {
+  const seat = checklistSeat(task, user);
+  if (!seat) {
     return false;
   }
   // (3) Committed (handed-off) items lock permanently.
   if (!item.draft) {
     return false;
   }
-  const seat = checklistSeat(task, user);
   // (1) Only the seat that added it may delete it.
   if (item.addedBy !== seat) {
     return false;

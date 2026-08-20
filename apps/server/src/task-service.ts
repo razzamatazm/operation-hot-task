@@ -787,6 +787,10 @@ export class TaskService {
       throw new Error("A checklist item needs some text");
     }
     const addedBy = checklistSeat(task, user);
+    if (!addedBy) {
+      // Unreachable: assertChecklistOp above refuses anyone holding no seat.
+      throw new Error("Only the fraud checker or the requester can add an outstanding item");
+    }
     const addedOnPass = task.checklistPass && task.checklistPass > 0 ? task.checklistPass : 1;
     const next = addChecklistItem(task.checklist ?? [], { id: uuid(), text: trimmed, addedBy, addedOnPass });
     return this.persistChecklist(task, next, user, `Added checklist item: ${trimmed}`);
