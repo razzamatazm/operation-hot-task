@@ -1,4 +1,4 @@
-import { NotificationEvent, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
+import { NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, recentNoteThread } from "./bot.js";
@@ -41,8 +41,24 @@ export class TeamsNotificationProvider implements NotificationProvider {
   constructor(
     private readonly botClient: TeamsBotClient,
     private readonly activityFeedClient: ActivityFeedClient,
-    private readonly settings: SettingsStore
+    private readonly settings: SettingsStore,
+    /* A fraud card's button set turns on the viewer's seat, and the checker
+       seat needs a live FILE_CHECKER role — which the task snapshot doesn't
+       carry. Recipients arrive as bare ids, so the card paths look the roles
+       up here. Required, not optional: a silent fallback to "no roles" would
+       quietly strip every checker's buttons. */
+    private readonly resolveIdentity: (userId: string) => Promise<UserIdentity | undefined>
   ) {}
+
+  /* Ids → identities for the card builders. An id with no user record (or a
+     deactivated one) resolves to a roleless viewer: they still get the card,
+     they just hold no seat on it. */
+  private async cardViewers(userIds: Array<string | undefined>): Promise<UserIdentity[]> {
+    const ids = Array.from(new Set(userIds.filter((id): id is string => Boolean(id && id.trim().length > 0))));
+    return Promise.all(
+      ids.map(async (id) => (await this.resolveIdentity(id)) ?? { id, displayName: "", roles: [] })
+    );
+  }
 
   /* The legacy webhook posts to one fixed channel URL it can't retarget, so
      once an admin picks a specific notification channel we suppress it — the
@@ -239,11 +255,14 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // or a fraud release drops the assignee, and it's precisely that
       // ex-assignee whose card is still offering a button they no longer have.
       const advance = botPrimaryAdvance(event.task);
-      const recipients = taskCardRecipients(event.task, [
-        event.task.createdBy.id,
-        ...(event.task.assignee ? [event.task.assignee.id] : []),
-        ...(event.recipientUserIds ?? [])
-      ]);
+      const recipients = taskCardRecipients(
+        event.task,
+        await this.cardViewers([
+          event.task.createdBy.id,
+          event.task.assignee?.id,
+          ...(event.recipientUserIds ?? [])
+        ])
+      );
       if (recipients.length === 0) {
         return;
       }
@@ -279,7 +298,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         existing.length > 0
           ? existing
           : [{ author: "Hot Task", text: `${event.actor.displayName} claimed this — reply here to chat about it.` }];
-      const recipients = taskCardRecipients(event.task, event.recipientUserIds).map((recipient) => ({
+      const recipients = taskCardRecipients(event.task, await this.cardViewers(event.recipientUserIds)).map((recipient) => ({
         ...recipient,
         createIfMissing: true,
         reposition: true,
@@ -358,7 +377,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         //    author of this note; only update theirs if it already exists.
         //  - summary: only ping non-authors.
         const authorId = event.actor.id;
-        const recipients = taskCardRecipients(event.task, event.recipientUserIds).map((recipient) => ({
+        const recipients = taskCardRecipients(event.task, await this.cardViewers(event.recipientUserIds)).map((recipient) => ({
           ...recipient,
           createIfMissing: recipient.userId !== authorId,
           // The other party's card moves to the bottom so a new note isn't

@@ -35,7 +35,8 @@ import {
   isWithinBusinessHours,
   isOverdue,
   shouldPurgeArchived,
-  shouldSendReminder
+  shouldSendReminder,
+  SYSTEM_ACTOR
 } from "@loan-tasks/shared";
 import { ActivityFeedStateStore, ActivitySignalState, ActivitySignalType, KnownUserState } from "./activity-feed-state.js";
 import { v4 as uuid } from "uuid";
@@ -805,6 +806,10 @@ export class TaskService {
       throw new Error("A checklist item needs some text");
     }
     const addedBy = checklistSeat(task, user);
+    if (!addedBy) {
+      // Unreachable: assertChecklistOp above refuses anyone holding no seat.
+      throw new Error("Only the fraud checker or the requester can add an outstanding item");
+    }
     const addedOnPass = task.checklistPass && task.checklistPass > 0 ? task.checklistPass : 1;
     const next = addChecklistItem(task.checklist ?? [], { id: uuid(), text: trimmed, addedBy, addedOnPass });
     return this.persistChecklist(task, next, user, `Added checklist item: ${trimmed}`);
@@ -1143,18 +1148,18 @@ export class TaskService {
           completedAt: nowIso,
           updatedAt: nowIso
         };
-        historyEvents.push(this.makeHistory(task.id, { id: "system", displayName: "Task Scheduler", roles: ["ADMIN"] }, "TASK_STATUS_CHANGED", "AUTO_COMPLETED_RETURN_DATE"));
+        historyEvents.push(this.makeHistory(task.id, SYSTEM_ACTOR, "TASK_STATUS_CHANGED", "AUTO_COMPLETED_RETURN_DATE"));
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: next,
-          actor: { id: "system", displayName: "Task Scheduler" },
+          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
           message: `${next.folderName} wrapped itself up on the return date`,
           target: "IN_APP"
         });
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: next,
-          actor: { id: "system", displayName: "Task Scheduler" },
+          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
           message: `Auto-completed while you were out — welcome back`,
           target: "DM",
           recipientUserIds: [next.createdBy.id]
@@ -1194,7 +1199,7 @@ export class TaskService {
           await this.notify({
             type: "TASK_REMINDER",
             task: next,
-            actor: { id: "system", displayName: "Task Scheduler" },
+            actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
             message: `Heads up — this one's overdue`,
             target: "DM",
             recipientUserIds: reminderRecipients
@@ -1312,7 +1317,7 @@ export class TaskService {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
         task: note.task,
-        actor: { id: "system", displayName: "Task Scheduler" },
+        actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
         message: note.message,
         target: "ACTIVITY_FEED",
         recipientUserIds: note.recipientUserIds

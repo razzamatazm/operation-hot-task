@@ -1,5 +1,5 @@
 import { ACTION_LABELS } from "./labels.js";
-import { AppConfig, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
+import { AppConfig, isSystemActor, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -358,6 +358,12 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
 
 const hasRole = (user: UserIdentity, role: "FILE_CHECKER" | "ADMIN"): boolean => user.roles.includes(role);
 
+/* SYSTEM (the scheduler) satisfies every *actor* clause below — role
+   requirements and party checks alike — because there is no human to hold a
+   role or a seat. It does not bypass status or flow legality: the scheduler
+   may only make moves the workflow itself allows. See ADR-0003. */
+const isSystem = (user: UserIdentity): boolean => isSystemActor(user);
+
 /* Second pair of hands (ADR-0003): a task is a request for someone *else* to
    act, so its creator is never its assignee. You can't have a Buddy Chat with
    yourself, you can't cover your own vacation, and the whole point of a Fraud
@@ -398,7 +404,9 @@ export const canBeAssignee = (
 export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   // Door one of four: claiming. The type/role rule and the second-pair-of-hands
   // rule both live in `canBeAssignee`, so this only decides *when* a claim is
-  // on offer.
+  // on offer. The FILE_CHECKER requirement for a Fraud Check — and SYSTEM's
+  // bypass of it — ride along in `canWorkTaskType` rather than being repeated
+  // here.
   if (!canBeAssignee(task, user)) {
     return false;
   }
@@ -444,7 +452,7 @@ export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boole
    task yet: creating a task already handed off (`assigneeUserId` on the create
    payload) has to check the recipient before the task exists. */
 export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean =>
-  taskType !== "FRAUD" || hasRole(user, "FILE_CHECKER");
+  taskType !== "FRAUD" || isSystem(user) || hasRole(user, "FILE_CHECKER");
 
 /* The refusal a rejected handoff shows. Both enforcement points — the route
    (create-with-assignee) and `TaskService.assignTask` — surface this exact
@@ -461,13 +469,13 @@ export const canUnclaimTask = (task: LoanTask, user: UserIdentity): boolean => {
 
   const isAssignee = task.assignee?.id === user.id;
   const isAdmin = hasRole(user, "ADMIN");
-  return isAssignee || isAdmin;
+  return isSystem(user) || isAssignee || isAdmin;
 };
 
 export const canCancelTask = (task: LoanTask, user: UserIdentity): boolean => {
   const isCreator = task.createdBy.id === user.id;
   const isAdmin = hasRole(user, "ADMIN");
-  return isCreator || isAdmin;
+  return isSystem(user) || isCreator || isAdmin;
 };
 
 export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
@@ -477,7 +485,7 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
 
   const isCreator = task.createdBy.id === user.id;
   const isAssignee = task.assignee?.id === user.id;
-  return isCreator || isAssignee;
+  return isSystem(user) || isCreator || isAssignee;
 };
 
 export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
@@ -488,11 +496,11 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
   const isCreator = task.createdBy.id === user.id;
   const isAssignee = task.assignee?.id === user.id;
   const isAdmin = hasRole(user, "ADMIN");
-  return isCreator || isAssignee || isAdmin;
+  return isSystem(user) || isCreator || isAssignee || isAdmin;
 };
 
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.taskType === "FRAUD" && !hasRole(user, "FILE_CHECKER")) {
+  if (task.taskType === "FRAUD" && !isSystem(user) && !hasRole(user, "FILE_CHECKER")) {
     return false;
   }
 
@@ -510,7 +518,7 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
     // out. Admins can always step in.
     const isAssignee = task.assignee?.id === user.id;
     const isAdmin = hasRole(user, "ADMIN");
-    return isAssignee || isAdmin;
+    return isSystem(user) || isAssignee || isAdmin;
   }
 
   return false;
@@ -523,12 +531,15 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
    fraud checker) or an admin, and — because it's a FRAUD task — FILE_CHECKER is
    required. Non-FRAUD tasks never reach these statuses. */
 export const canFraudCheckerAct = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.taskType !== "FRAUD" || !hasRole(user, "FILE_CHECKER")) {
+  if (task.taskType !== "FRAUD") {
+    return false;
+  }
+  if (!isSystem(user) && !hasRole(user, "FILE_CHECKER")) {
     return false;
   }
   const isAssignee = task.assignee?.id === user.id;
   const isAdmin = hasRole(user, "ADMIN");
-  return isAssignee || isAdmin;
+  return isSystem(user) || isAssignee || isAdmin;
 };
 
 /* FRAUD-only: submitting the outstanding items back for approval
@@ -540,7 +551,7 @@ export const canSubmitForApproval = (task: LoanTask, user: UserIdentity): boolea
   }
   const isCreator = task.createdBy.id === user.id;
   const isAdmin = hasRole(user, "ADMIN");
-  return isCreator || isAdmin;
+  return isSystem(user) || isCreator || isAdmin;
 };
 
 /* Restore returns a reopened task to the exact closed status it held before the
@@ -555,7 +566,7 @@ export const canRestoreTask = (task: LoanTask, user: UserIdentity): boolean => {
   const isCreator = task.createdBy.id === user.id;
   const isAssignee = task.assignee?.id === user.id;
   const isAdmin = hasRole(user, "ADMIN");
-  return isCreator || isAssignee || isAdmin;
+  return isSystem(user) || isCreator || isAssignee || isAdmin;
 };
 
 export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: UserIdentity): { ok: boolean; reason?: string } => {
@@ -587,7 +598,7 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   if (next === "CLAIMED" && task.status === "MERGE_DONE") {
     const isAssignee = task.assignee?.id === user.id;
     const isAdmin = hasRole(user, "ADMIN");
-    if (!isAssignee && !isAdmin) {
+    if (!isSystem(user) && !isAssignee && !isAdmin) {
       return { ok: false, reason: "Only assignee or admin can undo merge done" };
     }
   }
