@@ -452,10 +452,25 @@ const run = async () => {
     assert.equal(unclaimByAdmin.json.task.status, "OPEN");
     pushPass("admin can unclaim");
 
+    // ADR-0003: the creator is never the assignee. This used to assert 200 —
+    // the API happily let a creator claim their own task and only the web row
+    // said otherwise.
     const claimByCreator = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/claim`, {
       user: users.creator
     });
-    expectStatus(claimByCreator.status, 200, "claim by creator", claimByCreator.json);
+    expectStatus(claimByCreator.status, 400, "creator refused their own task", claimByCreator.json);
+    assert.match(
+      claimByCreator.json.error ?? "",
+      /second pair of hands/,
+      "the refusal says which rule refused"
+    );
+    pushPass("a creator cannot claim their own task");
+
+    // Someone else takes it, so the rest of the lifecycle has a real assignee.
+    const reclaimByOther = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/claim`, {
+      user: users.otherOfficer
+    });
+    expectStatus(reclaimByOther.status, 200, "claim by other officer", reclaimByOther.json);
 
     const details = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}`);
     expectStatus(details.status, 200, "task details", details.json);
@@ -476,7 +491,7 @@ const run = async () => {
     expectStatus(backToClaimed.status, 200, "needs_review->claimed", backToClaimed.json);
 
     const completed = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/transition`, {
-      user: users.creator,
+      user: users.otherOfficer,
       body: { status: "COMPLETED" }
     });
     expectStatus(completed.status, 200, "claimed->completed", completed.json);
@@ -773,7 +788,14 @@ const run = async () => {
     });
     const loanDocsId = loanDocsTask.json.task.id;
 
-    await request(server.baseUrl, "POST", `/tasks/${loanDocsId}/claim`, { user: users.creator });
+    /* ADR-0003: the creator can't claim their own task, so the merge chain runs
+       with a real second party — which is what it was always modelling. The
+       assignee does the merge and the completion; the creator approves it in
+       between, exactly as the completion chain describes. */
+    const loanDocsClaim = await request(server.baseUrl, "POST", `/tasks/${loanDocsId}/claim`, {
+      user: users.otherOfficer
+    });
+    expectStatus(loanDocsClaim.status, 200, "loan docs claimed by a second user", loanDocsClaim.json);
 
     const invalidLoanDocsComplete = await request(server.baseUrl, "POST", `/tasks/${loanDocsId}/transition`, {
       user: users.creator,
@@ -782,7 +804,7 @@ const run = async () => {
     expectStatus(invalidLoanDocsComplete.status, 400, "loan docs cannot skip merge steps", invalidLoanDocsComplete.json);
 
     const mergeDone = await request(server.baseUrl, "POST", `/tasks/${loanDocsId}/transition`, {
-      user: users.creator,
+      user: users.otherOfficer,
       body: { status: "MERGE_DONE" }
     });
     expectStatus(mergeDone.status, 200, "loan docs merge_done", mergeDone.json);
@@ -794,7 +816,7 @@ const run = async () => {
     expectStatus(mergeApproved.status, 200, "loan docs merge_approved", mergeApproved.json);
 
     const loanDocsComplete = await request(server.baseUrl, "POST", `/tasks/${loanDocsId}/transition`, {
-      user: users.creator,
+      user: users.otherOfficer,
       body: { status: "COMPLETED" }
     });
     expectStatus(loanDocsComplete.status, 200, "loan docs completed", loanDocsComplete.json);
@@ -904,14 +926,25 @@ const run = async () => {
     assert.equal(assigned.json.task.assignee.id, users.fileChecker.id, "recipient becomes the assignee");
     pushPass("any authenticated user can hand off an OPEN task, which lands CLAIMED");
 
-    // Reassign in place: status untouched, and the audit trail names both ends.
-    const reassigned = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+    /* ADR-0003: the invariant is a property of the TASK, not the actor, so a
+       third party can't route the task back to its creator either. This used to
+       be the reassign step itself. */
+    const handBackToCreator = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
       user: users.admin,
       body: { assigneeUserId: users.creator.id }
     });
+    expectStatus(handBackToCreator.status, 400, "third-party handoff back to the creator", handBackToCreator.json);
+    assert.match(handBackToCreator.json.error ?? "", /second pair of hands/, "the refusal says which rule refused");
+    pushPass("a third party cannot hand a task back to its creator");
+
+    // Reassign in place: status untouched, and the audit trail names both ends.
+    const reassigned = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+      user: users.admin,
+      body: { assigneeUserId: users.otherOfficer.id }
+    });
     expectStatus(reassigned.status, 200, "reassign an in-flight task", reassigned.json);
     assert.equal(reassigned.json.task.status, "CLAIMED", "status is untouched by a reassignment");
-    assert.equal(reassigned.json.task.assignee.id, users.creator.id, "assignee swapped");
+    assert.equal(reassigned.json.task.assignee.id, users.otherOfficer.id, "assignee swapped");
 
     const handoffHistory = await request(server.baseUrl, "GET", `/tasks/${handoffId}/history`, {
       user: users.creator
@@ -925,7 +958,7 @@ const run = async () => {
     // Handing it to whoever already holds it is a no-op, not an error.
     const noop = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
       user: users.admin,
-      body: { assigneeUserId: users.creator.id }
+      body: { assigneeUserId: users.otherOfficer.id }
     });
     expectStatus(noop.status, 200, "handoff to the current assignee is a no-op", noop.json);
     assert.equal(noop.json.task.updatedAt, reassigned.json.task.updatedAt, "the task is returned unchanged");
@@ -946,6 +979,16 @@ const run = async () => {
     const stillOpen = await request(server.baseUrl, "GET", `/tasks/${fraudHandoffId}`, { user: users.creator });
     assert.equal(stillOpen.json.task.status, "OPEN", "the refused handoff changed nothing");
 
+    // A creator can't route around the claim rule by handing the task to
+    // themselves — the same door, differently shaped.
+    const selfHandoffByCreator = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
+      user: users.creator,
+      body: { assigneeUserId: users.creator.id }
+    });
+    expectStatus(selfHandoffByCreator.status, 400, "creator self-handoff", selfHandoffByCreator.json);
+    assert.match(selfHandoffByCreator.json.error ?? "", /second pair of hands/, "the refusal says which rule refused");
+    pushPass("a creator cannot hand their own task to themselves");
+
     const eligible = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
       user: users.creator,
       body: { assigneeUserId: users.fileChecker.id }
@@ -953,11 +996,23 @@ const run = async () => {
     expectStatus(eligible.status, 200, "fraud handoff to a file checker is allowed", eligible.json);
     pushPass("handoff eligibility is enforced on the recipient, not the actor");
 
-    // A closed task is out of play.
-    await request(server.baseUrl, "POST", `/tasks/${handoffId}/transition`, {
-      user: users.creator,
+    /* Self-handoff itself survives (ADR-0002) — it is only the creator who is
+       barred. This is the affordance that lets someone take work off a
+       colleague who is stuck or away, so it has to keep working. */
+    const selfHandoffByOther = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
+      user: users.admin,
+      body: { assigneeUserId: users.admin.id }
+    });
+    expectStatus(selfHandoffByOther.status, 200, "non-creator self-handoff still works", selfHandoffByOther.json);
+    assert.equal(selfHandoffByOther.json.task.assignee.id, users.admin.id, "they took it off the current assignee");
+    pushPass("a non-creator can still hand a task to themselves");
+
+    // A closed task is out of play. Completion belongs to the assignee.
+    const closeHandoffTask = await request(server.baseUrl, "POST", `/tasks/${handoffId}/transition`, {
+      user: users.otherOfficer,
       body: { status: "COMPLETED" }
     });
+    expectStatus(closeHandoffTask.status, 200, "assignee completes the handoff task", closeHandoffTask.json);
     const closedHandoff = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
       user: users.admin,
       body: { assigneeUserId: users.fileChecker.id }

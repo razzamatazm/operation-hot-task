@@ -1308,9 +1308,13 @@ const TaskCard = memo(({
      Everyone eligible to work this task except whoever already holds it
      (handing it to them is a no-op), INCLUDING yourself: self-handoff is just a
      claim, and it is sometimes the only way to take a task you can't otherwise
-     claim. The creator stays in the list too — they may well be the right
-     person. `canAssignTaskTo` is the same predicate the server enforces, so a
-     Fraud Check only ever offers file checkers. */
+     claim.
+
+     The creator is NOT in the list (ADR-0003). Not as a special case here — the
+     row carries no copy of the rule any more. `canAssignTaskTo` is the same
+     predicate the server enforces, so it drops the creator and non-checkers on
+     a Fraud Check alike, and the picker can't route around a door the server
+     would shut. */
   const assignCandidates = directory.filter(
     (p) => p.id !== task.assignee?.id && canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles })
   );
@@ -1424,7 +1428,7 @@ const TaskCard = memo(({
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
   let primaryAction: QuickAction | null = null;
   if (showActions) {
-    if ((task.status === "OPEN" || isReleasedForClaim) && !isCreator && canClaimTask(task, user)) {
+    if ((task.status === "OPEN" || isReleasedForClaim) && canClaimTask(task, user)) {
       primaryAction = { label: ACTION_LABELS.CLAIM, kind: "good", run: () => { void onClaim(task.id); } };
     } else if (fraudQuick && fraudQuick.targetStatus) {
       const target = fraudQuick.targetStatus;
@@ -2800,14 +2804,16 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     showToast("Linked to an existing loan", { variant: "success" });
   };
 
-  /* Who the one at-creation picker offers, per mode. Share excludes the creator
-     (they already know about their own task); Assign includes them, because
-     assigning a task to yourself at creation is just claiming it up front, and
-     narrows to people who can actually work this task type. */
+  /* Who the one at-creation picker offers, per mode. Share excludes you (you
+     already know about your own task) and so, now, does Assign: a task born
+     assigned to its own creator is the fourth door ADR-0003 shuts, and
+     "assigning it to yourself is just claiming it up front" was the reasoning
+     that kept the door open. It narrows to people who can actually work this
+     task type on top. */
   const recipientCandidates = useMemo(
     () =>
       form.pickerMode === "assign"
-        ? directory.filter((u) => canWorkTaskType(form.taskType, u))
+        ? directory.filter((u) => u.id !== user.id && canWorkTaskType(form.taskType, u))
         : directory.filter((u) => u.id !== user.id),
     [directory, form.pickerMode, form.taskType, user.id]
   );

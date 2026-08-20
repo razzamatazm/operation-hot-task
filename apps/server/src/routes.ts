@@ -1,5 +1,5 @@
 import { Request, Response, Router } from "express";
-import { UserIdentity, UserRole, assignRefusalMessage, canWorkTaskType, nextFlowStatuses } from "@loan-tasks/shared";
+import { UserIdentity, UserRole, nextFlowStatuses } from "@loan-tasks/shared";
 import { AuthError, authenticate } from "./auth.js";
 import { resolveUserByEmail } from "./graph-users.js";
 import { config } from "./config.js";
@@ -369,20 +369,18 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     try {
       const input = toCreateInput(req.body);
       const user = await getActor(req);
-      // Handoff at creation (ADR-0002): resolve the recipient and check they can
-      // work this task type before anything is written, so the task is born
-      // assigned in one operation rather than created-then-assigned.
+      // Handoff at creation (ADR-0002): resolve the recipient so the task is
+      // born assigned in one operation rather than created-then-assigned.
+      // Eligibility is NOT checked here — ADR-0003 moved it into
+      // `createTask` so one seam covers all four doors an assignee comes
+      // through. The route only turns an id into an identity.
       if (input.assigneeUserId) {
         const target = await userStore.get(input.assigneeUserId);
         if (!target || target.active === false) {
           res.status(404).json({ error: "User not found" });
           return;
         }
-        if (!canWorkTaskType(input.taskType, target)) {
-          res.status(400).json({ error: assignRefusalMessage(input.taskType, target.displayName) });
-          return;
-        }
-        const task = await service.createTask(input, user, { id: target.id, displayName: target.displayName });
+        const task = await service.createTask(input, user, target);
         res.status(201).json({ task });
         return;
       }
