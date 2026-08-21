@@ -749,12 +749,11 @@ button.btn-good:hover {
   padding: 3px 8px;
   min-height: 22px;
 }
-.task-card-collapsed-mini .task-card-collapsed-type {
-  font-size: 0.78rem;
-  font-weight: 600;
+.task-card-collapsed-mini .task-card-collapsed-title {
+  --collapsed-title-size: 0.78rem;
 }
-.task-card-collapsed-mini .task-card-collapsed-folder {
-  font-size: 0.7rem;
+.task-card-collapsed-mini .task-card-collapsed-type {
+  font-weight: 600;
 }
 .task-card-collapsed-mini .status-banner-label,
 .task-card-collapsed-mini .task-card-people-value {
@@ -808,13 +807,21 @@ button.btn-good:hover {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  /* One size for both lines of the title block. The file name reads at the
+     same size and weight as the stage suffix beside it ("Fraud Check -
+     Outstanding Items") — the file is what people scan for, so it stops
+     rendering as smaller metadata under the type. Weight already agreed:
+     .task-card-collapsed-stage and .task-card-collapsed-folder are both 500.
+     It's a variable rather than a repeated literal so the mini variants keep
+     scaling the two lines together instead of drifting apart. */
+  --collapsed-title-size: 0.95rem;
 }
 
 .task-card-collapsed-type {
   display: block;
   font-family: "DM Sans", sans-serif;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: var(--collapsed-title-size);
   color: var(--ink);
   letter-spacing: -0.005em;
   white-space: nowrap;
@@ -831,7 +838,7 @@ button.btn-good:hover {
 .task-card-collapsed-folder {
   font-family: "DM Sans", sans-serif;
   font-weight: 500;
-  font-size: 0.78rem;
+  font-size: var(--collapsed-title-size);
   color: var(--ink-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -3025,7 +3032,8 @@ button.btn-good:hover {
   grid-template-columns: 32px;
   justify-self: end;
 }
-.task-card-grouped-mini .task-card-collapsed-type { font-size: 0.82rem; font-weight: 600; }
+.task-card-grouped-mini .task-card-collapsed-title { --collapsed-title-size: 0.82rem; }
+.task-card-grouped-mini .task-card-collapsed-type { font-weight: 600; }
 .task-card-grouped-mini .task-card-pair-name { font-size: 0.74rem; }
 
 /* The two-line arrangement this breakpoint used to introduce is now the base
