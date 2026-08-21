@@ -73,12 +73,14 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     - `DELETE /api/tasks/:taskId/checklist/items/:itemId` (delete your own fresh,
       not-yet-handed-off item — gated by `canDeleteChecklistItem`)
     - `POST /api/tasks/:taskId/checklist/items/:itemId/text` (edit text →
-      uncheck + stale)
+      uncheck + stale; gated by `canEditChecklistItemText`)
     - `POST /api/tasks/:taskId/checklist/items/:itemId/checked` (toggle resolved,
-      optional per-item creator note)
-    - `POST /api/tasks/:taskId/checklist/items/:itemId/note` (creator note)
-    - `POST /api/tasks/:taskId/checklist/items/:itemId/checker-note` (checker
-      note)
+      optional per-item note in the actor's own field)
+    - `POST /api/tasks/:taskId/checklist/items/:itemId/note` — the ONE note
+      endpoint (#144). The field it writes (`note` / `checkerNote`) is derived
+      from the actor's seat, never named in the payload; the separate
+      `/checker-note` endpoint is gone, because letting the client pick the URL
+      let it pick whose name the note carried.
     Creator-seeded items ride the create payload (`POST /api/tasks`
     `initialItems`, #69); submit / approve / bounce-back ride the existing
     `/transition` endpoint (the pass counter bumps there).

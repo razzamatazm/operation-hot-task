@@ -113,6 +113,7 @@ await check("the requester records reality during the checker's CLAIMED pass", a
 
   const noted = await service.setChecklistItemNote(id, itemId, "already in the file", CREATOR);
   assert.equal(noted.checklist[0].note, "already in the file");
+  assert.equal(noted.checklist[0].checkerNote, undefined, "written as theirs, whatever surface it came from");
 });
 
 await check("the checker ticks during their own initial pass too", async () => {
@@ -124,13 +125,35 @@ await check("the checker ticks during their own initial pass too", async () => {
   assert.equal(ticked.checklist[0].checked, true, "recording what's already in hand while building the list");
 });
 
-await check("neither seat can write in the other's name", async () => {
+/* #144: there is ONE note call now, and it cannot be aimed. Both seats reach
+   the same method; the field each lands in comes from their seat. Before this,
+   two methods behind two endpoints let the caller pick the field by picking the
+   URL — so a note could be filed under the other person's name. */
+await check("one note call, and the seat — not the caller — picks the field", async () => {
   const { service } = await setup();
   const id = await claimedFraud(service);
   const withItem = await service.addChecklistItem(id, "Bank statement", CHECKER);
   const itemId = withItem.checklist[0].id;
-  await assert.rejects(() => service.setChecklistItemNote(id, itemId, "not mine to write", CHECKER), /can't change the checklist/i);
-  await assert.rejects(() => service.setChecklistItemCheckerNote(id, itemId, "nor mine", CREATOR), /can't change the checklist/i);
+
+  const byRequester = await service.setChecklistItemNote(id, itemId, "sending it today", CREATOR);
+  assert.equal(byRequester.checklist[0].note, "sending it today", "the requester's exception note");
+  assert.equal(byRequester.checklist[0].checkerNote, undefined, "and nothing under the checker's name");
+
+  const byChecker = await service.setChecklistItemNote(id, itemId, "wrong month — need June", CHECKER);
+  assert.equal(byChecker.checklist[0].checkerNote, "wrong month — need June", "the checker's rework note");
+  assert.equal(byChecker.checklist[0].note, "sending it today", "the requester's note is untouched");
+
+  assert.equal(service.setChecklistItemCheckerNote, undefined, "the second note method is gone, not just unused");
+});
+
+await check("a seatless viewer has no note affordance at all", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "Bank statement", CHECKER);
+  const itemId = withItem.checklist[0].id;
+  await assert.rejects(() => service.setChecklistItemNote(id, itemId, "let me in", OUTSIDER), /can't change the checklist/i);
+  const admin = { id: "admin-1", displayName: "Alex Admin", roles: ["FILE_CHECKER", "ADMIN"] };
+  await assert.rejects(() => service.setChecklistItemNote(id, itemId, "nor me", admin), /can't change the checklist/i);
 });
 
 await check("retexting reaches your own uncommitted item and, for the checker, a committed one", async () => {
@@ -290,6 +313,7 @@ await check("closed means frozen: every checklist op is refused", async () => {
     await assert.rejects(() => service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR), /can't change the checklist/i, `${closer}: no ticking`);
     await assert.rejects(() => service.addChecklistItem(id, "one more", CHECKER), /can't change the checklist/i, `${closer}: no adding`);
     await assert.rejects(() => service.setChecklistItemNote(id, itemId, "after the fact", CREATOR), /can't change the checklist/i, `${closer}: no notes`);
+    await assert.rejects(() => service.setChecklistItemNote(id, itemId, "nor mine", CHECKER), /can't change the checklist/i, `${closer}: not the checker's either`);
     await assert.rejects(() => service.editChecklistItemText(id, itemId, "reworded", CHECKER), /can't change this item's text/i, `${closer}: no retexting`);
     await assert.rejects(() => service.removeChecklistItem(id, itemId, CHECKER), /can't delete this checklist item/i, `${closer}: no deleting`);
   }
@@ -353,7 +377,7 @@ await check("checker can set a per-item checker note on bounce-back review", asy
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
   await service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
-  const noted = await service.setChecklistItemCheckerNote(id, itemId, "wrong month — need June", CHECKER);
+  const noted = await service.setChecklistItemNote(id, itemId, "wrong month — need June", CHECKER);
   assert.equal(noted.checklist[0].checkerNote, "wrong month — need June");
 });
 

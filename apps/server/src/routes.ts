@@ -13,7 +13,6 @@ import { LoanService } from "./loan-service.js";
 import {
   assignSchema,
   checklistItemCheckedSchema,
-  checklistItemCheckerNoteSchema,
   checklistItemNoteSchema,
   checklistItemTextSchema,
   createLoanSchema,
@@ -569,6 +568,11 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* ONE note endpoint (#144). There were two — `/note` and `/checker-note` —
+     which meant the client chose which field it wrote by choosing the URL, and
+     nothing on the server checked that the choice matched the caller's seat.
+     The service derives the field from the seat now, exactly as it already did
+     for `addedBy`, so a note always carries the name of whoever wrote it. */
   router.post("/tasks/:taskId/checklist/items/:itemId/note", async (req, res) => {
     try {
       const { note } = checklistItemNoteSchema.parse(req.body);
@@ -577,17 +581,6 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to set checklist item note");
-    }
-  });
-
-  router.post("/tasks/:taskId/checklist/items/:itemId/checker-note", async (req, res) => {
-    try {
-      const { checkerNote } = checklistItemCheckerNoteSchema.parse(req.body);
-      const user = await getActor(req);
-      const task = await service.setChecklistItemCheckerNote(req.params.taskId, req.params.itemId, checkerNote, user);
-      res.json({ task });
-    } catch (error) {
-      sendError(res, error, "Failed to set checker note");
     }
   });
 
