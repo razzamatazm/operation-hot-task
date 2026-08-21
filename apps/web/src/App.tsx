@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -889,8 +889,9 @@ export interface ChecklistApi {
   editText: (taskId: string, itemId: string, text: string) => Promise<void>;
   deleteItem: (taskId: string, itemId: string) => Promise<void>;
   toggle: (taskId: string, itemId: string, checked: boolean, note?: string) => Promise<void>;
+  /* One call, one endpoint. The server decides which field it writes from the
+     caller's seat, so there is nothing here to pick. */
   setNote: (taskId: string, itemId: string, note: string) => Promise<void>;
-  setCheckerNote: (taskId: string, itemId: string, checkerNote: string) => Promise<void>;
 }
 
 const CheckIcon = () => (
@@ -939,20 +940,23 @@ const ChecklistAdderChip = ({ task, addedBy }: { task: LoanTask; addedBy: Checkl
 
 const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentity; api: ChecklistApi }) => {
   const [newItem, setNewItem] = useState("");
-  /* One inline editor open at a time: which item + which field. */
-  const [active, setActive] = useState<{ id: string; kind: "text" | "note" | "checkerNote" } | null>(null);
+  /* One inline editor open at a time: which item, and text or note. There is no
+     "whose note" here — a viewer holds one seat or none, and writes that one. */
+  const [active, setActive] = useState<{ id: string; kind: "text" | "note" } | null>(null);
   const [draft, setDraft] = useState("");
 
   const items = task.checklist ?? [];
   const sorted = sortChecklist(items);
   const open = unresolvedCount(items);
 
-  const canAdd = canEditChecklist(task, user, "add");
-  const canToggle = canEditChecklist(task, user, "toggle");
-  const canCreatorNote = canEditChecklist(task, user, "creatorNote");
-  const canCheckerNote = canEditChecklist(task, user, "checkerNote");
+  /* Recording reality — tick, add, write your own note — is one grant, held by
+     both seats at any live status. */
+  const canRecord = canEditChecklist(task, user);
+  /* Which seat the viewer holds decides which note field the row offers, and
+     therefore how many "+ note" buttons it can show: exactly one, or none. */
+  const seat = checklistSeat(task, user);
 
-  const openEditor = (id: string, kind: "text" | "note" | "checkerNote", seed: string) => {
+  const openEditor = (id: string, kind: "text" | "note", seed: string) => {
     setActive({ id, kind });
     setDraft(seed);
   };
@@ -962,10 +966,8 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     const value = draft.trim();
     if (active.kind === "text") {
       if (value && value !== item.text) await api.editText(task.id, item.id, value);
-    } else if (active.kind === "note") {
-      await api.setNote(task.id, item.id, value);
     } else {
-      await api.setCheckerNote(task.id, item.id, value);
+      await api.setNote(task.id, item.id, value);
     }
     closeEditor();
   };
@@ -992,8 +994,11 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                yours to retype, and the checker may re-ask a committed one
                (which uncheck+stales it). */
             const canEditText = canEditChecklistItemText(task, user, item);
+            /* The viewer's own note on this item, whichever field that is —
+               what the single "+ note" button offers when it's missing. Which
+               field belongs to which seat is shared's to know, not the view's. */
+            const ownNote = ownChecklistNote(item, seat);
             const editingNote = active?.id === item.id && active.kind === "note";
-            const editingCheckerNote = active?.id === item.id && active.kind === "checkerNote";
             return (
               <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}`}>
                 <div className="checklist-item-main">
@@ -1003,8 +1008,8 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                     role="checkbox"
                     aria-checked={item.checked}
                     aria-label={item.checked ? `Mark "${item.text}" unresolved` : `Mark "${item.text}" resolved`}
-                    disabled={!canToggle}
-                    onClick={() => { if (canToggle) void api.toggle(task.id, item.id, !item.checked); }}
+                    disabled={!canRecord}
+                    onClick={() => { if (canRecord) void api.toggle(task.id, item.id, !item.checked); }}
                   >
                     {item.checked && <CheckIcon />}
                   </button>
@@ -1054,31 +1059,35 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                     </button>
                   )}
 
-                  {/* "+ note" rides inline at the end of the item's own row
-                      (not a separate line below) — saves a line per item
-                      that doesn't have one yet. Once a note exists (or is
-                      being edited), it moves to its full row below instead —
-                      a real note needs the room. Same "+ note" label for
-                      both the requester's and checker's note — the distinct
-                      "checker note" wording wasn't worth differentiating. */}
-                  {!editingNote && !item.note && canCreatorNote && (
+                  {/* Exactly ONE "+ note" per row: the viewer's own seat's
+                      field, and none at all for a viewer holding no seat. There
+                      were two identical buttons here, one per field, and a
+                      viewer who satisfied both seat predicates saw both — which
+                      is how someone could write a note in the other person's
+                      name. The label stays "+ note" either way; "checker note"
+                      wasn't worth differentiating when you only ever have one.
+
+                      It rides inline at the end of the item's own row (not a
+                      separate line below), saving a line per item that has no
+                      note yet. Once the note exists it moves to its full row
+                      below — a real note needs the room. */}
+                  {canRecord && !editingNote && !ownNote && (
                     <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
-                  )}
-                  {!editingCheckerNote && !item.checkerNote && canCheckerNote && (
-                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "checkerNote", "")}>+ note</button>
                   )}
                 </div>
 
-                {/* Per-item notes: the requester's exception note and the
-                    checker's rework note, each shown when present and editable
-                    by the owning role on their turn. */}
-                {(editingNote || item.note || editingCheckerNote || item.checkerNote) && (
+                {/* Both seats' notes are shown when present — a fraud record you
+                    can only half-read is no record — but only your own is
+                    clickable, and the editor writes only your own field. Each
+                    keeps the author's full name rather than a chip: a sentence
+                    stays attributed to a person. */}
+                {(editingNote || item.note || item.checkerNote) && (
                   <div className="checklist-item-notes">
                     {editingNote ? (
                       <div className="checklist-note-edit">
                         <input
                           className="checklist-item-input"
-                          placeholder="Why it's not needed / how it was handled…"
+                          placeholder={seat === "checker" ? "Why this isn't sufficient / needs rework…" : "Why it's not needed / how it was handled…"}
                           value={draft}
                           autoFocus
                           onChange={(e) => setDraft(e.target.value)}
@@ -1086,26 +1095,26 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
                           onBlur={() => void saveEditor(item)}
                         />
                       </div>
-                    ) : item.note ? (
-                      <button type="button" className="checklist-note checklist-note-creator" disabled={!canCreatorNote} onClick={() => { if (canCreatorNote) openEditor(item.id, "note", item.note ?? ""); }}>
+                    ) : null}
+
+                    {!(editingNote && seat === "creator") && item.note ? (
+                      <button
+                        type="button"
+                        className="checklist-note checklist-note-creator"
+                        disabled={!(canRecord && seat === "creator")}
+                        onClick={() => { if (canRecord && seat === "creator") openEditor(item.id, "note", item.note ?? ""); }}
+                      >
                         <b>{task.createdBy.displayName}:</b> {item.note}
                       </button>
                     ) : null}
 
-                    {editingCheckerNote ? (
-                      <div className="checklist-note-edit">
-                        <input
-                          className="checklist-item-input"
-                          placeholder="Why this isn't sufficient / needs rework…"
-                          value={draft}
-                          autoFocus
-                          onChange={(e) => setDraft(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
-                          onBlur={() => void saveEditor(item)}
-                        />
-                      </div>
-                    ) : item.checkerNote ? (
-                      <button type="button" className="checklist-note checklist-note-checker" disabled={!canCheckerNote} onClick={() => { if (canCheckerNote) openEditor(item.id, "checkerNote", item.checkerNote ?? ""); }}>
+                    {!(editingNote && seat === "checker") && item.checkerNote ? (
+                      <button
+                        type="button"
+                        className="checklist-note checklist-note-checker"
+                        disabled={!(canRecord && seat === "checker")}
+                        onClick={() => { if (canRecord && seat === "checker") openEditor(item.id, "note", item.checkerNote ?? ""); }}
+                      >
                         <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
                       </button>
                     ) : null}
@@ -1117,7 +1126,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
         </ul>
       )}
 
-      {canAdd && (
+      {canRecord && (
         <div className="checklist-add">
           <input
             className="checklist-item-input"
@@ -3718,8 +3727,7 @@ export const App = () => {
     deleteItem: (taskId, itemId) => deleteChecklist(`/tasks/${taskId}/checklist/items/${itemId}`, "Failed to delete item"),
     toggle: (taskId, itemId, checked, note) =>
       runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checked`, { checked, ...(note !== undefined ? { note } : {}) }, "Failed to update item"),
-    setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note"),
-    setCheckerNote: (taskId, itemId, checkerNote) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/checker-note`, { checkerNote }, "Failed to save note")
+    setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note")
   }), [runChecklist, deleteChecklist]);
 
   /* Edit a Loan's name/link (the app's first post-creation edit surface).

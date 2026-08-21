@@ -32,7 +32,7 @@ export interface ChecklistItem {
   note?: string;
   /* Checker's per-item "why this isn't sufficient / needs rework." */
   checkerNote?: string;
-  addedBy: "checker" | "creator";
+  addedBy: ChecklistSeat;
   /* The pass counter value when the item was added (>= 1). */
   addedOnPass: number;
   /* Set when the text was edited after the item was checked — the check was
@@ -58,7 +58,7 @@ export const sortChecklist = (items: ChecklistItem[]): ChecklistItem[] => [...it
    array. */
 export const addChecklistItem = (
   items: ChecklistItem[],
-  item: { id: string; text: string; addedBy: "checker" | "creator"; addedOnPass: number }
+  item: { id: string; text: string; addedBy: ChecklistSeat; addedOnPass: number }
 ): ChecklistItem[] => [
   ...items,
   { id: item.id, text: item.text, checked: false, addedBy: item.addedBy, addedOnPass: item.addedOnPass, draft: true }
@@ -118,8 +118,8 @@ export const setChecklistItemChecked = (
   items: ChecklistItem[],
   id: string,
   checked: boolean,
-  note?: string,
-  seat: "checker" | "creator" = "creator"
+  note: string | undefined,
+  seat: ChecklistSeat
 ): ChecklistItem[] =>
   items.map((item) => {
     if (item.id !== id) {
@@ -127,11 +127,7 @@ export const setChecklistItemChecked = (
     }
     const next: ChecklistItem = { ...item, checked };
     if (note !== undefined) {
-      if (seat === "checker") {
-        next.checkerNote = note;
-      } else {
-        next.note = note;
-      }
+      next[noteFieldFor(seat)] = note;
     }
     if (checked) {
       // Re-verified — the check is fresh again.
@@ -140,14 +136,27 @@ export const setChecklistItemChecked = (
     return next;
   });
 
-/* Set the creator's per-item exception note. Pure: returns a new array. */
-export const setChecklistItemNote = (items: ChecklistItem[], id: string, note: string): ChecklistItem[] =>
-  items.map((item) => (item.id === id ? { ...item, note } : item));
+/* Set a per-item note in the acting seat's OWN field: `note` is the
+   requester's exception, `checkerNote` the checker's rework note.
 
-/* Set the checker's per-item rework note (bounce-back context). Pure: returns a
-   new array. */
-export const setChecklistItemCheckerNote = (items: ChecklistItem[], id: string, checkerNote: string): ChecklistItem[] =>
-  items.map((item) => (item.id === id ? { ...item, checkerNote } : item));
+   One function, because there is one gesture. There used to be two — and two
+   endpoints in front of them — which let the caller pick the field by picking
+   the URL, so a viewer who satisfied both seat predicates could write a note in
+   the other person's name. The seat decides now, and the seat comes from
+   identity. Pure: returns a new array. */
+export const setChecklistItemNote = (
+  items: ChecklistItem[],
+  id: string,
+  note: string,
+  seat: ChecklistSeat
+): ChecklistItem[] =>
+  items.map((item) => (item.id === id ? { ...item, [noteFieldFor(seat)]: note } : item));
+
+/* The note a given seat has already written on an item, if any — the read half
+   of `noteFieldFor`, so a view asking "do I have a note here yet?" doesn't
+   restate the mapping. */
+export const ownChecklistNote = (item: ChecklistItem, seat: ChecklistSeat | null): string | undefined =>
+  seat ? item[noteFieldFor(seat)] : undefined;
 
 /* True when every item is checked (resolved). An empty checklist counts as
    fully resolved. Drives the "N items still open" cue, not a hard gate — the
@@ -157,12 +166,20 @@ export const allChecklistResolved = (items: ChecklistItem[]): boolean => items.e
 /* Count of unresolved (unchecked) items. */
 export const unresolvedCount = (items: ChecklistItem[]): number => items.filter((item) => !item.checked).length;
 
+/* Which of the two note fields belongs to a seat. The single place that
+   mapping lives: `note` is the requester's exception, `checkerNote` the
+   checker's rework note, and every writer and reader goes through here rather
+   than restating it. */
+const noteFieldFor = (seat: ChecklistSeat): "note" | "checkerNote" => (seat === "checker" ? "checkerNote" : "note");
+
 /* The seat vocabulary stored on an item. `fraudSeat` calls the non-checker
    seat the *requester* — the clearer name, since the seat is about which side
    of the exchange you're on — but `addedBy` has said "creator" since #44 and
    there is live fraud-check data using it, so the boundary translates rather
    than migrating. */
-export const checklistSeat = (task: LoanTask, user: UserIdentity): "checker" | "creator" | null => {
+export type ChecklistSeat = "checker" | "creator";
+
+export const checklistSeat = (task: LoanTask, user: UserIdentity): ChecklistSeat | null => {
   const seat = fraudSeat(task, user);
   if (seat === "checker") {
     return "checker";
@@ -170,62 +187,47 @@ export const checklistSeat = (task: LoanTask, user: UserIdentity): "checker" | "
   return seat === "requester" ? "creator" : null;
 };
 
-/* The checklist operations that are open to a whole seat rather than scoped to
-   one item. Text-editing and deletion are missing on purpose — both depend on
-   WHICH item, so they have their own item-aware predicates below. */
-export type ChecklistOp =
-  | "add"
-  | "toggle"
-  | "creatorNote"
-  | "checkerNote";
+/* Rule one of two: recording reality is always open — tick an item, add one,
+   write your own note.
 
-/* Rule one of two: recording reality is always open.
-
-   At any LIVE status, both seats may toggle any item, add an item, and write
-   their OWN note field. A tick means "collected or not needed" — a fact about
-   the world, true the moment it happens, so holding it until the ball comes
-   back just loses information. It never passes the ball, and it fires no
-   notification.
+   At any LIVE status, both seats may do all three. A tick means "collected or
+   not needed" — a fact about the world, true the moment it happens, so holding
+   it until the ball comes back just loses information. It never passes the
+   ball, and it fires no notification.
 
    This replaces a per-status table that assumed nothing is collected during the
    checker's initial pass, so in `Claimed` NOBODY could tick — not even the
    checker. A requester who received a document while the check sat there had
    nowhere to record it.
 
-   The only asymmetry left is whose note is whose: `note` belongs to the
-   requester and `checkerNote` to the checker, and neither seat writes the
-   other's. At `Open` there is no checker seat at all (nobody is assigned), so
-   the requester acts alone — that falls out of `checklistSeat` rather than
-   being a status rule.
+   Which of the three you're doing no longer changes the answer, so this asks
+   only whether you may record at all — which makes it exactly
+   `checklistSeat(...) !== null` on a live fraud check, and callers may rely on
+   that: if this says yes, the viewer holds a seat — the one asymmetry left, whose note is
+   whose, is settled by the seat itself rather than by permission
+   (`setChecklistItemNote` writes the acting seat's field, and there is no way
+   to ask for the other's). At `Open` there is no checker seat at all (nobody is
+   assigned), so the requester acts alone — that falls out of `checklistSeat`
+   rather than being a status rule.
 
    Closed statuses (Completed / Cancelled / Archived) freeze the list entirely:
    an approve-with-exceptions leaves its unresolved items unresolved forever,
    which is the accurate record of what was true at approval. */
-export const canEditChecklist = (task: LoanTask, user: UserIdentity, op: ChecklistOp): boolean => {
+export const canEditChecklist = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.taskType !== "FRAUD") {
     return false;
   }
   if (CLOSED_STATUSES.includes(task.status)) {
     return false;
   }
-  const seat = checklistSeat(task, user);
-  if (!seat) {
-    return false;
-  }
-  if (op === "creatorNote") {
-    return seat === "creator";
-  }
-  if (op === "checkerNote") {
-    return seat === "checker";
-  }
-  return true;
+  return checklistSeat(task, user) !== null;
 };
 
 /* Is this item still the acting seat's to clean up — did they add it, and has
    it not been handed over since? The shared half of rule two, used by both
    deletion and text-editing below. Says nothing about status; each caller
    applies the closed-means-frozen rule itself, where it is visible. */
-const isOwnUncommittedItem = (seat: "checker" | "creator", item: ChecklistItem): boolean =>
+const isOwnUncommittedItem = (seat: ChecklistSeat, item: ChecklistItem): boolean =>
   Boolean(item.draft) && item.addedBy === seat;
 
 /* Rule two of two: changing what's being asked stays owned.

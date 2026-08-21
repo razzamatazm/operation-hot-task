@@ -1,7 +1,7 @@
 import {
   AppConfig,
   ChecklistItem,
-  ChecklistOp,
+  ChecklistSeat,
   CreateTaskInput,
   LoanTask,
   NotificationEvent,
@@ -26,7 +26,6 @@ import {
   editChecklistItemText,
   removeChecklistItem,
   setChecklistItemChecked,
-  setChecklistItemCheckerNote,
   setChecklistItemNote,
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
@@ -811,16 +810,12 @@ export class TaskService {
      pass. */
   async addChecklistItem(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    this.assertChecklistOp(task, user, "add");
+    this.assertCanRecord(task, user);
     const trimmed = text.trim();
     if (!trimmed) {
       throw new Error("A checklist item needs some text");
     }
-    const addedBy = checklistSeat(task, user);
-    if (!addedBy) {
-      // Unreachable: assertChecklistOp above refuses anyone holding no seat.
-      throw new Error("Only the fraud checker or the requester can add an outstanding item");
-    }
+    const addedBy = this.requireSeat(task, user);
     const addedOnPass = task.checklistPass && task.checklistPass > 0 ? task.checklistPass : 1;
     const next = addChecklistItem(task.checklist ?? [], { id: uuid(), text: trimmed, addedBy, addedOnPass });
     return this.persistChecklist(task, next, user, `Added checklist item: ${trimmed}`);
@@ -886,42 +881,48 @@ export class TaskService {
     user: UserIdentity
   ): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    this.assertChecklistOp(task, user, "toggle");
+    this.assertCanRecord(task, user);
     this.requireItem(task, itemId);
-    // Non-null: assertChecklistOp has already refused anyone holding no seat.
-    const seat = checklistSeat(task, user) ?? "creator";
+    const seat = this.requireSeat(task, user);
     const next = setChecklistItemChecked(task.checklist ?? [], itemId, checked, note?.trim(), seat);
     return this.persistChecklist(task, next, user, checked ? "Resolved checklist item" : "Reopened checklist item");
   }
 
-  /* Set the creator's per-item exception note. */
+  /* Set a per-item note. WHICH field it lands in — the requester's `note` or
+     the checker's `checkerNote` — is derived here from the actor's seat, the
+     same way `addedBy` already was. There used to be two methods behind two
+     endpoints, so the client chose the field by choosing the URL and could file
+     a note under the other seat's name. */
   async setChecklistItemNote(taskId: string, itemId: string, note: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    this.assertChecklistOp(task, user, "creatorNote");
+    this.assertCanRecord(task, user);
     this.requireItem(task, itemId);
-    const next = setChecklistItemNote(task.checklist ?? [], itemId, note.trim());
-    return this.persistChecklist(task, next, user, "Set checklist item note");
+    const seat = this.requireSeat(task, user);
+    const next = setChecklistItemNote(task.checklist ?? [], itemId, note.trim(), seat);
+    return this.persistChecklist(task, next, user, seat === "checker" ? "Set checklist item checker note" : "Set checklist item note");
   }
 
-  /* Set the checker's per-item rework note. */
-  async setChecklistItemCheckerNote(taskId: string, itemId: string, checkerNote: string, user: UserIdentity): Promise<LoanTask> {
-    const task = await this.requireTask(taskId);
-    this.assertChecklistOp(task, user, "checkerNote");
-    this.requireItem(task, itemId);
-    const next = setChecklistItemCheckerNote(task.checklist ?? [], itemId, checkerNote.trim());
-    return this.persistChecklist(task, next, user, "Set checklist item checker note");
+  /* Enforce the seat-wide permission gate — recording reality (tick, add, your
+     own note) is open to both seats at any live status. Throws when the actor
+     may not act. Server-authoritative; the client's affordance gating is only a
+     hint. Text-editing and deletion are item-scoped and gate themselves. */
+  /* The actor's seat, or a refusal. Unreachable after assertCanRecord, which
+     turns "holds no seat" away first — but a default here would file somebody's
+     note or item under the requester's name, which is the bug this whole seam
+     exists to prevent, so it throws rather than guessing. */
+  private requireSeat(task: LoanTask, user: UserIdentity): ChecklistSeat {
+    const seat = checklistSeat(task, user);
+    if (!seat) {
+      throw new Error("Only the fraud checker or the requester can change the checklist");
+    }
+    return seat;
   }
 
-  /* Enforce the seat-wide permission gate for a checklist op — recording
-     reality is open to both seats at any live status, and each seat writes only
-     its own note field. Throws when the actor may not act. Server-
-     authoritative; the client's affordance gating is only a hint. Text-editing
-     and deletion are item-scoped and gate themselves. */
-  private assertChecklistOp(task: LoanTask, user: UserIdentity, op: ChecklistOp): void {
+  private assertCanRecord(task: LoanTask, user: UserIdentity): void {
     if (task.taskType !== "FRAUD") {
       throw new Error("Checklists are only on fraud checks");
     }
-    if (!canEditChecklist(task, user, op)) {
+    if (!canEditChecklist(task, user)) {
       throw new Error("You can't change the checklist right now");
     }
   }

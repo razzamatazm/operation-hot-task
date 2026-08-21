@@ -33,7 +33,6 @@ import {
   editChecklistItemText,
   removeChecklistItem,
   setChecklistItemChecked,
-  setChecklistItemCheckerNote,
   setChecklistItemNote,
   sortChecklist,
   unresolvedCount
@@ -207,10 +206,18 @@ check("toggle can record the creator note in one gesture", () => {
   assert.equal(after[0].note, "not needed — cash buyer");
 });
 
+check("one setter, two fields: the acting seat picks which, and the client can't", () => {
+  let items = [item({ id: "a" })];
+  items = setChecklistItemNote(items, "a", "requester says X", "creator");
+  items = setChecklistItemNote(items, "a", "checker says Y", "checker");
+  assert.equal(items[0].note, "requester says X", "the requester's exception note");
+  assert.equal(items[0].checkerNote, "checker says Y", "the checker's rework note, from the same function");
+});
+
 check("per-item creator and checker notes are independent", () => {
   let items = [item({ id: "a" })];
   items = setChecklistItemNote(items, "a", "creator says X");
-  items = setChecklistItemCheckerNote(items, "a", "checker says Y");
+  items = setChecklistItemNote(items, "a", "checker says Y", "checker");
   assert.equal(items[0].note, "creator says X");
   assert.equal(items[0].checkerNote, "checker says Y");
 });
@@ -239,44 +246,40 @@ check("unresolvedCount / allChecklistResolved reflect the checked states", () =>
 // --- rule one: recording reality is always open ----------------------------
 const LIVE_STATUSES = ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"];
 
-check("both seats can tick and add at EVERY live status", () => {
+check("both seats can record at EVERY live status", () => {
   // The case that broke the old per-status table: in CLAIMED nobody could tick,
   // so a requester who collected a document during the checker's initial pass
-  // had nowhere to record it.
+  // had nowhere to record it. Tick, add and your own note are one grant (#144),
+  // so this is the whole of rule one.
   for (const status of LIVE_STATUSES) {
     const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
-    assert.ok(canEditChecklist(t, CREATOR, "toggle"), `requester ticks in ${status}`);
-    assert.ok(canEditChecklist(t, CREATOR, "add"), `requester adds in ${status}`);
+    assert.ok(canEditChecklist(t, CREATOR), `requester records in ${status}`);
     if (status === "OPEN") {
       // No assignee yet, so there is no checker seat to hold — that falls out
       // of the seat function, not a status rule.
-      assert.ok(!canEditChecklist(t, CHECKER, "toggle"), "no checker seat exists pre-claim");
+      assert.ok(!canEditChecklist(t, CHECKER), "no checker seat exists pre-claim");
     } else {
-      assert.ok(canEditChecklist(t, CHECKER, "toggle"), `checker ticks in ${status}`);
-      assert.ok(canEditChecklist(t, CHECKER, "add"), `checker adds in ${status}`);
+      assert.ok(canEditChecklist(t, CHECKER), `checker records in ${status}`);
     }
   }
 });
 
-check("each seat writes its OWN note field and never the other's", () => {
+check("which note field a seat writes is the seat's, not a permission", () => {
+  // Since #144 there is one note op and one endpoint. Nobody is refused "the
+  // other seat's note" — there is no way to ask for it: the seat picks the
+  // field (see setChecklistItemNote), so the two can't be confused.
   for (const status of LIVE_STATUSES) {
     const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
-    assert.ok(canEditChecklist(t, CREATOR, "creatorNote"), `requester's exception note in ${status}`);
-    assert.ok(!canEditChecklist(t, CREATOR, "checkerNote"), `requester can't write in the checker's name in ${status}`);
-    if (status !== "OPEN") {
-      assert.ok(canEditChecklist(t, CHECKER, "checkerNote"), `checker's rework note in ${status}`);
-      assert.ok(!canEditChecklist(t, CHECKER, "creatorNote"), `checker can't write in the requester's name in ${status}`);
-    }
+    assert.equal(checklistSeat(t, CREATOR), "creator", `requester writes their own note in ${status}`);
+    assert.equal(checklistSeat(t, ADMIN), null, `and an admin writes nothing in ${status}`);
   }
 });
 
 check("holding no seat means no checklist ops at all", () => {
   for (const status of LIVE_STATUSES) {
     const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
-    assert.ok(!canEditChecklist(t, OUTSIDER, "add"), `outsider blocked in ${status}`);
-    assert.ok(!canEditChecklist(t, OUTSIDER, "toggle"), `outsider can't tick in ${status}`);
-    assert.ok(!canEditChecklist(t, ADMIN, "add"), "ADMIN grants back-end access, not a seat");
-    assert.ok(!canEditChecklist(t, ADMIN, "toggle"), "still not a seat");
+    assert.ok(!canEditChecklist(t, OUTSIDER), `outsider blocked in ${status}`);
+    assert.ok(!canEditChecklist(t, ADMIN), "ADMIN grants back-end access, not a seat");
   }
 });
 
@@ -290,20 +293,18 @@ check("checklistSeat derives addedBy from the actor's real seat", () => {
   assert.equal(checklistSeat(t, OUTSIDER), null, "a stranger holds no seat");
   const demoted = { ...CHECKER, roles: ["LOAN_OFFICER"] };
   assert.equal(checklistSeat(t, demoted), null, "the assignee who lost FILE_CHECKER vacates the checker seat");
-  assert.ok(!canEditChecklist(makeFraudTask({ status: "CLAIMED" }), demoted, "add"), "and with it, the checklist");
+  assert.ok(!canEditChecklist(makeFraudTask({ status: "CLAIMED" }), demoted), "and with it, the checklist");
 });
 
 check("no checklist edits on non-FRAUD tasks; closed means frozen", () => {
   const value = makeFraudTask({ taskType: "VALUE", status: "CLAIMED", assignee: { id: OUTSIDER.id, displayName: OUTSIDER.displayName } });
-  assert.ok(!canEditChecklist(value, OUTSIDER, "add"));
+  assert.ok(!canEditChecklist(value, OUTSIDER));
   // An approve-with-exceptions leaves unresolved items unresolved forever —
   // that is the accurate record of what was true at approval.
   for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
     const done = makeFraudTask({ status });
-    for (const op of ["add", "toggle", "creatorNote", "checkerNote"]) {
-      assert.ok(!canEditChecklist(done, CHECKER, op), `${status} refuses ${op} from the checker`);
-      assert.ok(!canEditChecklist(done, CREATOR, op), `${status} refuses ${op} from the requester`);
-    }
+    assert.ok(!canEditChecklist(done, CHECKER), `${status} refuses the checker`);
+    assert.ok(!canEditChecklist(done, CREATOR), `${status} refuses the requester`);
   }
 });
 

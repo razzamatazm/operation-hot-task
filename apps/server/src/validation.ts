@@ -163,10 +163,8 @@ export const checklistItemCheckedSchema = z.object({
   note: z.string().max(1000).optional()
 });
 
+/* One note schema for one note endpoint: the field the text lands in is the
+   actor's seat's, derived server-side, so the payload never names it. */
 export const checklistItemNoteSchema = z.object({
   note: z.string().max(1000)
-});
-
-export const checklistItemCheckerNoteSchema = z.object({
-  checkerNote: z.string().max(1000)
 });
