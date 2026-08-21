@@ -107,13 +107,6 @@ check("FRAUD tasks in every status but AWAITING_ITEMS order by dueAt", () => {
   }
 });
 
-check("a non-FRAUD task in AWAITING_ITEMS keeps its deadline", () => {
-  // Only FRAUD reaches this status today; the tier is defined by task type too,
-  // so a non-FRAUD task there is not treated as paused.
-  const list = [task("awaiting", { status: "AWAITING_ITEMS", dueAt: iso(-2) }), task("live", { dueAt: iso(2) })];
-  assert.deepEqual(order(list), ["awaiting", "live"]);
-});
-
 check("a list with no paused task sorts identically to the old dueAt comparator", () => {
   const byDue = (a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
   const list = [

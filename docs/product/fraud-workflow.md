@@ -171,7 +171,9 @@ cards.)
   `awaitingItemsSince` anchor; ties resolve by creation time then id.
   The accepted consequence is that a fraud check the requester is holding sinks
   below anything with a live deadline in their own `Needs you` — no deadline
-  loses to a deadline. (`byAttentionClaim`, `packages/shared/src/ordering.ts`.)
+  loses to a deadline. (`byAttentionClaim`, `packages/shared/src/ordering.ts`;
+  the decision and its rejected alternatives are
+  [ADR-0004](../adr/0004-ordering-by-attention-claim.md).)
 - Entering `Pending Approval` sets a **fresh end-of-day (`Yellow`) clock**
   (recomputed `dueAt`, cleared reminder stamp), then hands off to the normal
   reminder engine (quiet the rest of today, hourly the next business

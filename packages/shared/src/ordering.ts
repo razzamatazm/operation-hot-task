@@ -12,10 +12,15 @@ import { LoanTask } from "./types.js";
    countdown copy. */
 export const handedOffAt = (task: LoanTask): string => task.awaitingItemsSince ?? task.updatedAt;
 
-/* A task whose deadline has stopped meaning anything. A FRAUD task in
-   AWAITING_ITEMS is waiting on the requester: `dueAt` belongs to the original
-   ask, `isOverdue` ignores it and the reminder engine stays silent on it — but
-   the date keeps sliding into the past regardless (#133). */
+/* A task whose deadline has stopped meaning anything — the paused hold
+   (CONTEXT.md, ADR-0004). A FRAUD task in AWAITING_ITEMS is waiting on the
+   requester: `dueAt` belongs to the original ask, `isOverdue` ignores it and
+   the reminder engine stays silent on it — but the date keeps sliding into the
+   past regardless (#133).
+
+   AWAITING_ITEMS is a FRAUD-only status, so the type check restates what the
+   status already means rather than adding a second condition; `isOverdue`
+   keys on the status alone and the two cannot disagree on a real task. */
 const isPaused = (task: LoanTask): boolean => task.taskType === "FRAUD" && task.status === "AWAITING_ITEMS";
 
 const time = (iso: string): number => new Date(iso).getTime();
