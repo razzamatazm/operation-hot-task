@@ -15,3 +15,7 @@ teams-app/*.zip
 
 # TS incremental build info
 *.tsbuildinfo
+
+# Throwaway debug harnesses. Disposable by design — they answer one question
+# and get deleted, so they never belong in history.
+scripts/debug/

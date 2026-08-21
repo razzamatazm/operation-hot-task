@@ -734,35 +734,6 @@ button.btn-good:hover {
   user-select: none;
 }
 
-/* Mini = closed tasks sunk to the bottom. Reuses the full grid template
-   so every column (status, assigner, assignee, title, namvar, due,
-   action) aligns vertically with the active rows above. Padding + font
-   sizes are tightened to keep the row roughly half height; the namvar
-   and action slots render as empty placeholder spans. */
-.task-card-collapsed-mini {
-  padding: 4px 14px 4px 18px;
-  min-height: 32px;
-}
-.task-card-collapsed-mini .task-card-quick-action {
-  max-width: 116px;
-  font-size: 0.7rem;
-  padding: 3px 8px;
-  min-height: 22px;
-}
-.task-card-collapsed-mini .task-card-collapsed-title {
-  --collapsed-title-size: 0.78rem;
-}
-.task-card-collapsed-mini .task-card-collapsed-type {
-  font-weight: 600;
-}
-.task-card-collapsed-mini .status-banner-label,
-.task-card-collapsed-mini .task-card-people-value {
-  font-size: 0.62rem;
-}
-.task-card-collapsed-mini .task-card-people-label {
-  font-size: 0.55rem;
-}
-
 /* Assigner / Assignee column — mono, tight, label-over-value.
    Red "ME" / "PENDING" mark personal involvement & unassigned state. */
 .task-card-people {
@@ -846,12 +817,31 @@ button.btn-good:hover {
   line-height: 1.25;
 }
 
+/* The anchor is inline-flex (to sit the ↗ beside the name), which makes it an
+   atomic inline box: the parent's `text-overflow: ellipsis` cannot reach inside
+   it, so a long linked name used to hard-clip while the plain-text variant
+   ellipsised. The name carries its own ellipsis instead, and the ↗ is barred
+   from shrinking so it stays legible at the truncation point (#163). */
 .task-card-collapsed-folder a {
   color: var(--ink-secondary);
   display: inline-flex;
   align-items: center;
   gap: 4px;
   border-bottom: 1px dotted var(--line);
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: bottom;
+}
+
+.task-card-collapsed-folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-card-collapsed-folder a .external-link-icon {
+  flex: 0 0 auto;
 }
 
 .task-card-collapsed-folder a:hover {
@@ -2149,13 +2139,6 @@ button.btn-good:hover {
   .task-card-collapsed-due { grid-area: due; text-align: left; }
   .task-card-collapsed > .task-card-quick-action,
   .task-card-collapsed > .task-card-quick-action-empty { grid-area: action; align-self: center; }
-
-  .task-card-collapsed-mini {
-    grid-template-columns: 84px 1fr 1fr auto;
-    grid-template-areas:
-      "status   title    title    action"
-      "assigner assignee due      action";
-  }
   /* Mini placeholder (occupies the namvar slot on desktop) has no home
      in the mobile area template — hide so it doesn't claim an implicit row. */
   .task-card-collapsed > .task-card-collapsed-cell-empty { display: none; }
@@ -2190,8 +2173,7 @@ button.btn-good:hover {
     min-height: 38px;
   }
 
-  .task-card-collapsed,
-  .task-card-collapsed-mini {
+  .task-card-collapsed {
     padding: 8px 10px 8px 14px;
     column-gap: 8px;
   }

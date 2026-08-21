@@ -2006,7 +2006,7 @@ const TaskCard = memo(({
               // The loan name opens the Humperdink link directly (#57); the
               // ↗ marks it as an external link.
               <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
-                {task.folderName}
+                <span className="task-card-collapsed-folder-name">{task.folderName}</span>
                 <span className="external-link-icon" aria-hidden="true">↗</span>
               </a>
             ) : (
