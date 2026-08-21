@@ -157,8 +157,15 @@ export class LoanService {
     const tasks = await this.tasks.allTasks();
     for (const task of tasks) {
       if (task.loanId === duplicate.id) {
-        await this.tasks.upsertTask(this.applyLoanToTask(task, survivor));
-        this.events.broadcast({ type: "task.changed", payload: this.applyLoanToTask(task, survivor) });
+        // Applied to the task as it is at write time: this loop walks every
+        // task on the loan, and the people working them are still ticking
+        // checklists while it does (#158).
+        const next = await this.tasks.updateTask(task.id, (current) => ({
+          task: this.applyLoanToTask(current, survivor)
+        }));
+        if (next) {
+          this.events.broadcast({ type: "task.changed", payload: next });
+        }
       }
     }
     return survivor;
@@ -170,9 +177,12 @@ export class LoanService {
     const tasks = await this.tasks.allTasks();
     for (const task of tasks) {
       if (task.loanId !== loan.id) continue;
-      const next = this.applyLoanToTask(task, loan);
-      await this.tasks.upsertTask(next);
-      this.events.broadcast({ type: "task.changed", payload: next });
+      const next = await this.tasks.updateTask(task.id, (current) => ({
+        task: this.applyLoanToTask(current, loan)
+      }));
+      if (next) {
+        this.events.broadcast({ type: "task.changed", payload: next });
+      }
     }
   }
 
@@ -244,7 +254,7 @@ export class LoanService {
     for (const task of unlinked) {
       const loan = byMemberName.get(task.folderName.trim());
       if (!loan) continue;
-      await this.tasks.upsertTask(this.applyLoanToTask(task, loan));
+      await this.tasks.updateTask(task.id, (current) => ({ task: this.applyLoanToTask(current, loan) }));
       tasksLinked += 1;
     }
 

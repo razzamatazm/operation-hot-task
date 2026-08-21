@@ -507,4 +507,104 @@ await check("outsiders can't touch the checklist in any phase", async () => {
   }
 });
 
+/* ------------------------------------------------------------------------
+   #158 — simultaneous edits merge instead of overwriting each other.
+
+   Each of these fires the second operation WITHOUT awaiting the first, so both
+   read the task before either writes it. That is the real shape of two people
+   working the same fraud check, and before the store's read-modify-write became
+   atomic every one of them lost a side silently.
+   ------------------------------------------------------------------------ */
+
+await check("two people ticking different items at the same moment both stick", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  await service.addChecklistItem(id, "W-2", CHECKER);
+  const seeded = await service.addChecklistItem(id, "Photo ID", CHECKER);
+  const [wTwo, photoId] = seeded.checklist.map((item) => item.id);
+
+  await Promise.all([
+    service.setChecklistItemChecked(id, wTwo, true, undefined, CREATOR),
+    service.setChecklistItemChecked(id, photoId, true, undefined, CHECKER)
+  ]);
+
+  const after = await service.getTask(id);
+  assert.deepEqual(
+    after.checklist.map((item) => item.checked),
+    [true, true],
+    "neither tick was overwritten by the other's copy of the list"
+  );
+});
+
+await check("a tick lands while the other seat is adding an item", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "W-2", CHECKER);
+  const itemId = withItem.checklist[0].id;
+
+  await Promise.all([
+    service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR),
+    service.addChecklistItem(id, "HOA statement", CHECKER)
+  ]);
+
+  const after = await service.getTask(id);
+  assert.equal(after.checklist.length, 2, "the new item survived the tick");
+  assert.equal(after.checklist.find((item) => item.id === itemId).checked, true, "and the tick survived the add");
+});
+
+await check("a tick survives a status change made at the same moment", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "W-2", CHECKER);
+  const itemId = withItem.checklist[0].id;
+
+  // The cross-field case: a transition rewrites the WHOLE task, so it used to
+  // carry its own stale copy of the checklist along with the new status.
+  await Promise.all([
+    service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR),
+    service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "Need statements")
+  ]);
+
+  const after = await service.getTask(id);
+  assert.equal(after.status, "AWAITING_ITEMS", "the move landed");
+  assert.equal(after.checklist[0].checked, true, "and it didn't take the tick down with it");
+  assert.equal(after.checklistPass, 1, "the pass counter still bumped exactly once");
+});
+
+await check("two notes written at the same moment are both recorded", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+
+  await Promise.all([
+    service.addReviewNote(id, "Sending the W-2 now", CREATOR),
+    service.addReviewNote(id, "Also need the HOA statement", CHECKER)
+  ]);
+
+  const after = await service.getTask(id);
+  assert.deepEqual(
+    after.reviewNotes.map((note) => note.text).sort(),
+    ["Also need the HOA statement", "Sending the W-2 now"],
+    "neither note replaced the other"
+  );
+});
+
+await check("a write that throws mid-flight changes nothing and doesn't wedge the queue", async () => {
+  const { service, store } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "W-2", CHECKER);
+
+  await assert.rejects(
+    () => store.updateTask(id, () => { throw new Error("boom"); }),
+    /boom/,
+    "the caller sees its own failure"
+  );
+
+  const untouched = await service.getTask(id);
+  assert.deepEqual(untouched.checklist, withItem.checklist, "nothing was written");
+
+  // The next write must still land — one caller's failure can't block the rest.
+  const after = await service.addChecklistItem(id, "Photo ID", CHECKER);
+  assert.equal(after.checklist.length, 2, "the queue kept moving");
+});
+
 console.log(`\nAll ${passed} FRAUD checklist service checks passed.`);

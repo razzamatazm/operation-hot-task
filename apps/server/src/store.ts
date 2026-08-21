@@ -64,6 +64,45 @@ export class TaskStore {
     return data.tasks.find((task) => task.id === taskId);
   }
 
+  /* Read-modify-write in one queue slot. `apply` gets the task as it is RIGHT
+     NOW — read inside the same slot that writes the result — so nothing can
+     land in between and be overwritten.
+
+     This exists because `upsertTask` below takes a finished task, and a caller
+     necessarily built that task from a read it did earlier. Two callers reading
+     the same starting state each write a full replacement, and the second one
+     silently erases the first: serializing the WRITES never helped, because the
+     damage was done at the READ (#158).
+
+     Returns the written task, or `undefined` when `apply` declines — the task
+     was deleted while we queued, or the operation turned out to be a no-op.
+     Throwing from `apply` writes nothing and rejects only that caller. */
+  async updateTask(
+    taskId: string,
+    apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent } | undefined
+  ): Promise<LoanTask | undefined> {
+    return this.enqueue(async () => {
+      const data = await this.read();
+      const index = data.tasks.findIndex((entry) => entry.id === taskId);
+      if (index < 0) {
+        return undefined;
+      }
+      const result = apply(data.tasks[index] as LoanTask);
+      if (!result) {
+        return undefined;
+      }
+      data.tasks[index] = result.task;
+      if (result.event) {
+        data.history.push(result.event);
+      }
+      await this.write(data);
+      return result.task;
+    });
+  }
+
+  /* Whole-task replacement. Correct for a task that did not exist a moment ago
+     (creation); for anything that reads-then-changes, use `updateTask` above so
+     the read and the write can't be split by a concurrent writer. */
   async upsertTask(task: LoanTask, event?: TaskHistoryEvent): Promise<void> {
     await this.enqueue(async () => {
       const data = await this.read();
@@ -112,9 +151,17 @@ export class TaskStore {
     });
   }
 
-  private async enqueue(operation: () => Promise<void>): Promise<void> {
-    this.chain = this.chain.then(operation, operation);
-    return this.chain;
+  /* One writer at a time, in call order. The chain itself is kept settled and
+     value-free: the caller gets this operation's result (or its rejection),
+     while the next operation runs either way — one caller's failure must not
+     wedge every write behind it. */
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(operation, operation);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 
   private normalizeTask(task: LoanTask): LoanTask {

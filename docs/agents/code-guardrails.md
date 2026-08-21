@@ -7,6 +7,18 @@ live in `packages/shared`. If `apps/web` or `apps/server` needs one, import it
 — don't re-derive it locally. Two independent copies of "is this overdue" is
 what shipped issue #116's family of bugs.
 
+## Never write a task built from an earlier read
+
+Changing an existing task means `TaskStore.updateTask(id, apply)`, where `apply`
+builds the new task from the `current` it is handed. `upsertTask` takes a
+finished task and replaces the stored one wholesale, so a caller that reads,
+changes and then writes will erase anything that landed in between — which is
+exactly how two seats ticking the same checklist lost each other's ticks
+(#158). Creation is the only write with no prior read, and the only one that
+still calls `upsertTask`.
+
+Guards may stay outside the closure; the value you are writing may not.
+
 ## Changing a product rule touches four places
 
 1. `packages/shared` — types + workflow predicate
