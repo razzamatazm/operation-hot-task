@@ -211,6 +211,56 @@ await check("release unassigns in place; a different checker claims (status kept
   assert.equal(stillHeld.assignee.id, CHECKER.id, "the checker still holds it");
 });
 
+/* The two-phase exchange is otherwise private, but a released check is a
+   request for somebody new, and the channel card is how an unheld task gets
+   picked up. Both releases go through `unassignInPlace`, so both announce. */
+await check("a manual release reposts the check to the channel, claimable, at its own status", async () => {
+  const ctx = await setup();
+  const { service } = ctx;
+  const id = await createClaimedFraud(service);
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "Need statements");
+  await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+
+  const { emitted } = await capture(ctx, () => service.releaseForAnyChecker(id, CREATOR));
+
+  const channel = channelEvents(emitted);
+  assert.equal(channel.length, 1, "exactly one channel post, and only for the release");
+  assert.equal(channel[0].target, "CHANNEL_RELEASED");
+  assert.equal(channel[0].task.assignee, undefined, "the card it reposts is the claimable one");
+  assert.equal(channel[0].task.status, "PENDING_APPROVAL", "posted at the status it was released at");
+});
+
+await check("the auto-release announces every check it hands back", async () => {
+  const ctx = await setup();
+  const { service } = ctx;
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+  const claimed = await createClaimedFraud(service);
+  const awaiting = await createClaimedFraud(service);
+  await service.transitionStatus(awaiting, "AWAITING_ITEMS", CHECKER, "Need statements");
+
+  const { emitted } = await capture(ctx, () => service.releaseFraudChecksForChecker(CHECKER.id, admin));
+
+  const posts = channelEvents(emitted).filter((e) => e.target === "CHANNEL_RELEASED");
+  assert.deepEqual(
+    posts.map((e) => e.task.id).sort(),
+    [claimed, awaiting].sort(),
+    "one post per released check — a demotion silently emptying the pool helps nobody"
+  );
+});
+
+await check("a double-release posts nothing — the check is already in the pool", async () => {
+  const ctx = await setup();
+  const { service } = ctx;
+  const id = await createClaimedFraud(service);
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "Need statements");
+  await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+  await service.releaseForAnyChecker(id, CREATOR);
+
+  // Already in the pool: a double-tap must not re-ping the channel.
+  const { emitted } = await capture(ctx, () => service.releaseForAnyChecker(id, CREATOR));
+  assert.equal(channelEvents(emitted).length, 0, "a double-release announces nothing");
+});
+
 /* A demoted or deactivated checker can no longer hold the checker seat — the
    role IS the check (ADR-0003). Their live Fraud Checks are released in place
    rather than stranded with somebody who can't act on them. */
@@ -264,6 +314,48 @@ await check("another file checker picks a released check up and carries on from 
   assert.equal(reclaimed.assignee.id, CHECKER_2.id);
   const approved = await service.transitionStatus(id, "COMPLETED", CHECKER_2);
   assert.equal(approved.status, "COMPLETED", "and the exchange finishes");
+});
+
+/* The release happens at whatever status the check was sitting at, so the claim
+   has to work there too. A check released mid-pass was claimable by nobody:
+   only PENDING_APPROVAL was in the pool, the checker seat needs an assignee,
+   and the requester can't move it alone — the task was stranded until somebody
+   thought to hand it off. */
+await check("a check released mid-pass is claimable at its own status, not just at final approval", async () => {
+  const { service } = await setup();
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+
+  const claimed = await createClaimedFraud(service);
+  const awaiting = await createClaimedFraud(service);
+  await service.transitionStatus(awaiting, "AWAITING_ITEMS", CHECKER, "Need statements");
+
+  await service.releaseFraudChecksForChecker(CHECKER.id, admin);
+
+  const reclaimedClaimed = await service.claimTask(claimed, CHECKER_2);
+  assert.equal(reclaimedClaimed.status, "CLAIMED", "the initial pass resumes where it was");
+  assert.equal(reclaimedClaimed.assignee.id, CHECKER_2.id);
+
+  const reclaimedAwaiting = await service.claimTask(awaiting, CHECKER_2);
+  assert.equal(reclaimedAwaiting.status, "AWAITING_ITEMS", "still awaiting the requester's items");
+  assert.equal(reclaimedAwaiting.assignee.id, CHECKER_2.id);
+
+  // And the exchange genuinely carries on from there rather than restarting.
+  const sent = await service.transitionStatus(claimed, "AWAITING_ITEMS", CHECKER_2, "Need a W-2");
+  assert.equal(sent.status, "AWAITING_ITEMS");
+  const submitted = await service.transitionStatus(awaiting, "PENDING_APPROVAL", CREATOR);
+  assert.equal(submitted.status, "PENDING_APPROVAL");
+});
+
+await check("a released check still refuses the person who filed it", async () => {
+  const { service } = await setup();
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+  const id = await createClaimedFraud(service);
+  await service.releaseFraudChecksForChecker(CHECKER.id, admin);
+  await assert.rejects(
+    () => service.claimTask(id, CREATOR),
+    /second pair of hands/i,
+    "the pool is open to file checkers, not to the requester"
+  );
 });
 
 await check("releasing a checker who holds nothing is a no-op", async () => {

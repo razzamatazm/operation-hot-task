@@ -191,16 +191,35 @@ If the assigned checker is unavailable, the requester can
 release a `Pending Approval` task back to the pool via
 `POST /api/tasks/:taskId/release`. This unassigns **in place** — status stays
 `Pending Approval`, only the assignee is cleared — so any FILE_CHECKER can
-then claim it and Approve directly (the claim keeps the `Pending Approval`
-status rather than snapping back to `Claimed`). A double-release is a
-harmless no-op.
+then claim it and Approve directly. A double-release is a harmless no-op.
+
+**The pool is defined by the empty seat, not by the status.** A Fraud Check
+with no assignee at any live status is claimable by any FILE_CHECKER (except
+the person who filed it — creator is never assignee), and the claim keeps the
+status it was released at rather than snapping back to `Claimed`. This has to
+hold at every status because the auto-release above fires at every status: a
+check released mid-pass from `Claimed` or `Awaiting Items` was previously
+claimable by nobody, and since the checker seat needs an assignee and the
+requester can't move it alone, only a handoff got it back.
 
 ## Privacy
 
-The entire two-phase exchange is private — no channel posts. Entering
-`Awaiting Items` sends exactly one lifecycle DM to the creator plus the
-outstanding-items note as a DM note card; entering `Pending Approval` sends
-exactly one DM to the checker. Release notifies in-app only.
+The two-phase exchange between the requester and the checker is private — no
+channel posts. Entering `Awaiting Items` sends exactly one lifecycle DM to the
+creator plus the outstanding-items note as a DM note card; entering
+`Pending Approval` sends exactly one DM to the checker.
+
+**Release is the exception, and posts to the channel.** A released check has no
+checker, so there is nobody to DM and nothing private left to protect — the
+task's existence was already announced by its creation card. Both releases (the
+requester's manual one and the auto-release on demotion/deactivation) repost a
+fresh claimable card as a new thread and point the old card at it, exactly as an
+unclaim does, because an in-place edit pings nobody and a check nobody notices
+is a check nobody picks up. The headline says a new file checker is needed
+rather than borrowing the "needs a Fraud Check" copy, and the body leads with
+the phase it would be picked up at. The outstanding items and the notes stay
+off the card. A double-release announces nothing; a bulk auto-release posts one
+card per check, since an admin silently emptying the pool helps nobody.
 
 ## Scoring
 

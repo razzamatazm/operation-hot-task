@@ -39,6 +39,23 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
   `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
+/* A Fraud Check released back to the pool is NOT a new request — it's a
+   half-finished one whose checker walked away, so the channel card says so
+   rather than borrowing the "needs a Fraud Check" headline and reading as a
+   duplicate task. */
+export const formatReleasedHeadline = (folderName: string): string =>
+  `${folderName} needs a new file checker`;
+
+/* What the person picking a released check up would be walking into. Phrased
+   from the incoming checker's side, because the card exists to get somebody to
+   take it and "which half is done" is the question they'd ask. Only the live
+   fraud statuses appear: a release never happens anywhere else. */
+export const FRAUD_RELEASE_PHASE: Readonly<Partial<Record<TaskStatus, string>>> = {
+  CLAIMED: "the initial pass",
+  AWAITING_ITEMS: "outstanding items, waiting on the requester",
+  PENDING_APPROVAL: "final approval"
+};
+
 /* Friendly, human-facing type name (e.g. "LOI Check") for notification copy and
    the web UI. Replaces the raw "[LOI]" tag in DMs/cards. */
 export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
@@ -277,7 +294,7 @@ export interface NotificationEvent {
      cards already sitting in participants' chats, so their buttons track the
      task's live status instead of freezing at whatever step they were sent at.
      Emitted on every status change; creates nothing, pings nobody. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* Free-text note from the actor, surfaced in the recipient's card (issue #41
      share, and the Handoff's DM_ASSIGN card — ADR-0002). Optional. */
