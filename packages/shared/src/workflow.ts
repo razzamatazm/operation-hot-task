@@ -427,11 +427,18 @@ export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   if (!canBeAssignee(task, user)) {
     return false;
   }
-  // FRAUD "release for any fraud checker" support: a PENDING_APPROVAL task whose
-  // original checker has been unassigned can be picked up by any FILE_CHECKER, so
-  // final approval isn't blocked on one person. Any other status still requires
-  // OPEN below.
-  if (task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" && !task.assignee) {
+  /* A FRAUD task with no assignee is in the pool at whatever status it was
+     released at. Both release paths unassign IN PLACE — the creator's "release
+     for any fraud checker" (PENDING_APPROVAL) and the auto-release when a
+     checker loses the seat (#145, any live status) — so the pool is defined by
+     the empty seat, not by the status. Any file checker picks it up and carries
+     on from where it was.
+
+     Gating this on PENDING_APPROVAL stranded a check released from CLAIMED or
+     AWAITING_ITEMS: nobody could claim it, `canFraudCheckerAct` needs an
+     assignee, and the requester can't move it alone, so only a handoff got it
+     back. Closed tasks are out of play (`canBeAssignee` is status-free). */
+  if (task.taskType === "FRAUD" && !task.assignee && !CLOSED_STATUSES.includes(task.status)) {
     return true;
   }
   return task.status === "OPEN";

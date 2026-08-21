@@ -1470,14 +1470,13 @@ const TaskCard = memo(({
     fraudQuick && fraudQuick.kind === "transitionWithNote" && !fraudHasChecklist
       ? fraudQuick.targetStatus
       : undefined;
-  // A released final-approval task (unassigned PENDING_APPROVAL) is claimable
-  // by any fraud checker via the same claim path as an OPEN task.
-  const isReleasedForClaim = task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" && !task.assignee;
-
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
   let primaryAction: QuickAction | null = null;
   if (showActions) {
-    if ((task.status === "OPEN" || isReleasedForClaim) && canClaimTask(task, user)) {
+    // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
+    // task sitting in the pool with no assignee at whatever status it was
+    // released at. The row used to re-state the released case and drifted.
+    if (canClaimTask(task, user)) {
       primaryAction = { label: ACTION_LABELS.CLAIM, kind: "good", run: () => { void onClaim(task.id); } };
     } else if (fraudQuick && fraudQuick.targetStatus) {
       const target = fraudQuick.targetStatus;

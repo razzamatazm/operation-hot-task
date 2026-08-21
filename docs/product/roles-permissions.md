@@ -84,7 +84,8 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   `GET /api/users/:id/fraud-checks` before it applies the change; the write
   responds with `releasedFraudChecks` (a count). All three paths call one
   `TaskService` method, which unassigns in place through the same mechanism a
-  requester's manual release uses (see
+  requester's manual release uses — including its channel post, one claimable
+  card per released check (see
   [fraud-workflow.md](fraud-workflow.md#seats))
 - Guards: cannot deactivate/remove yourself; cannot remove or demote the
   last active admin

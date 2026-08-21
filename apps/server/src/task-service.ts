@@ -282,12 +282,14 @@ export class TaskService {
     }
 
     const now = new Date().toISOString();
-    // A released FRAUD task (PENDING_APPROVAL with no assignee) is claimed for
-    // final approval, NOT reopened — the new checker just becomes the assignee
-    // and can Approve directly, so the status must stay PENDING_APPROVAL rather
-    // than snap back to CLAIMED. Every other claim starts the work at CLAIMED.
+    // A released FRAUD task (unassigned past OPEN) is claimed to carry on from
+    // where it was, NOT reopened — the new checker becomes the assignee at the
+    // same status, so one released at PENDING_APPROVAL can be approved directly
+    // and one released at AWAITING_ITEMS is still awaiting the requester's
+    // items. Snapping back to CLAIMED would restart the exchange and throw away
+    // the round-trip. Every other claim starts the work at CLAIMED.
     const claimedStatus: TaskStatus =
-      task.taskType === "FRAUD" && task.status === "PENDING_APPROVAL" ? "PENDING_APPROVAL" : "CLAIMED";
+      task.taskType === "FRAUD" && task.status !== "OPEN" ? task.status : "CLAIMED";
     const updated: LoanTask = {
       ...task,
       status: claimedStatus,
@@ -394,8 +396,9 @@ export class TaskService {
      PENDING_APPROVAL task back to the pool when the original checker is OOO.
      Unassign IN PLACE: status stays PENDING_APPROVAL, only the assignee is
      cleared, so canClaimTask then lets any FILE_CHECKER pick it up and approve
-     directly. Private, like the rest of the two-phase back-and-forth — no
-     channel post. */
+     directly. Unlike the rest of the two-phase back-and-forth, which is
+     private, this one posts to the channel: it is a request for somebody new,
+     and the channel is where an unheld task gets picked up. */
   async releaseForAnyChecker(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
 
@@ -446,6 +449,17 @@ export class TaskService {
         actor: { id: actor.id, displayName: actor.displayName },
         message,
         target: "IN_APP"
+      });
+      // Back in the pool is only useful if somebody notices: repost the
+      // claimable card to the channel so a file checker can pick it up from
+      // there. It lives on this shared seam rather than in the two callers so
+      // neither release can be added later and forget to announce itself.
+      await this.notify({
+        type: "TASK_UNCLAIMED",
+        task: updated,
+        actor: { id: actor.id, displayName: actor.displayName },
+        message,
+        target: "CHANNEL_RELEASED"
       });
       // The release strips the assignee without changing status, so the ex-
       // checker keeps a card offering moves they've just lost until it re-renders.

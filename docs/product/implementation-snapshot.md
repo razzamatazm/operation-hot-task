@@ -51,7 +51,8 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/claim`
   - `POST /api/tasks/:taskId/unclaim`
   - `POST /api/tasks/:taskId/release` (FRAUD: release a `Pending Approval` task
-    back to the checker pool — the creator only)
+    back to the checker pool — the creator only; reposts a claimable card to
+    the channel)
   - `POST /api/tasks/:taskId/assign` — Handoff (see
     [ADR-0002](../adr/0002-task-handoff.md)): set `assignee` to someone else.
     Body `{ assigneeUserId, note? }` (note ≤ 280). Any authenticated user may

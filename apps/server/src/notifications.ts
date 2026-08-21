@@ -1,4 +1,4 @@
-import { NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, recentNoteThread } from "./bot.js";
@@ -205,6 +205,30 @@ export class TeamsNotificationProvider implements NotificationProvider {
       await this.botClient.repostReopenedTask(event.task.id, {
         title: card.title,
         detail: card.detail,
+        folder: event.task.folderName,
+        creatorAadObjectId: event.task.createdBy.id,
+        ...(card.openUrl ? { openUrl: card.openUrl } : {})
+      });
+      return;
+    }
+
+    if (event.target === "CHANNEL_RELEASED") {
+      /* A Fraud Check went back to the pool with its status untouched — either
+         the requester released it or its checker lost the seat. Same mechanism
+         as CHANNEL_REOPENED, and for the same reason: an in-place edit of the
+         old card pings nobody, and a check nobody notices is a check nobody
+         picks up. So a FRESH claimable card as a new thread, with the old card
+         pointed at it.
+
+         The copy is what differs. This isn't a new request, so it doesn't
+         borrow the "X needs a Fraud Check" headline; and the phase leads the
+         body because "how much of this is already done" is the first thing a
+         checker deciding whether to take it wants to know. */
+      const card = this.buildChannelCard(event.task);
+      const phase = FRAUD_RELEASE_PHASE[event.task.status];
+      await this.botClient.repostReopenedTask(event.task.id, {
+        title: formatReleasedHeadline(event.task.folderName),
+        detail: phase ? `Picks up at: ${phase}\n${card.detail}` : card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
         ...(card.openUrl ? { openUrl: card.openUrl } : {})

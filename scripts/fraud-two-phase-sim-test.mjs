@@ -178,6 +178,35 @@ check("assigned PENDING_APPROVAL is NOT open-claimable (release only when unassi
   assert.ok(!canClaimTask(assigned, CHECKER_2));
 });
 
+/* #145 releases a demoted checker's tasks in place at ANY live status, so the
+   pool is defined by the empty seat and not by PENDING_APPROVAL. A check
+   released mid-pass used to be claimable by nobody. */
+check("an unassigned FRAUD task is claimable at every live status", () => {
+  for (const status of ["CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"]) {
+    const released = makeFraudTask({ status, assignee: undefined });
+    assert.ok(canClaimTask(released, CHECKER_2), `${status} released back to the pool is claimable`);
+    assert.ok(!canClaimTask(released, CREATOR), `${status}: the requester still isn't a file checker`);
+  }
+});
+
+check("a closed FRAUD task is claimable by nobody, assignee or not", () => {
+  for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    const closed = makeFraudTask({ status, assignee: undefined });
+    assert.ok(!canClaimTask(closed, CHECKER_2), `${status} is out of play`);
+  }
+});
+
+check("a released check still refuses its own filer", () => {
+  // The filer here holds FILE_CHECKER, so only second-pair-of-hands refuses.
+  const released = makeFraudTask({
+    status: "AWAITING_ITEMS",
+    assignee: undefined,
+    createdBy: { id: CHECKER.id, displayName: CHECKER.displayName }
+  });
+  assert.ok(!canClaimTask(released, CHECKER), "creator is never assignee, pool or no pool");
+  assert.ok(canClaimTask(released, CHECKER_2));
+});
+
 check("OPEN-claim behavior intact", () => {
   const open = makeFraudTask({ status: "OPEN", assignee: undefined });
   assert.ok(canClaimTask(open, CHECKER));
