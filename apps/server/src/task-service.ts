@@ -263,15 +263,11 @@ export class TaskService {
     if (next === task.points) {
       return task;
     }
-    const updated: LoanTask = {
-      ...task,
-      points: next,
-      updatedAt: new Date().toISOString()
-    };
     const event = this.makeHistory(task.id, user, "TASK_POINTS_UPDATED", `Poops set to ${next}`);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
-    return updated;
+    return this.writeTask(task.id, (current) => ({
+      task: { ...current, points: next, updatedAt: new Date().toISOString() },
+      event
+    }));
   }
 
   async claimTask(taskId: string, user: UserIdentity): Promise<LoanTask> {
@@ -290,16 +286,16 @@ export class TaskService {
     // the round-trip. Every other claim starts the work at CLAIMED.
     const claimedStatus: TaskStatus =
       task.taskType === "FRAUD" && task.status !== "OPEN" ? task.status : "CLAIMED";
-    const updated: LoanTask = {
-      ...task,
-      status: claimedStatus,
-      assignee: { id: user.id, displayName: user.displayName },
-      updatedAt: now
-    };
-
     const event = this.makeHistory(task.id, user, "TASK_CLAIMED", `Claimed by ${user.displayName}`);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: {
+        ...current,
+        status: claimedStatus,
+        assignee: { id: user.id, displayName: user.displayName },
+        updatedAt: now
+      },
+      event
+    }));
 
     this.background(async () => {
       // No channel thread-reply on claim (Design A) — the root card silently
@@ -362,16 +358,11 @@ export class TaskService {
     }
 
     const now = new Date().toISOString();
-    const { assignee: _assignee, ...withoutAssignee } = task;
-    const updated: LoanTask = {
-      ...withoutAssignee,
-      status: "OPEN",
-      updatedAt: now
-    };
-
     const event = this.makeHistory(task.id, user, "TASK_UNCLAIMED", `Returned to open queue by ${user.displayName}`);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
+    const updated = await this.writeTask(task.id, (current) => {
+      const { assignee: _assignee, ...withoutAssignee } = current;
+      return { task: { ...withoutAssignee, status: "OPEN", updatedAt: now }, event };
+    });
 
     this.background(async () => {
       // Design A: no thread-reply. Re-post a fresh claimable card as a new
@@ -435,12 +426,11 @@ export class TaskService {
   ): Promise<LoanTask> {
     const now = new Date().toISOString();
     const exAssigneeId = task.assignee?.id;
-    const { assignee: _assignee, ...withoutAssignee } = task;
-    const updated: LoanTask = { ...withoutAssignee, updatedAt: now };
-
     const event = this.makeHistory(task.id, actor, "TASK_RELEASED", detail);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
+    const updated = await this.writeTask(task.id, (current) => {
+      const { assignee: _assignee, ...withoutAssignee } = current;
+      return { task: { ...withoutAssignee, updatedAt: now }, event };
+    });
 
     this.background(async () => {
       await this.notify({
@@ -556,94 +546,101 @@ export class TaskService {
     }
 
     const now = new Date().toISOString();
-    const updated: LoanTask = {
-      ...task,
-      status: next,
-      updatedAt: now,
-    };
-    // FRAUD outstanding-items pass counter (#44): bump on every entry into
-    // AWAITING_ITEMS — the checker's first send lands it at 1, each later
-    // bounce-back increments it. New checklist items stamp this pass in
-    // `addedOnPass`, so the UI can flag "added this round."
-    if (next === "AWAITING_ITEMS") {
-      updated.checklistPass = (task.checklistPass ?? 0) + 1;
-      // Anchor for the web row's "with requester" counter. Stamped on every
-      // entry, so a Send Back restarts the clock from that hand-back rather
-      // than accumulating across passes.
-      updated.awaitingItemsSince = now;
-    }
-    // FRAUD gated deletion (#66): a hand-off to the other party commits every
-    // existing item, so nothing said before this round-trip can be deleted
-    // anymore. Freshly-added items start as drafts again and stay deletable by
-    // their adder until the next hand-off. Three transitions hand the ball
-    // over: entering AWAITING_ITEMS (the checker's initial send or a
-    // bounce-back), entering PENDING_APPROVAL (the requester's submit), and the
-    // checker's AWAITING_ITEMS → CLAIMED reopen, which takes the list back off
-    // the requester. Deliberately NOT the claim (OPEN → CLAIMED): nobody has
-    // looked at the requester's seeded list yet, so those seeds stay theirs.
-    const handsOff =
-      next === "AWAITING_ITEMS" ||
-      next === "PENDING_APPROVAL" ||
-      (next === "CLAIMED" && task.status === "AWAITING_ITEMS");
-    if (handsOff && (task.checklist?.length ?? 0) > 0) {
-      updated.checklist = commitChecklistItems(task.checklist ?? []);
-    }
-    if (outstandingNote) {
-      // Record the outstanding-items note on the task so the thread has a seed
-      // (surfaced on the DM note card below).
-      updated.reviewNotes = [
-        ...(task.reviewNotes ?? []),
-        { text: outstandingNote, by: { id: user.id, displayName: user.displayName }, at: now }
-      ];
-    }
-    if (next === "PENDING_APPROVAL") {
-      // Final approval gets a fresh, gentle clock: discard the task's original
-      // dueAt/urgency and recompute end-of-current-business-day (the YELLOW
-      // path). The normal reminder engine (PENDING_APPROVAL is in
-      // ACTIVE_STATUSES) then takes over — quiet the rest of today, hourly next
-      // business morning. Clear any stale reminder stamp so the new clock starts
-      // clean.
-      updated.urgency = "YELLOW";
-      updated.dueAt = computeDueAtFromUrgency("YELLOW", new Date(now), this.appConfig);
-      delete updated.lastReminderAt;
-    }
-    if (next === "COMPLETED") {
-      updated.completedAt = now;
-    }
-    if (next === "CANCELLED") {
-      updated.cancelledAt = now;
-    }
-    if (next === "ARCHIVED") {
-      updated.archivedAt = now;
-    }
-    if (next === "OPEN") {
-      delete updated.completedAt;
-      delete updated.archivedAt;
-      // Remember the closed status we're reopening from so "Restore" can send
-      // the task back to exactly COMPLETED or ARCHIVED (never just OPEN).
-      updated.reopenedFrom = task.status;
-      if (task.assignee) {
-        updated.status = "CLAIMED";
+    /* Everything from here to the write reads the task as it is AT WRITE TIME
+       (`current`), not the copy the guards above ran against. The two differ
+       whenever a seat ticks a checklist item while somebody moves the status:
+       building the new task from the stale copy would carry the stale list and
+       write it back over the tick (#158). The guards stay outside — they answer
+       "may this person make this move", which a checklist write doesn't
+       change. */
+    const updated = await this.writeTask(task.id, (current) => {
+      const moved: LoanTask = {
+        ...current,
+        status: next,
+        updatedAt: now,
+      };
+      // FRAUD outstanding-items pass counter (#44): bump on every entry into
+      // AWAITING_ITEMS — the checker's first send lands it at 1, each later
+      // bounce-back increments it. New checklist items stamp this pass in
+      // `addedOnPass`, so the UI can flag "added this round."
+      if (next === "AWAITING_ITEMS") {
+        moved.checklistPass = (current.checklistPass ?? 0) + 1;
+        // Anchor for the web row's "with requester" counter. Stamped on every
+        // entry, so a Send Back restarts the clock from that hand-back rather
+        // than accumulating across passes.
+        moved.awaitingItemsSince = now;
       }
-    }
-    if (next === "NEEDS_REVIEW" && reviewNotes) {
-      updated.reviewNotes = [
-        ...(task.reviewNotes ?? []),
-        { text: reviewNotes, by: { id: user.id, displayName: user.displayName }, at: now }
-      ];
-    }
-    // Once a task is closed again (restored, completed, cancelled, or archived)
-    // it's no longer "reopened" — drop the restore breadcrumb.
-    if (updated.status === "COMPLETED" || updated.status === "CANCELLED" || updated.status === "ARCHIVED") {
-      delete updated.reopenedFrom;
-    }
+      // FRAUD gated deletion (#66): a hand-off to the other party commits every
+      // existing item, so nothing said before this round-trip can be deleted
+      // anymore. Freshly-added items start as drafts again and stay deletable by
+      // their adder until the next hand-off. Three transitions hand the ball
+      // over: entering AWAITING_ITEMS (the checker's initial send or a
+      // bounce-back), entering PENDING_APPROVAL (the requester's submit), and the
+      // checker's AWAITING_ITEMS → CLAIMED reopen, which takes the list back off
+      // the requester. Deliberately NOT the claim (OPEN → CLAIMED): nobody has
+      // looked at the requester's seeded list yet, so those seeds stay theirs.
+      const handsOff =
+        next === "AWAITING_ITEMS" ||
+        next === "PENDING_APPROVAL" ||
+        (next === "CLAIMED" && current.status === "AWAITING_ITEMS");
+      if (handsOff && (current.checklist?.length ?? 0) > 0) {
+        moved.checklist = commitChecklistItems(current.checklist ?? []);
+      }
+      if (outstandingNote) {
+        // Record the outstanding-items note on the task so the thread has a seed
+        // (surfaced on the DM note card below).
+        moved.reviewNotes = [
+          ...(current.reviewNotes ?? []),
+          { text: outstandingNote, by: { id: user.id, displayName: user.displayName }, at: now }
+        ];
+      }
+      if (next === "PENDING_APPROVAL") {
+        // Final approval gets a fresh, gentle clock: discard the task's original
+        // dueAt/urgency and recompute end-of-current-business-day (the YELLOW
+        // path). The normal reminder engine (PENDING_APPROVAL is in
+        // ACTIVE_STATUSES) then takes over — quiet the rest of today, hourly next
+        // business morning. Clear any stale reminder stamp so the new clock starts
+        // clean.
+        moved.urgency = "YELLOW";
+        moved.dueAt = computeDueAtFromUrgency("YELLOW", new Date(now), this.appConfig);
+        delete moved.lastReminderAt;
+      }
+      if (next === "COMPLETED") {
+        moved.completedAt = now;
+      }
+      if (next === "CANCELLED") {
+        moved.cancelledAt = now;
+      }
+      if (next === "ARCHIVED") {
+        moved.archivedAt = now;
+      }
+      if (next === "OPEN") {
+        delete moved.completedAt;
+        delete moved.archivedAt;
+        // Remember the closed status we're reopening from so "Restore" can send
+        // the task back to exactly COMPLETED or ARCHIVED (never just OPEN).
+        moved.reopenedFrom = current.status;
+        if (current.assignee) {
+          moved.status = "CLAIMED";
+        }
+      }
+      if (next === "NEEDS_REVIEW" && reviewNotes) {
+        moved.reviewNotes = [
+          ...(current.reviewNotes ?? []),
+          { text: reviewNotes, by: { id: user.id, displayName: user.displayName }, at: now }
+        ];
+      }
+      // Once a task is closed again (restored, completed, cancelled, or archived)
+      // it's no longer "reopened" — drop the restore breadcrumb.
+      if (moved.status === "COMPLETED" || moved.status === "CANCELLED" || moved.status === "ARCHIVED") {
+        delete moved.reopenedFrom;
+      }
 
-    const detail = reviewNotes
-      ? `${task.status} -> ${next} | Review: ${reviewNotes}`
-      : `${task.status} -> ${next}`;
-    const event = this.makeHistory(task.id, user, "TASK_STATUS_CHANGED", detail);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
+      const detail = reviewNotes
+        ? `${current.status} -> ${next} | Review: ${reviewNotes}`
+        : `${current.status} -> ${next}`;
+      return { task: moved, event: this.makeHistory(task.id, user, "TASK_STATUS_CHANGED", detail) };
+    });
 
     this.background(
       () => this.notifyStatusChange({ updated, task, next, user, outstandingNote, now }),
@@ -913,8 +910,13 @@ export class TaskService {
     }
     const addedBy = this.requireSeat(task, user);
     const addedOnPass = task.checklistPass && task.checklistPass > 0 ? task.checklistPass : 1;
-    const next = addChecklistItem(task.checklist ?? [], { id: uuid(), text: trimmed, addedBy, addedOnPass });
-    return this.persistChecklist(task, next, user, `Added checklist item: ${trimmed}`);
+    const item = { id: uuid(), text: trimmed, addedBy, addedOnPass };
+    return this.persistChecklist(
+      task,
+      (current) => addChecklistItem(current.checklist ?? [], item),
+      user,
+      `Added checklist item: ${trimmed}`
+    );
   }
 
   /* Edit an item's text. Per the checked/stale invariant, editing a checked
@@ -937,8 +939,12 @@ export class TaskService {
     if (!canEditChecklistItemText(task, user, item)) {
       throw new Error("You can't change this item's text");
     }
-    const next = editChecklistItemText(task.checklist ?? [], itemId, trimmed);
-    return this.persistChecklist(task, next, user, `Edited checklist item`);
+    return this.persistChecklist(
+      task,
+      (current) => editChecklistItemText(current.checklist ?? [], itemId, trimmed),
+      user,
+      `Edited checklist item`
+    );
   }
 
   /* Delete an outstanding-items entry (#66). Gated, not free: only the seat
@@ -960,8 +966,12 @@ export class TaskService {
     if (!canDeleteChecklistItem(task, user, item)) {
       throw new Error("You can't delete this checklist item");
     }
-    const next = removeChecklistItem(task.checklist ?? [], itemId);
-    return this.persistChecklist(task, next, user, `Removed checklist item: ${item.text}`);
+    return this.persistChecklist(
+      task,
+      (current) => removeChecklistItem(current.checklist ?? [], itemId),
+      user,
+      `Removed checklist item: ${item.text}`
+    );
   }
 
   /* Toggle an item's resolved (checked) state, optionally recording a per-item
@@ -980,8 +990,12 @@ export class TaskService {
     this.assertCanRecord(task, user);
     this.requireItem(task, itemId);
     const seat = this.requireSeat(task, user);
-    const next = setChecklistItemChecked(task.checklist ?? [], itemId, checked, note?.trim(), seat);
-    return this.persistChecklist(task, next, user, checked ? "Resolved checklist item" : "Reopened checklist item");
+    return this.persistChecklist(
+      task,
+      (current) => setChecklistItemChecked(current.checklist ?? [], itemId, checked, note?.trim(), seat),
+      user,
+      checked ? "Resolved checklist item" : "Reopened checklist item"
+    );
   }
 
   /* Set a per-item note. WHICH field it lands in — the requester's `note` or
@@ -994,8 +1008,12 @@ export class TaskService {
     this.assertCanRecord(task, user);
     this.requireItem(task, itemId);
     const seat = this.requireSeat(task, user);
-    const next = setChecklistItemNote(task.checklist ?? [], itemId, note.trim(), seat);
-    return this.persistChecklist(task, next, user, seat === "checker" ? "Set checklist item checker note" : "Set checklist item note");
+    return this.persistChecklist(
+      task,
+      (current) => setChecklistItemNote(current.checklist ?? [], itemId, note.trim(), seat),
+      user,
+      seat === "checker" ? "Set checklist item checker note" : "Set checklist item note"
+    );
   }
 
   /* Enforce the seat-wide permission gate — recording reality (tick, add, your
@@ -1032,18 +1050,28 @@ export class TaskService {
   /* Persist a new checklist array on the task with one history event, broadcast
      the change, and return the updated task. Never touches status — the
      lifecycle transitions own that. */
+  /* Takes the transform, not the finished list. The list is the contended
+     field — both seats tick at any live status since #146 — so a list computed
+     from the copy the permission check ran against would carry that copy's
+     version of everyone else's ticks and write them back over the real ones
+     (#158). `apply` re-runs the same pure function against the list as it is at
+     write time, inside the store's queue slot, so a tick that landed while we
+     were checking permissions survives.
+
+     The guards stay outside deliberately: they answer "may this person edit
+     this task", which a concurrent checklist write doesn't change. */
   private async persistChecklist(
     task: LoanTask,
-    checklist: ChecklistItem[],
+    apply: (current: LoanTask) => ChecklistItem[],
     user: UserIdentity,
     detail: string
   ): Promise<LoanTask> {
     const now = new Date().toISOString();
-    const updated: LoanTask = { ...task, checklist, updatedAt: now };
     const event = this.makeHistory(task.id, user, "CHECKLIST_UPDATED", detail);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
-    return updated;
+    return this.writeTask(task.id, (current) => ({
+      task: { ...current, checklist: apply(current), updatedAt: now },
+      event
+    }));
   }
 
   /* Append a ReviewNote to the task and fan out the note notifications. Callers
@@ -1052,18 +1080,15 @@ export class TaskService {
      participants. Never mutates status, completedAt, or reopenedFrom. */
   private async appendReviewNote(task: LoanTask, text: string, user: UserIdentity): Promise<LoanTask> {
     const now = new Date().toISOString();
-    const updated: LoanTask = {
-      ...task,
-      reviewNotes: [
-        ...(task.reviewNotes ?? []),
-        { text, by: { id: user.id, displayName: user.displayName }, at: now }
-      ],
-      updatedAt: now
-    };
-
+    const note = { text, by: { id: user.id, displayName: user.displayName }, at: now };
     const event = this.makeHistory(task.id, user, "REVIEW_NOTE_ADDED", `Review note by ${user.displayName}`);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
+    // Appended to the notes as they are at write time, not as they were when we
+    // read the task: two people answering at once would otherwise each write a
+    // list containing only their own note, and the slower one would win (#158).
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: { ...current, reviewNotes: [...(current.reviewNotes ?? []), note], updatedAt: now },
+      event
+    }));
 
     // Note-card recipients are ALL participants (creator + assignee), including
     // the author — their own DM card stays in sync when they post from the app.
@@ -1192,19 +1217,19 @@ export class TaskService {
 
     const previous = task.assignee;
     const now = new Date().toISOString();
-    const updated: LoanTask = {
-      ...task,
-      status: task.status === "OPEN" ? "CLAIMED" : task.status,
-      assignee: { id: params.target.id, displayName: params.target.displayName },
-      updatedAt: now
-    };
-
     const detail = previous
       ? `Reassigned from ${previous.displayName} to ${params.target.displayName} by ${params.actor.displayName}`
       : `Assigned to ${params.target.displayName} by ${params.actor.displayName}`;
     const event = this.makeHistory(task.id, params.actor, "TASK_ASSIGNED", detail);
-    await this.store.upsertTask(updated, event);
-    this.events.broadcast({ type: "task.changed", payload: updated });
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: {
+        ...current,
+        status: current.status === "OPEN" ? "CLAIMED" : current.status,
+        assignee: { id: params.target.id, displayName: params.target.displayName },
+        updatedAt: now
+      },
+      event
+    }));
 
     this.background(async () => {
       await this.notify({
@@ -1601,6 +1626,30 @@ export class TaskService {
         error: error instanceof Error ? error.message : String(error)
       });
     }
+  }
+
+  /* Every write that CHANGES an existing task goes through here. `apply` builds
+     the replacement from `current` — the task as it is inside the store's write
+     slot — rather than from a copy read earlier, so a concurrent write to a
+     field this one isn't touching survives instead of being erased by a full
+     replacement built from stale data (#158).
+
+     Creation is the one write that doesn't belong here: there is no prior read
+     to go stale, so `createTask` still calls `store.upsertTask` directly.
+
+     Throws when the task is gone. Every caller has already read it and run its
+     guards, so a missing task here means it was deleted mid-flight — the same
+     "task not found" the guards would have raised a moment earlier. */
+  private async writeTask(
+    taskId: string,
+    apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent }
+  ): Promise<LoanTask> {
+    const updated = await this.store.updateTask(taskId, apply);
+    if (!updated) {
+      throw new Error("Task not found");
+    }
+    this.events.broadcast({ type: "task.changed", payload: updated });
+    return updated;
   }
 
   private makeHistory(taskId: string, user: UserIdentity, action: string, detail: string): TaskHistoryEvent {

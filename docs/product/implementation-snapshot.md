@@ -98,5 +98,10 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
 - The server can serve built frontend assets when `apps/web/dist/index.html` exists at the configured path for the running process.
 - Real-time UI updates are delivered through SSE.
 - Scheduler runs every 5 minutes and handles reminders, OOO auto-complete, auto-archive, and archive purge.
-- Persistence is file-backed through `TaskStore`.
+- Persistence is file-backed through `TaskStore`. Any write that CHANGES an
+  existing task goes through `TaskStore.updateTask(id, apply)`, which does the
+  read and the write in one queue slot and hands `apply` the task as it is at
+  write time. Building a replacement from a task read earlier is how two people
+  editing the same fraud check silently erased each other (#158); only creation,
+  which has no prior read, still calls `upsertTask` directly.
 - Shared workflow logic lives in `packages/shared` and should remain the canonical place for status rules, due-date logic, and permission helpers.
