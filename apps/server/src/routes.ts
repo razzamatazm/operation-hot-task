@@ -459,7 +459,7 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
-  /* FRAUD "Release for any fraud checker": creator/admin hands a
+  /* FRAUD "Release for any fraud checker": the creator hands a
      PENDING_APPROVAL task back to the pool (unassign in place). */
   router.post("/tasks/:taskId/release", async (req, res) => {
     try {

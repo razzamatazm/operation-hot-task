@@ -356,7 +356,10 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
   return Array.from(new Set([...next, ...extra, ...(restore ? [restore] : [])]));
 };
 
-const hasRole = (user: UserIdentity, role: "FILE_CHECKER" | "ADMIN"): boolean => user.roles.includes(role);
+/* The only role that gates a workflow move. ADMIN used to be the other one;
+   since ADR-0003 it is back-end access only and appears in no actor clause in
+   this file. */
+const isFileChecker = (user: UserIdentity): boolean => user.roles.includes("FILE_CHECKER");
 
 /* SYSTEM (the scheduler) satisfies every *actor* clause below — role
    requirements and party checks alike — because there is no human to hold a
@@ -452,7 +455,7 @@ export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boole
    task yet: creating a task already handed off (`assigneeUserId` on the create
    payload) has to check the recipient before the task exists. */
 export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean =>
-  taskType !== "FRAUD" || isSystem(user) || hasRole(user, "FILE_CHECKER");
+  taskType !== "FRAUD" || isSystem(user) || isFileChecker(user);
 
 /* The refusal a rejected handoff shows. Both enforcement points — the route
    (create-with-assignee) and `TaskService.assignTask` — surface this exact
@@ -462,20 +465,28 @@ export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean
 export const assignRefusalMessage = (taskType: TaskType, targetName: string): string =>
   `${targetName} can't take a ${TASK_TYPE_LABELS[taskType]} — that needs a file checker`;
 
+/* Who may attach a review note to a task: its creator or its assignee. The
+   thread is a conversation between the two people with a stake in the task, so
+   an admin who is neither is not in it (ADR-0003). Status-free — the composer
+   and the completed-card affordance apply their own status rules on top. */
+export const canAddNoteToTask = (task: LoanTask, user: UserIdentity): boolean => {
+  const isCreator = task.createdBy.id === user.id;
+  const isAssignee = task.assignee?.id === user.id;
+  return isCreator || isAssignee;
+};
+
 export const canUnclaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.status !== "CLAIMED") {
     return false;
   }
 
   const isAssignee = task.assignee?.id === user.id;
-  const isAdmin = hasRole(user, "ADMIN");
-  return isSystem(user) || isAssignee || isAdmin;
+  return isSystem(user) || isAssignee;
 };
 
 export const canCancelTask = (task: LoanTask, user: UserIdentity): boolean => {
   const isCreator = task.createdBy.id === user.id;
-  const isAdmin = hasRole(user, "ADMIN");
-  return isSystem(user) || isCreator || isAdmin;
+  return isSystem(user) || isCreator;
 };
 
 export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
@@ -495,12 +506,11 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
 
   const isCreator = task.createdBy.id === user.id;
   const isAssignee = task.assignee?.id === user.id;
-  const isAdmin = hasRole(user, "ADMIN");
-  return isSystem(user) || isCreator || isAssignee || isAdmin;
+  return isSystem(user) || isCreator || isAssignee;
 };
 
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.taskType === "FRAUD" && !isSystem(user) && !hasRole(user, "FILE_CHECKER")) {
+  if (task.taskType === "FRAUD" && !isSystem(user) && !isFileChecker(user)) {
     return false;
   }
 
@@ -515,10 +525,9 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
   ) {
     // Completion belongs to whoever did the work (the assignee). The creator
     // requested the task and can review / re-open / cancel, but doesn't close it
-    // out. Admins can always step in.
+    // out — and neither does an admin, who is not a party to it.
     const isAssignee = task.assignee?.id === user.id;
-    const isAdmin = hasRole(user, "ADMIN");
-    return isSystem(user) || isAssignee || isAdmin;
+    return isSystem(user) || isAssignee;
   }
 
   return false;
@@ -528,45 +537,41 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
    (CLAIMED → AWAITING_ITEMS), bouncing an approval request back
    (PENDING_APPROVAL → AWAITING_ITEMS), and reopening the initial pass
    (AWAITING_ITEMS → CLAIMED). Mirrors the completion gate: the assignee (the
-   fraud checker) or an admin, and — because it's a FRAUD task — FILE_CHECKER is
-   required. Non-FRAUD tasks never reach these statuses. */
+   fraud checker), and — because it's a FRAUD task — FILE_CHECKER is required.
+   Non-FRAUD tasks never reach these statuses. */
 export const canFraudCheckerAct = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.taskType !== "FRAUD") {
     return false;
   }
-  if (!isSystem(user) && !hasRole(user, "FILE_CHECKER")) {
+  if (!isSystem(user) && !isFileChecker(user)) {
     return false;
   }
   const isAssignee = task.assignee?.id === user.id;
-  const isAdmin = hasRole(user, "ADMIN");
-  return isSystem(user) || isAssignee || isAdmin;
+  return isSystem(user) || isAssignee;
 };
 
 /* FRAUD-only: submitting the outstanding items back for approval
    (AWAITING_ITEMS → PENDING_APPROVAL) is the requester's move — the task
-   creator, or an admin stepping in. */
+   creator's alone. */
 export const canSubmitForApproval = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.taskType !== "FRAUD") {
     return false;
   }
   const isCreator = task.createdBy.id === user.id;
-  const isAdmin = hasRole(user, "ADMIN");
-  return isSystem(user) || isCreator || isAdmin;
+  return isSystem(user) || isCreator;
 };
 
 /* Restore returns a reopened task to the exact closed status it held before the
    reopen. Unlike normal completion (assignee-only), it's available to whoever
-   could have reopened it — creator or assignee — plus admins, so a creator who
-   reopened their own task can close it back out without routing through the
-   assignee. */
+   could have reopened it — creator or assignee — so a creator who reopened
+   their own task can close it back out without routing through the assignee. */
 export const canRestoreTask = (task: LoanTask, user: UserIdentity): boolean => {
   if (!restoreTargetStatus(task)) {
     return false;
   }
   const isCreator = task.createdBy.id === user.id;
   const isAssignee = task.assignee?.id === user.id;
-  const isAdmin = hasRole(user, "ADMIN");
-  return isSystem(user) || isCreator || isAssignee || isAdmin;
+  return isSystem(user) || isCreator || isAssignee;
 };
 
 export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: UserIdentity): { ok: boolean; reason?: string } => {
@@ -580,11 +585,11 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   if (next === restoreTargetStatus(task)) {
     return canRestoreTask(task, user)
       ? { ok: true }
-      : { ok: false, reason: "Only the task creator, assignee, or an admin can restore a reopened task" };
+      : { ok: false, reason: "Only the task creator or assignee can restore a reopened task" };
   }
 
   if (next === "CANCELLED" && !canCancelTask(task, user)) {
-    return { ok: false, reason: "Only the task creator or admin can cancel a task" };
+    return { ok: false, reason: "Only the task creator can cancel a task" };
   }
 
   if (next === "NEEDS_REVIEW" && !canMoveToNeedsReview(task, user)) {
@@ -592,14 +597,13 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   }
 
   if ((next === "CLAIMED" || next === "COMPLETED") && task.status === "NEEDS_REVIEW" && !canMoveNeedsReview(task, user)) {
-    return { ok: false, reason: "Only assignee, creator, or admin can move a needs review task" };
+    return { ok: false, reason: "Only assignee or creator can move a needs review task" };
   }
 
   if (next === "CLAIMED" && task.status === "MERGE_DONE") {
     const isAssignee = task.assignee?.id === user.id;
-    const isAdmin = hasRole(user, "ADMIN");
-    if (!isSystem(user) && !isAssignee && !isAdmin) {
-      return { ok: false, reason: "Only assignee or admin can undo merge done" };
+    if (!isSystem(user) && !isAssignee) {
+      return { ok: false, reason: "Only the assignee can undo merge done" };
     }
   }
 
@@ -608,16 +612,16 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   // PENDING_APPROVAL. Same for reopening the initial pass (AWAITING_ITEMS →
   // CLAIMED).
   if (next === "AWAITING_ITEMS" && !canFraudCheckerAct(task, user)) {
-    return { ok: false, reason: "Only the fraud checker (assignee) or an admin can send outstanding items" };
+    return { ok: false, reason: "Only the fraud checker (assignee) can send outstanding items" };
   }
 
   if (next === "CLAIMED" && task.status === "AWAITING_ITEMS" && !canFraudCheckerAct(task, user)) {
-    return { ok: false, reason: "Only the fraud checker (assignee) or an admin can reopen the initial pass" };
+    return { ok: false, reason: "Only the fraud checker (assignee) can reopen the initial pass" };
   }
 
   // FRAUD: submitting the outstanding items for approval is the requester's move.
   if (next === "PENDING_APPROVAL" && !canSubmitForApproval(task, user)) {
-    return { ok: false, reason: "Only the task creator or an admin can submit for approval" };
+    return { ok: false, reason: "Only the task creator can submit for approval" };
   }
 
   if (next === "COMPLETED" && !canCompleteTask(task, user)) {

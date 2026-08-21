@@ -12,7 +12,9 @@ Operation Hot Task is an internal Microsoft Teams application used to coordinate
 
 - **Loan Officer** — creates and claims most task types; cannot claim Fraud tasks.
 - **File Checker** — superset of Loan Officer; also claims and completes Fraud tasks.
-- **Admin** — may override claim, cancel, and status-transition rules in exceptional cases.
+- **Admin** — back-end access only: manages users, roles and system config
+  and sees every task, but holds no power over anyone else's work and no seat
+  on any task (ADR-0003).
 
 The user's role determines which tasks they may see actions on. Permission decisions are centralized in `packages/shared/src/workflow.ts` and applied identically on the client (button rendering) and server (request authorization).
 
@@ -51,7 +53,7 @@ A scheduler emits Teams direct-message reminders during business hours (8:30 AM 
 
 ### Cancellation
 
-The task creator may cancel a task at any non-terminal stage, moving it to `CANCELLED`. An admin may cancel on behalf of any user.
+The task creator may cancel a task at any non-terminal stage, moving it to `CANCELLED`. Nobody else can, admins included — a task stuck with someone who is away is moved by handing it off, which is open to every authenticated user.
 
 ---
 
@@ -104,12 +106,19 @@ Type definitions live in `packages/shared/src/types.ts`.
 | Create Fraud task                 | Yes                 | Yes          | Yes   |
 | Claim non-Fraud task              | Yes                 | Yes          | Yes   |
 | Claim Fraud task                  | No                  | Yes          | Yes   |
-| Complete claimed task             | If assignee         | If assignee  | Yes   |
-| Approve Loan Docs merge           | If creator          | If creator   | Yes   |
-| Cancel task                       | If creator          | If creator   | Yes   |
-| Unclaim                           | If assignee         | If assignee  | Yes   |
-| Re-open closed task               | If creator          | If creator   | Yes   |
-| Override any of the above         | No                  | No           | Yes   |
+| Complete claimed task             | If assignee         | If assignee  | If assignee |
+| Approve Loan Docs merge           | If creator          | If creator   | If creator  |
+| Cancel task                       | If creator          | If creator   | If creator  |
+| Unclaim                           | If assignee         | If assignee  | If assignee |
+| Re-open closed task               | If creator          | If creator   | If creator  |
+| Manage users, roles and config    | No                  | No           | Yes   |
+| See every task (All Tasks, Metrics) | No                | No           | Yes   |
+| Override any of the above         | No                  | No           | No    |
+
+A task's **creator is never its assignee**, at every door an assignee comes
+through (ADR-0003), so no column above ever names the same person twice on one
+task. Admin is a set of back-end powers, not a second identity: the last two
+rows are the whole of what it adds.
 
 All gates are enforced server-side regardless of UI state. The client uses the same predicates to render or hide action buttons. Source: `packages/shared/src/workflow.ts`.
 
@@ -189,7 +198,7 @@ Each task carries an append-only array of `TaskHistoryEvent` records. Every stat
 |-----------------------------------|--------------------------------------------------------|
 | `TASK_CREATED`                    | Task creation                                          |
 | `TASK_CLAIMED`                    | Assignee claims an open task                           |
-| `TASK_UNCLAIMED`                  | Assignee or admin releases a claim                     |
+| `TASK_UNCLAIMED`                  | The assignee releases a claim                          |
 | `TASK_STATUS_CHANGED`             | Any status transition (complete, review, cancel, etc.) |
 | `TASK_POINTS_UPDATED`             | Creator changes the poop-points value pre-completion   |
 | `REVIEW_NOTE_ADDED`               | A review note is appended (on `NEEDS_REVIEW` and elsewhere) |
