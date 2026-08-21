@@ -15,6 +15,7 @@ import {
   canClaimTask,
   canDeleteChecklistItem,
   canEditChecklist,
+  canEditChecklistItemText,
   checklistSeat,
   CLOSED_STATUSES,
   commitChecklistItems,
@@ -476,13 +477,20 @@ export class TaskService {
       // than accumulating across passes.
       updated.awaitingItemsSince = now;
     }
-    // FRAUD gated deletion (#66): entering AWAITING_ITEMS (checker's initial
-    // send or a bounce-back) or PENDING_APPROVAL (creator's submit) is a
-    // hand-off to the other party — commit every existing item so nothing added
-    // before this round-trip can be deleted anymore. Freshly-added items after
-    // the hand-off start as drafts again and stay deletable by their adder until
-    // the next hand-off.
-    if ((next === "AWAITING_ITEMS" || next === "PENDING_APPROVAL") && (task.checklist?.length ?? 0) > 0) {
+    // FRAUD gated deletion (#66): a hand-off to the other party commits every
+    // existing item, so nothing said before this round-trip can be deleted
+    // anymore. Freshly-added items start as drafts again and stay deletable by
+    // their adder until the next hand-off. Three transitions hand the ball
+    // over: entering AWAITING_ITEMS (the checker's initial send or a
+    // bounce-back), entering PENDING_APPROVAL (the requester's submit), and the
+    // checker's AWAITING_ITEMS → CLAIMED reopen, which takes the list back off
+    // the requester. Deliberately NOT the claim (OPEN → CLAIMED): nobody has
+    // looked at the requester's seeded list yet, so those seeds stay theirs.
+    const handsOff =
+      next === "AWAITING_ITEMS" ||
+      next === "PENDING_APPROVAL" ||
+      (next === "CLAIMED" && task.status === "AWAITING_ITEMS");
+    if (handsOff && (task.checklist?.length ?? 0) > 0) {
       updated.checklist = commitChecklistItems(task.checklist ?? []);
     }
     if (outstandingNote) {
@@ -785,11 +793,12 @@ export class TaskService {
 
   /* ------------------------------------------------------------------------
      FRAUD structured checklist (#44). Focused, atomic operations mirroring the
-     completed-note pattern: each enforces the turn/permission rule
-     (canEditChecklist), applies a pure checklist transform, records a single
-     history event, persists, and broadcasts. Deletion is GATED (#66):
+     completed-note pattern: each enforces its permission rule (the seat-wide
+     canEditChecklist, or the item-scoped canDeleteChecklistItem /
+     canEditChecklistItemText), applies a pure checklist transform, records a
+     single history event, persists, and broadcasts. Deletion is GATED (#66):
      removeChecklistItem lets the adding seat drop a fresh, not-yet-handed-off
-     item (see canDeleteChecklistItem); committed items are permanently locked.
+     item; committed items are permanently locked.
      The checked/stale invariant lives in the pure
      editChecklistItemText. The approval gate stays where #50 put it (the
      PENDING_APPROVAL → COMPLETED completion gate); this file only adds the item
@@ -821,21 +830,33 @@ export class TaskService {
      item auto-clears the check and marks it stale (handled by the pure fn). */
   async editChecklistItemText(taskId: string, itemId: string, text: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    this.assertChecklistOp(task, user, "editText");
+    if (task.taskType !== "FRAUD") {
+      throw new Error("Checklists are only on fraud checks");
+    }
     const trimmed = text.trim();
     if (!trimmed) {
       throw new Error("A checklist item needs some text");
     }
-    this.requireItem(task, itemId);
+    const item = (task.checklist ?? []).find((entry) => entry.id === itemId);
+    if (!item) {
+      throw new Error("Checklist item not found");
+    }
+    // Item-scoped, like deletion: your own not-yet-handed-off item is yours to
+    // retype, and the checker may additionally re-ask a committed one.
+    if (!canEditChecklistItemText(task, user, item)) {
+      throw new Error("You can't change this item's text");
+    }
     const next = editChecklistItemText(task.checklist ?? [], itemId, trimmed);
     return this.persistChecklist(task, next, user, `Edited checklist item`);
   }
 
-  /* Delete an outstanding-items entry (#66). Gated, not free: only the seat that
-     added the item, only on that seat's active editing turn, and only while the
-     item is still a fresh draft (not yet handed off) — the full invariant lives
-     in the shared canDeleteChecklistItem and is enforced here server-side, not
-     just in the UI. Committed items and the other seat's items are rejected. */
+  /* Delete an outstanding-items entry (#66). Gated, not free: only the seat
+     that added the item, and only while it is still a fresh draft (not yet
+     handed off) — the full invariant lives in the shared
+     canDeleteChecklistItem and is enforced here server-side, not just in the
+     UI. Committed items and the other seat's items are rejected. There is no
+     turn clause: either seat may add off-turn, so one would trap the adder
+     with an item they could never remove. */
   async removeChecklistItem(taskId: string, itemId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
     if (task.taskType !== "FRAUD") {
@@ -852,8 +873,11 @@ export class TaskService {
     return this.persistChecklist(task, next, user, `Removed checklist item: ${item.text}`);
   }
 
-  /* Toggle an item's resolved (checked) state, optionally recording the
-     creator's per-item note in the same gesture. */
+  /* Toggle an item's resolved (checked) state, optionally recording a per-item
+     note in the same gesture. Which note field that lands in is derived from
+     the actor's seat, not chosen by the caller — both seats may tick at any
+     live status, so a seat-blind version would let a checker file a note under
+     the requester's name just by ticking. */
   async setChecklistItemChecked(
     taskId: string,
     itemId: string,
@@ -864,7 +888,9 @@ export class TaskService {
     const task = await this.requireTask(taskId);
     this.assertChecklistOp(task, user, "toggle");
     this.requireItem(task, itemId);
-    const next = setChecklistItemChecked(task.checklist ?? [], itemId, checked, note?.trim());
+    // Non-null: assertChecklistOp has already refused anyone holding no seat.
+    const seat = checklistSeat(task, user) ?? "creator";
+    const next = setChecklistItemChecked(task.checklist ?? [], itemId, checked, note?.trim(), seat);
     return this.persistChecklist(task, next, user, checked ? "Resolved checklist item" : "Reopened checklist item");
   }
 
@@ -886,9 +912,11 @@ export class TaskService {
     return this.persistChecklist(task, next, user, "Set checklist item checker note");
   }
 
-  /* Enforce the turn/permission gate for a checklist op; throws when the actor
-     may not act. Server-authoritative — the client's affordance gating is only
-     a hint. */
+  /* Enforce the seat-wide permission gate for a checklist op — recording
+     reality is open to both seats at any live status, and each seat writes only
+     its own note field. Throws when the actor may not act. Server-
+     authoritative; the client's affordance gating is only a hint. Text-editing
+     and deletion are item-scoped and gate themselves. */
   private assertChecklistOp(task: LoanTask, user: UserIdentity, op: ChecklistOp): void {
     if (task.taskType !== "FRAUD") {
       throw new Error("Checklists are only on fraud checks");

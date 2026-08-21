@@ -67,7 +67,7 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     without reopening it — creator/assignee; the card's "Add a note"
     affordance)
   - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
-    endpoints, each server-enforcing the turn/permission + gated-deletion /
+    endpoints, each server-enforcing the two permission rules + gated-deletion /
     checked-stale invariants:
     - `POST /api/tasks/:taskId/checklist/items` (add an item)
     - `DELETE /api/tasks/:taskId/checklist/items/:itemId` (delete your own fresh,

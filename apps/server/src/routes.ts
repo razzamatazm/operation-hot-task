@@ -520,11 +520,12 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
 
   /* FRAUD structured outstanding-items checklist (#44, gated deletion #66).
      Focused, atomic endpoints mirroring the completed-note pattern — each
-     enforces the turn/permission rule and the gated-deletion / checked-stale
-     invariants server-side. DELETE is gated (adder-only, own turn, still a
-     fresh draft — see canDeleteChecklistItem). submit / approve / bounce-back
-     ride the existing /transition endpoint (the pass counter bumps there, and
-     each hand-off commits existing items against further deletion). */
+     enforces its permission rule and the gated-deletion / checked-stale
+     invariants server-side. DELETE is gated (adder-only, still a fresh draft —
+     see canDeleteChecklistItem; no turn clause). submit / approve /
+     bounce-back ride the existing /transition endpoint (the pass counter bumps
+     there, and each hand-off commits existing items against further
+     deletion). */
   router.post("/tasks/:taskId/checklist/items", async (req, res) => {
     try {
       const { text } = checklistItemTextSchema.parse(req.body);

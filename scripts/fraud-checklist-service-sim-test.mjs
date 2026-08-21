@@ -5,14 +5,18 @@
  * Drives the real TaskService against a real (temp-file) TaskStore with a mock
  * notifier and asserts the SERVER-enforced invariants the client can't be
  * trusted with:
- *   - Turn permissions: checker builds in CLAIMED; creator resolves/notes/adds
- *     in AWAITING_ITEMS; checker edits/rechecks in PENDING_APPROVAL. Wrong
- *     role/turn is rejected.
+ *   - The two permission rules (#146): recording reality — tick, add, your own
+ *     note — is open to BOTH seats at every live status; changing what's being
+ *     asked — retext, delete — is limited to your own not-yet-handed-off item,
+ *     with the checker's re-ask of a committed item as the one exception.
+ *     Holding no seat is rejected everywhere, and closed means frozen.
  *   - addedBy is derived from the actor's real seat (creator-added items are
  *     flagged), not trusted from the client.
- *   - Gated deletion (#66): the adding seat can delete a fresh item on its own
- *     turn; deletion is rejected once the item is handed off (committed), for
- *     the other seat's items, for outsiders, and on non-FRAUD / closed tasks.
+ *   - Gated deletion (#66): the adding seat can delete a fresh item, off-turn
+ *     included; deletion is rejected once the item is handed off (committed),
+ *     for the other seat's items, for outsiders, and on non-FRAUD / closed
+ *     tasks. The hand-offs that commit are the send, the submit, the bounce and
+ *     the checker's reopen — never the claim.
  *   - Checked/stale: a checker editing a checked item's text clears the check
  *     and marks it stale (server round-trip), and it can be re-checked.
  *   - Approval gate: the checker approves (PENDING_APPROVAL → COMPLETED);
@@ -89,13 +93,92 @@ await check("checker adds items in CLAIMED; flagged addedBy=checker on pass 1", 
   assert.equal(t.checklist[0].addedOnPass, 1);
 });
 
-await check("creator cannot add items during the checker's CLAIMED pass", async () => {
+/* This used to assert the requester was REFUSED here (#146 reverses it). A
+   document that turns up while the checker is still building their list is a
+   fact about the world, and there was nowhere to put it: the old per-status
+   table let nobody tick in CLAIMED, not even the checker. */
+await check("the requester records reality during the checker's CLAIMED pass", async () => {
   const { service } = await setup();
   const id = await claimedFraud(service);
-  await assert.rejects(() => service.addChecklistItem(id, "sneak in", CREATOR), /can't change the checklist/i);
+  const withItem = await service.addChecklistItem(id, "W-2", CHECKER);
+  const itemId = withItem.checklist[0].id;
+
+  const ticked = await service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR);
+  assert.equal(ticked.checklist[0].checked, true, "the requester ticks the item they just collected");
+  assert.equal(ticked.status, "CLAIMED", "and it never passes the ball");
+
+  const added = await service.addChecklistItem(id, "HOA statement", CREATOR);
+  const mine = added.checklist.find((i) => i.text === "HOA statement");
+  assert.equal(mine.addedBy, "creator", "added off-turn, and still flagged as theirs");
+
+  const noted = await service.setChecklistItemNote(id, itemId, "already in the file", CREATOR);
+  assert.equal(noted.checklist[0].note, "already in the file");
 });
 
-await check("adder deletes their OWN fresh item on their turn; records one CHECKLIST_UPDATED event", async () => {
+await check("the checker ticks during their own initial pass too", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "Photo ID", CHECKER);
+  const itemId = withItem.checklist[0].id;
+  const ticked = await service.setChecklistItemChecked(id, itemId, true, undefined, CHECKER);
+  assert.equal(ticked.checklist[0].checked, true, "recording what's already in hand while building the list");
+});
+
+await check("neither seat can write in the other's name", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "Bank statement", CHECKER);
+  const itemId = withItem.checklist[0].id;
+  await assert.rejects(() => service.setChecklistItemNote(id, itemId, "not mine to write", CHECKER), /can't change the checklist/i);
+  await assert.rejects(() => service.setChecklistItemCheckerNote(id, itemId, "nor mine", CREATOR), /can't change the checklist/i);
+});
+
+await check("retexting reaches your own uncommitted item and, for the checker, a committed one", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const seeded = await service.addChecklistItem(id, "checker's ask", CHECKER);
+  const checkerItemId = seeded.checklist[0].id;
+  await assert.rejects(
+    () => service.editChecklistItemText(id, checkerItemId, "reworded", CREATOR),
+    /can't change this item's text/i,
+    "dropping a requirement is a visible tick-and-note, never a quiet rewrite"
+  );
+
+  const added = await service.addChecklistItem(id, "my own follow-up", CREATOR);
+  const mineId = added.checklist.find((i) => i.text === "my own follow-up").id;
+  const fixed = await service.editChecklistItemText(id, mineId, "my own follow-up (2023)", CREATOR);
+  assert.equal(fixed.checklist.find((i) => i.id === mineId).text, "my own follow-up (2023)", "their own draft is theirs to fix");
+
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  await assert.rejects(() => service.editChecklistItemText(id, mineId, "too late", CREATOR), /can't change this item's text/i);
+  // The checker's re-ask reaches it now that it has been handed over — and
+  // unchecks + stales it, so no check keeps vouching for changed wording.
+  const reasked = await service.editChecklistItemText(id, mineId, "my own follow-up (both years)", CHECKER);
+  assert.equal(reasked.checklist.find((i) => i.id === mineId).text, "my own follow-up (both years)");
+});
+
+await check("a tick lands the note in the ticking seat's own field, and fires no notification", async () => {
+  const { service, events } = await setup();
+  const id = await claimedFraud(service);
+  const withItem = await service.addChecklistItem(id, "Bank statement", CHECKER);
+  const itemId = withItem.checklist[0].id;
+
+  const before = events.length;
+  const byRequester = await service.setChecklistItemChecked(id, itemId, true, "already in the file", CREATOR);
+  assert.equal(byRequester.checklist[0].note, "already in the file", "the requester's exception note");
+  assert.equal(byRequester.checklist[0].checkerNote, undefined, "and not a word under the checker's name");
+
+  // The client picks an endpoint, never a field: a checker ticking with a note
+  // writes their OWN note however they got here.
+  const byChecker = await service.setChecklistItemChecked(id, itemId, false, "still need June", CHECKER);
+  assert.equal(byChecker.checklist[0].checkerNote, "still need June", "the checker's rework note");
+  assert.equal(byChecker.checklist[0].note, "already in the file", "the requester's note is untouched");
+
+  await service.settleBackgroundWork();
+  assert.equal(events.length, before, "a DM per checkbox is how a bot gets muted");
+});
+
+await check("adder deletes their OWN fresh item; records one CHECKLIST_UPDATED event", async () => {
   const { service, store } = await setup();
   const id = await claimedFraud(service);
   const withItem = await service.addChecklistItem(id, "oops typo item", CHECKER);
@@ -129,7 +212,7 @@ await check("deletion is rejected for the OTHER seat's item (creator can't delet
   await assert.rejects(() => service.removeChecklistItem(id, checkerItemId, CREATOR), /can't delete this checklist item/i);
 });
 
-await check("a creator CAN delete their own fresh item during AWAITING_ITEMS, but not after submit", async () => {
+await check("a creator CAN delete their own fresh item, but not after submit", async () => {
   const { service } = await setup();
   const id = await claimedFraud(service);
   await service.addChecklistItem(id, "seed", CHECKER);
@@ -159,6 +242,57 @@ await check("deletion is rejected for outsiders and on non-FRAUD / closed tasks"
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   await service.transitionStatus(id, "COMPLETED", CHECKER);
   await assert.rejects(() => service.removeChecklistItem(id, itemId, CHECKER), /can't delete this checklist item/i);
+});
+
+await check("the checker's Awaiting Items -> Claimed reopen commits the drafts", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  await service.addChecklistItem(id, "first ask", CHECKER);
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  // The requester adds something mid-turn; it is still their draft.
+  const added = await service.addChecklistItem(id, "requester's late add", CREATOR);
+  const lateId = added.checklist.find((i) => i.text === "requester's late add").id;
+  // The checker takes the list back off them — a hand-off, so everything locks.
+  await service.transitionStatus(id, "CLAIMED", CHECKER);
+  await assert.rejects(() => service.removeChecklistItem(id, lateId, CREATOR), /can't delete this checklist item/i);
+});
+
+await check("a claim does NOT commit: seeded items survive it and stay the requester's", async () => {
+  const { service } = await setup();
+  const task = await service.createTask(
+    { folderName: "Seeded", taskType: "FRAUD", notes: "context", initialItems: [{ text: "survives the claim" }] },
+    CREATOR
+  );
+  const seedId = task.checklist[0].id;
+  await service.claimTask(task.id, CHECKER);
+  const afterClaim = await service.getTask(task.id);
+  assert.equal(afterClaim.checklist.length, 1, "the seed survives the claim");
+  assert.equal(afterClaim.checklist[0].draft, true, "and is still a draft — nobody has looked at it yet");
+  const afterDel = await service.removeChecklistItem(task.id, seedId, CREATOR);
+  assert.equal(afterDel.checklist.length, 0, "so the requester can still manage it");
+});
+
+await check("closed means frozen: every checklist op is refused", async () => {
+  for (const closer of ["COMPLETED", "CANCELLED"]) {
+    const { service } = await setup();
+    const id = await claimedFraud(service);
+    const withItem = await service.addChecklistItem(id, "leave me open", CHECKER);
+    const itemId = withItem.checklist[0].id;
+    await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+    await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+    if (closer === "COMPLETED") {
+      await service.transitionStatus(id, "COMPLETED", CHECKER);
+    } else {
+      await service.transitionStatus(id, "CANCELLED", CREATOR);
+    }
+    const closed = await service.getTask(id);
+    assert.equal(closed.checklist[0].checked, false, `${closer} keeps the unresolved item unresolved`);
+    await assert.rejects(() => service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR), /can't change the checklist/i, `${closer}: no ticking`);
+    await assert.rejects(() => service.addChecklistItem(id, "one more", CHECKER), /can't change the checklist/i, `${closer}: no adding`);
+    await assert.rejects(() => service.setChecklistItemNote(id, itemId, "after the fact", CREATOR), /can't change the checklist/i, `${closer}: no notes`);
+    await assert.rejects(() => service.editChecklistItemText(id, itemId, "reworded", CHECKER), /can't change this item's text/i, `${closer}: no retexting`);
+    await assert.rejects(() => service.removeChecklistItem(id, itemId, CHECKER), /can't delete this checklist item/i, `${closer}: no deleting`);
+  }
 });
 
 await check("deleting a missing item id is rejected (not found)", async () => {
@@ -339,9 +473,14 @@ await check("outsiders can't touch the checklist in any phase", async () => {
   const id = await claimedFraud(service);
   const withItem = await service.addChecklistItem(id, "x", CHECKER);
   const itemId = withItem.checklist[0].id;
-  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
-  await assert.rejects(() => service.setChecklistItemChecked(id, itemId, true, undefined, OUTSIDER), /can't change the checklist/i);
-  await assert.rejects(() => service.addChecklistItem(id, "y", OUTSIDER), /can't change the checklist/i);
+  for (const phase of ["CLAIMED", "AWAITING_ITEMS"]) {
+    if (phase === "AWAITING_ITEMS") {
+      await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+    }
+    await assert.rejects(() => service.setChecklistItemChecked(id, itemId, true, undefined, OUTSIDER), /can't change the checklist/i, `${phase}: no ticking`);
+    await assert.rejects(() => service.addChecklistItem(id, "y", OUTSIDER), /can't change the checklist/i, `${phase}: no adding`);
+    await assert.rejects(() => service.editChecklistItemText(id, itemId, "z", OUTSIDER), /can't change this item's text/i, `${phase}: no retexting`);
+  }
 });
 
 console.log(`\nAll ${passed} FRAUD checklist service checks passed.`);

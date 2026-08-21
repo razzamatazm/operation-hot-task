@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -873,13 +873,17 @@ const AssignPopover = ({
 
 /* ── Fraud outstanding-items checklist (#44) ──────────────────
    The structured handoff that replaces the old free-text outstanding-items
-   surface on FRAUD checks. The checker builds the list, the creator resolves
+   surface on FRAUD checks. The checker builds the list, the requester resolves
    it (tick = collected OR not-needed, with an optional note), the checker
-   reviews and approves or bounces. Items are never deleted — an item leaves
-   consideration only by being checked off. Stable add-order (#96); checking
-   an item off never moves it. Every affordance is gated by the shared
-   canEditChecklist so the UI matches
-   the server's turn rules; the server is still the authority. */
+   reviews and approves or bounces. Stable add-order (#96); checking an item
+   off never moves it.
+
+   Two rules gate every affordance, both from shared so the UI can't drift from
+   the server (which is still the authority): recording reality — tick, add,
+   your own note — is open to both seats at any live status
+   (`canEditChecklist`), while changing what's being asked — retext, delete —
+   is scoped to the specific item (`canEditChecklistItemText`,
+   `canDeleteChecklistItem`). */
 export interface ChecklistApi {
   addItem: (taskId: string, text: string) => Promise<void>;
   editText: (taskId: string, itemId: string, text: string) => Promise<void>;
@@ -945,7 +949,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
 
   const canAdd = canEditChecklist(task, user, "add");
   const canToggle = canEditChecklist(task, user, "toggle");
-  const canEditText = canEditChecklist(task, user, "editText");
   const canCreatorNote = canEditChecklist(task, user, "creatorNote");
   const canCheckerNote = canEditChecklist(task, user, "checkerNote");
 
@@ -985,6 +988,10 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
         <ul className="checklist-items">
           {sorted.map((item) => {
             const editingText = active?.id === item.id && active.kind === "text";
+            /* Per item, not per status: your own not-yet-handed-off item is
+               yours to retype, and the checker may re-ask a committed one
+               (which uncheck+stales it). */
+            const canEditText = canEditChecklistItemText(task, user, item);
             const editingNote = active?.id === item.id && active.kind === "note";
             const editingCheckerNote = active?.id === item.id && active.kind === "checkerNote";
             return (

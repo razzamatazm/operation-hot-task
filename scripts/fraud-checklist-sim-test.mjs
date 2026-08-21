@@ -4,15 +4,18 @@
  *
  * Exercises the PURE checklist core in packages/shared/checklist.ts — the
  * data-model invariants the whole feature rides on:
- *   - Gated deletion (#66): the adding seat can delete a fresh (draft) item on
- *     its own turn; it locks once handed off (committed), and the other seat's
- *     items are never deletable.
+ *   - Gated deletion (#66): the adding seat can delete a fresh (draft) item at
+ *     any live status; it locks once handed off (committed), and the other
+ *     seat's items are never deletable.
  *   - Checked/stale: editing a CHECKED item's text auto-clears the check and
  *     marks it stale; re-checking a stale item clears stale.
  *   - Ordering: unresolved (unchecked) items float to the top, checked settle
  *     below, stable (add-order) within each group.
  *   - Purity: every op returns a new array and never mutates the input.
- *   - Turn permissions: canEditChecklist enforces who-can-do-what by status.
+ *   - The two permission rules (#146): recording reality (toggle / add / your
+ *     own note) is open to both seats at every live status; changing what's
+ *     being asked (retext / delete) is scoped to your own uncommitted item,
+ *     with the checker's re-ask of a committed item as the one exception.
  *
  * Mirrors the assertion style of fraud-two-phase-sim-test.mjs (no server/store —
  * every rule under test lives in checklist.ts).
@@ -24,6 +27,7 @@ import {
   allChecklistResolved,
   canDeleteChecklistItem,
   canEditChecklist,
+  canEditChecklistItemText,
   checklistSeat,
   commitChecklistItems,
   editChecklistItemText,
@@ -91,21 +95,22 @@ check("commitChecklistItems clears every draft flag and doesn't mutate the input
   assert.equal(before[0].draft, true, "input untouched (purity)");
 });
 
-check("adder can delete their OWN fresh draft on their active turn", () => {
-  // Checker in CLAIMED (their build turn) deletes a checker-added draft.
+check("the adder can delete their OWN fresh draft, at every live status", () => {
+  // No turn clause any more (#146): either seat may add off-turn, so gating
+  // clean-up on whose turn it is would trap the adder with an item they could
+  // never remove.
+  for (const status of ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"]) {
+    const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
+    if (status !== "OPEN") {
+      assert.ok(canDeleteChecklistItem(t, CHECKER, item({ id: "a", addedBy: "checker", draft: true })), `checker deletes own draft in ${status}`);
+    }
+    assert.ok(canDeleteChecklistItem(t, CREATOR, item({ id: "b", addedBy: "creator", draft: true })), `requester deletes own draft in ${status}`);
+  }
   const claimed = makeFraudTask({ status: "CLAIMED" });
-  const draftItem = item({ id: "a", addedBy: "checker", draft: true });
-  assert.ok(canDeleteChecklistItem(claimed, CHECKER, draftItem), "checker deletes own draft in CLAIMED");
   assert.ok(!canDeleteChecklistItem(claimed, ADMIN, item({ id: "a", addedBy: "checker", draft: true })), "an admin who is neither party holds no seat, so no delete");
-  // Creator in AWAITING_ITEMS (their turn) deletes a creator-added draft.
-  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
-  assert.ok(canDeleteChecklistItem(awaiting, CREATOR, item({ id: "b", addedBy: "creator", draft: true })), "creator deletes own draft in AWAITING_ITEMS");
-  // Checker in PENDING_APPROVAL (their review turn) deletes a checker-added draft.
-  const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
-  assert.ok(canDeleteChecklistItem(pending, CHECKER, item({ id: "c", addedBy: "checker", draft: true })), "checker deletes own draft in PENDING_APPROVAL");
 });
 
-check("a COMMITTED (handed-off) item is never deletable, even by its adder on their turn", () => {
+check("a COMMITTED (handed-off) item is never deletable, even by its adder", () => {
   const claimed = makeFraudTask({ status: "CLAIMED" });
   const committed = item({ id: "a", addedBy: "checker" }); // no draft flag = committed
   assert.ok(!canDeleteChecklistItem(claimed, CHECKER, committed), "committed checker item locked in CLAIMED");
@@ -121,22 +126,43 @@ check("the OTHER seat's items are never deletable (check off with a note instead
   assert.ok(!canDeleteChecklistItem(claimed, CREATOR, item({ id: "b", addedBy: "checker", draft: true })), "creator can't delete checker's item");
 });
 
-check("deletion is rejected when it's NOT the adder's active turn", () => {
-  // Checker added a draft but it's the creator's AWAITING_ITEMS turn now.
-  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
-  assert.ok(!canDeleteChecklistItem(awaiting, CHECKER, item({ id: "a", addedBy: "checker", draft: true })), "checker can't delete off-turn (AWAITING_ITEMS)");
-  // Creator can't delete during the checker's CLAIMED / PENDING_APPROVAL turns.
-  const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
-  assert.ok(!canDeleteChecklistItem(pending, CREATOR, item({ id: "b", addedBy: "creator", draft: true })), "creator can't delete off-turn (PENDING_APPROVAL)");
-});
-
 check("outsiders can never delete; non-FRAUD / closed tasks allow no deletion", () => {
   const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.ok(!canDeleteChecklistItem(awaiting, OUTSIDER, item({ id: "a", addedBy: "creator", draft: true })), "outsider blocked");
   const value = makeFraudTask({ taskType: "VALUE", status: "CLAIMED" });
   assert.ok(!canDeleteChecklistItem(value, CHECKER, item({ id: "b", addedBy: "checker", draft: true })), "non-FRAUD blocked");
+  for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    const done = makeFraudTask({ status });
+    assert.ok(!canDeleteChecklistItem(done, CHECKER, item({ id: "c", addedBy: "checker", draft: true })), `${status} freezes the list`);
+  }
+});
+
+// --- rule two, for text ----------------------------------------------------
+check("you can retext your OWN uncommitted item, at every live status", () => {
+  for (const status of ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"]) {
+    const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
+    assert.ok(canEditChecklistItemText(t, CREATOR, item({ id: "a", addedBy: "creator", draft: true })), `requester fixes their own typo in ${status}`);
+  }
+});
+
+check("the requester can never retext the checker's item, committed or not", () => {
+  const awaiting = makeFraudTask({ status: "AWAITING_ITEMS" });
+  assert.ok(!canEditChecklistItemText(awaiting, CREATOR, item({ id: "a", addedBy: "checker", draft: true })), "not a fresh one");
+  assert.ok(!canEditChecklistItemText(awaiting, CREATOR, item({ id: "b", addedBy: "checker" })), "and not a committed one");
+  assert.ok(!canEditChecklistItemText(awaiting, CREATOR, item({ id: "c", addedBy: "creator" })), "nor their own once it's been handed over");
+});
+
+check("the checker may re-ask a COMMITTED item — the one power beyond clean-up", () => {
+  const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
+  assert.ok(canEditChecklistItemText(pending, CHECKER, item({ id: "a", addedBy: "checker" })), "checker retexts a committed item (uncheck+stale)");
+  assert.ok(canEditChecklistItemText(pending, CHECKER, item({ id: "b", addedBy: "creator" })), "including one the requester added, once it's committed");
+  // Narrow on purpose: a re-ask applies to what has actually been asked. An
+  // uncommitted item of the requester's is a list nobody has been handed yet.
+  const claimed = makeFraudTask({ status: "CLAIMED" });
+  assert.ok(!canEditChecklistItemText(claimed, CHECKER, item({ id: "c", addedBy: "creator", draft: true })), "but not the requester's still-uncommitted draft");
   const done = makeFraudTask({ status: "COMPLETED" });
-  assert.ok(!canDeleteChecklistItem(done, CHECKER, item({ id: "c", addedBy: "checker", draft: true })), "closed task blocked");
+  assert.ok(!canEditChecklistItemText(done, CHECKER, item({ id: "d", addedBy: "checker" })), "and never on a closed task");
+  assert.ok(!canEditChecklistItemText(pending, ADMIN, item({ id: "e", addedBy: "checker" })), "nor for an admin, who holds no seat");
 });
 
 // --- checked / stale invariant ---------------------------------------------
@@ -162,6 +188,16 @@ check("re-checking a stale item clears the stale flag (re-verified)", () => {
   const after = setChecklistItemChecked(items, "a", true);
   assert.equal(after[0].checked, true);
   assert.ok(!after[0].stale, "stale cleared on re-check");
+});
+
+check("a tick records the note in the ticking SEAT's field, never the other's", () => {
+  const items = [item({ id: "a" })];
+  const byRequester = setChecklistItemChecked(items, "a", true, "already in the file", "creator");
+  assert.equal(byRequester[0].note, "already in the file", "the requester's exception note");
+  assert.equal(byRequester[0].checkerNote, undefined);
+  const byChecker = setChecklistItemChecked(items, "a", true, "saw it myself", "checker");
+  assert.equal(byChecker[0].checkerNote, "saw it myself", "the checker's own note");
+  assert.equal(byChecker[0].note, undefined, "and never a word in the requester's name");
 });
 
 check("toggle can record the creator note in one gesture", () => {
@@ -200,50 +236,48 @@ check("unresolvedCount / allChecklistResolved reflect the checked states", () =>
   assert.equal(allChecklistResolved([]), true, "empty list is fully resolved");
 });
 
-// --- turn permissions ------------------------------------------------------
-check("OPEN (pre-claim, #69): creator seeds/manages their own draft list; outsider cannot", () => {
-  // Pre-claim there is no assignee — the creator is the only active seat.
-  const t = makeFraudTask({ status: "OPEN", assignee: undefined });
-  assert.ok(canEditChecklist(t, CREATOR, "add"));
-  assert.ok(canEditChecklist(t, CREATOR, "editText"), "creator may fix their own seed text pre-claim");
-  assert.ok(canEditChecklist(t, CREATOR, "toggle"));
-  assert.ok(canEditChecklist(t, CREATOR, "creatorNote"));
-  assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
-  // Gated deletion: creator may delete their own fresh seeded draft on their
-  // OPEN turn; a committed (handed-off) creator item is locked even in OPEN.
-  assert.ok(canDeleteChecklistItem(t, CREATOR, item({ id: "a", addedBy: "creator", draft: true })), "creator deletes own OPEN draft");
-  assert.ok(!canDeleteChecklistItem(t, CREATOR, item({ id: "b", addedBy: "creator" })), "committed creator item locked in OPEN");
-  assert.ok(!canDeleteChecklistItem(t, OUTSIDER, item({ id: "c", addedBy: "creator", draft: true })), "outsider blocked in OPEN");
+// --- rule one: recording reality is always open ----------------------------
+const LIVE_STATUSES = ["OPEN", "CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"];
+
+check("both seats can tick and add at EVERY live status", () => {
+  // The case that broke the old per-status table: in CLAIMED nobody could tick,
+  // so a requester who collected a document during the checker's initial pass
+  // had nowhere to record it.
+  for (const status of LIVE_STATUSES) {
+    const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
+    assert.ok(canEditChecklist(t, CREATOR, "toggle"), `requester ticks in ${status}`);
+    assert.ok(canEditChecklist(t, CREATOR, "add"), `requester adds in ${status}`);
+    if (status === "OPEN") {
+      // No assignee yet, so there is no checker seat to hold — that falls out
+      // of the seat function, not a status rule.
+      assert.ok(!canEditChecklist(t, CHECKER, "toggle"), "no checker seat exists pre-claim");
+    } else {
+      assert.ok(canEditChecklist(t, CHECKER, "toggle"), `checker ticks in ${status}`);
+      assert.ok(canEditChecklist(t, CHECKER, "add"), `checker adds in ${status}`);
+    }
+  }
 });
 
-check("CLAIMED (initial pass): checker builds; creator/outsider cannot", () => {
-  const t = makeFraudTask({ status: "CLAIMED" });
-  assert.ok(canEditChecklist(t, CHECKER, "add"));
-  assert.ok(canEditChecklist(t, CHECKER, "editText"));
-  assert.ok(!canEditChecklist(t, ADMIN, "add"), "ADMIN grants back-end access, not a seat");
-  assert.ok(!canEditChecklist(t, CREATOR, "add"));
-  assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
+check("each seat writes its OWN note field and never the other's", () => {
+  for (const status of LIVE_STATUSES) {
+    const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
+    assert.ok(canEditChecklist(t, CREATOR, "creatorNote"), `requester's exception note in ${status}`);
+    assert.ok(!canEditChecklist(t, CREATOR, "checkerNote"), `requester can't write in the checker's name in ${status}`);
+    if (status !== "OPEN") {
+      assert.ok(canEditChecklist(t, CHECKER, "checkerNote"), `checker's rework note in ${status}`);
+      assert.ok(!canEditChecklist(t, CHECKER, "creatorNote"), `checker can't write in the requester's name in ${status}`);
+    }
+  }
 });
 
-check("AWAITING_ITEMS (creator's turn): creator resolves/notes/adds/submits; checker may add + checkerNote + toggle (#95)", () => {
-  const t = makeFraudTask({ status: "AWAITING_ITEMS" });
-  assert.ok(canEditChecklist(t, CREATOR, "toggle"));
-  assert.ok(canEditChecklist(t, CREATOR, "creatorNote"));
-  assert.ok(canEditChecklist(t, CREATOR, "add"));
-  assert.ok(canEditChecklist(t, CHECKER, "add"));
-  assert.ok(canEditChecklist(t, CHECKER, "checkerNote"));
-  assert.ok(canEditChecklist(t, CHECKER, "toggle"), "checker can resolve items on the creator's turn (#95)");
-  assert.ok(!canEditChecklist(t, CREATOR, "editText"), "creator can't rewrite item text (that's the checker's op, and it clears the check)");
-  assert.ok(!canEditChecklist(t, OUTSIDER, "add"));
-});
-
-check("PENDING_APPROVAL (checker's turn): checker edits/adds/rechecks/notes; creator cannot mutate", () => {
-  const t = makeFraudTask({ status: "PENDING_APPROVAL" });
-  assert.ok(canEditChecklist(t, CHECKER, "editText"));
-  assert.ok(canEditChecklist(t, CHECKER, "toggle"));
-  assert.ok(canEditChecklist(t, CHECKER, "checkerNote"));
-  assert.ok(!canEditChecklist(t, CREATOR, "toggle"));
-  assert.ok(!canEditChecklist(t, CREATOR, "add"));
+check("holding no seat means no checklist ops at all", () => {
+  for (const status of LIVE_STATUSES) {
+    const t = makeFraudTask({ status, ...(status === "OPEN" ? { assignee: undefined } : {}) });
+    assert.ok(!canEditChecklist(t, OUTSIDER, "add"), `outsider blocked in ${status}`);
+    assert.ok(!canEditChecklist(t, OUTSIDER, "toggle"), `outsider can't tick in ${status}`);
+    assert.ok(!canEditChecklist(t, ADMIN, "add"), "ADMIN grants back-end access, not a seat");
+    assert.ok(!canEditChecklist(t, ADMIN, "toggle"), "still not a seat");
+  }
 });
 
 check("checklistSeat derives addedBy from the actor's real seat", () => {
@@ -259,12 +293,18 @@ check("checklistSeat derives addedBy from the actor's real seat", () => {
   assert.ok(!canEditChecklist(makeFraudTask({ status: "CLAIMED" }), demoted, "add"), "and with it, the checklist");
 });
 
-check("no checklist edits on non-FRAUD or closed tasks", () => {
+check("no checklist edits on non-FRAUD tasks; closed means frozen", () => {
   const value = makeFraudTask({ taskType: "VALUE", status: "CLAIMED", assignee: { id: OUTSIDER.id, displayName: OUTSIDER.displayName } });
   assert.ok(!canEditChecklist(value, OUTSIDER, "add"));
-  const done = makeFraudTask({ status: "COMPLETED" });
-  assert.ok(!canEditChecklist(done, CHECKER, "add"));
-  assert.ok(!canEditChecklist(done, CREATOR, "toggle"));
+  // An approve-with-exceptions leaves unresolved items unresolved forever —
+  // that is the accurate record of what was true at approval.
+  for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    const done = makeFraudTask({ status });
+    for (const op of ["add", "toggle", "creatorNote", "checkerNote"]) {
+      assert.ok(!canEditChecklist(done, CHECKER, op), `${status} refuses ${op} from the checker`);
+      assert.ok(!canEditChecklist(done, CREATOR, op), `${status} refuses ${op} from the requester`);
+    }
+  }
 });
 
 console.log(`\nAll ${passed} FRAUD checklist shared-model checks passed.`);

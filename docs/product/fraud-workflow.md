@@ -95,11 +95,13 @@ Rules:
 - **Creator seeds at creation (#69).** On a FRAUD create the requester may
   seed the checklist with outstanding items they already know about
   (`CreateTaskInput.initialItems: { text }[]`). They persist as creator-added
-  draft items on pass 0. While the task is `Open` (pre-claim) the creator is
-  the active editing seat, so gated deletion lets them manage their own
-  seeds until a checker claims and the first "Send Items" commits them.
-- **Turn permissions** (server-enforced via `canEditChecklist`) reduce to two
-  rules, replacing the old per-status table:
+  draft items on pass 0. They stay the requester's to manage — delete, retext —
+  until the first "Send Items" commits them; the claim in between does not,
+  since nobody has read the list yet.
+- **Permissions** reduce to two rules, replacing the old per-status table.
+  Rule 1 is seat-wide (`canEditChecklist`); rule 2 depends on *which* item, so
+  it has its own predicates (`canEditChecklistItemText`,
+  `canDeleteChecklistItem`). All three are server-enforced:
   1. **Recording reality is always open.** At any *live* status (`Open`,
      `Claimed`, `Awaiting Items`, `Pending Approval`) **both seats** may
      **toggle** any item, **add** an item, and write **their own** note
