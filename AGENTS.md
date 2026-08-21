@@ -13,7 +13,10 @@ API/scheduler/bot), `packages/shared` (workflow logic + types), `teams-app`
 - `npm run build` — production-style build
 - `npm run lint` — typecheck (`tsc --noEmit`); there is no ESLint
 - `npm run test:all` — full sim/smoke suite (individual `test:*` scripts in
-  the root `package.json`)
+  the root `package.json`). The sim tests import compiled `dist`, so this
+  rebuilds `shared` and `server` first (`npm run build:sim`). An individual
+  `test:*` doesn't rebuild — it refuses to run against a stale build instead,
+  and tells you to build.
 
 First run needs `cp apps/server/.env.example apps/server/.env` and the same
 for `apps/web`.
