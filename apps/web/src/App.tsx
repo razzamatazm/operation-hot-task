@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -68,8 +68,6 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
 
   return data as T;
 };
-
-const canUnclaim = (task: LoanTask, user: UserIdentity): boolean => task.status === "CLAIMED" && (task.assignee?.id === user.id || user.roles.includes("ADMIN"));
 
 const formatDate = (iso: string): string => {
   const d = new Date(iso);
@@ -1265,10 +1263,11 @@ const TaskCard = memo(({
   }, [menuOpen, closeMenu, menuPanelRef]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
-  /* Who may attach a review note: the task's creator, its assignee, or an admin.
-     Mirrors the server's canAddNote so UI and API agree; reused by the active
-     composer (canPostNote) and the completed-card "Add a note" gate (#45). */
-  const canNoteTask = isCreator || isAssignee || user.roles.includes("ADMIN");
+  /* Who may attach a review note. The shared predicate, not a local copy of the
+     rule — the server gates on the same one, so the composer and the API can't
+     drift. Reused by the active composer (canPostNote) and the completed-card
+     "Add a note" gate (#45). */
+  const canNoteTask = canAddNoteToTask(task, user);
   /* Latest note from the OTHER party — drives unread/force-open behavior. */
   const latestOtherNoteAt = useMemo(
     () => latestNoteFromOther(task, user.id),
@@ -1521,10 +1520,10 @@ const TaskCard = memo(({
           which is the same thing the Assigner/Assignee columns already tell
           an observer, and the slot is otherwise dead space on exactly the
           statuses where the row has the least to say.
-       2. Cancel — you created it and it's still cancellable. Deliberately the
-          *creator* condition, not the shared canCancelTask (which also allows
-          admins): a destructive action must not appear in an admin's row for
-          a task they don't own. Admins still get Cancel in the hamburger.
+       2. Cancel — you created it and it's still cancellable. The creator
+          condition and the shared canCancelTask now say the same thing: since
+          ADR-0003 stripped the admin branch, cancelling is the creator's move
+          and nobody else's, on this row or in the hamburger.
        3. The reserved spacer — observers and anyone else with no standing.
 
      Mini (closed) rows get none of it; they have no action column. */
@@ -1680,7 +1679,7 @@ const TaskCard = memo(({
           Cancel Task
         </button>
       )}
-      {canUnclaim(task, user) && (
+      {canUnclaimTask(task, user) && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
           Unclaim
         </button>
@@ -1695,8 +1694,8 @@ const TaskCard = memo(({
           the assignee's hands is the rarer, backwards step, so it stays in
           the menu — same shape and placement as `Undo Merge Done` below.
           Gated by the shared canMoveNeedsReview, so whoever may complete it
-          may also hand it back: creator, assignee (retracting their own
-          submission) or admin, matching the server. */}
+          may also hand it back: creator or assignee (retracting their own
+          submission), matching the server. */}
       {task.status === "NEEDS_REVIEW" && canMoveNeedsReview(task, user) && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
           {ACTION_LABELS.UNDO_REVIEW}
@@ -1742,7 +1741,7 @@ const TaskCard = memo(({
       )}
       {/* A reopened task remembers the closed status it came from.
           "Restore" sends it straight back there (COMPLETED or ARCHIVED),
-          available to whoever reopened it — creator, assignee, or admin —
+          available to whoever reopened it — creator or assignee —
           so a creator-only reopen doesn't need the assignee to close it
           out. Gated by the shared canRestoreTask so UI and API agree. */}
       {restoreTarget && canRestoreTask(task, user) && (

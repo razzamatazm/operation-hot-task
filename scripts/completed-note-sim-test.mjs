@@ -12,7 +12,7 @@
  *     correct).
  *   - Exactly one history event is recorded (a single "note added", not a
  *     noisy reopen+complete pair).
- *   - Works for ALL task types (not just FRAUD) and for creator/assignee/admin.
+ *   - Works for ALL task types (not just FRAUD), for the creator and assignee.
  *   - Rejected for a non-participant, and rejected on a non-COMPLETED task.
  */
 import assert from "node:assert/strict";
@@ -107,17 +107,18 @@ await check("records exactly one history event (a single note-added, no reopen p
   assert.equal(added.action, "REVIEW_NOTE_ADDED", "the single event is a note-added, not a status change");
 });
 
-await check("works for every task type, and for creator, assignee, and admin", async () => {
+await check("works for every task type, for both parties — and nobody else", async () => {
   for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "LOAN_DOCS", "OOO"]) {
     const { service } = await setup();
     const id = await createCompleted(service, taskType);
     const a = await service.addCompletedNote(id, "from creator", CREATOR);
     const b = await service.addCompletedNote(id, "from assignee", ASSIGNEE);
-    const c = await service.addCompletedNote(id, "from admin", ADMIN);
     assert.equal(a.status, "COMPLETED");
     assert.equal(b.status, "COMPLETED");
-    assert.equal(c.status, "COMPLETED");
-    assert.equal((c.reviewNotes ?? []).length, 3, `three notes recorded for ${taskType}`);
+    assert.equal((b.reviewNotes ?? []).length, 2, `two notes recorded for ${taskType}`);
+    // ADR-0003: the thread is a conversation between the two people on the
+    // task, so an admin who is neither is not in it. This used to pass.
+    await assert.rejects(() => service.addCompletedNote(id, "from admin", ADMIN), /creator or assignee/i);
   }
 });
 
@@ -126,7 +127,7 @@ await check("rejects a non-participant", async () => {
   const id = await createCompleted(service);
   await assert.rejects(
     () => service.addCompletedNote(id, "let me in", OUTSIDER),
-    /creator, assignee, or admin/i
+    /creator or assignee/i
   );
 });
 

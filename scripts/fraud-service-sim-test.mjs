@@ -187,7 +187,7 @@ await check("release unassigns in place; a different checker claims (status kept
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
 
   // Assignee alone cannot self-release.
-  await assert.rejects(() => service.releaseForAnyChecker(id, CHECKER), /creator or an admin/i);
+  await assert.rejects(() => service.releaseForAnyChecker(id, CHECKER), /only the task creator/i);
 
   const released = await service.releaseForAnyChecker(id, CREATOR);
   assert.equal(released.status, "PENDING_APPROVAL", "status stays PENDING_APPROVAL after release");
@@ -201,12 +201,14 @@ await check("release unassigns in place; a different checker claims (status kept
   const approved = await service.transitionStatus(id, "COMPLETED", CHECKER_2);
   assert.equal(approved.status, "COMPLETED", "new checker approves straight to COMPLETED");
 
-  // Admin can also release (covered here for the non-creator admin path).
+  // ADR-0003: releasing somebody else's fraud check is not a back-end power.
+  // This used to assert the admin path succeeded.
   const id2 = await createClaimedFraud(service);
   await service.transitionStatus(id2, "AWAITING_ITEMS", CHECKER, "Need W-2");
   await service.transitionStatus(id2, "PENDING_APPROVAL", CREATOR);
-  const adminReleased = await service.releaseForAnyChecker(id2, ADMIN);
-  assert.equal(adminReleased.assignee, undefined, "admin can release too");
+  await assert.rejects(() => service.releaseForAnyChecker(id2, ADMIN), /only the task creator/i);
+  const stillHeld = await service.getTask(id2);
+  assert.equal(stillHeld.assignee.id, CHECKER.id, "the checker still holds it");
 });
 
 console.log(`\nAll ${passed} FRAUD TaskService checks passed.`);

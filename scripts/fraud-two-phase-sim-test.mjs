@@ -118,42 +118,44 @@ check("AWAITING_ITEMS → CLAIMED (reopen initial pass) by fraud checker", () =>
 });
 
 // --- Cancel from each new state --------------------------------------------
-check("AWAITING_ITEMS → CANCELLED by creator and admin, not others", () => {
+check("AWAITING_ITEMS → CANCELLED by the creator alone", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.ok(nextFlowStatuses(t).includes("CANCELLED"));
   assert.ok(ok(t, "CANCELLED", CREATOR));
-  assert.ok(ok(t, "CANCELLED", ADMIN));
+  assert.ok(!ok(t, "CANCELLED", ADMIN), "admin is back-end access only (ADR-0003)");
   assert.ok(!ok(t, "CANCELLED", CHECKER));
 });
 
-check("PENDING_APPROVAL → CANCELLED by creator and admin, not others", () => {
+check("PENDING_APPROVAL → CANCELLED by the creator alone", () => {
   const t = makeFraudTask({ status: "PENDING_APPROVAL" });
   assert.ok(nextFlowStatuses(t).includes("CANCELLED"));
   assert.ok(ok(t, "CANCELLED", CREATOR));
-  assert.ok(ok(t, "CANCELLED", ADMIN));
+  assert.ok(!ok(t, "CANCELLED", ADMIN), "admin is back-end access only (ADR-0003)");
   assert.ok(!ok(t, "CANCELLED", CHECKER));
 });
 
-// --- Permission gates per driver (creator vs checker vs admin) -------------
-check("CLAIMED → AWAITING_ITEMS: creator/outsider blocked, admin allowed", () => {
+/* --- Permission gates per driver (creator vs checker vs admin) -------------
+   The admin assertions all read the same way now: an admin who is neither
+   party is refused every move, exactly like the outsider beside them. */
+check("CLAIMED → AWAITING_ITEMS: creator, outsider and admin all blocked", () => {
   const t = makeFraudTask({ status: "CLAIMED" });
   assert.ok(!ok(t, "AWAITING_ITEMS", CREATOR));
   assert.ok(!ok(t, "AWAITING_ITEMS", OUTSIDER));
-  assert.ok(ok(t, "AWAITING_ITEMS", ADMIN));
+  assert.ok(!ok(t, "AWAITING_ITEMS", ADMIN), "sending items is the checker's move, not a back-end power");
 });
 
-check("AWAITING_ITEMS → PENDING_APPROVAL: checker/outsider blocked", () => {
+check("AWAITING_ITEMS → PENDING_APPROVAL: checker, outsider and admin blocked", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
   assert.ok(!ok(t, "PENDING_APPROVAL", CHECKER));
   assert.ok(!ok(t, "PENDING_APPROVAL", OUTSIDER));
-  assert.ok(ok(t, "PENDING_APPROVAL", ADMIN));
+  assert.ok(!ok(t, "PENDING_APPROVAL", ADMIN), "the submission is the requester's, and must carry their name");
 });
 
-check("PENDING_APPROVAL → COMPLETED: creator/outsider blocked (completion gate)", () => {
+check("PENDING_APPROVAL → COMPLETED: creator, outsider and admin blocked", () => {
   const t = makeFraudTask({ status: "PENDING_APPROVAL" });
   assert.ok(!ok(t, "COMPLETED", CREATOR));
   assert.ok(!ok(t, "COMPLETED", OUTSIDER));
-  assert.ok(ok(t, "COMPLETED", ADMIN));
+  assert.ok(!ok(t, "COMPLETED", ADMIN), "the approval carries the name of whoever did the check");
 });
 
 check("bounce/reopen blocked for non-checkers", () => {

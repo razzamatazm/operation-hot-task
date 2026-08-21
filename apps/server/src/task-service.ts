@@ -10,6 +10,7 @@ import {
   UserIdentity,
   addChecklistItem,
   assignRefusalMessage,
+  canAddNoteToTask,
   canAssignTaskTo,
   canClaimTask,
   canDeleteChecklistItem,
@@ -249,7 +250,10 @@ export class TaskService {
 
   async updateTaskPoints(taskId: string, points: number, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    if (task.createdBy.id !== user.id && !user.roles.includes("ADMIN")) {
+    // The creator's alone: the points say what the creator thinks the ask is
+    // worth. Admin used to be permitted here while the message said otherwise
+    // (ADR-0003) — now the rule and the sentence agree.
+    if (task.createdBy.id !== user.id) {
       throw new Error("Only the task creator can change poops");
     }
     if (!ACTIVE_STATUSES.includes(task.status)) {
@@ -352,7 +356,7 @@ export class TaskService {
     const task = await this.requireTask(taskId);
 
     if (!canUnclaimTask(task, user)) {
-      throw new Error("Only assignee or admin can unclaim this task");
+      throw new Error("Only the assignee can unclaim this task");
     }
 
     const now = new Date().toISOString();
@@ -386,7 +390,7 @@ export class TaskService {
     return updated;
   }
 
-  /* FRAUD "Release for any fraud checker" — the creator (or an admin) hands a
+  /* FRAUD "Release for any fraud checker" — the creator hands a
      PENDING_APPROVAL task back to the pool when the original checker is OOO.
      Unassign IN PLACE: status stays PENDING_APPROVAL, only the assignee is
      cleared, so canClaimTask then lets any FILE_CHECKER pick it up and approve
@@ -395,10 +399,8 @@ export class TaskService {
   async releaseForAnyChecker(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
 
-    const isCreator = task.createdBy.id === user.id;
-    const isAdmin = user.roles.includes("ADMIN");
-    if (!isCreator && !isAdmin) {
-      throw new Error("Only the task creator or an admin can release for any fraud checker");
+    if (task.createdBy.id !== user.id) {
+      throw new Error("Only the task creator can release for any fraud checker");
     }
     if (task.taskType !== "FRAUD" || task.status !== "PENDING_APPROVAL") {
       throw new Error("Only a fraud task awaiting approval can be released for any checker");
@@ -737,8 +739,8 @@ export class TaskService {
       throw new Error("Notes cannot be added to closed tasks");
     }
 
-    if (!this.canAddNote(task, user)) {
-      throw new Error("Only the creator, assignee, or admin can add review notes");
+    if (!canAddNoteToTask(task, user)) {
+      throw new Error("Only the creator or assignee can add review notes");
     }
 
     return this.appendReviewNote(task, text, user);
@@ -774,8 +776,8 @@ export class TaskService {
       throw new Error("A note can only be added here to a COMPLETED task");
     }
 
-    if (!this.canAddNote(task, user)) {
-      throw new Error("Only the creator, assignee, or admin can add a note");
+    if (!canAddNoteToTask(task, user)) {
+      throw new Error("Only the creator or assignee can add a note");
     }
 
     return this.appendReviewNote(task, text, user);
@@ -917,16 +919,6 @@ export class TaskService {
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
     return updated;
-  }
-
-  /* Who may attach a review note to a task: its creator, its assignee, or an
-     admin. Shared by the active-task composer and the completed-task affordance
-     so both gates agree. */
-  private canAddNote(task: LoanTask, user: UserIdentity): boolean {
-    const isCreator = task.createdBy.id === user.id;
-    const isAssignee = task.assignee?.id === user.id;
-    const isAdmin = user.roles.includes("ADMIN");
-    return isCreator || isAssignee || isAdmin;
   }
 
   /* Append a ReviewNote to the task and fan out the note notifications. Callers

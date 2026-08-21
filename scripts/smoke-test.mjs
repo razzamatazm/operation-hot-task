@@ -442,15 +442,24 @@ const run = async () => {
     const unclaimDenied = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/unclaim`, {
       user: users.creator
     });
-    expectStatus(unclaimDenied.status, 400, "unclaim denied for non-assignee/non-admin", unclaimDenied.json);
+    expectStatus(unclaimDenied.status, 400, "unclaim denied for a non-assignee", unclaimDenied.json);
     pushPass("unclaim denied for unauthorized user");
 
+    // ADR-0003: admin is back-end access only. This used to assert 200 — an
+    // admin could take a task off whoever held it. Moving a stuck task is what
+    // handoff is for, and handoff needs no admin.
     const unclaimByAdmin = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/unclaim`, {
       user: users.admin
     });
-    expectStatus(unclaimByAdmin.status, 200, "unclaim by admin", unclaimByAdmin.json);
-    assert.equal(unclaimByAdmin.json.task.status, "OPEN");
-    pushPass("admin can unclaim");
+    expectStatus(unclaimByAdmin.status, 400, "unclaim refused for an admin bystander", unclaimByAdmin.json);
+    pushPass("an admin cannot unclaim somebody else's task");
+
+    const unclaimByAssignee = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/unclaim`, {
+      user: users.otherOfficer
+    });
+    expectStatus(unclaimByAssignee.status, 200, "unclaim by assignee", unclaimByAssignee.json);
+    assert.equal(unclaimByAssignee.json.task.status, "OPEN");
+    pushPass("the assignee can unclaim");
 
     // ADR-0003: the creator is never the assignee. This used to assert 200 —
     // the API happily let a creator claim their own task and only the web row
@@ -561,6 +570,8 @@ const run = async () => {
     expectStatus(cancelByCreator.status, 200, "cancel by creator", cancelByCreator.json);
     pushPass("creator cancel permissions enforced");
 
+    // ADR-0003: cancelling somebody else's task is exactly the second-identity
+    // power admin no longer has. This used to assert 200.
     const cancelByAdminTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
@@ -573,8 +584,8 @@ const run = async () => {
       user: users.admin,
       body: { status: "CANCELLED" }
     });
-    expectStatus(cancelByAdmin.status, 200, "cancel by admin", cancelByAdmin.json);
-    pushPass("admin cancel permissions enforced");
+    expectStatus(cancelByAdmin.status, 400, "cancel refused for an admin bystander", cancelByAdmin.json);
+    pushPass("cancel is the creator's move, not an admin's");
 
     // Restore: a reopened task offers a path back to the exact closed status it
     // held before the reopen, available to whoever reopened it (creator or
@@ -642,16 +653,22 @@ const run = async () => {
     });
     expectStatus(reopenedArch.status, 200, "creator reopens archived task", reopenedArch.json);
     assert.equal(reopenedArch.json.task.reopenedFrom, "ARCHIVED", "reopen from archived remembers ARCHIVED");
-    // Admins can restore too (neither creator nor assignee here), matching the
-    // shared canRestoreTask rule.
-    const restoredArch = await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
+    // ADR-0003: restore belongs to whoever could have reopened it — creator or
+    // assignee. An admin who is neither is refused, where they used to be
+    // allowed.
+    const restoreArchByAdmin = await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
       user: users.admin,
       body: { status: "ARCHIVED" }
     });
-    expectStatus(restoredArch.status, 200, "admin restores to archived", restoredArch.json);
+    expectStatus(restoreArchByAdmin.status, 400, "restore refused for an admin bystander", restoreArchByAdmin.json);
+    const restoredArch = await request(server.baseUrl, "POST", `/tasks/${restoreArchId}/transition`, {
+      user: users.creator,
+      body: { status: "ARCHIVED" }
+    });
+    expectStatus(restoredArch.status, 200, "creator restores to archived", restoredArch.json);
     assert.equal(restoredArch.json.task.status, "ARCHIVED", "restore returns task to ARCHIVED");
     assert.equal(restoredArch.json.task.reopenedFrom, undefined, "restore breadcrumb cleared after re-archive");
-    pushPass("reopened archived task restores to ARCHIVED (admin allowed), not COMPLETED");
+    pushPass("reopened archived task restores to ARCHIVED, not COMPLETED");
 
     const creatorReviewTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,

@@ -268,10 +268,10 @@ rendering failure on your own tasks. In order:
    someone else's court, so the row says so instead of offering a
    destructive action.
 2. **`Cancel`** — you created the task, it isn't closed, and `CANCELLED` is
-   still an allowed transition. Uses the **creator** condition specifically,
-   not the shared `canCancelTask` (creator *or* admin): a destructive action
-   must never show up in an admin's row for a task they don't own. Admins
-   keep Cancel in the hamburger. Clicking it drives the hamburger's
+   still an allowed transition. The **creator** condition and the shared
+   `canCancelTask` agree since ADR-0003 stripped the admin branch: cancelling
+   is the creator's move, on the row and in the hamburger alike. Clicking it
+   drives the hamburger's
    `cancelStage` to `confirming` and opens the menu panel, so the existing
    two-step "Cancel this task?" confirm and its "Cancelled ✓" flash are
    reused verbatim — there is no second confirm component and no undo flow.
