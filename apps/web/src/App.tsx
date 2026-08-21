@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, canWorkTaskType, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -2890,19 +2890,39 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     showToast("Linked to an existing loan", { variant: "success" });
   };
 
-  /* Who the one at-creation picker offers, per mode. Share excludes you (you
-     already know about your own task) and so, now, does Assign: a task born
-     assigned to its own creator is the fourth door ADR-0003 shuts, and
-     "assigning it to yourself is just claiming it up front" was the reasoning
-     that kept the door open. It narrows to people who can actually work this
-     task type on top. */
-  const recipientCandidates = useMemo(
-    () =>
-      form.pickerMode === "assign"
-        ? directory.filter((u) => u.id !== user.id && canWorkTaskType(form.taskType, u))
-        : directory.filter((u) => u.id !== user.id),
-    [directory, form.pickerMode, form.taskType, user.id]
+  /* Everyone who could work this task if it existed — the shared predicate, so
+     the form, the row and the server all agree on who that is. Excludes the
+     filer themselves: a task born assigned to its own creator is the fourth
+     door ADR-0003 shuts. */
+  const eligible = useMemo(
+    () => eligibleAssignees({ taskType: form.taskType, createdBy: { id: user.id, displayName: user.displayName } }, directory),
+    [directory, form.taskType, user.id, user.displayName]
   );
+
+  /* Who the one at-creation picker offers, per mode. Assign offers only people
+     who could actually take it; Share excludes just you, since you already know
+     about your own task. */
+  const recipientCandidates = useMemo(
+    () => (form.pickerMode === "assign" ? eligible : directory.filter((u) => u.id !== user.id)),
+    [directory, eligible, form.pickerMode, user.id]
+  );
+
+  /* The sole-checker dead end (#142). If the only file checker available is the
+     person filing, nobody can claim this Fraud Check — the creator is barred
+     from their own task at every door, with no admin override and no escape
+     hatch, because an escape hatch is indistinguishable from letting one person
+     file and check their own review. So the form says so up front and the filer
+     redirects it, instead of the task sitting unclaimable with no error that
+     helps. It informs; it never blocks submit. `directory.length > 0` keeps a
+     not-yet-loaded directory from crying wolf. */
+  const noEligibleChecker = form.taskType === "FRAUD" && directory.length > 0 && eligible.length === 0;
+  /* Two ways to reach that dead end, and they aren't the same sentence. If the
+     filer holds FILE_CHECKER, the only checker around is them and the rule
+     that bites is second-pair-of-hands. If they don't, there simply is no
+     checker to hand it to. */
+  const noCheckerWarning = user.roles.includes("FILE_CHECKER")
+    ? "You're the only file checker available, and nobody can work a Fraud Check they filed themselves — so no one will be able to claim this one. Someone else needs to file it."
+    : "No file checker is available to work this Fraud Check, so nobody will be able to claim it. Worth checking who's on shift before you file.";
 
   /* Switching to Assign, or to a Fraud Check, can make the current pick
      ineligible. Drop it rather than leave a selection showing that the server
@@ -3131,6 +3151,17 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
             })}
           </span>
         </label>
+        {/* Two nodes for one sentence, on purpose. A live region only announces
+            changes made INSIDE it, so one that appears with its text already in
+            place is usually read out by nobody — and this warning is the whole
+            signal a screen-reader user gets before the dead end. The region is
+            always mounted (visually hidden, costing no layout) and only its
+            text changes; the visible box is the sighted half, hidden from the
+            reader so it isn't said twice. */}
+        <p className="sr-only" role="status">{noEligibleChecker ? noCheckerWarning : ""}</p>
+        {noEligibleChecker && (
+          <p className="span-full task-form-warning" aria-hidden="true">{noCheckerWarning}</p>
+        )}
         {/* FRAUD only (#69): seed the outstanding-items checklist with items
             the creator already knows about. Enter-to-add, mirrors the card's
             FraudChecklist add idiom. Optional — the checker seeds later.
