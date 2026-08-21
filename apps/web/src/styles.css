@@ -350,6 +350,36 @@ h1, h2, h3, h4 {
   letter-spacing: 0.04em;
 }
 
+/* Present to a screen reader, absent to everyone else — and to layout, which is
+   what lets an aria-live region sit in a grid without leaving a gap. Not
+   `display: none`: that takes it out of the accessibility tree too, which is
+   exactly what an always-mounted live region is avoiding. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Inline "this won't work" notice on the create form (#142) — the sole-checker
+   dead end. Warn-toned rather than error-toned on purpose: nothing is wrong
+   with the form, and submit stays enabled; it is telling the filer to hand the
+   job to someone else. Prose, so DM Sans rather than mono. */
+.task-form-warning {
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--ink);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
 /* FRAUD outstanding-items seeder on the create form (#69). A non-label field so
    the heading never steals focus to one of the remove buttons; mirrors the
    label heading style and reuses the card checklist's add row. */

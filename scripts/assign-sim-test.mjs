@@ -36,7 +36,7 @@ import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
-import { canAssignTaskTo } from "../packages/shared/dist/workflow.js";
+import { canAssignTaskTo, eligibleAssignees } from "../packages/shared/dist/workflow.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -465,6 +465,52 @@ await check("no task type is exempt, including OOO and FRAUD", async () => {
   // ...but anyone else holding the role still can.
   const claimed = await ctx.service.claimTask(fraud.id, CHECKER_2);
   assert.equal(claimed.assignee.id, CHECKER_2.id);
+});
+
+/* The sole-checker dead end (#142). The create form warns at filing time by
+   asking the same question the claim will ask later: is there anybody who could
+   work this? The deadlock itself is an accepted cost of separation of duties —
+   this only decides whether the filer finds out now or at claim time. */
+await check("nobody is eligible for a Fraud Check whose only file checker filed it", async () => {
+  const filedByOnlyChecker = { taskType: "FRAUD", createdBy: { id: CHECKER.id, displayName: CHECKER.displayName } };
+
+  // The people around them: another loan officer, a bystander, and themselves.
+  assert.deepEqual(
+    eligibleAssignees(filedByOnlyChecker, [CHECKER, OFFICER, BYSTANDER, CREATOR]).map((u) => u.id),
+    [],
+    "no file checker but the filer, so nobody can work it — the form has to say so"
+  );
+
+  // Confirm the warning is telling the truth: the claim really is refused.
+  const ctx = await setup();
+  const task = await ctx.service.createTask({ folderName: "Sole Checker", taskType: "FRAUD", notes: "n" }, CHECKER);
+  await assert.rejects(() => ctx.service.claimTask(task.id, CHECKER), /second pair of hands/);
+  await assert.rejects(() => ctx.service.claimTask(task.id, OFFICER), /file checker/);
+});
+
+await check("one other file checker is enough — no warning, and they can take it", async () => {
+  const filedByChecker = { taskType: "FRAUD", createdBy: { id: CHECKER.id, displayName: CHECKER.displayName } };
+  assert.deepEqual(
+    eligibleAssignees(filedByChecker, [CHECKER, CHECKER_2, OFFICER]).map((u) => u.id),
+    [CHECKER_2.id],
+    "the colleague to redirect it to"
+  );
+
+  const ctx = await setup();
+  const task = await ctx.service.createTask({ folderName: "Two Checkers", taskType: "FRAUD", notes: "n" }, CHECKER);
+  const claimed = await ctx.service.claimTask(task.id, CHECKER_2);
+  assert.equal(claimed.assignee.id, CHECKER_2.id);
+});
+
+await check("non-FRAUD task types are unaffected: anyone but the filer is eligible", async () => {
+  const buddyChat = { taskType: "BUDDY_CHAT", createdBy: { id: OFFICER.id, displayName: OFFICER.displayName } };
+  assert.deepEqual(
+    eligibleAssignees(buddyChat, [OFFICER, BYSTANDER, CHECKER]).map((u) => u.id),
+    [BYSTANDER.id, CHECKER.id],
+    "no role gates a buddy chat — only the second-pair-of-hands rule applies"
+  );
+  // The one case that can still empty the list: a one-person directory.
+  assert.deepEqual(eligibleAssignees(buddyChat, [OFFICER]), [], "you cannot be your own second pair of hands");
 });
 
 console.log(`\nAll ${passed} Handoff checks passed.`);

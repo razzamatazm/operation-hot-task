@@ -404,6 +404,20 @@ export const canBeAssignee = (
   candidate: UserIdentity
 ): boolean => assigneeRefusal(task, candidate) === undefined;
 
+/* Everyone in `candidates` who could hold this task — the picker's list, and
+   the answer to "is there anybody to do this?". Takes the same task shape as
+   `assigneeRefusal`, so the create form can ask before the task exists.
+
+   Worth having as one function because the empty case is load-bearing: when a
+   file checker files a Fraud Check and this comes back empty, nobody can work
+   it, and the form has to say so at filing time rather than let it fail
+   silently at claim time (ADR-0003 accepts that deadlock as the cost of
+   separation of duties — the fix is a redirect, not an escape hatch). */
+export const eligibleAssignees = <T extends UserIdentity>(
+  task: Pick<LoanTask, "taskType" | "createdBy">,
+  candidates: T[]
+): T[] => candidates.filter((candidate) => canBeAssignee(task, candidate));
+
 export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   // Door one of four: claiming. The type/role rule and the second-pair-of-hands
   // rule both live in `canBeAssignee`, so this only decides *when* a claim is
