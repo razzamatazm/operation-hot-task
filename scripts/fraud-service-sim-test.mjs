@@ -211,4 +211,78 @@ await check("release unassigns in place; a different checker claims (status kept
   assert.equal(stillHeld.assignee.id, CHECKER.id, "the checker still holds it");
 });
 
+/* A demoted or deactivated checker can no longer hold the checker seat — the
+   role IS the check (ADR-0003). Their live Fraud Checks are released in place
+   rather than stranded with somebody who can't act on them. */
+await check("a demoted checker's live fraud checks are released in place, at every phase", async () => {
+  const { service } = await setup();
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+
+  // One check per live phase, all held by the same checker.
+  const claimed = await createClaimedFraud(service);
+  const awaiting = await createClaimedFraud(service);
+  await service.transitionStatus(awaiting, "AWAITING_ITEMS", CHECKER, "Need statements");
+  const pending = await createClaimedFraud(service);
+  await service.transitionStatus(pending, "AWAITING_ITEMS", CHECKER, "Need statements");
+  await service.transitionStatus(pending, "PENDING_APPROVAL", CREATOR);
+  // And one they finished, which is a closed record and stays put.
+  const done = await createClaimedFraud(service);
+  await service.transitionStatus(done, "AWAITING_ITEMS", CHECKER, "Need statements");
+  await service.transitionStatus(done, "PENDING_APPROVAL", CREATOR);
+  await service.transitionStatus(done, "COMPLETED", CHECKER);
+
+  const preview = await service.liveFraudChecksForChecker(CHECKER.id);
+  assert.deepEqual(
+    preview.map((t) => t.id).sort(),
+    [claimed, awaiting, pending].sort(),
+    "the admin can see exactly what the change will release, before making it"
+  );
+
+  const released = await service.releaseFraudChecksForChecker(CHECKER.id, admin);
+  assert.equal(released.length, 3, "all three live checks released");
+
+  for (const [id, status] of [[claimed, "CLAIMED"], [awaiting, "AWAITING_ITEMS"], [pending, "PENDING_APPROVAL"]]) {
+    const task = await service.getTask(id);
+    assert.equal(task.status, status, `${status} is untouched — only the assignee is cleared`);
+    assert.equal(task.assignee, undefined, `${status} has no checker now`);
+  }
+  const closed = await service.getTask(done);
+  assert.equal(closed.assignee.id, CHECKER.id, "the completed check keeps its checker — that record is finished");
+});
+
+await check("another file checker picks a released check up and carries on from where it was", async () => {
+  const { service } = await setup();
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+  const id = await createClaimedFraud(service);
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "Need statements");
+  await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+
+  await service.releaseFraudChecksForChecker(CHECKER.id, admin);
+
+  const reclaimed = await service.claimTask(id, CHECKER_2);
+  assert.equal(reclaimed.status, "PENDING_APPROVAL", "resumes rather than restarting");
+  assert.equal(reclaimed.assignee.id, CHECKER_2.id);
+  const approved = await service.transitionStatus(id, "COMPLETED", CHECKER_2);
+  assert.equal(approved.status, "COMPLETED", "and the exchange finishes");
+});
+
+await check("releasing a checker who holds nothing is a no-op", async () => {
+  const { service } = await setup();
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+  const released = await service.releaseFraudChecksForChecker(CHECKER_2.id, admin);
+  assert.deepEqual(released, [], "nothing to release, nothing released");
+});
+
+await check("the release is recorded against the admin who caused it", async () => {
+  const { service } = await setup();
+  const admin = { id: "admin-1", displayName: "Avery Admin", roles: ["LOAN_OFFICER", "ADMIN"] };
+  const id = await createClaimedFraud(service);
+  await service.releaseFraudChecksForChecker(CHECKER.id, admin);
+  const history = await service.getHistory(id);
+  const release = history.find((e) => e.action === "TASK_RELEASED");
+  assert.ok(release, "the release is in the task's history");
+  assert.equal(release.by.id, admin.id, "named to whoever made the change, not the person who lost the seat");
+  assert.match(release.detail, /can no longer check files/i, "and it says why");
+});
+
 console.log(`\nAll ${passed} FRAUD TaskService checks passed.`);

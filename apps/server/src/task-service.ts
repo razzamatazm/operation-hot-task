@@ -410,14 +410,32 @@ export class TaskService {
       return task;
     }
 
-    const now = new Date().toISOString();
-    const { assignee: _assignee, ...withoutAssignee } = task;
-    const updated: LoanTask = {
-      ...withoutAssignee,
-      updatedAt: now
-    };
+    return this.unassignInPlace(task, user, {
+      detail: `Released for any fraud checker by ${user.displayName}`,
+      message: `${task.folderName} is up for grabs — final approval needed`,
+      method: "releaseForAnyChecker"
+    });
+  }
 
-    const event = this.makeHistory(task.id, user, "TASK_RELEASED", `Released for any fraud checker by ${user.displayName}`);
+  /* The mechanism both releases share: clear the assignee, leave the status
+     exactly where it is, record it, and tell the people looking at stale
+     buttons. The POLICY — who may do it, and why — belongs to the callers; this
+     is only the move. Returns the updated task.
+
+     "In place" is the whole point: the exchange resumes from wherever it had
+     got to rather than restarting, so whoever picks the task up next inherits
+     the pass, the checklist and the status. */
+  private async unassignInPlace(
+    task: LoanTask,
+    actor: UserIdentity,
+    { detail, message, method, sweepActivity = true }: { detail: string; message: string; method: string; sweepActivity?: boolean }
+  ): Promise<LoanTask> {
+    const now = new Date().toISOString();
+    const exAssigneeId = task.assignee?.id;
+    const { assignee: _assignee, ...withoutAssignee } = task;
+    const updated: LoanTask = { ...withoutAssignee, updatedAt: now };
+
+    const event = this.makeHistory(task.id, actor, "TASK_RELEASED", detail);
     await this.store.upsertTask(updated, event);
     this.events.broadcast({ type: "task.changed", payload: updated });
 
@@ -425,17 +443,81 @@ export class TaskService {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
         task: updated,
-        actor: { id: user.id, displayName: user.displayName },
-        message: `${updated.folderName} is up for grabs — final approval needed`,
+        actor: { id: actor.id, displayName: actor.displayName },
+        message,
         target: "IN_APP"
       });
-      // Release strips the assignee without changing status, so the released
-      // checker keeps a card offering Approve / Send Back until it's re-rendered.
-      await this.emitCardSync(updated, task.assignee ? [task.assignee.id] : []);
-      await this.evaluateActivitySignals({ now: new Date(now) });
-    }, { method: "releaseForAnyChecker", taskId: updated.id });
+      // The release strips the assignee without changing status, so the ex-
+      // checker keeps a card offering moves they've just lost until it re-renders.
+      await this.emitCardSync(updated, exAssigneeId ? [exAssigneeId] : []);
+      if (sweepActivity) {
+        await this.evaluateActivitySignals({ now: new Date(now) });
+      }
+    }, { method, taskId: updated.id });
 
     return updated;
+  }
+
+  /* The live Fraud Checks this person currently holds as checker. "Live" means
+     any status that isn't closed — the seat exists for as long as the exchange
+     does, not just while it's their turn.
+
+     Read-only, and separate from the release below, because the admin panel has
+     to be able to say what a demotion is about to do BEFORE it does it. */
+  async liveFraudChecksForChecker(userId: string): Promise<LoanTask[]> {
+    const tasks = await this.store.allTasks();
+    return tasks.filter(
+      (task) => task.taskType === "FRAUD" && task.assignee?.id === userId && !CLOSED_STATUSES.includes(task.status)
+    );
+  }
+
+  /* Hand this person's live Fraud Checks back to the pool, because they can no
+     longer hold the checker seat — their FILE_CHECKER role was removed, or they
+     were deactivated. The role IS the check, so keeping the seat without it is
+     meaningless; the alternative is a task stranded in whatever status it sat
+     in, with nobody able to act and nothing announcing it.
+
+     Same semantics as the requester's manual release: unassign IN PLACE, status
+     untouched, so any file checker can claim it and carry on from where it was
+     rather than restarting. Closed checks are left alone — that record is
+     finished. The actor is the admin making the change, so history names the
+     person who caused it rather than the person who lost the seat. */
+  async releaseFraudChecksForChecker(userId: string, actor: UserIdentity): Promise<LoanTask[]> {
+    const affected = await this.liveFraudChecksForChecker(userId);
+    const released: LoanTask[] = [];
+
+    for (const { id } of affected) {
+      // Re-read: the list was taken before any of these awaits, and the seat's
+      // own checklist edits rewrite the task while we work through it.
+      const task = await this.store.findTask(id);
+      if (!task || task.assignee?.id !== userId || CLOSED_STATUSES.includes(task.status)) {
+        continue;
+      }
+      try {
+        released.push(
+          await this.unassignInPlace(task, actor, {
+            detail: `Released for any fraud checker — ${task.assignee?.displayName ?? "the checker"} can no longer check files`,
+            message: `${task.folderName} is up for grabs — its fraud checker can no longer check files`,
+            method: "releaseFraudChecksForChecker",
+            // One sweep after the loop instead of one per task: they read and
+            // replace the same activity snapshot, so N in parallel lose each
+            // other's writes.
+            sweepActivity: false
+          })
+        );
+      } catch (error) {
+        /* One task failing must not abandon the rest, and must not fail the
+           role change that has already been written — that would leave the
+           caller told the demotion failed when it is exactly what succeeded.
+           The count returned to the admin is of what actually moved. */
+        console.error("release_fraud_check_failed", { taskId: id, userId, error });
+      }
+    }
+
+    if (released.length > 0) {
+      await this.evaluateActivitySignals({ now: new Date() });
+    }
+    return released;
   }
 
   async transitionStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes?: string): Promise<LoanTask> {
