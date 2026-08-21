@@ -15,6 +15,7 @@
     "azure:provision": "./scripts/azure/provision-webapp.sh",
     "azure:identity": "./scripts/azure/create-identity-and-bot.sh",
     "azure:teams-package": "./scripts/azure/build-teams-package.sh",
+    "pretest:all": "npm run build --workspace @loan-tasks/shared && npm run build --workspace @loan-tasks/server",
     "test:scheduler": "node scripts/scheduler-sim-test.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:bot": "node scripts/bot-dedupe-sim.mjs",
