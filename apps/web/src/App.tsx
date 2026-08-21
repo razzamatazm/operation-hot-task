@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, canAddNoteToTask, canAssignTaskTo, canClaimTask, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canAssignTaskTo, canClaimTask, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "./toast";
@@ -195,14 +195,6 @@ const liveCountdown = (dueIso: string, nowMs: number): { overdue: boolean; text:
   else text = `${m}m`;
   return { overdue: diff < 0, text };
 };
-
-/* When the checker last handed this task to the requester. `awaitingItemsSince`
-   is stamped on every entry into AWAITING_ITEMS; tasks already in that status
-   before the field existed have none, and fall back to `updatedAt` until their
-   next hand-off stamps one. The fallback is deliberately rough — it drifts
-   forward on the requester's own checklist edits, which is exactly why the
-   stored anchor exists. */
-const handedOffAt = (task: LoanTask): string => task.awaitingItemsSince ?? task.updatedAt;
 
 /* Same shape as liveCountdown, read forwards: how long since `sinceIso`.
    liveCountdown is a count *down* whose `.overdue` flag is meaningless when the
@@ -3958,12 +3950,13 @@ export const App = () => {
       else if (court === "them") them.push(t);
       else done.push(t);
     }
-    const byDue = (a: LoanTask, b: LoanTask): number => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
     const byRecent = (a: LoanTask, b: LoanTask): number =>
       new Date(b.completedAt ?? b.updatedAt).getTime() - new Date(a.completedAt ?? a.updatedAt).getTime();
-    you.sort(byDue);
-    pool.sort(byDue);
-    them.sort(byDue);
+    // #133: two-tier — a live deadline outranks a paused (FRAUD AWAITING_ITEMS)
+    // task, whose dueAt is a dead clock that would otherwise float it to the top.
+    you.sort(byAttentionClaim);
+    pool.sort(byAttentionClaim);
+    them.sort(byAttentionClaim);
     done.sort(byRecent);
     celebrating.sort(byRecent);
     const sections: CourtSection[] = [];

@@ -163,6 +163,17 @@ cards.)
   Back** restarts it rather than accumulating across passes. (`updatedAt`
   can't serve as the anchor — the requester's own checklist edits rewrite it.)
   Bot cards are static snapshots and carry no counter.
+- The same hold decides **ranking** in the grouped view's active courts
+  (`Needs you` / `Up for grabs` / `In flight`). Ordering is two-tier: every task
+  carrying a live deadline sorts above every `Awaiting Items` fraud check,
+  whose `dueAt` is a dead clock that would otherwise float it to the top of the
+  list. Paused tasks order longest-held first among themselves, by the same
+  `awaitingItemsSince` anchor; ties resolve by creation time then id.
+  The accepted consequence is that a fraud check the requester is holding sinks
+  below anything with a live deadline in their own `Needs you` — no deadline
+  loses to a deadline. (`byAttentionClaim`, `packages/shared/src/ordering.ts`;
+  the decision and its rejected alternatives are
+  [ADR-0004](../adr/0004-ordering-by-attention-claim.md).)
 - Entering `Pending Approval` sets a **fresh end-of-day (`Yellow`) clock**
   (recomputed `dueAt`, cleared reminder stamp), then hands off to the normal
   reminder engine (quiet the rest of today, hourly the next business

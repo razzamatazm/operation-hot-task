@@ -122,6 +122,17 @@ Closed tasks (`COMPLETED` / `ARCHIVED` / `CANCELLED`). All three ride the same
 it; admin Metrics counts every status regardless of that filter. See
 [status-model.md](docs/product/status-model.md#done-view-retention-ui).
 
+**Paused hold** (`paused`):
+A Fraud Check in `Awaiting Items` — the one state where a task's deadline has
+stopped meaning anything, because the clock belongs to the requester's original
+ask and nothing is measuring it. Never overdue, never reminded on
+([fraud-workflow.md](docs/product/fraud-workflow.md#reminder-rules)), and ranked
+below every task carrying a live deadline in all three active courts
+([ADR-0004](docs/adr/0004-ordering-by-attention-claim.md)). It sits in `you` for
+the requester and `them` for everyone else; `courtOf` never routes it to `pool`.
+_Avoid_: "stalled", "blocked" (nothing is stuck — the ball is with the
+requester)
+
 ### Views
 
 **Grouped view** (a.k.a. **Courts view**):
