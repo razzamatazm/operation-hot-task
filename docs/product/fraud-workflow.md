@@ -178,9 +178,10 @@ assignee — see [ADR-0003](../adr/0003-creator-is-never-assignee.md)), and admi
 grants no seat at all.
 
 Because the role is a live requirement, **removing someone's `FILE_CHECKER` role
-— or deactivating them — auto-releases their live Fraud Checks**: the assignee
-is cleared in place and the task returns to the pool for any checker, exactly as
-a manual release would. Demotion warns the admin which tasks it is about to
+— or deactivating or deleting them — auto-releases their live Fraud Checks**:
+the assignee is cleared in place and the task returns to the pool for any
+checker, exactly as a manual release would. Closed checks are untouched; that
+record is finished. Demotion warns the admin which tasks it is about to
 release. Without this, a demoted checker's task would strand in whatever status
 it sat in, with nobody able to act and nothing to announce it.
 

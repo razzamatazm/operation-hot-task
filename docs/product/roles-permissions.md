@@ -77,10 +77,14 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   `POST /api/users`; deactivate / reactivate via `PATCH /api/users/:id`;
   permanently remove via `DELETE /api/users/:id`
 - Deactivated users keep their record + roles but are blocked at auth (403)
-- Removing a user's `FILE_CHECKER` role, or deactivating them, **auto-releases
-  their live Fraud Checks** back to the pool — the checker seat requires a live
-  role, so the task would otherwise strand. The panel warns which tasks it is
-  about to release (see
+- Removing a user's `FILE_CHECKER` role, deactivating them, or removing them
+  entirely **auto-releases their live Fraud Checks** back to the pool — the
+  checker seat requires a live role, so the task would otherwise strand. The
+  panel warns which tasks it is about to release, reading them from
+  `GET /api/users/:id/fraud-checks` before it applies the change; the write
+  responds with `releasedFraudChecks` (a count). All three paths call one
+  `TaskService` method, which unassigns in place through the same mechanism a
+  requester's manual release uses (see
   [fraud-workflow.md](fraud-workflow.md#seats))
 - Guards: cannot deactivate/remove yourself; cannot remove or demote the
   last active admin

@@ -201,6 +201,21 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* Admin: what a demotion or deactivation is about to release. The panel asks
+     BEFORE it applies the change, so an admin sees which live Fraud Checks
+     their edit will hand back to the pool rather than finding out afterwards.
+     Read-only; the release itself happens on the write below. */
+  router.get("/users/:id/fraud-checks", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      requireAdmin(actor);
+      const tasks = await service.liveFraudChecksForChecker(req.params.id);
+      res.json({ tasks: tasks.map((task) => ({ id: task.id, folderName: task.folderName, status: task.status })) });
+    } catch (error) {
+      sendError(res, error, "Failed to list the user's fraud checks");
+    }
+  });
+
   router.put("/users/:id/roles", async (req, res) => {
     try {
       const actor = await getActor(req);
@@ -221,7 +236,14 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       }
       await ensureAdminRemains(req.params.id, target.active && roles.includes("ADMIN"));
       const updated = await userStore.setRoles(req.params.id, roles);
-      res.json({ user: updated });
+      /* The checker seat needs a LIVE FILE_CHECKER role (ADR-0003), so losing
+         it vacates every seat it was holding. Release those checks back to the
+         pool rather than leaving them stranded with a checker who can't check.
+         After the role write, so a failed write releases nothing. */
+      const releasedChecks = target.roles.includes("FILE_CHECKER") && !roles.includes("FILE_CHECKER")
+        ? await service.releaseFraudChecksForChecker(req.params.id, actor)
+        : [];
+      res.json({ user: updated, releasedFraudChecks: releasedChecks.length });
     } catch (error) {
       sendError(res, error, "Failed to update roles");
     }
@@ -277,7 +299,10 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       }
       await ensureAdminRemains(req.params.id, active && target.roles.includes("ADMIN"));
       const updated = await userStore.setActive(req.params.id, active);
-      res.json({ user: updated });
+      // Deactivation blocks them at auth, so their seats have to go the same
+      // way a demotion's do — same method, same in-place release.
+      const releasedChecks = !active ? await service.releaseFraudChecksForChecker(req.params.id, actor) : [];
+      res.json({ user: updated, releasedFraudChecks: releasedChecks.length });
     } catch (error) {
       sendError(res, error, "Failed to update user");
     }
@@ -298,7 +323,11 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
         res.status(404).json({ error: "User not found" });
         return;
       }
-      res.json({ ok: true });
+      /* Deleting a checker strands their live checks harder than demoting one
+         does — there is no user record left to release them from later — so it
+         takes the same release, after the record is gone. */
+      const releasedChecks = await service.releaseFraudChecksForChecker(req.params.id, actor);
+      res.json({ ok: true, releasedFraudChecks: releasedChecks.length });
     } catch (error) {
       sendError(res, error, "Failed to remove user");
     }

@@ -1111,11 +1111,68 @@ const run = async () => {
     assert.deepEqual(promote.json.user.roles.sort(), ["FILE_CHECKER", "LOAN_OFFICER"]);
     pushPass("admin can update roles");
 
+    /* Demotion auto-releases (#145): the checker seat needs a live
+       FILE_CHECKER role, so taking it away has to hand the tasks back rather
+       than strand them. Wiring only — the semantics live in
+       scripts/fraud-service-sim-test.mjs. */
+    const checkerFraud = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Demotion Release", taskType: "FRAUD", notes: "check it" }
+    });
+    const checkerFraudId = checkerFraud.json.task.id;
+    const claimedByChecker = await request(server.baseUrl, "POST", `/tasks/${checkerFraudId}/claim`, {
+      user: { ...users.otherOfficer, roles: "LOAN_OFFICER,FILE_CHECKER" }
+    });
+    expectStatus(claimedByChecker.status, 200, "newly promoted checker claims a fraud check", claimedByChecker.json);
+
+    const preview = await request(server.baseUrl, "GET", `/users/${users.otherOfficer.id}/fraud-checks`, {
+      user: users.admin
+    });
+    expectStatus(preview.status, 200, "admin previews what a demotion would release", preview.json);
+    assert.ok(
+      preview.json.tasks.some((t) => t.id === checkerFraudId),
+      "the panel can warn about this task before the change"
+    );
+
+    const demote = await request(server.baseUrl, "PUT", `/users/${users.otherOfficer.id}/roles`, {
+      user: users.admin,
+      body: { roles: ["LOAN_OFFICER"] }
+    });
+    expectStatus(demote.status, 200, "admin removes FILE_CHECKER", demote.json);
+    assert.equal(demote.json.releasedFraudChecks, 1, "the response says how many checks it released");
+    const afterDemotion = await request(server.baseUrl, "GET", `/tasks/${checkerFraudId}`, { user: users.creator });
+    assert.equal(afterDemotion.json.task.assignee, undefined, "the demoted checker is off the task");
+    assert.equal(afterDemotion.json.task.status, "CLAIMED", "and its status is untouched");
+    pushPass("removing FILE_CHECKER releases that user's live fraud checks");
+
+    /* Deactivation strands the same way a demotion does — a blocked account
+       can't act on the task either — so it takes the same release. Put them
+       back in the checker seat first, holding a live check, or the assertion
+       below passes vacuously. */
+    const repromote = await request(server.baseUrl, "PUT", `/users/${users.otherOfficer.id}/roles`, {
+      user: users.admin,
+      body: { roles: ["LOAN_OFFICER", "FILE_CHECKER"] }
+    });
+    expectStatus(repromote.status, 200, "admin restores FILE_CHECKER", repromote.json);
+    const deactivationFraud = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Deactivation Release", taskType: "FRAUD", notes: "check it" }
+    });
+    const deactivationFraudId = deactivationFraud.json.task.id;
+    await request(server.baseUrl, "POST", `/tasks/${deactivationFraudId}/claim`, {
+      user: { ...users.otherOfficer, roles: "LOAN_OFFICER,FILE_CHECKER" }
+    });
+
     const deactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
       user: users.admin,
       body: { active: false }
     });
     expectStatus(deactivate.status, 200, "admin deactivates user", deactivate.json);
+    assert.equal(deactivate.json.releasedFraudChecks, 1, "deactivation reports the checks it released");
+    const afterDeactivation = await request(server.baseUrl, "GET", `/tasks/${deactivationFraudId}`, { user: users.creator });
+    assert.equal(afterDeactivation.json.task.assignee, undefined, "the deactivated checker is off the task");
+    assert.equal(afterDeactivation.json.task.status, "CLAIMED", "and its status is untouched");
+    pushPass("deactivating a checker releases their live fraud checks too");
     const deactivatedMe = await request(server.baseUrl, "GET", "/me", { user: users.otherOfficer });
     expectStatus(deactivatedMe.status, 403, "deactivated user is blocked", deactivatedMe.json);
     const reactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
@@ -1140,10 +1197,28 @@ const run = async () => {
     expectStatus(dropLastAdmin.status, 403, "cannot demote the last admin", dropLastAdmin.json);
     pushPass("self-deactivate and last-admin demotion are blocked");
 
+    /* Deleting a checker strands their live checks harder than demoting one:
+       there is no record left to release them from later. Same release. */
+    const removalFraud = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Removal Release", taskType: "FRAUD", notes: "check it" }
+    });
+    const removalFraudId = removalFraud.json.task.id;
+    await request(server.baseUrl, "PUT", `/users/${users.otherOfficer.id}/roles`, {
+      user: users.admin,
+      body: { roles: ["LOAN_OFFICER", "FILE_CHECKER"] }
+    });
+    await request(server.baseUrl, "POST", `/tasks/${removalFraudId}/claim`, {
+      user: { ...users.otherOfficer, roles: "LOAN_OFFICER,FILE_CHECKER" }
+    });
+
     const removeUser = await request(server.baseUrl, "DELETE", `/users/${users.otherOfficer.id}`, {
       user: users.admin
     });
     expectStatus(removeUser.status, 200, "admin removes a user", removeUser.json);
+    assert.equal(removeUser.json.releasedFraudChecks, 1, "removal releases the checks they were holding");
+    const afterRemoval = await request(server.baseUrl, "GET", `/tasks/${removalFraudId}`, { user: users.creator });
+    assert.equal(afterRemoval.json.task.assignee, undefined, "no task is left pointing at a deleted user");
     const afterRemove = await request(server.baseUrl, "GET", "/users", { user: users.admin });
     assert.ok(!afterRemove.json.users.some((u) => u.id === users.otherOfficer.id), "removed user is gone");
     pushPass("admin can remove a user");

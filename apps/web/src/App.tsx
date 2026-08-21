@@ -2516,6 +2516,31 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
     }
   };
 
+  /* Taking away FILE_CHECKER — deactivating or removing someone — releases
+     every live Fraud Check they were checking, because the seat needs the live
+     role (ADR-0003). Say which ones first: the release is right, but it is not
+     something an admin should discover afterwards. Returns false when they back
+     out, and nothing is sent. */
+  const confirmFraudCheckRelease = async (u: AdminUser, what: string): Promise<boolean> => {
+    let tasks: Array<{ folderName: string }>;
+    try {
+      const data = await apiRequest<{ tasks: Array<{ folderName: string }> }>(`/users/${u.id}/fraud-checks`, { method: "GET" }, user);
+      tasks = data.tasks;
+    } catch {
+      // Couldn't look. Still ask — proceeding silently is the thing this
+      // confirm exists to prevent.
+      return window.confirm(`${what} may release live fraud checks back to the pool, and we couldn't check which. Continue?`);
+    }
+    if (tasks.length === 0) {
+      return true;
+    }
+    const names = tasks.slice(0, 5).map((t) => `· ${t.folderName}`).join("\n");
+    const more = tasks.length > 5 ? `\n· …and ${tasks.length - 5} more` : "";
+    return window.confirm(
+      `${what} releases ${tasks.length} live fraud check${tasks.length === 1 ? "" : "s"} back to the pool:\n\n${names}${more}\n\nAny file checker can pick them up from where they are.`
+    );
+  };
+
   const toggleRole = (u: AdminUser, role: UserRole): void => {
     const has = u.roles.includes(role);
     const roles = has ? u.roles.filter((r) => r !== role) : [...u.roles, role];
@@ -2523,22 +2548,34 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
       setErr("A user needs at least one role.");
       return;
     }
-    void run(u.id, () =>
-      apiRequest(`/users/${u.id}/roles`, { method: "PUT", body: JSON.stringify({ roles }) }, user)
-    );
+    const losingCheckerRole = has && role === "FILE_CHECKER";
+    void run(u.id, async () => {
+      if (losingCheckerRole && !(await confirmFraudCheckRelease(u, `Taking FILE_CHECKER from ${u.displayName}`))) {
+        return;
+      }
+      return apiRequest(`/users/${u.id}/roles`, { method: "PUT", body: JSON.stringify({ roles }) }, user);
+    });
   };
 
   const setActive = (u: AdminUser, active: boolean): void => {
-    void run(u.id, () =>
-      apiRequest(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ active }) }, user)
-    );
+    void run(u.id, async () => {
+      if (!active && !(await confirmFraudCheckRelease(u, `Deactivating ${u.displayName}`))) {
+        return;
+      }
+      return apiRequest(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ active }) }, user);
+    });
   };
 
   const removeUser = (u: AdminUser): void => {
     if (!window.confirm(`Remove ${u.displayName}? This deletes their record and role assignments.`)) {
       return;
     }
-    void run(u.id, () => apiRequest(`/users/${u.id}`, { method: "DELETE" }, user));
+    void run(u.id, async () => {
+      if (!(await confirmFraudCheckRelease(u, `Removing ${u.displayName}`))) {
+        return;
+      }
+      return apiRequest(`/users/${u.id}`, { method: "DELETE" }, user);
+    });
   };
 
   const submitAdd = async (): Promise<void> => {
