@@ -39,7 +39,6 @@
     "test:completed-note": "node scripts/completed-note-sim-test.mjs",
     "pretest:toast": "node scripts/assert-dist-fresh.mjs",
     "test:toast": "node --test scripts/toast-host-sim-test.mjs",
-    "pretest:auth-token": "node scripts/assert-dist-fresh.mjs",
     "test:auth-token": "node --test scripts/auth-token-sim-test.mjs",
     "pretest:notify-background": "node scripts/assert-dist-fresh.mjs",
     "test:notify-background": "node scripts/notify-background-sim-test.mjs",

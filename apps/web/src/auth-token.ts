@@ -38,8 +38,10 @@ export interface TokenCache {
   /* Seed from the bootstrap SSO call. `null` means no Teams host (dev
      browser), which switches callers to the mock-user header path. */
   seed(token: string | null): void;
-  /* True once a real token has been seeded, i.e. we are in a Teams tab. */
-  ssoEnabled(): boolean;
+  /* True once a real token has been seeded — which only happens under a Teams
+     host, so this is what distinguishes a Teams tab from the dev browser. Not
+     "is SSO configured": the client has no view of the server's env. */
+  inTeams(): boolean;
   /* The bearer to send, or null on the dev/no-host path. `force` discards a
      token the server has already rejected and asks Teams for a new one. */
   get(force?: boolean): Promise<string | null>;
@@ -49,7 +51,7 @@ export const createTokenCache = (
   acquire: () => Promise<string>,
   now: () => number = Date.now
 ): TokenCache => {
-  let enabled = false;
+  let seeded = false;
   let token: string | null = null;
   /* Epoch ms at which `token` stops being usable. 0 = nothing usable cached. */
   let expiry = 0;
@@ -61,13 +63,13 @@ export const createTokenCache = (
 
   return {
     seed(next: string | null): void {
-      enabled = next !== null;
+      seeded = next !== null;
       token = next;
       expiry = next ? tokenExpiryMs(next) : 0;
     },
-    ssoEnabled: () => enabled,
+    inTeams: () => seeded,
     async get(force = false): Promise<string | null> {
-      if (!enabled) return null;
+      if (!seeded) return null;
       if (!force && fresh()) return token;
       if (force) {
         token = null;
@@ -87,4 +89,30 @@ export const createTokenCache = (
       return pending;
     }
   };
+};
+
+/* One request with the 401 policy applied: the freshness check in `get` is a
+   guess about the future, so a token can still die in flight or the tab can
+   wake from sleep mid-request. One forced re-acquire and retry turns that into
+   a hiccup instead of a failed save.
+
+   Retrying is safe because a 401 means auth failed before any handler ran, so
+   nothing was applied. Teams tab only — a 401 in the dev browser is a real
+   permission answer, not a stale token.
+
+   If the re-acquire itself fails there is nothing better to try, so the first
+   response is kept and its message allowed through; throwing the acquire error
+   would put teams-js wording in the toast, which is the exact thing this path
+   exists to stop (#175). */
+export const sendWithToken = async (
+  cache: TokenCache,
+  send: (token: string | null) => Promise<Response>
+): Promise<Response> => {
+  const response = await send(await cache.get());
+  if (response.status !== 401 || !cache.inTeams()) return response;
+  const retried = await cache
+    .get(true)
+    .then(send)
+    .catch(() => null);
+  return retried ?? response;
 };

@@ -12,6 +12,7 @@ import test from "node:test";
 import {
   TOKEN_EXPIRY_SKEW_MS,
   createTokenCache,
+  sendWithToken,
   tokenExpiryMs
 } from "../apps/web/src/auth-token.ts";
 
@@ -46,7 +47,7 @@ test("tokenExpiryMs reads exp; unreadable tokens count as already stale", () => 
 test("no Teams host: get() returns null and never calls Teams", async () => {
   const { state, cache } = harness();
   cache.seed(null);
-  assert.equal(cache.ssoEnabled(), false);
+  assert.equal(cache.inTeams(), false);
   assert.equal(await cache.get(), null);
   assert.equal(await cache.get(true), null);
   assert.equal(state.acquires, 0);
@@ -55,7 +56,7 @@ test("no Teams host: get() returns null and never calls Teams", async () => {
 test("a fresh seeded token is reused without re-acquiring", async () => {
   const { state, cache } = harness();
   cache.seed(tokenExpiringAt(1_700_003_600, "seed"));
-  assert.equal(cache.ssoEnabled(), true);
+  assert.equal(cache.inTeams(), true);
   const first = await cache.get();
   assert.equal(await cache.get(), first);
   assert.equal(state.acquires, 0);
@@ -134,4 +135,77 @@ test("a failed acquire propagates and does not wedge the cache", async () => {
   state.fail = false;
   assert.ok(await cache.get());
   assert.equal(state.acquires, 2);
+});
+
+/* ── sendWithToken: the 401 re-acquire/retry policy ─────────── */
+
+/* A fake transport: `codes` is the status each successive call returns, so a
+   test can say "401 first, then 200". Records the bearer each call was given. */
+const transport = (...codes) => {
+  const sent = [];
+  const send = async (token) => {
+    sent.push(token);
+    return new Response("{}", { status: codes[sent.length - 1] ?? 200 });
+  };
+  return { send, sent };
+};
+
+test("a request that succeeds is not retried", async () => {
+  const { cache } = harness();
+  cache.seed(tokenExpiringAt(1_700_003_600, "seed"));
+  const t = transport(200);
+
+  const res = await sendWithToken(cache, t.send);
+  assert.equal(res.status, 200);
+  assert.equal(t.sent.length, 1);
+});
+
+test("a 401 forces a fresh token and retries once", async () => {
+  const { state, cache } = harness();
+  cache.seed(tokenExpiringAt(1_700_003_600, "seed"));
+  const t = transport(401, 200);
+
+  const res = await sendWithToken(cache, t.send);
+  assert.equal(res.status, 200);
+  assert.equal(t.sent.length, 2);
+  assert.equal(state.acquires, 1);
+  /* The retry must not reuse the bearer the server just rejected. */
+  assert.notEqual(t.sent[1], t.sent[0]);
+});
+
+test("a 401 that survives the retry is returned, not retried again", async () => {
+  const { cache } = harness();
+  cache.seed(tokenExpiringAt(1_700_003_600, "seed"));
+  const t = transport(401, 401);
+
+  const res = await sendWithToken(cache, t.send);
+  assert.equal(res.status, 401);
+  assert.equal(t.sent.length, 2);
+});
+
+test("in the dev browser a 401 is a real answer — no token, no retry", async () => {
+  const { state, cache } = harness();
+  cache.seed(null);
+  const t = transport(401, 200);
+
+  const res = await sendWithToken(cache, t.send);
+  assert.equal(res.status, 401);
+  assert.equal(t.sent.length, 1);
+  assert.deepEqual(t.sent, [null]);
+  assert.equal(state.acquires, 0);
+});
+
+test("a failed re-acquire keeps the server's 401 instead of throwing teams-js wording", async () => {
+  const state = { now: 1_700_000_000_000 };
+  const cache = createTokenCache(async () => {
+    throw new Error("resourceDisabled: consent required");
+  }, () => state.now);
+  cache.seed(tokenExpiringAt(1_700_003_600, "seed"));
+  const t = transport(401, 200);
+
+  /* The caller reads `data.error` off this response for the toast, so the
+     server's readable message has to survive — see #175. */
+  const res = await sendWithToken(cache, t.send);
+  assert.equal(res.status, 401);
+  assert.equal(t.sent.length, 1);
 });

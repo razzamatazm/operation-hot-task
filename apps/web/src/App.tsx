@@ -2,7 +2,7 @@ import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canAssignTaskTo, canClaimTask, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createTokenCache } from "./auth-token";
+import { createTokenCache, sendWithToken } from "./auth-token";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -25,10 +25,6 @@ const INITIAL_USER: UserIdentity = IS_DEV
    it without prop-drilling. The cache re-acquires expired tokens on its own —
    see auth-token.ts for why holding one is not enough (#175). */
 const tokenCache = createTokenCache(() => authentication.getAuthToken());
-
-export const setAuthToken = (token: string | null): void => {
-  tokenCache.seed(token);
-};
 
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
   LOI: "LOI Check",
@@ -65,14 +61,7 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
       }
     });
 
-  let response = await send(await tokenCache.get());
-  /* The expiry check above is a guess about the future; a token can still die
-     in flight, or the tab can wake from sleep mid-request. One forced retry
-     turns that into a hiccup instead of a failed save. Only on the SSO path —
-     a 401 in dev is a real permission answer, not a stale token. */
-  if (response.status === 401 && tokenCache.ssoEnabled()) {
-    response = await send(await tokenCache.get(true));
-  }
+  const response = await sendWithToken(tokenCache, send);
 
   const data = await response.json();
   if (!response.ok) {
@@ -3613,7 +3602,7 @@ export const App = () => {
 
         /* Teams host present → resolve the real identity via SSO. */
         const token = await authentication.getAuthToken();
-        setAuthToken(token);
+        tokenCache.seed(token);
         const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
         setUser(me);
       })
