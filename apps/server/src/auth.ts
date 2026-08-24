@@ -64,6 +64,13 @@ interface EntraClaims {
   email?: string;
 }
 
+/* jose tags an expired token with this code (it throws `JWTExpired`). Match on
+   the code rather than the message, which is library-internal wording. */
+const isExpiredTokenError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: unknown }).code === "ERR_JWT_EXPIRED";
+
 const verifyToken = async (token: string): Promise<AuthIdentity> => {
   const tenantId = config.ssoTenantId!;
   const audience = [config.ssoAudience, config.ssoClientId].filter(
@@ -77,7 +84,17 @@ const verifyToken = async (token: string): Promise<AuthIdentity> => {
     });
     payload = result.payload as EntraClaims;
   } catch (error) {
-    throw new AuthError(`Invalid token: ${error instanceof Error ? error.message : "verification failed"}`);
+    /* An Entra access token lives about an hour; a Teams tab lives all day, so
+       an expired token is the ordinary case here, not a failure. The client
+       re-acquires and retries on any 401, so what matters is that the message
+       is something a loan officer can read — jose's `"exp" claim timestamp
+       check failed` was reaching the toast verbatim (#175). Everything else
+       gets a generic message with the real reason logged, not returned. */
+    if (isExpiredTokenError(error)) {
+      throw new AuthError("Your session expired. Reopening the tab will sign you back in.");
+    }
+    console.error("auth_token_verify_failed", error);
+    throw new AuthError("Could not verify your sign-in. Reopen the tab from Teams.");
   }
 
   if (payload.tid && payload.tid !== tenantId) {

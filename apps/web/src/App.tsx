@@ -2,6 +2,7 @@ import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canAssignTaskTo, canClaimTask, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { createTokenCache, sendWithToken } from "./auth-token";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -20,12 +21,10 @@ const INITIAL_USER: UserIdentity = IS_DEV
   ? DEV_USERS[0]!
   : { id: "", displayName: "Signing in", roles: ["LOAN_OFFICER"] };
 
-/* SSO bearer token, set once the Teams auth flow resolves. Module-level so
-   the standalone apiRequest helper can read it without prop-drilling. */
-let authToken: string | null = null;
-export const setAuthToken = (token: string | null): void => {
-  authToken = token;
-};
+/* SSO bearer token. Module-level so the standalone apiRequest helper can read
+   it without prop-drilling. The cache re-acquires expired tokens on its own —
+   see auth-token.ts for why holding one is not enough (#175). */
+const tokenCache = createTokenCache(() => authentication.getAuthToken());
 
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
   LOI: "LOI Check",
@@ -44,22 +43,25 @@ const URGENCY_LABELS: Record<UrgencyLevel, string> = {
 };
 
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      /* Teams: SSO bearer. Dev browser (no token): identify via the mock
-         user headers so local role-switching still works. */
-      ...(authToken
-        ? { authorization: `Bearer ${authToken}` }
-        : {
-            "x-user-id": user.id,
-            "x-user-name": user.displayName,
-            "x-user-roles": user.roles.join(",")
-          }),
-      ...(init.headers ?? {})
-    }
-  });
+  const send = (token: string | null): Promise<Response> =>
+    fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        /* Teams: SSO bearer. Dev browser (no token): identify via the mock
+           user headers so local role-switching still works. */
+        ...(token
+          ? { authorization: `Bearer ${token}` }
+          : {
+              "x-user-id": user.id,
+              "x-user-name": user.displayName,
+              "x-user-roles": user.roles.join(",")
+            }),
+        ...(init.headers ?? {})
+      }
+    });
+
+  const response = await sendWithToken(tokenCache, send);
 
   const data = await response.json();
   if (!response.ok) {
@@ -3600,7 +3602,7 @@ export const App = () => {
 
         /* Teams host present → resolve the real identity via SSO. */
         const token = await authentication.getAuthToken();
-        setAuthToken(token);
+        tokenCache.seed(token);
         const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
         setUser(me);
       })
