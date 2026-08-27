@@ -7,7 +7,15 @@ Not yet implemented — do not present as current state. Everything else under
   Persistence today is JSON files under `apps/server/data/` — see
   [implementation-snapshot.md](implementation-snapshot.md).
 - **Inbound task creation from the in-house web app** via API/button click
-  (phase 2). v1 has no LOS/CRM integration.
+  (phase 2). v1 has no LOS/CRM integration. See
+  [#179](https://github.com/razzamatazm/operation-hot-task/issues/179) for the
+  cheapest form of this — a userscript that prefills the create form through a
+  deep link, with no inbound write endpoint.
+- **Amending a task after it is filed** — its notes and its urgency, by its
+  creator, on an active task. Today a task's own fields are immutable once
+  created and the only remedy is to cancel and refile. Decided in
+  [ADR-0005](../adr/0005-post-creation-task-edit.md), tracked in
+  [#160](https://github.com/razzamatazm/operation-hot-task/issues/160).
 
 Shipped, previously listed here: the Teams tab, the notification bot, Entra ID
 SSO, the Azure Web App deployment, and all of

@@ -91,6 +91,16 @@ _Completion chain_, which only hand-offs advance.
 _Avoid_: "waive"/"N-A" as separate states (one checked state covers both; the
 per-item note carries the reason)
 
+**Amend**:
+Correcting the *ask* after filing — its notes, or its urgency (from which the
+due date is re-derived). Open to the task's creator alone, on an active task
+only, because the creator is the person whose request it is. Distinct from
+_Resolve_, which records a fact about the world, and from a _Handoff_, which
+moves the seat: an amendment changes what was asked for, never what happened or
+who is doing it. A task's type, its linked _Loan_, and both its seats are not
+amendable. See [ADR-0005](docs/adr/0005-post-creation-task-edit.md).
+_Avoid_: "edit the task" (too broad — most of a task is a record, not an ask)
+
 **Back-end access**:
 The whole of what _admin_ means. Managing users and roles, system config, and
 seeing every task. Admin is not a second identity: it confers no power over
