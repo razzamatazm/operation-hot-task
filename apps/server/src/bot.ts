@@ -24,7 +24,11 @@ interface StoredThread {
   /* `userId` is recorded for DM posts so a later status-driven re-sync can
      rebuild each recipient's card with the buttons *that* viewer should see.
      Absent on channel posts (and on DM entries written before it existed). */
-  posts: Array<{ reference: Partial<ConversationReference>; activityId: string; userId?: string }>;
+  /* `kind` distinguishes the original creation card from a pool-nag card
+     (ADR-0005), so a fresh nag deletes only the nag before it. Absent on DM
+     posts and on channel posts written before nags existed — treat as "create",
+     which is the safe reading: an unmarked post is never deleted. */
+  posts: Array<{ reference: Partial<ConversationReference>; activityId: string; userId?: string; kind?: "create" | "nag" }>;
   /* The claimable-card content, kept so the user-specific refresh can rebuild
      the creator's Cancel view (and the OPEN base card) without re-deriving it. */
   card?: { title: string; detail: string; openUrl?: string; creatorUserIds?: string[] };
@@ -2426,6 +2430,63 @@ export class TeamsBotClient {
      CLAIMED, so it posts the claimed-card variant — announced, but with no
      Claim button to appear and immediately vanish. The thread is still
      recorded, so completion/cancellation still edit this card in place. */
+  /* The pool nag (ADR-0005): a fresh channel post asking the room to pick up a
+     task nobody has claimed. It has to be a new post rather than an edit of the
+     existing card — an in-place edit notifies nobody, which is the entire point
+     of the feature, and the same reasoning repostReopenedTask records.
+
+     Post first, then delete the previous nag, so a failed post never leaves the
+     channel with nothing claimable. The original creation card is never deleted:
+     it is the record that the task was filed, and it is what the creator sees
+     their own request in. So the channel holds at most two cards per unclaimed
+     task.
+
+     The stored `card` blob stays the original claimable content, so a refresh on
+     either card renders the same view. The nag title is a nudge at post time,
+     not a permanent identity for the task. */
+  async postPoolNag(
+    taskId: string,
+    title: string,
+    detail: string,
+    openUrl?: string,
+    creatorAadObjectId?: string
+  ): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+    const references = await this.targetChannelReferences();
+    const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
+    const card = adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
+    const activity = MessageFactory.attachment(CardFactory.adaptiveCard(card));
+    activity.summary = plainSummary(title);
+
+    const existing = await this.threads.get(taskId);
+    const posted: StoredThread["posts"] = [];
+    for (const entry of references) {
+      const post = await this.createChannelThread(entry, activity);
+      if (post) {
+        posted.push({ ...post, kind: "nag" });
+      }
+    }
+    if (posted.length === 0) {
+      // Nothing new landed, so leave the previous nag standing rather than
+      // clearing the channel of the only claimable card there.
+      return;
+    }
+
+    const kept = (existing?.posts ?? []).filter((post) => post.kind !== "nag");
+    for (const stale of existing?.posts ?? []) {
+      if (stale.kind === "nag") {
+        await this.proactiveDelete(stale.reference, stale.activityId);
+      }
+    }
+    await this.threads.save({
+      taskId,
+      posts: [...kept, ...posted],
+      ...(existing?.card ? { card: existing.card } : { card: { title, detail, ...(openUrl ? { openUrl } : {}), creatorUserIds } })
+    });
+  }
+
   async postTaskCard(
     taskId: string,
     title: string,
@@ -2451,7 +2512,7 @@ export class TeamsBotClient {
     for (const entry of references) {
       const post = await this.createChannelThread(entry, activity);
       if (post) {
-        posts.push(post);
+        posts.push({ ...post, kind: "create" });
       }
     }
     if (posts.length > 0) {

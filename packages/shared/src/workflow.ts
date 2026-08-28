@@ -247,6 +247,55 @@ export const computeDefaultDueAt = (
   return computeDueAtFromUrgency(urgency, now, config);
 };
 
+/* A task's deadline belongs to whoever currently holds it, so claiming or being
+   handed a task recomputes `dueAt` from its urgency at that instant — the pool
+   time it sat through is not charged to the person who eventually picks it up.
+   See ADR-0005. Two flows are exempt because their `dueAt` is not a deadline in
+   this sense: an OOO task's is the person's return date, and the maintenance
+   pass auto-completes on it, so moving it ends a vacation on the wrong day; and
+   PENDING_APPROVAL has already set its own end-of-day clock on entry, which a
+   second recompute would fight. */
+export const isDeadlineRecomputeExempt = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
+  task.taskType === "OOO" || task.status === "PENDING_APPROVAL";
+
+/* The clamp is deliberately same-business-day only. "Never past close" applied
+   unconditionally would collapse GREEN, whose window always lands past today's
+   close, into this afternoon. So we only pull back a deadline that both lands on
+   the date it was claimed and overshoots close: ORANGE taken at 16:45 is due at
+   17:30, while GREEN and YELLOW are untouched. A zero-length window (RED) or a
+   claim made after hours therefore lands on a close that has already passed and
+   the task is overdue on arrival — intended, there is no grace floor. Reminders
+   stay business-hours gated, so nobody is DM'd about it in the evening. */
+export const computeClaimAnchoredDueAt = (
+  urgency: UrgencyLevel,
+  claimedAt: Date,
+  config: AppConfig = DEFAULT_CONFIG
+): string => {
+  const candidate = computeDueAtFromUrgency(urgency, claimedAt, config);
+
+  const localClaim = zonedParts(claimedAt, config.businessTimezone);
+  const localDue = zonedParts(new Date(candidate), config.businessTimezone);
+  const sameDate =
+    localDue.year === localClaim.year && localDue.month === localClaim.month && localDue.day === localClaim.day;
+  if (!sameDate) {
+    return candidate;
+  }
+
+  const endMinutes = config.businessEndHour * 60 + config.businessEndMinute;
+  if (localDue.hour * 60 + localDue.minute <= endMinutes) {
+    return candidate;
+  }
+
+  return zonedToUtcIso(
+    localDue.year,
+    localDue.month,
+    localDue.day,
+    config.businessEndHour,
+    config.businessEndMinute,
+    config.businessTimezone
+  );
+};
+
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
   const flow = flowFor(task);
   const index = flow.indexOf(task.status);

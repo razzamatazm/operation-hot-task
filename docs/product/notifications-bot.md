@@ -47,6 +47,12 @@
     The server's `webUrl` comes from the **optional** `APP_BASE_URL` env var
     and the param is omitted entirely when it's unset; the web app passes its
     own `window.location.origin`.
+- **Pool nag** (`CHANNEL_NAG`, [ADR-0005](../adr/0005-claim-anchored-deadline.md)):
+  an unclaimed task re-posts a fresh claimable card to the channel every 20
+  minutes during business hours. A new post rather than an edit, because an
+  edit pings nobody. Each nag deletes the previous nag and leaves the creation
+  card standing; the post is deleted only after the replacement has landed, so
+  a failed post never clears the channel of the only claimable card.
 - Task claimed/unclaimed: posted as a **reply in the task's existing thread**
   (not a new full-channel broadcast). Falls back to a fresh channel post if
   the root message id is unknown (e.g. the bot restarted, or the task predates
