@@ -29,6 +29,13 @@ close. Outside them — evening, before open, or a weekend — it runs from the 
 business open instead. Grabbing something at 9pm buys you the morning; it does
 not burn your window overnight.
 
+`RED` is the one urgency with no natural window: its creation-time deadline is
+the present instant. That stays, because it is what sorts an unclaimed urgent
+task to the top of the queue, but a claimed `RED` task gets 15 minutes from its
+anchor — long enough to read the task, not long enough to stop being the most
+urgent thing in the list. It is exempt from the end-of-day clamp, since clamping
+it near close would hand somebody a five-minute deadline.
+
 **OOO and `PENDING_APPROVAL` are exempt.** An OOO task's `dueAt` is the person's
 return date and the maintenance pass auto-completes the task when it passes, so
 moving it would end someone's vacation on the wrong day. `PENDING_APPROVAL`

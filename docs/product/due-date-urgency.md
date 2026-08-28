@@ -27,6 +27,11 @@
   - A task taken **outside** business hours — evening, before open, or a
     weekend — starts its clock at the next business open instead. You cannot
     pick up a task that is already late.
+  - `Urgent Now` is the one urgency with no natural window: at creation its due
+    time is the present instant, which is the right ordering signal for an
+    unclaimed task but would make whoever took it late on arrival. A claimed
+    `Urgent Now` task gets **15 minutes** from its anchor, exempt from the
+    end-of-day clamp so a late-afternoon claim still gets the full fifteen.
   - **OOO tasks and a Fraud Check in `Pending Approval` never recompute.** An
     OOO task's due time is the person's return date and it auto-completes on it;
     `Pending Approval` already sets its own end-of-day clock on entry.

@@ -274,6 +274,14 @@ const nextBusinessOpen = (from: Date, config: AppConfig): Date => {
   );
 };
 
+/* `RED` means "urgent now", so at creation its deadline is the present instant.
+   That is the right ordering signal for an unclaimed task, but it cannot be a
+   window: handed to somebody it would make them late the moment they accepted,
+   which is the one thing this rule exists to prevent. A claimed RED task gets a
+   real, if short, window instead — long enough to read the task, not long enough
+   to stop being the most urgent thing in the list. */
+const RED_CLAIM_WINDOW_MS = 15 * 60 * 1000;
+
 /* You cannot pick up a task that is already late — the clock does not start
    until somebody takes it. So a task taken outside business hours is anchored to
    the next business open rather than to the claim itself: grabbing something at
@@ -282,13 +290,18 @@ const nextBusinessOpen = (from: Date, config: AppConfig): Date => {
    Inside business hours the anchor is the claim instant, and a window that would
    overshoot today's close clamps to close. That clamp is deliberately
    same-business-day only: applied unconditionally it would collapse GREEN, whose
-   window always lands past today's close, into this afternoon. */
+   window always lands past today's close, into this afternoon. RED is exempt
+   from the clamp: fifteen minutes means fifteen minutes, and clamping it near
+   close would hand somebody a five-minute deadline. */
 export const computeClaimAnchoredDueAt = (
   urgency: UrgencyLevel,
   claimedAt: Date,
   config: AppConfig = DEFAULT_CONFIG
 ): string => {
   const anchor = isWithinBusinessHours(claimedAt, config) ? claimedAt : nextBusinessOpen(claimedAt, config);
+  if (urgency === "RED") {
+    return new Date(anchor.getTime() + RED_CLAIM_WINDOW_MS).toISOString();
+  }
   const candidate = computeDueAtFromUrgency(urgency, anchor, config);
 
   const localAnchor = zonedParts(anchor, config.businessTimezone);

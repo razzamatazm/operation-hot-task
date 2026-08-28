@@ -117,9 +117,27 @@ await check("YELLOW is left alone — end of day is already end of day", async (
   assert.equal(pacificDate(due), "2026-03-11", "not rolled to tomorrow by a late claim");
 });
 
-await check("RED is due on arrival: a zero-length window clamps to the claim instant", async () => {
-  const due = computeClaimAnchoredDueAt("RED", at(10, 0), config);
-  assert.equal(due, at(10, 0).toISOString());
+await check("RED gets a real fifteen-minute window, not a zero-length one", async () => {
+  const claimedAt = at(10, 0);
+  const due = computeClaimAnchoredDueAt("RED", claimedAt, config);
+  assert.equal(pacificClock(due), "10:15");
+  assert.ok(new Date(due) > claimedAt, "urgent still cannot mean already late");
+  assert.equal(
+    computeDueAtFromUrgency("RED", claimedAt, config),
+    claimedAt.toISOString(),
+    "creation-time RED is untouched — an unclaimed urgent task still sorts to the top"
+  );
+});
+
+await check("RED's fifteen minutes survive a claim near close", async () => {
+  const due = computeClaimAnchoredDueAt("RED", at(17, 25), config);
+  assert.equal(pacificClock(due), "17:40", "the clamp does not get to shave it to five minutes");
+});
+
+await check("RED taken in the evening starts at the next open", async () => {
+  const due = computeClaimAnchoredDueAt("RED", at(21, 0), config);
+  assert.equal(pacificDate(due), "2026-03-12");
+  assert.equal(pacificClock(due), "08:45");
 });
 
 await check("GREEN taken in the evening still gets its 24 hours, measured from open", async () => {
