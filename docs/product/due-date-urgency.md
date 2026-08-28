@@ -31,5 +31,7 @@
     OOO task's due time is the person's return date and it auto-completes on it;
     `Pending Approval` already sets its own end-of-day clock on entry.
 - An **unclaimed** task shows its urgency time-frame rather than a countdown, to
-  everyone except its creator, who sees how long it has gone unclaimed. Nobody
+  everyone except its creator, who sees how long it has gone unclaimed (OOO
+  excepted — it shows its return date, and is never treated as waiting on
+  anyone). Nobody
   should read a red row about work they have not agreed to take.

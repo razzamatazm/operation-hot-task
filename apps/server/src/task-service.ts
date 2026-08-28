@@ -31,6 +31,7 @@ import {
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
   computeClaimAnchoredDueAt,
+  isPoolNagDue,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -56,9 +57,6 @@ import { TaskStore } from "./store.js";
 // requester and stays fully silent (isOverdue already returns false for it).
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "PENDING_APPROVAL"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
-// Deliberately shorter than the reminder interval and flat across urgencies:
-// this is the pool being asked to staff something, not a person being chased.
-const POOL_NAG_INTERVAL_MS = 20 * 60 * 1000;
 const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
 
 export class TaskService {
@@ -277,15 +275,16 @@ export class TaskService {
     }));
   }
 
-  /* The deadline belongs to whoever currently holds the task, so every door an
-     assignee arrives through re-anchors it to that instant (ADR-0005). Not
-     born-assigned — creation and claim are the same moment, so the create path's
-     default is already right — and not unclaim or release, since the next
-     claimer re-anchors anyway.
+  /* Everything that changes because the task has a new holder. The deadline
+     belongs to whoever currently holds it, so every door an assignee arrives
+     through re-anchors it to that instant (ADR-0005). Not born-assigned —
+     creation and claim are the same moment, so the create path's default is
+     already right — and not unclaim or release, since the next claimer
+     re-anchors anyway.
 
-     `lastPoolNagAt` goes regardless of the exemptions: the task now has somebody
-     on it, so it is no longer the pool's problem. */
-  private withClaimAnchoredDeadline(current: LoanTask, at: string): LoanTask {
+     The nag clock goes regardless of the deadline exemptions: somebody is on the
+     task now, so it has stopped being the pool's problem whatever its type. */
+  private withNewHolder(current: LoanTask, at: string): LoanTask {
     const next = { ...current };
     delete next.lastPoolNagAt;
     if (isDeadlineRecomputeExempt(current)) {
@@ -324,7 +323,7 @@ export class TaskService {
     const event = this.makeHistory(task.id, user, "TASK_CLAIMED", `Claimed by ${user.displayName}`);
     const updated = await this.writeTask(task.id, (current) => ({
       task: {
-        ...this.withClaimAnchoredDeadline(current, now),
+        ...this.withNewHolder(current, now),
         status: claimedStatus,
         assignee: { id: user.id, displayName: user.displayName },
         updatedAt: now
@@ -1298,7 +1297,7 @@ export class TaskService {
     const event = this.makeHistory(task.id, params.actor, "TASK_ASSIGNED", detail);
     const updated = await this.writeTask(task.id, (current) => ({
       task: {
-        ...this.withClaimAnchoredDeadline(current, now),
+        ...this.withNewHolder(current, now),
         status: current.status === "OPEN" ? "CLAIMED" : current.status,
         assignee: { id: params.target.id, displayName: params.target.displayName },
         updatedAt: now
@@ -1423,7 +1422,7 @@ export class TaskService {
             task: next,
             actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
             message: inherited
-              ? `you picked up ${next.folderName} after hours and it was already past due, it's first up today`
+              ? `you picked up ${next.folderName} when it was already past due, so it's first up today`
               : `your time's up on ${next.folderName}`,
             target: "DM",
             recipientUserIds: reminderRecipients
@@ -1437,20 +1436,17 @@ export class TaskService {
          task getting missed in the shuffle. Flat 20 minutes for every urgency:
          volume is low because tasks are normally grabbed immediately, and a
          cadence that varies by urgency is a cadence nobody can predict. */
-      if (next.status === "OPEN" && !next.assignee && isWithinBusinessHours(now, this.appConfig)) {
-        const since = next.lastPoolNagAt ?? next.createdAt;
-        if (now.getTime() - new Date(since).getTime() >= POOL_NAG_INTERVAL_MS) {
-          const unclaimedMinutes = Math.round((now.getTime() - new Date(next.createdAt).getTime()) / 60000);
-          next = { ...next, lastPoolNagAt: nowIso, updatedAt: nowIso };
-          nagged += 1;
-          await this.notify({
-            type: "TASK_REMINDER",
-            task: next,
-            actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-            message: `${next.folderName} is still unclaimed after ${unclaimedMinutes} minutes, who's taking it?`,
-            target: "CHANNEL_NAG"
-          });
-        }
+      if (isPoolNagDue(next, now, this.appConfig)) {
+        const unclaimedMinutes = Math.round((now.getTime() - new Date(next.createdAt).getTime()) / 60000);
+        next = { ...next, lastPoolNagAt: nowIso, updatedAt: nowIso };
+        nagged += 1;
+        await this.notify({
+          type: "TASK_REMINDER",
+          task: next,
+          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+          message: `${next.folderName} is still unclaimed after ${unclaimedMinutes} minutes, who's taking it?`,
+          target: "CHANNEL_NAG"
+        });
       }
 
       updatedTasks.push(next);

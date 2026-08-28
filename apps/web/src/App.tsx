@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -245,10 +245,6 @@ const taskTimeMeta = (task: LoanTask): { label: string; value: string; iso: stri
   return { label: "Due", value: formatDate(task.dueAt), iso: task.dueAt, inTooltip: true };
 };
 
-/* Matches the pool nag's cadence on the server: the creator's row turns red at
-   the same moment the channel starts being asked to pick the task up. */
-const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
-
 /* The label-over-value "DUE IN / 6h" cell shown in a grouped row. Closed
    tasks read "✓ Nm ago"; OOO reads its return date. Within 4h (or overdue) we
    show the live ticking value; further out we fall back to a calm coarse
@@ -298,11 +294,14 @@ const groupedDue = (
     if (!viewerIsRequester) {
       return { label: "URGENCY", value: URGENCY_TIMEFRAMES[task.urgency], overdue: false, done: false };
     }
-    const unclaimedMs = nowMs - new Date(task.createdAt).getTime();
+    // When the row goes red is the shared rule's call, never this row's — same
+    // reason isOverdue is delegated below. The threshold has to agree with the
+    // server's nag cadence, so the creator's row reddens at the moment the room
+    // starts being asked, and one definition keeps them from drifting.
     return {
       label: "UNCLAIMED FOR",
       value: elapsedSince(task.createdAt, nowMs),
-      overdue: unclaimedMs >= UNCLAIMED_ALERT_MS,
+      overdue: isUnclaimedTooLong(task, new Date(nowMs)),
       done: false
     };
   }

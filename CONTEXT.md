@@ -159,8 +159,10 @@ claimed. Fires every 20 minutes during business hours, replaces the nag before
 it, and stops the moment someone claims. Only ever concerns unclaimed work — a
 claimed task's deadline is between its assignee and the reminder engine, and is
 never raised in the channel.
-_Avoid_: "reminder" (that word belongs to the assignee's overdue DM, which is a
-different message to a different person about a different clock)
+_Avoid_: calling it "the reminder" — that names the assignee's overdue DM, a
+different message to a different person about a different clock. (Both ride the
+same `TASK_REMINDER` notification type on the wire; the surfaces, not the type,
+are what tell them apart.)
 
 ### Views
 

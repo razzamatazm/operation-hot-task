@@ -807,6 +807,40 @@ export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CON
   return minutes >= start && minutes <= end;
 };
 
+/* How long an unclaimed task is left alone before the pool is asked again
+   (ADR-0005). One constant, because it answers two questions that must agree:
+   when the channel gets nagged, and when the creator's own row turns red. If
+   they drifted apart the creator would watch a calm row while the room was
+   being pestered, or vice versa. */
+export const POOL_NAG_INTERVAL_MS = 20 * 60 * 1000;
+
+/* Whether an unclaimed task is due another ask of the room. Anchored to the
+   last nag, falling back to creation for a task that has never been nagged. */
+export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
+  // An OOO task is a vacation notice, not a request for hands: it is born OPEN
+  // and unassigned and stays that way until it auto-completes on the return
+  // date. Without this it would ask the room to pick up someone's holiday every
+  // 20 minutes of every business day until they got back.
+  if (task.taskType === "OOO" || task.status !== "OPEN" || task.assignee) {
+    return false;
+  }
+  const since = task.lastPoolNagAt ?? task.createdAt;
+  if (now.getTime() - new Date(since).getTime() < POOL_NAG_INTERVAL_MS) {
+    return false;
+  }
+  return isWithinBusinessHours(now, config);
+};
+
+/* Whether an unclaimed task has gone unclaimed long enough to be worth
+   flagging to its creator — the one person who can fix it by chasing a human.
+   Measured from creation, not from the last nag: the creator wants to know how
+   long their request has been sitting, not how recently the room was asked. */
+export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
+  task.taskType !== "OOO" &&
+  task.status === "OPEN" &&
+  !task.assignee &&
+  now.getTime() - new Date(task.createdAt).getTime() >= POOL_NAG_INTERVAL_MS;
+
 export const shouldSendReminder = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
   if (!isOverdue(task, now)) {
     return false;

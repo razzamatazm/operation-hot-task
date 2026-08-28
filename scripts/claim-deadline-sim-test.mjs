@@ -24,7 +24,9 @@ import path from "node:path";
 import {
   computeClaimAnchoredDueAt,
   computeDueAtFromUrgency,
-  isDeadlineRecomputeExempt
+  isDeadlineRecomputeExempt,
+  isPoolNagDue,
+  isUnclaimedTooLong
 } from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -176,7 +178,7 @@ await check("a task claimed already-overdue is marked, and the marker clears on 
   await service.settleBackgroundWork();
   const reminder = events.find((e) => e.target === "DM" && e.type === "TASK_REMINDER");
   assert.ok(reminder, "the assignee is reminded");
-  assert.match(reminder.message, /already past due/, "and told why it was red when they took it");
+  assert.match(reminder.message, /^you picked up Born Late when it was already past due, so it\'s first up today$/, "explains the state without asserting a cause it cannot know");
 
   const after = await service.getTask(task.id);
   assert.equal(after.claimedOverdue, undefined, "the inherited copy is a one-shot");
@@ -270,6 +272,30 @@ await check("the nag repeats every 20 minutes and never DMs anyone", async () =>
   await service.settleBackgroundWork();
   assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 1);
   assert.equal(events.filter((e) => e.target === "DM").length, 0, "an unclaimed task never DMs anybody");
+});
+
+await check("an OOO task is never nagged about — it is a notice, not a request for hands", async () => {
+  const { service, store, events } = await setup();
+  const task = await service.createTask(
+    { folderName: "Beach Week", taskType: "OOO", notes: "n", startDate: "2027-06-01", returnDate: "2027-06-08" },
+    CREATOR
+  );
+  // Born OPEN and unassigned, and it stays that way until it auto-completes on
+  // the return date — so a nag rule keyed only on "OPEN and unassigned" would
+  // ask the room to pick up a holiday every 20 minutes for a week.
+  assert.equal(task.status, "OPEN");
+  assert.equal(task.assignee, undefined);
+  await backdate(store, task.id, { createdAt: minutesAgo(120) });
+
+  await service.settleBackgroundWork();
+  events.length = 0;
+  await service.runMaintenance();
+  await service.settleBackgroundWork();
+  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 0);
+
+  const aged = await service.getTask(task.id);
+  assert.equal(isPoolNagDue(aged, new Date(), ALWAYS_OPEN_CONFIG), false);
+  assert.equal(isUnclaimedTooLong(aged, new Date()), false, "and the creator's row does not redden either");
 });
 
 await check("the nag stays silent outside business hours", async () => {

@@ -30,7 +30,9 @@ they let it slip. That copy is sent once.
 
 An `Open`, unassigned task re-posts to the group channel **every 20 minutes**
 during business hours until somebody claims it. Flat 20 minutes at every
-urgency.
+urgency. **OOO tasks are excluded** — a vacation notice is born unassigned and
+stays that way until it auto-completes on the return date, so it is never
+waiting on hands.
 
 - It is a **new** channel post each time. An in-place card edit notifies nobody,
   which is the entire point.
