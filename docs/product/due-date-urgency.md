@@ -24,9 +24,9 @@
   - A window that would run past business close on the day it was claimed
     clamps to close. Same-day only — a 24-hour window always lands past today's
     close and is left alone.
-  - `Urgent Now`, or any claim made after hours, therefore lands in the past and
-    the task is overdue on arrival. There is no grace period; the next business
-    morning's reminder says the task was already past due when it was picked up.
+  - A task taken **outside** business hours — evening, before open, or a
+    weekend — starts its clock at the next business open instead. You cannot
+    pick up a task that is already late.
   - **OOO tasks and a Fraud Check in `Pending Approval` never recompute.** An
     OOO task's due time is the person's return date and it auto-completes on it;
     `Pending Approval` already sets its own end-of-day clock on entry.

@@ -20,11 +20,14 @@ elapsed while the task was sitting in a queue.
 ## Decision
 
 **`dueAt` is recomputed from the task's urgency at the moment an assignee takes
-it**, on claim and on every handoff, including a self-handoff. The window is
-measured from that instant and clamped to the end of the business day when it
-would otherwise run past close. There is no grace floor: a `RED` task, or one
-taken after hours, is simply overdue on arrival, and the next business morning's
-reminder says so in those terms rather than pretending the clock just started.
+it**, on claim and on every handoff, including a self-handoff.
+
+You cannot pick up a task that is already late, because the clock does not start
+until somebody takes it. Inside business hours the window runs from the claim
+instant, clamped to the end of the business day when it would otherwise overshoot
+close. Outside them — evening, before open, or a weekend — it runs from the next
+business open instead. Grabbing something at 9pm buys you the morning; it does
+not burn your window overnight.
 
 **OOO and `PENDING_APPROVAL` are exempt.** An OOO task's `dueAt` is the person's
 return date and the maintenance pass auto-completes the task when it passes, so

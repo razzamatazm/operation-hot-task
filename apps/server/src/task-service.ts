@@ -291,16 +291,10 @@ export class TaskService {
       return next;
     }
 
-    const dueAt = computeClaimAnchoredDueAt(current.urgency, new Date(at), this.appConfig);
-    next.dueAt = dueAt;
+    next.dueAt = computeClaimAnchoredDueAt(current.urgency, new Date(at), this.appConfig);
     // The fresh clock deserves a fresh reminder cadence, matching what the
     // PENDING_APPROVAL transition already does when it restamps its own dueAt.
     delete next.lastReminderAt;
-    if (dueAt <= at) {
-      next.claimedOverdue = true;
-    } else {
-      delete next.claimedOverdue;
-    }
     return next;
   }
 
@@ -399,7 +393,7 @@ export class TaskService {
          cleared stamp falls back to `createdAt`, which for anything that sat
          out its first 20 minutes means a nag fires seconds after the reopen
          post, saying the same thing twice. */
-      const { assignee: _assignee, claimedOverdue: _claimedOverdue, ...withoutAssignee } = current;
+      const { assignee: _assignee, ...withoutAssignee } = current;
       return { task: { ...withoutAssignee, status: "OPEN", lastPoolNagAt: now, updatedAt: now }, event };
     });
 
@@ -1405,12 +1399,8 @@ export class TaskService {
 
       if (ACTIVE_STATUSES.includes(next.status) && shouldSendReminder(next, now, this.appConfig) && isOverdue(next, now)) {
         reminded += 1;
-        // The inherited-overdue copy is a one-shot: it explains why a task went
-        // red the moment it was picked up, which is only news the first time.
-        const inherited = next.claimedOverdue === true;
-        const { claimedOverdue: _claimedOverdue, ...withoutMarker } = next;
         next = {
-          ...withoutMarker,
+          ...next,
           lastReminderAt: nowIso,
           updatedAt: nowIso
         };
@@ -1421,9 +1411,7 @@ export class TaskService {
             type: "TASK_REMINDER",
             task: next,
             actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-            message: inherited
-              ? `you picked up ${next.folderName} when it was already past due, so it's first up today`
-              : `your time's up on ${next.folderName}`,
+            message: `your time's up on ${next.folderName}`,
             target: "DM",
             recipientUserIds: reminderRecipients
           });

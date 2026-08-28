@@ -258,25 +258,43 @@ export const computeDefaultDueAt = (
 export const isDeadlineRecomputeExempt = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
   task.taskType === "OOO" || task.status === "PENDING_APPROVAL";
 
-/* The clamp is deliberately same-business-day only. "Never past close" applied
-   unconditionally would collapse GREEN, whose window always lands past today's
-   close, into this afternoon. So we only pull back a deadline that both lands on
-   the date it was claimed and overshoots close: ORANGE taken at 16:45 is due at
-   17:30, while GREEN and YELLOW are untouched. A zero-length window (RED) or a
-   claim made after hours therefore lands on a close that has already passed and
-   the task is overdue on arrival — intended, there is no grace floor. Reminders
-   stay business-hours gated, so nobody is DM'd about it in the evening. */
+/* The instant the working day next opens at or after `from`: today's open when
+   `from` is a business date the day hasn't started on, otherwise the next
+   business date's open. */
+const nextBusinessOpen = (from: Date, config: AppConfig): Date => {
+  const local = zonedParts(from, config.businessTimezone);
+  const startMinutes = config.businessStartHour * 60 + config.businessStartMinute;
+  const beforeOpenToday =
+    isBusinessDate(local.year, local.month, local.day) && local.hour * 60 + local.minute < startMinutes;
+  const day = beforeOpenToday
+    ? { year: local.year, month: local.month, day: local.day }
+    : nextBusinessDate(local.year, local.month, local.day, 1);
+  return new Date(
+    zonedToUtcIso(day.year, day.month, day.day, config.businessStartHour, config.businessStartMinute, config.businessTimezone)
+  );
+};
+
+/* You cannot pick up a task that is already late — the clock does not start
+   until somebody takes it. So a task taken outside business hours is anchored to
+   the next business open rather than to the claim itself: grabbing something at
+   9pm buys you tomorrow morning, it does not burn your window overnight.
+
+   Inside business hours the anchor is the claim instant, and a window that would
+   overshoot today's close clamps to close. That clamp is deliberately
+   same-business-day only: applied unconditionally it would collapse GREEN, whose
+   window always lands past today's close, into this afternoon. */
 export const computeClaimAnchoredDueAt = (
   urgency: UrgencyLevel,
   claimedAt: Date,
   config: AppConfig = DEFAULT_CONFIG
 ): string => {
-  const candidate = computeDueAtFromUrgency(urgency, claimedAt, config);
+  const anchor = isWithinBusinessHours(claimedAt, config) ? claimedAt : nextBusinessOpen(claimedAt, config);
+  const candidate = computeDueAtFromUrgency(urgency, anchor, config);
 
-  const localClaim = zonedParts(claimedAt, config.businessTimezone);
+  const localAnchor = zonedParts(anchor, config.businessTimezone);
   const localDue = zonedParts(new Date(candidate), config.businessTimezone);
   const sameDate =
-    localDue.year === localClaim.year && localDue.month === localClaim.month && localDue.day === localClaim.day;
+    localDue.year === localAnchor.year && localDue.month === localAnchor.month && localDue.day === localAnchor.day;
   if (!sameDate) {
     return candidate;
   }

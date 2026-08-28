@@ -122,11 +122,10 @@ await check("RED is due on arrival: a zero-length window clamps to the claim ins
   assert.equal(due, at(10, 0).toISOString());
 });
 
-await check("a claim made after close lands on a close that has already passed", async () => {
-  const claimedAt = at(19, 0);
-  const due = computeClaimAnchoredDueAt("ORANGE", claimedAt, config);
-  assert.equal(pacificClock(due), "17:30");
-  assert.ok(new Date(due) < claimedAt, "overdue on arrival, which is the decision — no grace floor");
+await check("GREEN taken in the evening still gets its 24 hours, measured from open", async () => {
+  const due = computeClaimAnchoredDueAt("GREEN", at(21, 0), config);
+  assert.equal(pacificDate(due), "2026-03-13", "24h from the next open, not from 21:00");
+  assert.equal(pacificClock(due), "08:30");
 });
 
 await check("the exemption predicate covers OOO and PENDING_APPROVAL only", async () => {
@@ -151,7 +150,6 @@ await check("claiming a task that sat in the pool restarts its hour", async () =
   const claimed = await service.claimTask(task.id, CHECKER);
   const remainingMinutes = (new Date(claimed.dueAt).getTime() - Date.now()) / 60_000;
   assert.ok(remainingMinutes > 55 && remainingMinutes <= 60, `a full hour from the claim, got ${remainingMinutes}m`);
-  assert.equal(claimed.claimedOverdue, undefined, "not overdue on arrival, so no inherited marker");
 });
 
 await check("a stale reminder stamp does not survive the recompute", async () => {
@@ -162,26 +160,27 @@ await check("a stale reminder stamp does not survive the recompute", async () =>
   assert.equal(claimed.lastReminderAt, undefined, "the fresh clock gets a fresh reminder cadence");
 });
 
-await check("a task claimed already-overdue is marked, and the marker clears on the first reminder", async () => {
-  const { service, store, events } = await setup();
-  const task = await service.createTask({ folderName: "Born Late", taskType: "VALUE", notes: "n", urgency: "RED" }, CREATOR);
-  const claimed = await service.claimTask(task.id, CHECKER);
-  assert.equal(claimed.claimedOverdue, true, "RED is due the instant it is claimed");
+await check("a task taken after close starts its clock at the next business open", async () => {
+  const evening = at(21, 0);
+  const due = computeClaimAnchoredDueAt("ORANGE", evening, config);
+  assert.ok(new Date(due) > evening, "you cannot pick up a task that is already late");
+  assert.equal(pacificDate(due), "2026-03-12", "the clock starts tomorrow");
+  assert.equal(pacificClock(due), "09:30", "an hour from the 08:30 open");
+});
 
-  // RED's deadline IS the claim instant, and isOverdue is a strict `dueAt < now`,
-  // so it becomes overdue a millisecond later. Nudge past that boundary rather
-  // than racing it — against the real 5-minute maintenance tick it never matters.
-  await backdate(store, task.id, { dueAt: minutesAgo(1) });
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  const reminder = events.find((e) => e.target === "DM" && e.type === "TASK_REMINDER");
-  assert.ok(reminder, "the assignee is reminded");
-  assert.match(reminder.message, /^you picked up Born Late when it was already past due, so it\'s first up today$/, "explains the state without asserting a cause it cannot know");
+await check("a task taken before open waits for the day to start", async () => {
+  const dawn = at(6, 30);
+  const due = computeClaimAnchoredDueAt("ORANGE", dawn, config);
+  assert.equal(pacificDate(due), "2026-03-11", "same day — the day just has not started yet");
+  assert.equal(pacificClock(due), "09:30", "an hour from open, not an hour from 06:30");
+});
 
-  const after = await service.getTask(task.id);
-  assert.equal(after.claimedOverdue, undefined, "the inherited copy is a one-shot");
+await check("a Friday-evening claim lands on Monday, not Saturday", async () => {
+  // 2026-03-13 is a Friday.
+  const fridayNight = new Date("2026-03-13T20:00:00-07:00");
+  const due = computeClaimAnchoredDueAt("ORANGE", fridayNight, config);
+  assert.equal(pacificDate(due), "2026-03-16", "Monday");
+  assert.equal(pacificClock(due), "09:30");
 });
 
 await check("the normal overdue reminder names the task, not the person", async () => {

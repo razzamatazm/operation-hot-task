@@ -281,12 +281,6 @@ export interface LoanTask {
       (ADR-0005). Absent until the first nag, and cleared on unclaim so the
       reopen post acts as nag zero rather than being immediately doubled up. */
   lastPoolNagAt?: string;
-  /** Set at claim when the claim-anchored deadline lands in the past — a RED
-      task, or one taken after business close. The claim instant is deliberately
-      not persisted, so without this the next business morning's reminder cannot
-      tell a task that was born overdue from one that ran out an hour ago, and
-      the two need different copy. Cleared when the first reminder fires. */
-  claimedOverdue?: boolean;
 }
 
 export interface TaskHistoryEvent {
