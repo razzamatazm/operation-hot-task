@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -164,17 +164,6 @@ const courtOf = (task: LoanTask, user: UserIdentity): Court => {
   // party to the task doesn't get every in-review task dumped in their court.
   if (task.status === "NEEDS_REVIEW" && isCreator) return "you";
   return "them";
-};
-
-/* Latest review-note timestamp from someone other than `userId` — the basis
-   for the unread-note signal (red dot) and the Message-pull court override.
-   Empty string when there is no such note. */
-const latestNoteFromOther = (task: LoanTask, userId: string): string => {
-  let latest = "";
-  for (const n of task.reviewNotes ?? []) {
-    if (n.by.id !== userId && n.at > latest) latest = n.at;
-  }
-  return latest;
 };
 
 /* Calm, real coarse distance for a not-imminent deadline — hour/day grain,
@@ -1281,37 +1270,34 @@ const TaskCard = memo(({
      drift. Reused by the active composer (canPostNote) and the completed-card
      "Add a note" gate (#45). */
   const canNoteTask = canAddNoteToTask(task, user);
-  /* Latest note from the OTHER party — drives unread/force-open behavior. */
-  const latestOtherNoteAt = useMemo(
-    () => latestNoteFromOther(task, user.id),
-    [task.reviewNotes, user.id]
-  );
-  const hasUnreadNote = !!latestOtherNoteAt && latestOtherNoteAt > (seenNoteAt ?? "");
-  /* Accordion default-open rule:
-       - OPEN (up for grabs) → open for everyone
-       - an unread note from the other party → open (even once completed)
-       - you're involved (creator/assignee) and the task is in-flight → open
-     Everything else (completed / closed without an unread note) → closed.
-     A persisted per-user manual override (expandOverride) wins; the App
-     clears it on a status change or a fresh unread note so the default
-     re-applies. */
-  const involvedInFlight =
-    (isCreator || isAssignee) &&
-    (task.status === "CLAIMED" ||
-      task.status === "NEEDS_REVIEW" ||
-      task.status === "MERGE_DONE" ||
-      task.status === "MERGE_APPROVED" ||
-      task.status === "AWAITING_ITEMS" ||
-      task.status === "PENDING_APPROVAL");
-  const defaultOpen = task.status === "OPEN" || hasUnreadNote || involvedInFlight;
-  const expanded = expandOverride ?? defaultOpen;
+  /* The note waiting on this viewer, if any — the shared rule, not a local
+     copy, so the card's red dot and the grouped view's message-pull can't
+     disagree about who deserves a nudge. It gates on party membership: an
+     Observer has acknowledged nothing, so under a bare note check every note
+     on the list read as unread at them (#161). The timestamp comes back with
+     the answer because acknowledging writes back the very note we counted. */
+  const unreadNoteAt = unreadNoteFor(task, user, seenNoteAt);
+  const hasUnreadNote = unreadNoteAt !== undefined;
+  /* Cards do not open or close themselves. Every card starts collapsed and
+     stays that way until the viewer expands it, and nothing shuts it again
+     but them.
+
+     There used to be a default-open rule — OPEN for everyone, an unread note,
+     your own in-flight work — paired with an effect that cleared the manual
+     override on a status change or a new note so the rule could re-apply. The
+     combination meant the list rearranged itself under you: cards you had
+     opened snapped shut, cards you had never touched sprang open. The
+     collapsed row already carries the quick action and the hamburger, so
+     nothing you need is behind the fold, and the red dot says where to look
+     without taking the decision off you. */
+  const expanded = expandOverride ?? false;
   const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open);
   /* Acknowledge an unread note: clears the undim lock and the red dot.
      Triggered by an explicit user gesture (header click/key, or sending
      a reply). */
   const acknowledgeUnread = (): void => {
-    if (hasUnreadNote && latestOtherNoteAt && onMarkNoteSeen) {
-      onMarkNoteSeen(task.id, latestOtherNoteAt);
+    if (unreadNoteAt && onMarkNoteSeen) {
+      onMarkNoteSeen(task.id, unreadNoteAt);
     }
   };
   /* Auto-scroll the notes thread to the newest entry whenever the count grows
@@ -1380,7 +1366,10 @@ const TaskCard = memo(({
     webShareLink;
 
   const isClosed = CLOSED_STATUSES.includes(task.status);
-  const isObserver = !isCreator && !isAssignee;
+  /* Observer = not a Party (CONTEXT.md). The shared predicate, so "who has a
+     stake in this task" is stated once and the dim rule can't drift from the
+     unread rule that sits next to it. */
+  const isObserver = !isTaskParty(task, user);
   /* "Celebrating" = the creator just hit a completion milestone
      (COMPLETED, or LOAN_DOCS MERGE_DONE). Stays celebrating until the
      creator archives the task (or it falls back to an earlier status). */
@@ -3442,44 +3431,11 @@ export const App = () => {
     setFocusTaskId(null);
     return () => cancelAnimationFrame(raf);
   }, [focusTaskId, tasks]);
-  /* Clear a manual override when the task's status changes or a fresh note
-     from the other party arrives, so the default-open rule re-applies (a
-     status move or new message is a strong enough signal to re-evaluate). */
-  const expandSnapshotRef = useRef<Map<string, { status: TaskStatus; note: string }>>(new Map());
-  useEffect(() => {
-    const prevSnap = expandSnapshotRef.current;
-    const nextSnap = new Map<string, { status: TaskStatus; note: string }>();
-    const clear: string[] = [];
-    for (const t of tasks) {
-      let latestOther = "";
-      for (const n of t.reviewNotes ?? []) {
-        if (n.by.id !== user.id && n.at > latestOther) latestOther = n.at;
-      }
-      nextSnap.set(t.id, { status: t.status, note: latestOther });
-      const before = prevSnap.get(t.id);
-      if (before && (before.status !== t.status || latestOther > before.note)) {
-        clear.push(t.id);
-      }
-    }
-    expandSnapshotRef.current = nextSnap;
-    if (clear.length === 0) return;
-    setExpandOverrides((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const id of clear) {
-        if (id in next) {
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [tasks, user.id]);
-  /* Reset the status/note snapshot on user switch so a fresh viewer's first
-     render doesn't read the previous viewer's note-visibility state. */
-  useEffect(() => {
-    expandSnapshotRef.current = new Map();
-  }, [user.id]);
+  /* No effect clears a manual expand. There used to be one — a status change
+     or a new note dropped the override so the default-open rule could
+     re-decide — but with cards no longer opening themselves there is no rule
+     to re-apply, and dropping the override just collapsed a card the viewer
+     had deliberately opened. An expand is now the viewer's alone. */
 
   /* "Celebrating" — a task the current viewer created that just hit a
      completion milestone (COMPLETED, or LOAN_DOCS MERGE_DONE). The task
@@ -3939,14 +3895,13 @@ export const App = () => {
       let court = courtOf(t, user);
       // Message pull (CONTEXT.md): an unread reply from the other party
       // temporarily pulls a task into the recipient's "Needs you", even when
-      // they don't own the current section. Reuses the red-dot unread signal
-      // (seenNotesAt) so a Party's bucket and red dot agree. Only ever ADDS a
-      // court — never removes one — and only for a Party (creator/assignee);
-      // an Observer has no move, so an unread note doesn't pull them in.
+      // they don't own the current section. Only ever ADDS a court, never
+      // removes one. Asks the same shared predicate the card's red dot asks,
+      // so a Party's bucket and their dot cannot drift apart — the party gate
+      // ("an Observer has no move") lives inside it now rather than being
+      // restated here, which is how the card came to be missing it (#161).
       if (court === "them" || court === "pool") {
-        const isParty = t.createdBy.id === user.id || t.assignee?.id === user.id;
-        const latestOther = latestNoteFromOther(t, user.id);
-        if (isParty && latestOther && latestOther > (seenNotesAt[t.id] ?? "")) {
+        if (hasUnreadNoteForViewer(t, user, seenNotesAt[t.id])) {
           court = "you";
         }
       }

@@ -60,7 +60,10 @@ current assignee, for clarity at the point of use.)
 A viewer who is neither creator nor assignee. Has no move to make, but still
 sees the task — visibility is deliberate, so an idle teammate feels the pull to
 claim when unclaimed/in-flight work is piling up. Observer in-flight tasks are
-de-emphasised relative to a viewer's own.
+de-emphasised relative to a viewer's own, and carry **no attention signal at
+all**: an Observer never gets the unread-note dot and is never _Message
+pulled_. Background awareness, not a demand — someone else's in-flight work
+should be visible without competing with your own.
 
 ### Seats and roles
 

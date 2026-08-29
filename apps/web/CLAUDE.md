@@ -82,7 +82,7 @@ viewer can scan involvement at a glance.
 
 That one list renders either **grouped** (court sections, the default) or
 **flat**; the toggle lives on the section header. The bucket sort described
-under *Auto-expand and bucket sort* below is the **flat** ordering. Grouped
+under *Bucket sort* below is the **flat** ordering. Grouped
 sections come from `buildCourtSections` and follow
 [CONTEXT.md](../../CONTEXT.md#the-four-courts).
 
@@ -312,7 +312,7 @@ active status shows a **Restore** button in the expanded body (via
 from — COMPLETED or ARCHIVED — for whoever reopened it (creator or
 assignee), not assignee-gated like Complete.
 
-### Auto-expand and bucket sort
+### Bucket sort
 
 `unifiedTasks` sorts into 4 buckets, newest-first within each:
 
@@ -329,17 +329,20 @@ assignee), not assignee-gated like Complete.
    bottom once it ages past the cutoff. (Admin Metrics counts every status
    from the raw task list, independent of this view filter.)
 
-Rows default to collapsed, with three exceptions computed in `TaskCard`
-(`defaultOpen`): `OPEN` tasks (open for everyone), a card with an unread
-note from the other party, and a card where the viewer is involved
-(creator/assignee) and the task is in-flight — `CLAIMED` / `NEEDS_REVIEW` /
-`MERGE_DONE` / `MERGE_APPROVED` / `AWAITING_ITEMS` / `PENDING_APPROVAL`
-(the last two are the FRAUD checklist phases, #98). A new unread note by
-itself does not auto-open a card outside that rule — it only pulses the red
-dot. A persisted per-user manual override (`expandOverride`) wins over the
-default; the `useEffect([task.status, user.id])` clears it back to the
-default on status transitions and on mock-user switch. Otherwise the user
-clicks a row to open/close it.
+Rows are collapsed, full stop. There are no exceptions and no `defaultOpen`:
+`expanded` is the persisted per-user override (`expandOverride`) or `false`.
+A card opens because the viewer clicked it, or because a deep link asked for
+it, and closes because the viewer closed it. Nothing else moves it either
+way.
+
+`OPEN` tasks, unread notes, and your own in-flight work used to force a card
+open, and a companion effect cleared the manual override on a status change
+or a new note so that rule could re-decide. Together they made the list
+rearrange itself under the viewer — cards they had opened snapped shut,
+cards they had never touched sprang open. Both are gone (#161). Nothing that
+matters is behind the fold: the collapsed row already carries the quick
+action and the hamburger, and the red dot marks what needs reading without
+taking the decision off the viewer.
 
 ### Status = left stripe
 
@@ -411,7 +414,9 @@ its Esc handler exempts text fields.
   - Closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`) → dim, even if you're
     attached.
   - Observer (neither creator nor assignee) + in-flight → dim.
-  The celebrating card and unread notes suppress the dim.
+  The celebrating card and unread notes suppress the dim — and an unread
+  note only counts for a Party, so an Observer's card stays dim however
+  much note activity the task has (#161).
 
 These layer on top of the status stripe; the stripe wins visually
 because it's an inset shadow, not a border.
@@ -425,6 +430,14 @@ note arrives from the other party, the recipient's card:
 - Drops dim (`hasUnreadNote` short-circuits `dimmed`).
 - Pulses a small red `.task-card-unread-dot` (8px, `--bad`) next to the
   status-banner label, animated via `pulse-unread`.
+
+**Only for a Party.** `hasUnreadNote` comes from `hasUnreadNoteForViewer`
+(`packages/shared/src/notes.ts`), which gates the note check on the viewer
+being the creator or the assignee. An Observer has acknowledged nothing, so
+under a bare "is there a note I haven't seen" check every note on every task
+in the list read as unread at them, and someone else's work sat bright with
+a red dot on it (#161). The grouped view's message-pull asks the same
+predicate, so a Party's court and their red dot cannot drift apart.
 
 The card does **not** auto-open on a new note — the red dot is the only
 signal; the user opens the row to read. The lock clears only on an
