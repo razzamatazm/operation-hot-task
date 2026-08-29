@@ -16,6 +16,9 @@
   [fraud-workflow.md](fraud-workflow.md)): the checker (assignee) sends
   outstanding items and approves; the requester (creator) submits items back
   and can release for any fraud checker
+- Loan Docs merge chain: the **assignee** marks `Merge Done`, the **creator**
+  approves it (`Merge Approved`), the assignee completes. See
+  [status-model.md](status-model.md)
 - `Cancelled` can be set by the task creator
 
 ## You Cannot Work Your Own Task

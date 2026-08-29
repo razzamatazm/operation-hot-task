@@ -19,6 +19,14 @@
   creator/assignee only. `Cancelled`/`Archived` stay closed to notes.
 - Loan Docs lifecycle:
   - `Open -> Claimed -> Merge Done -> Merge Approved -> Completed -> Archived`
+  - Each merge rung belongs to one named person, and the move is refused for
+    anyone else — including an admin, who holds no seat on either
+    (`canMarkMergeDone` / `canApproveMerge`):
+    - `Claimed -> Merge Done` — the **assignee**, who did the merge
+    - `Merge Done -> Merge Approved` — the **creator**, who requested it and
+      signs it off. An assignee approving their own merge would defeat the step.
+    - `Merge Approved -> Completed` — the **assignee**, the ordinary
+      assignee-only completion gate
   - `Merge Done -> Claimed` is allowed as a backward/undo move (assignee or
     ), and `Merge Done` / `Merge Approved` can both be `Cancelled`
     (creator only)

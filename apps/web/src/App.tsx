@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canAssignTaskTo, canClaimTask, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, isOverdue, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -154,8 +154,11 @@ const courtOf = (task: LoanTask, user: UserIdentity): Court => {
     }
   }
   if (task.status === "CLAIMED" && isAssignee) return "you";
-  if (task.status === "MERGE_DONE" && isCreator) return "you";
-  if (task.status === "MERGE_APPROVED" && isAssignee) return "you";
+  // The merge rungs read the shared seat predicates rather than restating
+  // creator/assignee here (#173), so the court a task lands in, the button the
+  // ladder offers and the server's answer can't drift apart.
+  if (task.status === "MERGE_DONE" && canApproveMerge(task, user)) return "you";
+  if (task.status === "MERGE_APPROVED" && canCompleteTask(task, user)) return "you";
   // Review is the creator's move (AGENTS.md: review transitions are done by the
   // assignee or creator and "do not require admin"), so an admin who isn't a
   // party to the task doesn't get every in-review task dumped in their court.
@@ -1485,7 +1488,7 @@ const TaskCard = memo(({
           ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
           : () => { void onTransition(task.id, target); }
       };
-    } else if (task.status === "CLAIMED" && isAssignee && task.taskType === "LOAN_DOCS" && transitions.includes("MERGE_DONE")) {
+    } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
     } else if (task.status === "CLAIMED" && isAssignee && transitions.includes("COMPLETED")) {
       primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
@@ -1498,9 +1501,9 @@ const TaskCard = memo(({
          CLAIMED cases and above MERGE_DONE: the statuses are mutually
          exclusive, so it neither shadows nor is shadowed. */
       primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
-    } else if (task.status === "MERGE_DONE" && isCreator) {
+    } else if (canApproveMerge(task, user)) {
       primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
-    } else if (task.status === "MERGE_APPROVED" && isAssignee) {
+    } else if (task.status === "MERGE_APPROVED" && canCompleteTask(task, user)) {
       primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "COMPLETED" && isCreator) {
       primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };

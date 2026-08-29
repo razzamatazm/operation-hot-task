@@ -274,9 +274,13 @@ await check("a mid-flight step syncs too, so the button re-arms to the next one"
   assert.equal(syncs.length, 1);
   assert.equal(syncs[0].task.status, "MERGE_DONE");
   assert.equal(moved.status, "MERGE_DONE");
-  // The button doesn't just vanish — it becomes the *next* step's.
-  const card = noteCard(noteCardDataFromTask(syncs[0].task, CHECKER));
-  assert.deepEqual(actionTitles(card), ["Reply", "Approve Merge"]);
+  // The button doesn't just vanish — it becomes the *next* step's, on the card
+  // of whoever owns that step. Approving the merge is the creator's move, not
+  // the assignee's (#173), so it re-arms there and nowhere else.
+  const forCreator = noteCard(noteCardDataFromTask(syncs[0].task, CREATOR));
+  assert.deepEqual(actionTitles(forCreator), ["Reply", "Approve Merge"]);
+  const forChecker = noteCard(noteCardDataFromTask(syncs[0].task, CHECKER));
+  assert.deepEqual(actionTitles(forChecker), ["Reply"], "the assignee doesn't approve their own merge");
 });
 
 await check("unclaiming syncs the ex-assignee, who is no longer a participant", async () => {
