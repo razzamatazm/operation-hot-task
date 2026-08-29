@@ -413,7 +413,11 @@ nested card chrome, in this order:
    the row's `title` and a visually-hidden span instead. Thread caps at 178px
    (`.msgs` `max-height`) with internal scroll and auto-scroll-to-newest on
    new entries / re-open.
-5. **Created / Due** — one compact meta row at the bottom.
+
+The body **ends on the notes thread**. It used to close with a compact
+Created / Due meta row; that moved into the hamburger in #166 — reference
+detail nobody reads on the way through a task, costing a full row plus its
+rule on every open card.
 
 Everything else (Re-open, Add a note, Unclaim, Cancel, Archive, Restore,
 Share, Assign/Reassign, Undo Merge Done, and FRAUD's Send Back / Release) lives in the
@@ -421,6 +425,29 @@ collapsed row's hamburger, not here — there is no actions card in the body
 anymore. `Send Back` is note-required, so it opens its composer inside the
 menu panel; that is fine, the panel already hosts the `Add a note` field and
 its Esc handler exempts text fields.
+
+### Timestamps in the hamburger (#166)
+
+The panel ends with a non-interactive block (`.task-card-menu-times`):
+`Created`, then the task's one other timestamp. Plain text below a hairline,
+the way a context menu carries "Last modified" — no hover, no tab stop,
+`role="none"` so it isn't announced as a menu item.
+
+Two consequences worth keeping straight:
+
+- **The hamburger now renders on every row.** `menuHasContent` asks "is any
+  block non-empty", timestamps included, rather than listing action checks.
+  It has to: closed tasks and tasks you have no seat on carry no actions, and
+  they are exactly the rows someone opens a menu on to check a date. If you add
+  a new panel section, add it to that list, don't reason about actions.
+- **The second line comes from `taskTimeMeta`**, shared with the collapsed
+  row's due-cell tooltip so the two can't drift — they had, before #166. It
+  covers Completed/Archived (completion time, and **no** fall back to the due
+  date when there's no stamp), OOO (`Returns`), `AWAITING_ITEMS` (the hand-off
+  stamp, no deadline quoted — the clock is the requester's), and `Due`
+  otherwise. Its `inTooltip` flag carries the one deliberate divergence: OOO
+  shows in the block but not the tooltip, where the row's own cell already
+  spells out the return date. Change the labels there, not at either call site.
 
 ### Card variants (subtle, not loud)
 

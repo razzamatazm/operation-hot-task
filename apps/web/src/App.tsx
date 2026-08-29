@@ -202,6 +202,41 @@ const liveCountdown = (dueIso: string, nowMs: number): { overdue: boolean; text:
    sites pass a past date to a function documented to count toward a deadline. */
 const elapsedSince = (sinceIso: string, nowMs: number): string => liveCountdown(sinceIso, nowMs).text;
 
+/* The task's one "other" timestamp — the line that sits under Created — and
+   the label that names it. Two surfaces read this and they used to each decide
+   for themselves: the collapsed row's due-cell tooltip and the expanded body's
+   meta strip (the strip now lives in the row's hamburger, #166). They had
+   already drifted — the tooltip knew a completed task shows when it completed
+   and quotes no deadline, the strip still said "Due" over a date that had
+   stopped meaning anything. One definition, so they can't drift again.
+
+   `inTooltip` carries the one difference that is deliberate rather than drift:
+   an OOO task reads "Returns" in the timestamp block, but its collapsed row
+   already devotes a whole cell to the return date, so the tooltip stays quiet
+   rather than repeating it under the cursor. */
+const taskTimeMeta = (task: LoanTask): { label: string; value: string; inTooltip: boolean } | undefined => {
+  if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
+    // No completion stamp means no second line at all. Falling back to the due
+    // date here would quote a deadline at a task that has already landed.
+    return task.completedAt
+      ? { label: "Completed", value: formatDate(task.completedAt), inTooltip: true }
+      : undefined;
+  }
+  if (task.taskType === "OOO") {
+    return {
+      label: "Returns",
+      value: task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt),
+      inTooltip: false
+    };
+  }
+  // The deadline is the requester's while a check sits with them, so neither
+  // surface quotes one — the hand-off stamp is the honest thing to show.
+  if (task.status === "AWAITING_ITEMS") {
+    return { label: "Sent to requester", value: formatDate(handedOffAt(task)), inTooltip: true };
+  }
+  return { label: "Due", value: formatDate(task.dueAt), inTooltip: true };
+};
+
 /* The label-over-value "DUE IN / 6h" cell shown in a grouped row. Closed
    tasks read "✓ Nm ago"; OOO reads its return date. Within 4h (or overdue) we
    show the live ticking value; further out we fall back to a calm coarse
@@ -1427,20 +1462,12 @@ const TaskCard = memo(({
   };
   const stopBubble = (e: ReactMouseEvent) => e.stopPropagation();
 
-  /* Tooltip for the due cell. AWAITING_ITEMS gets the hand-off stamp rather
-     than a deadline: the badge no longer claims one, and "Due <date>" on a task
-     whose clock is explicitly the requester's is the same wrong claim in
-     smaller text. The expanded body's meta row says the same thing in its own
-     markup — keep the two in step. */
-  const dueMeta = ((): { label: string; value: string } | undefined => {
-    if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
-      return task.completedAt ? { label: "Completed", value: formatDate(task.completedAt) } : undefined;
-    }
-    if (task.taskType === "OOO") return undefined;
-    if (task.status === "AWAITING_ITEMS") return { label: "Sent to requester", value: formatDate(handedOffAt(task)) };
-    return { label: "Due", value: formatDate(task.dueAt) };
-  })();
-  const dueTitle = dueMeta ? `${dueMeta.label} ${dueMeta.value}` : undefined;
+  /* Tooltip for the due cell and the timestamp block at the foot of the row's
+     hamburger, both off `taskTimeMeta` so they agree on every status by
+     construction. The tooltip drops the OOO case (see `inTooltip` there); the
+     block shows it. */
+  const timeMeta = taskTimeMeta(task);
+  const dueTitle = timeMeta?.inTooltip ? `${timeMeta.label} ${timeMeta.value}` : undefined;
   const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
 
   /* FRAUD two-phase role-aware buttons (#39), shared with the bot cards so both
@@ -1823,7 +1850,8 @@ const TaskCard = memo(({
   /* Actions menu: hamburger next to the row's primary action (see the
      collapsed row below), holding Share plus the secondary ladder
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
-     Done, Undo Review, and FRAUD's Send Back / Release). Cancel's
+     Done, Undo Review, and FRAUD's Send Back / Release), and closing on the
+     card's timestamps as a non-interactive footnote (#166). Cancel's
      confirm/done UI renders inside the same
      panel so it stays visible once triggered, matching the in-place-swap
      behavior it always had. stopBubble on the wrapping span keeps clicks in this
@@ -1833,7 +1861,33 @@ const TaskCard = memo(({
      one, so the span still covers it — the panel repeats stopBubble anyway,
      because relying on a DOM-detached ancestor for that is exactly the kind of
      thing a later refactor breaks silently. */
-  const menuHasContent = Boolean(secondaryActionsBlock || shareMenuItemBlock || assignMenuItemBlock || cancelStage !== "idle");
+  /* Created plus the task's other timestamp, at the foot of the panel below a
+     hairline — the way a context menu carries "Last modified" (#166). Reference
+     detail, not a move anyone makes, so it reads as plain text: no role, no tab
+     stop, nothing to arrow onto between the actions and the end of the menu. It
+     used to be a full row plus its rule at the bottom of every expanded card. */
+  const menuTimestamps = (
+    <div className="task-card-menu-times" role="none">
+      <span><b>Created</b> {formatDate(task.createdAt)}</span>
+      {timeMeta && <span><b>{timeMeta.label}</b> {timeMeta.value}</span>}
+    </div>
+  );
+
+  /* Whether the menu has anything worth opening. Written as "is any block
+     non-empty" rather than a list of action checks, because the answer stopped
+     being about actions when the timestamps moved in: a closed task and a task
+     you have no seat on both have no actions at all, and they are the rows
+     someone is most likely to open the menu on to check a date. Created always
+     renders, so in practice the trigger is now on every row — this stays a
+     computed answer rather than `true` so it follows the contents if a later
+     change makes the block conditional. */
+  const menuHasContent = [
+    secondaryActionsBlock,
+    shareMenuItemBlock,
+    assignMenuItemBlock,
+    cancelStage !== "idle",
+    menuTimestamps
+  ].some(Boolean);
   const actionsMenu = menuHasContent && (
     <span onClick={stopBubble} className="task-card-menu">
       <button
@@ -1863,6 +1917,7 @@ const TaskCard = memo(({
           {secondaryActionsBlock}
           {shareMenuItemBlock}
           {assignMenuItemBlock}
+          {menuTimestamps}
         </div>,
         document.body
       )}
@@ -1919,36 +1974,20 @@ const TaskCard = memo(({
     </>
   );
 
-  /* Compact Created/Due, one row, bottom of the card. */
-  const metaFooter = (
-    <div className="task-card-meta-footer">
-      <span><b>Created</b> {formatDate(task.createdAt)}</span>
-      {task.taskType === "OOO" ? (
-        <span><b>Returns</b> {task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt)}</span>
-      ) : task.status === "AWAITING_ITEMS" ? (
-        // Matches the collapsed row's tooltip — the deadline is the requester's
-        // now, so neither surface quotes one.
-        <span><b>Sent to requester</b> {formatDate(handedOffAt(task))}</span>
-      ) : (
-        <span><b>Due</b> {formatDate(task.dueAt)}</span>
-      )}
-    </div>
-  );
-
   /* Expanded body: always a single stacked column, sections separated by a
      hairline rather than nested card chrome. Leads with the status timeline
      (compact horizontal rail) so opening a card says where it sits in its
-     flow, then FRAUD forward moves → checklist → notes → Created/Due. No
-     due-pill — the collapsed row's own OVERDUE/due chip already shows that.
-     Secondary actions never show here — they live in the row's hamburger
-     instead. */
+     flow, then FRAUD forward moves → checklist → notes, ending on the thread.
+     No due-pill — the collapsed row's own OVERDUE/due chip already shows that.
+     Secondary actions never show here — they live in the row's hamburger, and
+     since #166 so do the Created/Due timestamps that used to close the body
+     out. */
   const renderExpanded = () => (
     <div className="task-card-expanded">
       <Timeline task={task} />
       {fraudActionsBlock}
       {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
       <div className="thread">{notesBlock}</div>
-      {metaFooter}
     </div>
   );
 
