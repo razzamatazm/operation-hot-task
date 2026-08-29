@@ -76,6 +76,11 @@ const formatDate = (iso: string): string => {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 };
 
+/* "Heather Finn - Aug 21, 2026, 9:39 AM" — one string, used twice per note:
+   the row's hover title and its visually-hidden label. Both have to say the
+   same thing, so they read it from the same place. */
+const bylineOf = (name: string, iso: string): string => `${name} - ${formatDate(iso)}`;
+
 const formatPtDateOnly = (iso: string): string => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", {
@@ -338,8 +343,11 @@ const PoopDisplay = ({
   );
 };
 
-/* ── Small neutral avatar (expanded strip + notes thread) ──── */
-/* Mono treatment: initials in a neutral circle, no per-user color. */
+/* ── Small neutral avatar (notes thread) ──────────────────── */
+/* Mono treatment: initials in a neutral circle, no per-user color. Since the
+   notes thread dropped its author/timestamp row, these initials are the only
+   visible identity on a note — hence the size, and hence .msg carrying the
+   full name for hover and for assistive tech. */
 const ExpandAvatar = ({ name }: { name?: string }) => (
   <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
 );
@@ -1865,31 +1873,34 @@ const TaskCard = memo(({
 
   const checklistBlock = task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />;
 
-  /* The originating note (task.notes) uses the same avatar/name/timestamp
-     row as the reply thread below it, instead of a separate "Name: text"
-     block style — one consistent list, not two different-looking ones. */
+  /* The originating note (task.notes) renders as the first entry in the same
+     list as the replies below it, instead of a separate "Name: text" block
+     style — one consistent list, not two different-looking ones.
+
+     A note is one row: glyph + text. The author and timestamp that used to sit
+     on their own line above the text are now the row's `title` (hover) and a
+     visually-hidden span (screen readers, and touch devices where there is no
+     hover at all). `title` alone would strand both. */
   const notesBlock = (
     <>
       <div className="thread-head">{notesLabel}</div>
       <div className="msgs" ref={reviewListRef}>
-        <div className="msg">
+        <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
           <ExpandAvatar name={task.createdBy.displayName} />
           <div>
-            <div className="msg-meta">
-              <span className="msg-author">{task.createdBy.displayName}</span>
-              <span className="msg-time">{formatDate(task.createdAt)}</span>
-            </div>
+            <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
             <div className="msg-text">{task.notes}</div>
           </div>
         </div>
         {Array.isArray(task.reviewNotes) && task.reviewNotes.map((note, i) => (
-          <div key={i} className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}>
+          <div
+            key={i}
+            className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}
+            title={bylineOf(note.by.displayName, note.at)}
+          >
             <ExpandAvatar name={note.by.displayName} />
             <div>
-              <div className="msg-meta">
-                <span className="msg-author">{note.by.displayName}</span>
-                <span className="msg-time">{formatDate(note.at)}</span>
-              </div>
+              <span className="sr-only">{bylineOf(note.by.displayName, note.at)}</span>
               <div className="msg-text">{note.text}</div>
             </div>
           </div>
