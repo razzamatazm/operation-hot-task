@@ -35,6 +35,12 @@
   --bad-bg: #fce8e9;
   --row-alt: rgba(0, 0, 0, 0.018);
   --row-hover: rgba(0, 0, 0, 0.032);
+  /* Hover tint for a control that isn't a filled button — the checklist item
+     text and its notes (#171). Deliberately not --row-hover: that one is tuned
+     for a full-width table stripe, where a large area carries a weak tint. On
+     a short inline control there isn't enough area for it to register, and in
+     dark it disappeared into the panel entirely. */
+  --control-hover: rgba(0, 0, 0, 0.055);
   --shadow-sm: 0 1px 3px rgba(26, 24, 20, 0.06);
   --shadow-md: 0 4px 16px rgba(26, 24, 20, 0.07);
   --focus-ring: 0 0 0 2px rgba(44, 94, 160, 0.3);
@@ -94,6 +100,7 @@
   --bad-bg: #2c1c1c;
   --row-alt: rgba(255, 255, 255, 0.015);
   --row-hover: rgba(255, 255, 255, 0.035);
+  --control-hover: rgba(255, 255, 255, 0.1);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
   --focus-ring: 0 0 0 2px rgba(201, 144, 63, 0.35);
@@ -135,6 +142,7 @@
   --bad-bg: #330000;
   --row-alt: rgba(255, 255, 255, 0.04);
   --row-hover: rgba(255, 255, 255, 0.08);
+  --control-hover: rgba(255, 255, 255, 0.18);
   --shadow-sm: none;
   --shadow-md: none;
   --focus-ring: 0 0 0 2px #18ffff;
@@ -1313,11 +1321,11 @@ button.btn-good:hover {
 
 .checklist-item-text {
   --btn-bg: transparent;
-  /* Faint neutral overlay, the same one rows use — enough to say "clickable",
-     nothing like the brand fill this used to get. The horizontal padding and
-     its matching negative margin let the tint hug the text instead of reading
-     as a full-bleed bar, without moving anything. */
-  --btn-bg-hover: var(--row-hover);
+  /* Faint neutral overlay — enough to say "clickable", nothing like the brand
+     fill this used to get. The horizontal padding and its matching negative
+     margin let the tint hug the text instead of reading as a full-bleed bar,
+     without moving anything. */
+  --btn-bg-hover: var(--control-hover);
   flex: 1 1 auto;
   text-align: left;
   border: none;
@@ -1403,7 +1411,7 @@ button.btn-good:hover {
 }
 .checklist-note {
   --btn-bg: transparent;
-  --btn-bg-hover: var(--row-hover);
+  --btn-bg-hover: var(--control-hover);
   text-align: left;
   border: none;
   padding: 2px 4px;
