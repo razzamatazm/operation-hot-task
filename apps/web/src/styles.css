@@ -459,7 +459,15 @@ input:focus, select:focus, textarea:focus {
 textarea { resize: vertical; }
 
 /* ── Buttons ──────────────────────────────────────────────── */
+/* The fill runs through tokens rather than the resolved property. A bare class
+   selector loses to `button:hover` on specificity, so a variant that only set
+   `background: transparent` opted out of the resting state and got the brand
+   fill straight back on hover (#171). Custom properties cascade on their own,
+   so setting --btn-bg on a class now beats the element-level declaration and
+   carries the hover state with it — a button can't half-opt-out. */
 button {
+  --btn-bg: var(--brand);
+  --btn-bg-hover: var(--brand-hover);
   cursor: pointer;
   border: none;
   border-radius: 5px;
@@ -467,12 +475,12 @@ button {
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
-  background: var(--brand);
+  background: var(--btn-bg);
   color: var(--on-accent);
   transition: background 0.15s;
 }
 
-button:hover { background: var(--brand-hover); }
+button:hover { background: var(--btn-bg-hover); }
 button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 button.btn-sm {
@@ -1304,17 +1312,27 @@ button.btn-good:hover {
 .checklist-item-done .checklist-adder { opacity: 0.55; }
 
 .checklist-item-text {
+  --btn-bg: transparent;
+  /* Faint neutral overlay, the same one rows use — enough to say "clickable",
+     nothing like the brand fill this used to get. The horizontal padding and
+     its matching negative margin let the tint hug the text instead of reading
+     as a full-bleed bar, without moving anything. */
+  --btn-bg-hover: var(--row-hover);
   flex: 1 1 auto;
   text-align: left;
-  background: transparent;
   border: none;
-  padding: 2px 0;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
   font-family: "DM Sans", sans-serif;
   font-size: 0.86rem;
   color: var(--ink);
   cursor: text;
 }
+/* Not clickable, so it claims nothing on hover. Higher specificity than the
+   class above, which is all it takes to win the token. */
 .checklist-item-text:disabled {
+  --btn-bg-hover: transparent;
   cursor: default;
 }
 .checklist-item-done .checklist-item-text {
@@ -1384,16 +1402,20 @@ button.btn-good:hover {
   margin: 4px 0 0 26px;
 }
 .checklist-note {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--row-hover);
   text-align: left;
   border: none;
-  background: transparent;
-  padding: 2px 0;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
   font-family: "DM Sans", sans-serif;
   font-size: 0.78rem;
   color: var(--ink-secondary);
   cursor: pointer;
 }
 .checklist-note:disabled {
+  --btn-bg-hover: transparent;
   cursor: default;
 }
 .checklist-note b {
@@ -1401,9 +1423,12 @@ button.btn-good:hover {
   color: var(--ink);
 }
 .checklist-note-add {
+  /* Colour-only hover, which is what its :hover rule below always intended —
+     the background it used to grow came from the global rule, not from here. */
+  --btn-bg: transparent;
+  --btn-bg-hover: transparent;
   align-self: flex-start;
   border: none;
-  background: transparent;
   padding: 0;
   font-family: "JetBrains Mono", monospace;
   font-size: 0.6rem;
