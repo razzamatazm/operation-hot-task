@@ -74,6 +74,18 @@ const claimedFraud = async (service) => {
    distinguishable ISO stamps. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 2));
 
+/* Submit is gated on every item being resolved (#184). Tests whose subject is
+   something else use this to answer the list the way a requester would before
+   handing the ball back. */
+const resolveAllItems = async (service, id) => {
+  const task = await service.getTask(id);
+  for (const item of task.checklist ?? []) {
+    if (!item.checked && !(item.note ?? "").trim()) {
+      await service.setChecklistItemChecked(id, item.id, true, undefined, CREATOR);
+    }
+  }
+};
+
 let passed = 0;
 const check = async (label, fn) => {
   await fn();
@@ -247,6 +259,7 @@ await check("a creator CAN delete their own fresh item, but not after submit", a
   // Add another, then submit → it commits and locks.
   const again = await service.addChecklistItem(id, "another follow-up", CREATOR);
   const anotherId = again.checklist.find((i) => i.text === "another follow-up").id;
+  await resolveAllItems(service, id);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   await assert.rejects(() => service.removeChecklistItem(id, anotherId, CREATOR), /can't delete this checklist item/i);
 });
@@ -262,6 +275,7 @@ await check("deletion is rejected for outsiders and on non-FRAUD / closed tasks"
   await assert.rejects(() => service.removeChecklistItem(value.id, "whatever", CHECKER), /only on fraud checks/i);
   // Closed task: drive to COMPLETED, then deletion is rejected.
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  await resolveAllItems(service, id);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   await service.transitionStatus(id, "COMPLETED", CHECKER);
   await assert.rejects(() => service.removeChecklistItem(id, itemId, CHECKER), /can't delete this checklist item/i);
@@ -302,6 +316,9 @@ await check("closed means frozen: every checklist op is refused", async () => {
     const withItem = await service.addChecklistItem(id, "leave me open", CHECKER);
     const itemId = withItem.checklist[0].id;
     await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+    // Answered but not checked: gets past the submit gate (#184) and stays
+    // unresolved, which is what this test needs frozen at close.
+    await service.setChecklistItemNote(id, itemId, "still chasing it", CREATOR);
     await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
     if (closer === "COMPLETED") {
       await service.transitionStatus(id, "COMPLETED", CHECKER);
@@ -361,6 +378,7 @@ await check("checker editing a checked item's text clears the check + marks stal
   const itemId = withItem.checklist[0].id;
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
   await service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR);
+  await resolveAllItems(service, id);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   const edited = await service.editChecklistItemText(id, itemId, "W-2 (both employers)", CHECKER);
   assert.equal(edited.checklist[0].checked, false, "check cleared on edit");
@@ -376,6 +394,7 @@ await check("checker can set a per-item checker note on bounce-back review", asy
   const itemId = withItem.checklist[0].id;
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
   await service.setChecklistItemChecked(id, itemId, true, undefined, CREATOR);
+  await resolveAllItems(service, id);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   const noted = await service.setChecklistItemNote(id, itemId, "wrong month — need June", CHECKER);
   assert.equal(noted.checklist[0].checkerNote, "wrong month — need June");
@@ -386,6 +405,7 @@ await check("bounce-back increments the pass counter; new items stamp the new pa
   const id = await claimedFraud(service);
   await service.addChecklistItem(id, "item 1", CHECKER);
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER); // pass 1
+  await resolveAllItems(service, id);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   const bounced = await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "still need more"); // pass 2
   assert.equal(bounced.checklistPass, 2);
@@ -413,6 +433,7 @@ await check("awaitingItemsSince stamps each hand-off and survives the requester'
   assert.notEqual(ticked.updatedAt, ticked.awaitingItemsSince, "updatedAt moved, anchor did not");
 
   // Send Back restarts the clock rather than accumulating across passes.
+  await resolveAllItems(service, id);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   await tick();
   const bounced = await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "still need more");
@@ -420,11 +441,62 @@ await check("awaitingItemsSince stamps each hand-off and survives the requester'
   assert.equal(bounced.awaitingItemsSince, bounced.updatedAt);
 });
 
+await check("submit gate (#184): unresolved items block the hand-back; a check or the requester's note clears it", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  const sent = await service.addChecklistItem(id, "2023 tax returns", CHECKER);
+  const taxId = sent.checklist[0].id;
+  const second = await service.addChecklistItem(id, "Bank statement", CHECKER);
+  const bankId = second.checklist.find((i) => i.text === "Bank statement").id;
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+
+  await assert.rejects(
+    () => service.transitionStatus(id, "PENDING_APPROVAL", CREATOR),
+    /2 items still need a check or a note/,
+    "the ball can't go back with every box unticked"
+  );
+
+  // The checker's rework note is the ASK, not the answer to it.
+  await service.setChecklistItemNote(id, taxId, "last year's, need 2023", CHECKER);
+  await assert.rejects(() => service.transitionStatus(id, "PENDING_APPROVAL", CREATOR), /2 items still need/);
+
+  await service.setChecklistItemChecked(id, taxId, true, undefined, CREATOR);
+  await assert.rejects(() => service.transitionStatus(id, "PENDING_APPROVAL", CREATOR), /1 item still needs a check or a note/);
+
+  // Unchecked + the requester's own note is a deliberate "here's why".
+  await service.setChecklistItemNote(id, bankId, "account was closed in May", CREATOR);
+  const submitted = await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+  assert.equal(submitted.status, "PENDING_APPROVAL");
+});
+
+await check("submit gate (#184): drafts count, an empty checklist stays submittable", async () => {
+  const { service } = await setup();
+  const id = await claimedFraud(service);
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "call the borrower");
+  // Nothing outstanding, nothing to gate.
+  const empty = await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+  assert.equal(empty.status, "PENDING_APPROVAL");
+
+  // A fresh draft the requester added themselves is still an unanswered item —
+  // the submit is the hand-off that commits it.
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER, "one more thing");
+  const drafted = await service.addChecklistItem(id, "requester's own late add", CREATOR);
+  const draftItem = drafted.checklist.find((i) => i.text === "requester's own late add");
+  assert.equal(draftItem.draft, true, "still a draft");
+  await assert.rejects(() => service.transitionStatus(id, "PENDING_APPROVAL", CREATOR), /1 item still needs a check or a note/);
+  await service.setChecklistItemChecked(id, draftItem.id, true, undefined, CREATOR);
+  const back = await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
+  assert.equal(back.status, "PENDING_APPROVAL");
+});
+
 await check("approval gate: creator cannot approve; checker approves with exceptions (unresolved item)", async () => {
   const { service } = await setup();
   const id = await claimedFraud(service);
-  await service.addChecklistItem(id, "leave me open", CHECKER);
+  const withItem = await service.addChecklistItem(id, "leave me open", CHECKER);
   await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  // Unchecked, but answered — the requester said why, which is what gets it
+  // past the submit gate (#184) while leaving the item itself unresolved.
+  await service.setChecklistItemNote(id, withItem.checklist[0].id, "borrower can't produce it", CREATOR);
   await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   await assert.rejects(() => service.transitionStatus(id, "COMPLETED", CREATOR), /cannot complete/i);
   const done = await service.transitionStatus(id, "COMPLETED", CHECKER); // unresolved item present

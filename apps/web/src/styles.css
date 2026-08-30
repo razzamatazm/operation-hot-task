@@ -1207,6 +1207,16 @@ button.btn-good:hover {
   letter-spacing: 0.04em;
   color: var(--muted);
 }
+/* Why Submit won't go yet (#184) — shown to the requester, next to the count it
+   qualifies. Warm rather than alarming: this is an unfinished hand-off, not an
+   error. */
+.checklist-blocked {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+  font-weight: 600;
+}
 .checklist-items {
   list-style: none;
   margin: 0;
@@ -1220,6 +1230,16 @@ button.btn-good:hover {
 }
 .checklist-item:first-child {
   border-top: none;
+}
+/* The rows the submit gate is waiting on (#184): unchecked with nothing said.
+   A left rule and a tint, so the requester can find them in a long list without
+   reading every row. */
+.checklist-item-blocking {
+  box-shadow: inset 2px 0 0 var(--warn);
+  background: var(--warn-bg);
+  padding-left: 8px;
+  margin-left: -8px;
+  border-radius: 0 4px 4px 0;
 }
 .checklist-item-main {
   display: flex;
@@ -2941,8 +2961,30 @@ button.btn-good:hover {
 }
 .task-card-action-cell .task-card-menu { grid-column: 1; }
 .task-card-action-cell .task-card-quick-action,
+.task-card-action-cell .task-card-quick-action-slot,
 .task-card-action-cell .task-card-quick-action-waiting,
 .task-card-action-cell .task-card-quick-action-empty { grid-column: 2; }
+/* The primary action's slot: normally just the button, plus a one-line reason
+   underneath when the move is blocked (#184). Stacked rather than beside, so a
+   blocked row keeps the same column width as every other row. */
+.task-card-action-cell .task-card-quick-action-slot {
+  display: grid;
+  justify-items: stretch;
+  gap: 2px;
+}
+.task-card-quick-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.task-card-quick-action-blocked {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+}
 /* Passive "Waiting on <name>" indicator (#117) — a label, not a button:
    muted mono, no border, no fill, no pointer. Takes the same
    --quick-action-w the buttons take so the column stays aligned whichever

@@ -1,3 +1,4 @@
+import { submitBlockReason } from "./checklist.js";
 import { ACTION_LABELS } from "./labels.js";
 import { AppConfig, isSystemActor, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
@@ -683,9 +684,20 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
     return { ok: false, reason: "Only the fraud checker (assignee) can reopen the initial pass" };
   }
 
-  // FRAUD: submitting the outstanding items for approval is the requester's move.
-  if (next === "PENDING_APPROVAL" && !canSubmitForApproval(task, user)) {
-    return { ok: false, reason: "Only the task creator can submit for approval" };
+  // FRAUD: submitting the outstanding items for approval is the requester's
+  // move, and only once they've said something about every item (#184).
+  if (next === "PENDING_APPROVAL") {
+    if (!canSubmitForApproval(task, user)) {
+      return { ok: false, reason: "Only the task creator can submit for approval" };
+    }
+    /* The gate is about the task's state, not who you are, which is why it sits
+       here rather than in `canSubmitForApproval`: the refusal carries a reason
+       the caller can surface, and the seat check above stays a seat check. The
+       system actor bypasses it like every other gate. */
+    const blocked = isSystem(user) ? undefined : submitBlockReason(task.checklist ?? []);
+    if (blocked) {
+      return { ok: false, reason: blocked };
+    }
   }
 
   if (next === "COMPLETED" && !canCompleteTask(task, user)) {

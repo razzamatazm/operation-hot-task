@@ -166,6 +166,37 @@ export const allChecklistResolved = (items: ChecklistItem[]): boolean => items.e
 /* Count of unresolved (unchecked) items. */
 export const unresolvedCount = (items: ChecklistItem[]): number => items.filter((item) => !item.checked).length;
 
+/* The items that block the requester's Submit (#184): unchecked AND carrying no
+   note of their own.
+
+   `unresolvedCount` above is the softer "still open" cue — it counts anything
+   unticked, including the ones the requester has explained. This is the harder
+   question the hand-off asks: has the requester SAID something about every item?
+   A tick says "collected or not needed"; an untick with a note says "here's why
+   I couldn't get this", which is exactly the information the checker needs. An
+   untick with nothing is just an unanswered ask, and passing the ball back on
+   one wastes a whole round-trip.
+
+   The note that resolves is the requester's `note`, never the checker's
+   `checkerNote` — the checker's rework note is the ask, not the answer to it.
+   `addedBy`, `addedOnPass` and `draft` don't enter into it: a checker-added item
+   the requester can't satisfy still needs a note, and Submit is itself the
+   hand-off that commits the drafts, so an unresolved draft is the same problem. */
+export const unresolvedForSubmit = (items: ChecklistItem[]): ChecklistItem[] =>
+  items.filter((item) => !item.checked && (item.note ?? "").trim().length === 0);
+
+/* Why Submit is blocked, or `undefined` when it isn't — the one phrasing, shared
+   by the transition's refusal reason and the web button's disabled hint so the
+   requester reads the same sentence wherever they meet the gate. An empty
+   checklist is never blocked: nothing outstanding, nothing to gate. */
+export const submitBlockReason = (items: ChecklistItem[]): string | undefined => {
+  const blocking = unresolvedForSubmit(items).length;
+  if (blocking === 0) {
+    return undefined;
+  }
+  return blocking === 1 ? "1 item still needs a check or a note" : `${blocking} items still need a check or a note`;
+};
+
 /* Which of the two note fields belongs to a seat. The single place that
    mapping lives: `note` is the requester's exception, `checkerNote` the
    checker's rework note, and every writer and reader goes through here rather
