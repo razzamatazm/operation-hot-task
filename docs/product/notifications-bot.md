@@ -51,6 +51,19 @@
   (not a new full-channel broadcast). Falls back to a fresh channel post if
   the root message id is unknown (e.g. the bot restarted, or the task predates
   threading).
+- The **root channel card is edited in place** through the task's whole life —
+  claimable → claimed → terminal — so a claim made from one card retires the
+  Claim button everywhere it was posted. Never a new message: the edits are
+  silent, so nobody is re-pinged as a task moves.
+  - At a terminal status the card becomes a record: `✅ Completed — <folder>`
+    (also used for ARCHIVED) or `🚫 Cancelled — <folder>`, with every action
+    button dropped except **Open in Hot Task**, which survives so the card that
+    records the finished work is still a way into it. The URL is the one
+    recorded when the card was first posted, so a card keeps pointing where it
+    always pointed across a config change. With no link recorded — the case
+    whenever `TEAMS_APP_ID` is unset — the card carries no actions at all.
+  - The **re-open pointer card** is the exception: it is deliberately linkless,
+    because the task it replaced now lives in a new thread.
 - On claim, the claimer also gets a **full-details DM card** (`DM_CLAIM`):
   type, How Bad, urgency time-frame, **due date**, notes, Humperdink link, an
   **Open in Hot Task** deep link, and a contextual **advance/complete**
