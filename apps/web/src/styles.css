@@ -507,6 +507,27 @@ button.btn-ghost:hover {
   background: var(--brand-soft);
 }
 
+/* Collapse all (#177) sits inert when nothing in that list is expanded —
+   faded rather than removed, so the header's controls don't shift under the
+   cursor as cards open and close. Faded via `opacity`, matching
+   `button.btn-warn:disabled`, so one look means "inert" across the app.
+
+   The selector is `[aria-disabled]`, not `:disabled`: the button stays in the
+   tab order so a screen reader user can reach it and hear that there is
+   nothing to collapse, which the `disabled` attribute would deny them.
+
+   Hover opts out through `--btn-bg-hover` (#171) rather than re-declaring
+   `background`, because a bare `background` on a class loses to `button:hover`
+   on specificity — the token is how a button opts out of the fill and keeps
+   the opt-out on hover. Scoped to this control, not to every ghost button:
+   the loan header's Cancel-edit button is also an inert `.btn-ghost` mid-save
+   and it isn't this button's business to restyle it. */
+button.collapse-all[aria-disabled="true"] {
+  --btn-bg-hover: var(--btn-bg);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 button.btn-danger {
   background: transparent;
   color: var(--bad);

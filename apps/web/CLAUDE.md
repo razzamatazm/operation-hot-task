@@ -330,10 +330,11 @@ assignee), not assignee-gated like Complete.
    from the raw task list, independent of this view filter.)
 
 Rows are collapsed, full stop. There are no exceptions and no `defaultOpen`:
-`expanded` is the persisted per-user override (`expandOverride`) or `false`.
-A card opens because the viewer clicked it, or because a deep link asked for
-it, and closes because the viewer closed it. Nothing else moves it either
-way.
+`expanded` is the persisted per-user override (`expandOverride`) or `false` —
+`isTaskExpanded` in [src/expand-state.ts](src/expand-state.ts), which is the
+whole rule. A card opens because the viewer clicked it, or because a deep
+link asked for it, and closes because the viewer closed it. Nothing else
+moves it either way.
 
 `OPEN` tasks, unread notes, and your own in-flight work used to force a card
 open, and a companion effect cleared the manual override on a status change
@@ -343,6 +344,27 @@ cards they had never touched sprang open. Both are gone (#161). Nothing that
 matters is behind the fold: the collapsed row already carries the quick
 action and the hamburger, and the red dot marks what needs reading without
 taking the decision off the viewer.
+
+**Collapse all** (#177) closes every card open *in the list you're looking
+at*. `CollapseAllButton` renders on all three list headers (standard,
+loan-filtered, admin All Tasks) beside `GroupSeg`, and each is handed the ids
+its own `renderTaskList` renders, so the tab / loan-filter / grouping scoping
+is already done and cards in other lists keep whatever state they had.
+`expandedTaskIds` reads the override map for that list and `collapseTasks`
+writes the whole set back in one merged update, returning the previous map
+untouched when nothing would change. Both live in `expand-state.ts` alongside
+`isTaskExpanded` — the header and the card ask one owner the same question, so
+the button can't offer to collapse a list that is already shut. That module is
+framework-free and type-only in its imports, so
+`scripts/expand-state-sim-test.mjs` runs it directly under node's TS type
+stripping, same arrangement as `toast-store.ts` and `auth-token.ts`.
+
+It is one-way: no Expand all. Writing an open entry for every untouched card
+is the list rearranging itself under the viewer, which is the thing #161
+removed. The button is `aria-disabled` rather than `disabled` when nothing
+below it is open, so it holds its place in the tab order and a screen reader
+user can hear that there is nothing to collapse; its accessible name says
+which list it acts on, because three headers render the same two words.
 
 ### Status = left stripe
 

@@ -3,6 +3,7 @@ import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCa
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
+import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -1289,8 +1290,13 @@ const TaskCard = memo(({
      opened snapped shut, cards you had never touched sprang open. The
      collapsed row already carries the quick action and the hamburger, so
      nothing you need is behind the fold, and the red dot says where to look
-     without taking the decision off you. */
-  const expanded = expandOverride ?? false;
+     without taking the decision off you.
+
+     The one-liner lives in expand-state.ts because the list header's Collapse
+     all (#177) reads the same map from the other side, and one owner of the
+     rule is what keeps the button from claiming there is something to collapse
+     when there isn't. */
+  const expanded = isTaskExpanded(expandOverride);
   const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open);
   /* Acknowledge an unread note: clears the undim lock and the red dot.
      Triggered by an explicit user gesture (header click/key, or sending
@@ -2180,6 +2186,54 @@ const NewTaskButton = ({ open, onClick }: { open: boolean; onClick: () => void }
   </button>
 );
 
+/* Collapse all (#177): closes every card currently expanded *in this list*,
+   in one press. The caller passes the ids its own list renders, so the tab /
+   loan-filter / grouping scoping is already done and cards the viewer can't
+   see are never touched.
+
+   One-way by design. An Expand all would write an open entry for every card
+   the viewer never touched — the list rearranging itself under them, which is
+   exactly what #161 took out, only self-inflicted. Collapsing is different:
+   it restores the grid's resting state, which is where every card starts.
+
+   Inert rather than hidden when nothing below is open, so the header's
+   controls don't shuffle as cards open and close — and `aria-disabled` rather
+   than `disabled`, so the button keeps its place in the tab order and a screen
+   reader user can land on it and hear that there is nothing here to collapse.
+
+   `scope` names the list, because the visible label can't: three headers
+   render the same two words, and under a loan filter the button closes that
+   loan's cards only. */
+const CollapseAllButton = ({
+  expandedIds,
+  scope,
+  onCollapse
+}: {
+  expandedIds: string[];
+  scope: string;
+  onCollapse: (taskIds: string[]) => void;
+}) => {
+  const count = expandedIds.length;
+  return (
+    <button
+      type="button"
+      className="btn-sm btn-ghost collapse-all"
+      aria-disabled={count === 0}
+      aria-label={
+        count === 0
+          ? `Collapse all expanded tasks in ${scope} — nothing is expanded`
+          : `Collapse all ${count} expanded task${count === 1 ? "" : "s"} in ${scope}`
+      }
+      onClick={() => {
+        if (count === 0) return;
+        onCollapse(expandedIds);
+      }}
+    >
+      Collapse all
+    </button>
+  );
+};
+
 /* Editable header shown above the task list when it's filtered to a single
    Loan (ADR-0001). The app's only post-creation edit surface, scoped to the
    Loan's name + Humperdink link. Any authenticated user may edit. */
@@ -2191,7 +2245,9 @@ const LoanFilterHeader = ({
   grouped,
   onGroupedChange,
   formOpen,
-  onToggleForm
+  onToggleForm,
+  expandedIds,
+  onCollapseAll
 }: {
   loan: Loan;
   taskCount: number;
@@ -2201,6 +2257,8 @@ const LoanFilterHeader = ({
   onGroupedChange: (g: boolean) => void;
   formOpen: boolean;
   onToggleForm: () => void;
+  expandedIds: string[];
+  onCollapseAll: (taskIds: string[]) => void;
 }) => {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(loan.name);
@@ -2261,6 +2319,7 @@ const LoanFilterHeader = ({
       <div className="loan-header-meta">
         <span className="section-count">{taskCount} TASK{taskCount === 1 ? "" : "S"}</span>
         <GroupSeg grouped={grouped} onChange={onGroupedChange} />
+        <CollapseAllButton expandedIds={expandedIds} scope={loan.name} onCollapse={onCollapseAll} />
         <NewTaskButton open={formOpen} onClick={onToggleForm} />
         <button type="button" className="btn-sm btn-ghost" onClick={onClear}>Clear filter</button>
       </div>
@@ -3362,19 +3421,20 @@ export const App = () => {
     }
   };
   const [seenNotesAt, setSeenNotesAt] = useState<Record<string, string>>(() => loadSeenNotes(user.id));
-  /* Per-user manual accordion overrides: task id → true (forced open) /
-     false (forced closed). undefined = follow the default-open rule. Persisted
-     so a manual collapse/expand survives Teams tab reloads. */
+  /* Per-user accordion state: task id → true (the viewer opened it) / false
+     (the viewer closed it). An absent entry is closed too — the map records
+     the viewer's choices and nothing else decides. Persisted so those choices
+     survive Teams tab reloads. */
   const expandKey = `loan-tasks:expand:${user.id}`;
-  const loadExpand = (uid: string): Record<string, boolean> => {
+  const loadExpand = (uid: string): ExpandOverrides => {
     try {
       const raw = window.localStorage.getItem(`loan-tasks:expand:${uid}`);
-      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+      return raw ? (JSON.parse(raw) as ExpandOverrides) : {};
     } catch {
       return {};
     }
   };
-  const [expandOverrides, setExpandOverrides] = useState<Record<string, boolean>>(() => loadExpand(user.id));
+  const [expandOverrides, setExpandOverrides] = useState<ExpandOverrides>(() => loadExpand(user.id));
   /* Task to focus from a Teams deep link (bot card "Open in Hot Task" carries
      the task id as subEntityId). Held until the task is present in `tasks`,
      then expanded + scrolled into view by the effect below. */
@@ -3413,6 +3473,14 @@ export const App = () => {
   }, [expandOverrides, expandKey]);
   const setExpandOverride = useCallback((taskId: string, open: boolean): void => {
     setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
+  }, []);
+  /* Collapse all (#177): one merged write for the whole visible list, not one
+     setState per card. The entries it adds are ordinary manual collapses,
+     indistinguishable from clicking each row shut — and since nothing clears
+     an expand behind the viewer any more (#161), they stay collapsed until the
+     viewer opens them again. */
+  const collapseAllTasks = useCallback((taskIds: string[]): void => {
+    setExpandOverrides((prev) => collapseTasks(prev, taskIds));
   }, []);
   /* Deep-link focus: once the linked task has loaded, jump to the main list,
      expand it, and scroll it into view. Waits for the task to be present so a
@@ -3928,6 +3996,11 @@ export const App = () => {
     return sections;
   };
 
+  /* Which tasks in a given list are open right now — the input to that list's
+     Collapse all. Reads the same map TaskCard renders by, so the button can
+     never be live while every card below it is already closed. One pass of map
+     lookups over the rendered page, so it runs unmemoized. */
+  const expandedIdsIn = (list: LoanTask[]): string[] => expandedTaskIds(list, expandOverrides);
   const renderTaskList = (list: LoanTask[], emptyMessage: string) => {
     const cardProps = {
       user,
@@ -4115,6 +4188,8 @@ export const App = () => {
                 onGroupedChange={setGrouped}
                 formOpen={formOpen}
                 onToggleForm={() => setFormOpen((o) => !o)}
+                expandedIds={expandedIdsIn(filtered)}
+                onCollapseAll={collapseAllTasks}
               />
               {renderTaskList(filtered, "No tasks for this loan.")}
             </>
@@ -4128,6 +4203,7 @@ export const App = () => {
                 <span className="section-count">{unifiedTasks.length}</span>
               </h2>
               <GroupSeg grouped={grouped} onChange={setGrouped} />
+              <CollapseAllButton expandedIds={expandedIdsIn(unifiedTasks)} scope="Tasks" onCollapse={collapseAllTasks} />
               <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
             </div>
             {renderTaskList(unifiedTasks, "No tasks yet.")}
@@ -4142,6 +4218,7 @@ export const App = () => {
             <h2>All Tasks (admin)</h2>
             <span className="section-count">{allTasksAdmin.length} total · no age cutoff</span>
             <GroupSeg grouped={grouped} onChange={setGrouped} />
+            <CollapseAllButton expandedIds={expandedIdsIn(allTasksAdmin)} scope="All Tasks" onCollapse={collapseAllTasks} />
             <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
           </div>
           {renderTaskList(allTasksAdmin, "No tasks yet.")}
