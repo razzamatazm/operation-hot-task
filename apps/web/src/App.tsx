@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, submitBlockReason, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -988,10 +988,11 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
   const open = unresolvedCount(items);
   /* The submit gate (#184), shown only to the person it gates and only while
      they hold the ball: every item wants a check, or a note saying why not.
-     `open` above is the softer count — an item the requester has explained is
-     still open, but it no longer blocks the hand-back. */
-  const seatIsRequester = checklistSeat(task, user) === "creator";
-  const submitBlocked = seatIsRequester && task.status === "AWAITING_ITEMS" ? submitBlockReason(items) : undefined;
+     Who-and-when comes from the shared action set rather than being re-derived
+     here — one answer to "may this viewer submit yet", the same one the card's
+     button reads. `open` above is the softer count: an item the requester has
+     explained is still open, but it no longer blocks the hand-back. */
+  const submitBlocked = fraudCardActions(task, user).find((a) => a.targetStatus === "PENDING_APPROVAL")?.blockedReason;
   /* Which rows to point at, so the requester isn't hunting the list for them. */
   const blockingIds = new Set(submitBlocked ? unresolvedForSubmit(items).map((i) => i.id) : []);
 
@@ -1514,11 +1515,11 @@ const TaskCard = memo(({
     fraudQuick && fraudQuick.kind === "transitionWithNote" && !fraudHasChecklist
       ? fraudQuick.targetStatus
       : undefined;
-  /* `disabledReason` is set when the move is the phase's forward step but the
+  /* `blockedReason` is set when the move is the phase's forward step but the
      task's state won't take it yet — today only Submit, held until every
      checklist item is checked or noted (#184). Same sentence the server's
      refusal would carry, so the button doesn't teach a different rule. */
-  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; disabledReason?: string };
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; blockedCount?: number };
   let primaryAction: QuickAction | null = null;
   if (showActions) {
     // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
@@ -1538,7 +1539,11 @@ const TaskCard = memo(({
         run: needsNote
           ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
           : () => { void onTransition(task.id, target); },
-        ...(fraudQuick.blockedReason ? { disabledReason: fraudQuick.blockedReason } : {})
+        /* Carried through under the same name shared gives it, with the count
+           the narrow action column shows in place of the full sentence. */
+        ...(fraudQuick.blockedReason
+          ? { blockedReason: fraudQuick.blockedReason, blockedCount: unresolvedForSubmit(task.checklist ?? []).length }
+          : {})
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
@@ -2127,25 +2132,23 @@ const TaskCard = memo(({
                doesn't raise the hover events a tooltip needs. */
             <span
               className="task-card-quick-action-slot"
-              title={primaryAction.disabledReason}
-              onClick={(e) => { if (primaryAction!.disabledReason) { e.stopPropagation(); setExpanded(true); } }}
+              title={primaryAction.blockedReason}
+              onClick={(e) => { if (primaryAction!.blockedReason) { e.stopPropagation(); setExpanded(true); } }}
             >
               <button
                 type="button"
                 className={quickActionClass}
-                disabled={Boolean(primaryAction.disabledReason)}
-                aria-describedby={primaryAction.disabledReason ? `${task.id}-quick-blocked` : undefined}
+                disabled={Boolean(primaryAction.blockedReason)}
+                aria-label={primaryAction.blockedReason ? `${primaryAction.label} — ${primaryAction.blockedReason}` : undefined}
                 onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
               >
                 {primaryAction.label}
               </button>
-              {/* The column is one button wide, so the slot carries the count
-                  and the full sentence rides the title and the expanded
-                  checklist head, where the rows it names actually are. */}
-              {primaryAction.disabledReason && (
-                <span id={`${task.id}-quick-blocked`} className="task-card-quick-action-blocked">
-                  {`${unresolvedForSubmit(task.checklist ?? []).length} to resolve`}
-                </span>
+              {/* The column is one button wide, so the slot shows the count and
+                  the full sentence rides the title, the button's aria-label and
+                  the expanded checklist head — next to the rows it names. */}
+              {primaryAction.blockedReason && (
+                <span className="task-card-quick-action-blocked">{`${primaryAction.blockedCount} to resolve`}</span>
               )}
             </span>
           ) : waitingLabel ? (

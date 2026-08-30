@@ -122,6 +122,22 @@ await check("a fraud card's role-aware buttons also go away when closed", () => 
   assert.ok(actionTitles(live).length > 1, "a live fraud card keeps its button set");
 });
 
+await check("a blocked Submit explains itself on the DM card instead of firing and bouncing (#184)", () => {
+  const item = (over) => ({ id: "i", text: "Bank statement", checked: false, addedBy: "checker", addedOnPass: 1, ...over });
+  const blocked = makeTask({ taskType: "FRAUD", status: "AWAITING_ITEMS", checklist: [item({ id: "a" })] });
+  const card = noteCard(noteCardDataFromTask(blocked, CREATOR));
+  assert.deepEqual(actionTitles(card), ["Reply", "Submit"], "the move is still named — it is the phase's next step");
+  const submit = (card.actions ?? []).find((a) => a.title === "Submit");
+  // Adaptive Cards 1.4 has no disabled action, so the button opens the reason.
+  assert.equal(submit.type, "Action.ShowCard", "it doesn't execute the transition");
+  assert.equal(submit.card.body[0].text, "1 item still needs a check or a note");
+
+  const resolved = makeTask({ taskType: "FRAUD", status: "AWAITING_ITEMS", checklist: [item({ id: "a", checked: true })] });
+  const go = (noteCard(noteCardDataFromTask(resolved, CREATOR)).actions ?? []).find((a) => a.title === "Submit");
+  assert.equal(go.type, "Action.Execute", "once the list is answered it fires straight through");
+  assert.equal(go.data.targetStatus, "PENDING_APPROVAL");
+});
+
 await check("the claim-detail card swaps its title for the banner and drops advance", () => {
   const base = { taskId: "task-1", title: "You claimed Smith-1042", detail: "Type: LOI Check\nDue: Aug 14", openUrl: "https://teams/x", advance: { status: "COMPLETED", label: "Complete" } };
   const live = detailCard(base);

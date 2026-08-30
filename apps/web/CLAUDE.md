@@ -283,6 +283,24 @@ rendering failure on your own tasks. In order:
    spacer, unchanged"; the slot reading as a missing control was judged
    worse than telling an observer whose move it is.
 
+### A blocked primary action (#184)
+
+The ladder can also produce an action the task's **state** won't take yet —
+today only FRAUD's `Submit`, held until every checklist item is checked or
+noted. That is not the same thing as having no action: the requester needs to
+see that Submit *is* the next step and why it won't go. The slot renders the
+button `disabled` inside `.task-card-quick-action-slot`, with the blocking
+count stacked beneath it (`.task-card-quick-action-blocked`) and the full
+sentence on the wrapper's `title` and the button's `aria-label`. Clicking
+anywhere in the slot expands the card, where the checklist head repeats the
+sentence and the blocking rows carry `.checklist-item-blocking`.
+
+Both the reason and the count come from `fraudCardActions(...).blockedReason`
+in `packages/shared` — the view never decides who may submit or when. This is
+the one state where an active row runs a hair past two lines; the sub-label is
+a state-specific hint, not a layout reflow, and it appears only on the blocked
+requester's own row.
+
 All three are suppressed on mini (closed) rows — see `{!mini && ...}` in
 `TaskCard`. Minis have no quick *action*, but they do have an action
 **column**: a 32px track holding the hamburger.
