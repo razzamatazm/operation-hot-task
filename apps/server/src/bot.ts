@@ -409,6 +409,29 @@ const STATUS_DISPLAY: Record<TaskStatus, string> = {
 export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
   (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
 
+/* The forward button a card offers this viewer, or undefined when the flow has
+   no next step or this viewer isn't the one who takes it. `botPrimaryAdvance`
+   answers the first half (status only, deliberately); `canTransitionStatus`
+   answers the second, so a card never renders a button the server would refuse.
+
+   One definition for every card surface that shows the affordance (#173). The
+   note card asked the permission question; the confirm card asked it for FRAUD
+   only, on the reasoning that a fraud hand-off passes the task to the other
+   party. Every merge rung is a hand-off too, so once the merge seats were
+   guarded that exception handed the assignee who had just tapped Merge Done an
+   Approve Merge button belonging to the creator.
+
+   A viewer is optional and its absence is a real answer, not an unknown one:
+   the channel card is addressed to no one in particular and has nobody to gate
+   against, so it keeps the flow's next step. */
+export const advanceFor = (task: LoanTask, viewer?: UserIdentity): { status: TaskStatus; label: string } | undefined => {
+  const advance = botPrimaryAdvance(task);
+  if (!advance) {
+    return undefined;
+  }
+  return !viewer || canTransitionStatus(task, advance.status, viewer).ok ? advance : undefined;
+};
+
 /* Build note-card data from a task (used to refresh after a reply). The
    advance/Complete button is only offered to a viewer allowed to perform it
    (e.g. Complete is the assignee's action, not the creator's) — without this
@@ -428,13 +451,12 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
       ...(closed ? { closed } : {})
     };
   }
-  const advance = botPrimaryAdvance(task);
-  const showAdvance = advance && (!viewer || canTransitionStatus(task, advance.status, viewer).ok);
+  const advance = advanceFor(task, viewer);
   return {
     taskId: task.id,
     folder: task.folderName,
     thread: recentNoteThread(task),
-    ...(showAdvance && advance ? { advance } : {}),
+    ...(advance ? { advance } : {}),
     ...(closed ? { closed } : {})
   };
 };
@@ -1650,16 +1672,14 @@ export class TeamsBotClient {
      FRAUD hand-off passes the task to the *other* party, so the tapper sees no
      stray next button). */
   private confirmFor(task: LoanTask, user: UserIdentity): ConfirmData {
-    const advance = botPrimaryAdvance(task);
-    // FRAUD only: a hand-off passes the task to the other party, so gate the
-    // forward button to whoever can actually take the next step. Non-FRAUD flows
-    // keep their prior behaviour (advance shown whenever there's a next step).
-    const showAdvance = advance && (task.taskType !== "FRAUD" || canTransitionStatus(task, advance.status, user).ok);
+    // Every flow hands off, not just FRAUD: the tapper is offered the next step
+    // only when it is theirs to take (#173).
+    const advance = advanceFor(task, user);
     return {
       taskId: task.id,
       folder: task.folderName,
       message: `${task.folderName} is now ${STATUS_DISPLAY[task.status] ?? task.status}.`,
-      ...(showAdvance && advance ? { advance } : {})
+      ...(advance ? { advance } : {})
     };
   }
 
