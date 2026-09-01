@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -295,19 +295,23 @@ const groupedDue = (
      agreed to take, and the number they'd read would be wrong the moment they
      claimed it anyway.
 
-     Its creator is the exception, and only while the task has never been
-     claimed: they are the one person who can fix that by chasing a human, so
-     they get a count-up instead. */
+     Its creator is the exception: they are the one person who can fix that by
+     chasing a human, so they get a count-up instead. It runs from the moment the
+     task entered the pool (#210), so a task handed back counts from the hand-back
+     rather than from the day it was filed. */
   if (isUnclaimed(task)) {
     // When the row goes red is the shared rule's call, never this row's — same
     // reason isOverdue is delegated below. The twenty-minute threshold and the
     // "never claimed" part both live in the shared model, so this row and the
     // server cannot drift apart on what "too long unclaimed" means.
+    /* Counted from when the task entered the pool, not from when it was filed
+       (#210) — the shared accessor, so this row and the channel nag quote the
+       same number. They are the same instant for a task nobody ever claimed. */
     if (viewerIsRequester && isUnclaimedTooLong(task, new Date(nowMs))) {
-      return { label: "UNCLAIMED FOR", value: elapsedSince(task.createdAt, nowMs), overdue: true, done: false };
+      return { label: "UNCLAIMED FOR", value: elapsedSince(inPoolSince(task), nowMs), overdue: true, done: false };
     }
     if (viewerIsRequester && task.status === "OPEN") {
-      return { label: "UNCLAIMED FOR", value: elapsedSince(task.createdAt, nowMs), overdue: false, done: false };
+      return { label: "UNCLAIMED FOR", value: elapsedSince(inPoolSince(task), nowMs), overdue: false, done: false };
     }
     /* No label. `Within 24 Hours` is the widest thing this cell renders and it
        is self-describing; pairing it with an `URGENCY` label overruns the 154px

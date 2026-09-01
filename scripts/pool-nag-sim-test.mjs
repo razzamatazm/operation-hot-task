@@ -36,6 +36,7 @@ import path from "node:path";
 import {
   MAX_POOL_NAGS,
   UNCLAIMED_ALERT_MS,
+  inPoolSince,
   isPoolNagDue,
   isUnclaimedTooLong
 } from "../packages/shared/dist/index.js";
@@ -445,6 +446,118 @@ await check("a reopen does not buy a task another six asks", async () =>
     assert.equal((await store.findTask(task.id)).poolNagCount, MAX_POOL_NAGS, "the ceiling survives the reopen");
   })
 );
+
+await check("a task handed back says how long it has been up for grabs, not how old it is", async () => {
+  /* #210. The nag used to count from `createdAt`, so a task filed two days ago,
+     worked on, and handed back announced "still unclaimed after 2880 minutes"
+     twenty-five minutes after it returned to the pool. True of the task, false
+     of the sentence it is in. */
+  const { service, store, events } = await setup();
+  let task;
+  await withFrozenTime(AT_1000, async () => {
+    // Filed two days ago and claimed, so `createdAt` is nowhere near the truth.
+    task = await legacyOpenTask(service, store, "Old Folder", 2 * 24 * 60);
+    await service.claimTask(task.id, CHECKER);
+    await service.unclaimTask(task.id, CHECKER);
+    await service.settleBackgroundWork();
+  });
+
+  await withFrozenTime(AT_1025, async () => {
+    assert.equal((await service.runMaintenance()).nagged, 1);
+    assert.match(
+      nagsIn(events)[0].message,
+      /still unclaimed after 25 minutes/,
+      "counted from re-entering the pool, not from when it was filed"
+    );
+  });
+
+  const stored = await store.findTask(task.id);
+  assert.ok(stored.pooledSince, "the door stamped when it went back");
+  assert.notEqual(inPoolSince(stored), stored.createdAt, "and that is what the accessor answers");
+});
+
+await check("the creator's row counts the same clock as the channel", async () => {
+  const { service, store } = await setup();
+  let task;
+  await withFrozenTime(AT_1000, async () => {
+    task = await legacyOpenTask(service, store, "Handed Back Fresh", 2 * 24 * 60);
+    await service.claimTask(task.id, CHECKER);
+    await service.unclaimTask(task.id, CHECKER);
+    await service.settleBackgroundWork();
+  });
+
+  /* Five minutes back in the pool. Reading `createdAt` the row would shout
+     "unclaimed for 2 days" and go red immediately; the room, meanwhile, has not
+     been asked once. The two surfaces share the threshold AND the anchor. */
+  await withFrozenTime("2026-03-11T10:05:00-07:00", async () => {
+    const fresh = await store.findTask(task.id);
+    assert.equal(isUnclaimedTooLong(fresh, new Date()), false, "five minutes is not too long");
+    assert.equal(isPoolNagDue(fresh, new Date(), config), false, "and the room is not asked either");
+  });
+
+  await withFrozenTime(AT_1025, async () => {
+    const aged = await store.findTask(task.id);
+    assert.equal(isUnclaimedTooLong(aged, new Date()), true, "twenty-five minutes is");
+    assert.equal(isPoolNagDue(aged, new Date(), config), true, "and both surfaces turn together");
+  });
+});
+
+await check("every door into the pool restarts the clock, and taking it stops it", async () => {
+  /* Three ways back in besides `unclaimTask`, which the checks above cover. The
+     read path is proved by mutating the accessor; these are the write paths, and
+     a door that forgets to stamp is the failure this change is most exposed to. */
+  const { service, store } = await setup();
+
+  await withFrozenTime(AT_1000, async () => {
+    // Door: the creator takes a stalled task back (#208).
+    const returned = await legacyOpenTask(service, store, "Creator Freed", 2 * 24 * 60);
+    await service.claimTask(returned.id, CHECKER);
+    await service.returnToPool(returned.id, CREATOR);
+    await service.settleBackgroundWork();
+    const freed = await store.findTask(returned.id);
+    assert.equal(freed.pooledSince, new Date().toISOString(), "return-to-pool stamps");
+    assert.equal(inPoolSince(freed), freed.pooledSince, "so the clock runs from the hand-back");
+
+    // Door: a reopen from a closed status with nobody on it.
+    const reopened = await legacyOpenTask(service, store, "Reopened Later", 2 * 24 * 60);
+    await patch(store, reopened.id, (current) => {
+      const { assignee: _assignee, ...rest } = current;
+      return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5) };
+    });
+    await service.transitionStatus(reopened.id, "OPEN", CREATOR);
+    await service.settleBackgroundWork();
+    assert.equal((await store.findTask(reopened.id)).pooledSince, new Date().toISOString(), "the reopen door stamps");
+
+    // Door: a FRAUD release, which keeps its status. Nothing reads the field in
+    // that state today, but it should still say something true.
+    const released = await service.createTask(
+      { folderName: "Released Check", taskType: "FRAUD", notes: "n", urgency: "GREEN" },
+      CREATOR
+    );
+    await service.claimTask(released.id, CHECKER);
+    await service.transitionStatus(released.id, "AWAITING_ITEMS", CHECKER, "items");
+    await service.transitionStatus(released.id, "PENDING_APPROVAL", CREATOR);
+    await service.releaseForAnyChecker(released.id, CREATOR);
+    await service.settleBackgroundWork();
+    const inPlace = await store.findTask(released.id);
+    assert.equal(inPlace.assignee, undefined, "unassigned in place");
+    assert.equal(inPlace.pooledSince, new Date().toISOString(), "and stamped, so the field never lies");
+
+    // And the way out: taking the task stops the clock entirely.
+    const taken = await store.findTask(returned.id);
+    assert.ok(taken.pooledSince, "still pooled before the claim");
+    await service.claimTask(returned.id, CHECKER);
+    await service.settleBackgroundWork();
+    assert.equal((await store.findTask(returned.id)).pooledSince, undefined, "a holder clears it");
+  });
+});
+
+await check("a task nobody ever claimed still counts from when it was filed", async () => {
+  // The fallback: no `pooledSince` means it never left, so `createdAt` is right.
+  const filed = openTask({ createdAt: new Date("2026-03-11T09:00:00-07:00").toISOString() });
+  assert.equal(inPoolSince(filed), filed.createdAt);
+  assert.equal(isUnclaimedTooLong(filed, NOW), true);
+});
 
 await check("the creator's back-to-the-pool door is nag zero too", async () => {
   /* #208 added a third way a task lands back in the pool: the creator taking it

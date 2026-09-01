@@ -284,6 +284,14 @@ export interface LoanTask {
       task that predates the nag is not read as "never nagged" and does not fire
       the instant the feature ships (#207). */
   lastPoolNagAt?: string;
+  /** When this task most recently entered the pool — was filed unheld, or came
+      back after somebody let go of it (#210). Absent means it has never left,
+      so `createdAt` is the answer and `inPoolSince` falls back to it.
+
+      `lastPoolNagAt` cannot stand in for this: it is stamped on every nag as
+      well as on entry, so it answers "how recently was the room asked", which
+      is a different question from "how long has this been sitting". */
+  pooledSince?: string;
   /** How many pool nags this task has already spent (#207). The nag repeats,
       but not forever: past `MAX_POOL_NAGS` the room has been asked enough and
       re-asking is noise, so the count is the ceiling's memory. Absent means
