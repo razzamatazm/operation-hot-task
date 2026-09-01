@@ -1136,10 +1136,12 @@ button.btn-good:hover {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Small neutral avatar used in the notes thread. */
+/* Small neutral avatar used in the notes thread. Sized to be read, not just
+   seen: a note no longer prints its author's name, so these two letters are
+   the only identity on the row. Keep .msg's first grid column in step. */
 .expand-avatar {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   flex: none;
   display: grid;
@@ -1149,7 +1151,7 @@ button.btn-good:hover {
   border: 1px solid var(--line-soft);
   font-family: "Bricolage Grotesque", sans-serif;
   font-weight: 700;
-  font-size: 0.5rem;
+  font-size: 0.7rem;
 }
 
 /* The checklist keeps its own tan block everywhere else FraudChecklist is
@@ -1823,42 +1825,41 @@ button.btn-good:hover {
 }
 
 /* Reply stream. The originating note renders as the first .msg entry here
-   too (same avatar/name/timestamp treatment as replies), not a separate
-   "Name: text" block style. */
+   too (identical treatment to the replies), not a separate "Name: text"
+   block style.
+
+   The cap is sized against a single-line note. The 24px glyph is the tallest
+   thing on the row (the text is 0.86rem x 1.45 + 2px = ~22px), so a row is
+   24px and five of them with four 10px gaps come to 160px. 178px clears those
+   five and leaves 8px of the sixth showing past the gap — the clipped row is
+   the scroll affordance, and it only works if the number is past 170px, where
+   the sixth row's top edge sits. It is a max-height, so a one-note thread
+   still collapses to that one note rather than reserving the whole box. */
 .msgs {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 280px;
+  gap: 10px;
+  max-height: 178px;
   overflow-y: auto;
   padding-right: 4px;
 }
+/* One row per note: glyph, then what they said. The author and timestamp live
+   on the row's title and its .sr-only span, not in a header line. */
 .msg {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 24px 1fr;
   gap: 10px;
+  align-items: start;
 }
-.msg-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  margin-bottom: 2px;
-}
-.msg-author {
-  font-weight: 600;
-  font-size: 0.82rem;
-}
-.msg-time {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.63rem;
-  color: var(--muted);
-}
+/* padding-top optically centres the first line against the 24px glyph beside
+   it; subsequent lines wrap under themselves as before. */
 .msg-text {
   font-size: 0.86rem;
   line-height: 1.45;
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
+  padding-top: 2px;
 }
 
 /* Composer — textarea + Send, brand focus ring. */

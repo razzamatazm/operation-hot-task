@@ -408,9 +408,11 @@ nested card chrome, in this order:
    existing note drops below the row with the author's full name, not a chip —
    it's a sentence attributed to a person.
 4. **Notes** — originating note + reply thread + add-note input, all in one
-   avatar/name/timestamp style. Thread caps at 180px
-   (`.task-card-review-list` `max-height`) with internal scroll and
-   auto-scroll-to-newest on new entries / re-open.
+   avatar + text style: a note is a single row, glyph then what they said,
+   with no name/timestamp line above it (#165) — the author and the time ride
+   the row's `title` and a visually-hidden span instead. Thread caps at 178px
+   (`.msgs` `max-height`) with internal scroll and auto-scroll-to-newest on
+   new entries / re-open.
 5. **Created / Due** — one compact meta row at the bottom.
 
 Everything else (Re-open, Add a note, Unclaim, Cancel, Archive, Restore,
