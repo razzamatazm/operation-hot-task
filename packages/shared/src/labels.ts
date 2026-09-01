@@ -32,6 +32,11 @@ export const ACTION_LABELS = {
      Both are steps backwards that live in the menu, never the collapsed row. */
   UNDO_REVIEW: "Undo Review",
   RELEASE: "Release for any fraud checker",
+  /* The creator's move to take their own request off a holder who has stalled
+     on it and put it back where anyone can claim it (#208). Menu-only, and the
+     replacement for the self-handoff that used to do this from the other side.
+     Reads as where the task ends up, not as something done to the person. */
+  RETURN_TO_POOL: "Back to the pool",
   /* Row-level Cancel (#117): the creator's terminal fallback in the collapsed
      row's action slot. Same wording as the hamburger's Cancel entry — it drives
      the same two-step confirm. */

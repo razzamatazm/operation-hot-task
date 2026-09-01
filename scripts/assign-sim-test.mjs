@@ -26,8 +26,10 @@
  *     notifications provider picks off task.assignee).
  *   - Second pair of hands (ADR-0003): the creator is refused at all four doors
  *     an assignee comes through — claim, self-handoff, a third party handing it
- *     back, and assignment at creation — while a NON-creator's self-handoff
- *     survives.
+ *     back, and assignment at creation.
+ *   - Nobody may hand a task to THEMSELVES (#208), creator or not. Taking work
+ *     off a stalled holder is the creator's move now (`returnToPool`), made in
+ *     the open, rather than the taker's to make quietly.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -38,7 +40,7 @@ import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
-import { canAssignTaskTo, eligibleAssignees } from "../packages/shared/dist/workflow.js";
+import { canAssignTaskTo, canReturnToPool, eligibleAssignees } from "../packages/shared/dist/workflow.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -199,8 +201,8 @@ await check("a FRAUD task can only be handed to a FILE_CHECKER", async () => {
   assert.equal(ok.status, "CLAIMED");
 
   // The shared predicate the UI filters with agrees with the server.
-  assert.equal(canAssignTaskTo(untouched, OFFICER), false);
-  assert.equal(canAssignTaskTo(untouched, CHECKER), true);
+  assert.equal(canAssignTaskTo(untouched, OFFICER, CHECKER), false);
+  assert.equal(canAssignTaskTo(untouched, CHECKER, OFFICER), true);
 });
 
 await check("an uninvolved bystander may hand a task off", async () => {
@@ -239,20 +241,7 @@ await check("handing a task to whoever already holds it is refused", async () =>
 
   // The shared predicate the picker filters with agrees, so the row is never
   // offered in the first place.
-  assert.equal(canAssignTaskTo(after, OFFICER), false);
-});
-
-await check("handing yourself a task you do NOT hold still works", async () => {
-  const ctx = await setup();
-  const task = await openTask(ctx.service);
-  await ctx.service.claimTask(task.id, OFFICER);
-
-  /* The affordance #208 deliberately leaves alone: taking a task somebody else
-     is already sitting on, which `canClaimTask` will not let you claim. Only the
-     no-op case went away. */
-  const taken = await ctx.service.assignTask({ taskId: task.id, target: CHECKER, actor: CHECKER });
-  assert.equal(taken.assignee.id, CHECKER.id);
-  assert.equal(canAssignTaskTo(taken, CHECKER), false, "but now it IS theirs, so a repeat is refused");
+  assert.equal(canAssignTaskTo(after, OFFICER, CREATOR), false);
 });
 
 await check("the recipient gets a DM_ASSIGN card and nothing hits the channel", async () => {
@@ -458,14 +447,96 @@ await check("door 4: a task cannot be born assigned to its own creator", async (
   assert.deepEqual(await ctx.service.listTasks(CREATOR), [], "and no task is written");
 });
 
-await check("the affordance that survives: a non-creator hands a task to themselves", async () => {
+await check("nobody hands a task to themselves, creator or not (#208)", async () => {
   const ctx = await setup();
   const task = await openTask(ctx.service);
   await ctx.service.claimTask(task.id, OFFICER);
-  // Taking work off someone who is stuck or away. Still allowed (ADR-0002) —
-  // it is only the creator ADR-0003 bars.
-  const taken = await ctx.service.assignTask({ taskId: task.id, target: BYSTANDER, actor: BYSTANDER });
-  assert.equal(taken.assignee.id, BYSTANDER.id);
+
+  /* This used to be the allowed case — taking work off someone stuck or away by
+     naming yourself. It is now refused for everyone, and the refusal points at
+     the move that replaced it. */
+  await assert.rejects(
+    () => ctx.service.assignTask({ taskId: task.id, target: BYSTANDER, actor: BYSTANDER }),
+    /hand a task to yourself/i,
+    "a bystander cannot take the task off its holder"
+  );
+  assert.equal((await ctx.service.getTask(task.id)).assignee.id, OFFICER.id, "the holder is untouched");
+
+  // The holder cannot re-hand it to themselves either, though they meet a
+  // different refusal first: they already have it.
+  await assert.rejects(
+    () => ctx.service.assignTask({ taskId: task.id, target: OFFICER, actor: OFFICER }),
+    /already has this task/i
+  );
+
+  // And the picker never offers the row, because it filters on the same answer.
+  const stored = await ctx.service.getTask(task.id);
+  assert.equal(canAssignTaskTo(stored, BYSTANDER, BYSTANDER), false);
+  assert.equal(canAssignTaskTo(stored, BYSTANDER, CREATOR), true, "somebody else may still be handed it");
+});
+
+await check("the creator puts a stalled task back in the pool instead", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+
+  /* The replacement route (#208). The creator frees the task; it goes back to
+     OPEN and loses its seat, so anyone may claim it from the pool in the open
+     rather than the taker quietly reassigning it to themselves. */
+  const freed = await ctx.service.returnToPool(task.id, CREATOR);
+  assert.equal(freed.assignee, undefined, "the seat is clear");
+  assert.equal(freed.status, "OPEN", "and back where a task starts — that is what the pool is");
+
+  const history = await ctx.service.getHistory(task.id);
+  const released = history.filter((h) => h.action === "TASK_UNCLAIMED");
+  assert.equal(released.length, 1, "and it is on the record");
+  assert.match(released[0].detail, /Put back in the pool by/, "named for who did it, not read as an unclaim");
+
+  // The bystander who wanted it can now take it through the front door.
+  const claimed = await ctx.service.claimTask(task.id, BYSTANDER);
+  assert.equal(claimed.assignee.id, BYSTANDER.id);
+});
+
+await check("only the creator may put a task back in the pool", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+
+  await assert.rejects(
+    () => ctx.service.returnToPool(task.id, BYSTANDER),
+    /only the task creator/i,
+    "otherwise it is the self-handoff again wearing a different hat"
+  );
+  await assert.rejects(
+    () => ctx.service.returnToPool(task.id, OFFICER),
+    /only the task creator/i,
+    "not even the holder — they have Unclaim for that"
+  );
+  assert.equal((await ctx.service.getTask(task.id)).assignee.id, OFFICER.id);
+});
+
+await check("a task already in the pool cannot be returned to it", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await assert.rejects(
+    () => ctx.service.returnToPool(task.id, CREATOR),
+    /already in the pool/i
+  );
+  assert.equal(canReturnToPool(await ctx.service.getTask(task.id), CREATOR), false);
+});
+
+await check("the creator cannot claim what they just freed (ADR-0003 still holds)", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+  await ctx.service.returnToPool(task.id, CREATOR);
+
+  /* The whole reason this is a release and not a transfer: freeing the task does
+     not become a way for the creator to end up holding their own request. */
+  await assert.rejects(
+    () => ctx.service.claimTask(task.id, CREATOR),
+    /second pair of hands/
+  );
 });
 
 await check("no task type is exempt, including OOO and FRAUD", async () => {

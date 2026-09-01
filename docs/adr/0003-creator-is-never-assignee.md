@@ -28,7 +28,9 @@ outstanding item and could write a note in the requester's name.
 **`createdBy.id !== assignee.id` is an invariant of a task, checked at every
 door.** There are four ways a person becomes assignee — claiming, handoff,
 self-handoff, and `assigneeUserId` at creation — and the creator is refused at
-all four. It is a property of the task, not of the actor, so a *third party*
+all four. (Self-handoff has since been removed outright for everybody, creator or
+not — see [#208](https://github.com/razzamatazm/operation-hot-task/issues/208) —
+so that door is now shut to all comers rather than just to the creator.) It is a property of the task, not of the actor, so a *third party*
 handing a task back to its creator is refused too. It holds for every task type,
 including OOO: the creator is the person going out, the assignee is the person
 covering, and you cannot cover for yourself.

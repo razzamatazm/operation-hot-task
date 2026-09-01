@@ -499,6 +499,19 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* Put a claimed task back in the pool (#208) — the creator's counterpart to
+     the handoff, and the only way a task moves off a stalled holder now that
+     nobody may hand one to themselves. Policy lives in the service. */
+  router.post("/tasks/:taskId/return-to-pool", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      const task = await service.returnToPool(req.params.taskId, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to return task to the pool");
+    }
+  });
+
   router.post("/tasks/:taskId/transition", async (req, res) => {
     try {
       const { status, reviewNotes } = transitionSchema.parse(req.body);

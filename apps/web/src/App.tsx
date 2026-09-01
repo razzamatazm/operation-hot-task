@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -1236,6 +1236,7 @@ const TaskCard = memo(({
   user,
   onClaim,
   onUnclaim,
+  onReturnToPool,
   onTransition,
   onRelease,
   onAddReviewNote,
@@ -1259,6 +1260,7 @@ const TaskCard = memo(({
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
+  onReturnToPool: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
@@ -1442,12 +1444,17 @@ const TaskCard = memo(({
      don't hold it: handing a task to yourself is sometimes the only way to take
      one somebody else is already sitting on.
 
-     Neither the creator (ADR-0003) nor whoever currently holds the task (#208)
-     is in the list, and neither is a special case here — the row carries no copy
-     of any of those rules. `canAssignTaskTo` is the same predicate the server
-     enforces, so the picker cannot route around a door the server would shut. */
+     You are not in the list, and neither is the creator (ADR-0003) nor whoever
+     currently holds the task (#208). None of them is a special case here — the
+     row carries no copy of any of those rules. `canAssignTaskTo` is the same
+     predicate the server enforces, so the picker cannot route around a door the
+     server would shut.
+
+     Handing yourself a task used to be how you took over work somebody had
+     claimed and stalled on. That is now the creator's move, not the taker's:
+     they put it back in the pool and anyone claims it from there. */
   const assignCandidates = directory.filter((p) =>
-    canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles })
+    canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles }, user)
   );
   /* Two links to this task:
      - `webShareLink` — the plain browser URL. The `#task-<id>` fragment is
@@ -1784,6 +1791,19 @@ const TaskCard = memo(({
       {canUnclaimTask(task, user) && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
           Unclaim
+        </button>
+      )}
+      {/* #208: the creator takes their own request off a holder who has stalled
+          and puts it back where anyone can claim it. This is the replacement for
+          handing yourself somebody else's task, which is no longer allowed — the
+          move belongs to the person who asked for the work, and it happens in
+          the open rather than by quietly reassigning the task to yourself.
+          `canReturnToPool` is the shared predicate the server enforces, and it
+          stands down for a Fraud Check at PENDING_APPROVAL, where `Release for
+          any fraud checker` is the same move under its own name. */}
+      {canReturnToPool(task, user) && (
+        <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onReturnToPool(task.id); }}>
+          {ACTION_LABELS.RETURN_TO_POOL}
         </button>
       )}
       {task.status === "CLAIMED" && isCreator && !isAssignee && (
@@ -2216,6 +2236,7 @@ const CardList = ({
   user,
   onClaim,
   onUnclaim,
+  onReturnToPool,
   onTransition,
   onRelease,
   onAddReviewNote,
@@ -2240,6 +2261,7 @@ const CardList = ({
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
+  onReturnToPool: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
@@ -2276,6 +2298,7 @@ const CardList = ({
           user={user}
           onClaim={onClaim}
           onUnclaim={onUnclaim}
+          onReturnToPool={onReturnToPool}
           onTransition={onTransition}
           onRelease={onRelease}
           onAddReviewNote={onAddReviewNote}
@@ -3906,6 +3929,18 @@ export const App = () => {
     }
   }, [user, refresh, showToast]);
 
+  /* #208: the creator puts their own request back in the pool, taking it off a
+     holder who has stalled on it. The counterpart to the handoff now that nobody
+     may hand a task to themselves. */
+  const onReturnToPool = useCallback(async (taskId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/return-to-pool`, { method: "POST" }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to return the task to the pool", { variant: "error" });
+    }
+  }, [user, refresh, showToast]);
+
   const onAddReviewNote = useCallback(async (taskId: string, text: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/review-note`, { method: "POST", body: JSON.stringify({ text }) }, user);
@@ -4147,6 +4182,7 @@ export const App = () => {
       user,
       onClaim,
       onUnclaim,
+      onReturnToPool,
       onTransition,
       onRelease,
       onAddReviewNote,

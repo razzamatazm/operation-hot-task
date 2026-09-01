@@ -51,17 +51,27 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   only be handed to a file checker, mirroring the claim rule. The picker filters
   to eligible people; the server rejects the rest (`canAssignTaskTo` in
   `packages/shared/src/workflow.ts`).
-- Handing a task to yourself is allowed — it is just a claim, and sometimes the
-  only way to take a task you couldn't otherwise claim. **Except for the
-  creator**, who can never end up as assignee by any route (see above).
-- Handoff is also the answer when an assignee goes quiet: anyone may hand their
-  task to someone else, which is why no admin override is needed for it.
+- **Handing a task to yourself is not allowed**, by anyone (#208). It used to
+  be, on the grounds that it was just a claim; it was also the way to take a task
+  off a colleague, and doing that quietly is what the rule now prevents.
+- When an assignee goes quiet there are two answers, neither of which is taking
+  the task yourself: anyone may hand it to **someone else**, or the creator puts
+  it **back in the pool** for the room. That is why no admin override is needed
+  for it.
 - Status: `Open` → `Claimed`; a task already in flight (`Claimed`,
   `Needs Review`, Fraud's `Awaiting Items` / `Pending Approval`) swaps assignee
   in place with its status untouched. Closed tasks (`Completed` / `Archived` /
   `Cancelled`) cannot be handed off. Handing a task to whoever already holds it
-  is refused (#208) — the picker never offers the row, and the API says so rather
-  than reporting success for a request that would change nothing.
+  is refused (#208), as is handing a task to **yourself**, by anyone. The picker
+  never offers either row, and the API says so rather than reporting success for
+  a request that would change nothing.
+- **Back to the pool** (#208): the task's **creator** takes a `Claimed` task off
+  its holder and returns it to `Open`, unassigned, where anyone may claim it.
+  This is how work moves off somebody who has stalled, now that taking a task by
+  handing it to yourself is gone — the move belongs to the person who asked for
+  the work, and it goes through the open queue where the room can see it. The
+  creator still cannot claim it themselves (ADR-0003). The assignee's own
+  `Unclaim` is the same move from the other side.
 - Both people are told, by DM only — see
   [notifications-bot.md](notifications-bot.md#routing). Displacing an assignee
   is never silent.

@@ -6,11 +6,18 @@ Status: Accepted, with the self-handoff rule below narrowed twice since.
 become its assignee, by any route, including handing it to themselves or being
 handed it by a third party.
 
-[#208](https://github.com/razzamatazm/operation-hot-task/issues/208) — handing a
-task to whoever **already holds it**, by anyone, is now refused rather than
-treated as a silent no-op. Note that this is a rule about the target, not the
-actor: handing **yourself** a task you do not hold is untouched, and remains the
-only way to take a task somebody else is already sitting on.
+[#208](https://github.com/razzamatazm/operation-hot-task/issues/208) — **nobody
+may point a task at themselves**, and handing a task to whoever already holds it
+is refused rather than treated as a silent no-op.
+
+That removes what this ADR called the self-handoff, including the case it valued
+most: taking work off a colleague who is stuck or away. That need is real and
+does not go away, so it moves to the person who asked for the work. The creator
+puts the task **back in the pool** (`canReturnToPool`), where anyone may claim it
+through the front door. The difference is not who ends up holding the task; it is
+that the task passes through the open queue on the way, where the room can see it
+and anyone can take it, instead of being transferred quietly by the person who
+wanted it.
 
 ## Context
 

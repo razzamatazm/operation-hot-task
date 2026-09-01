@@ -59,8 +59,11 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     call it; eligibility is checked on the **recipient** (a Fraud Check only
     goes to a `FILE_CHECKER`). `OPEN` → `CLAIMED`; an in-flight task swaps
     assignee with its status unchanged; closed tasks are rejected; handing a
-    task to its current assignee is rejected (#208). A task can also be born
-    handed off via `assigneeUserId` / `assigneeNote` on `POST /api/tasks`.
+    task to its current assignee is rejected, and so is handing a task to
+    yourself (#208). A task can also be born handed off via `assigneeUserId` /
+    `assigneeNote` on `POST /api/tasks`.
+  - `POST /api/tasks/:taskId/return-to-pool` — the creator puts a `CLAIMED` task
+    back in the pool: `OPEN`, unassigned, re-posted to the channel (#208).
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)

@@ -550,6 +550,45 @@ export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
 export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string =>
   assigneeRefusal(task, user) ?? "This task isn't up for grabs right now";
 
+/* Nobody may point a task at themselves, by any route (#208). Handing yourself
+   a task used to be allowed and was the way to take over work somebody else had
+   claimed and stalled on. That route is closed: taking a task off a colleague is
+   now the creator's call, not the taker's, and the creator makes it by putting
+   the task back in the pool (`canReturnToPool`) where anyone may claim it in the
+   open.
+
+   A property of the actor/target pair rather than of the task, which is why it
+   sits here and not in `assigneeRefusal` — that function answers "may this
+   person hold this task", and the answer to that is still yes. */
+const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to put it back in the pool";
+
+/* The whole of "may this actor hand this task to this person", as a reason or
+   `undefined` for yes. Every refusal the handoff can give, in one place, so the
+   picker that hides a row and the service that throws give the same answer AND
+   the same sentence.
+
+   Order is deliberate: closed is a fact about the task and outranks everything;
+   then who may hold it at all (ADR-0003's creator rule earns its own explanation
+   ahead of the self rule, since a creator handing to themselves is refused for
+   the older and more specific reason); then the self rule. */
+export const handoffRefusal = (
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
+  actor: Pick<UserIdentity, "id">,
+  target: UserIdentity
+): string | undefined => {
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return "This task is closed — it can't be handed off";
+  }
+  const cannotHold = assigneeRefusal(task, target);
+  if (cannotHold) {
+    return cannotHold;
+  }
+  if (actor.id === target.id) {
+    return SELF_ASSIGN;
+  }
+  return undefined;
+};
+
 /* Handoff (ADR-0002): may this task be handed to this person?
    Eligibility is checked on the RECIPIENT, never the actor — anyone
    authenticated may hand a task off, but only to someone who could work it.
@@ -572,11 +611,35 @@ export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string 
    ADR-0003 narrows the rest one step: a handoff to yourself survives for
    everyone EXCEPT the task's creator, who is refused here like anyone else
    routing a task back to it. That's the door ADR-0002's version left open. */
-export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boolean => {
-  if (CLOSED_STATUSES.includes(task.status)) {
+export const canAssignTaskTo = (
+  task: LoanTask,
+  targetUser: UserIdentity,
+  actor: Pick<UserIdentity, "id">
+): boolean => handoffRefusal(task, actor, targetUser) === undefined;
+
+/* Who may put a claimed task back in the pool (#208).
+
+   The creator's counterpart to the handoff. With self-assignment gone, a task
+   somebody claimed and then stalled on needs a route back into play, and it
+   belongs to the person who asked for the work rather than to whoever fancies
+   taking it: the creator frees it, the channel gets a claimable card, and the
+   next holder arrives through the front door where everyone can see it.
+
+   Deliberately the same shape as `canUnclaimTask` — CLAIMED only — because it is
+   the same move from the other side, and "the pool" has one meaning: OPEN with
+   no assignee, exactly where a task starts. Releasing a task mid-flow is a
+   different move with a different name (FRAUD's "Release for any fraud checker",
+   and #145's auto-release), and those unassign IN PLACE precisely so the
+   exchange resumes rather than restarts. Dragging a NEEDS_REVIEW or MERGE_DONE
+   task back to OPEN would throw away a step nobody asked to undo.
+
+   The creator cannot then claim it themselves; ADR-0003 is untouched by this and
+   is the whole reason the move is a release rather than a transfer. */
+export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.status !== "CLAIMED" || !task.assignee) {
     return false;
   }
-  return canBeAssignee(task, targetUser);
+  return isSystem(user) || task.createdBy.id === user.id;
 };
 
 /* Does this person already hold this task? Named rather than inlined at the one
