@@ -245,6 +245,34 @@ await check("the backfill delays the nag, it does not cancel it", async () => {
   });
 });
 
+await check("a restart does not delay the first nag of a task too young to have earned one", async () => {
+  /* The backfill runs on every boot, not only the first, so it has to leave
+     alone anything that has not yet earned a nag. Without the age check a task
+     filed minutes before a deploy has its clock reset by the restart, and a
+     busy deploy window starves its first nag entirely. */
+  const { service, store, events } = await setup();
+  let fresh;
+  await withFrozenTime(AT_1000, async () => {
+    fresh = await service.createTask(
+      { folderName: "Filed Just Now", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+      CREATOR
+    );
+  });
+
+  // A restart twelve minutes later, while the task is still too young to nag.
+  await withFrozenTime("2026-03-11T10:12:00-07:00", async () => {
+    const backfilled = await service.backfillPoolNagClock();
+    assert.equal(backfilled.stamped, 0, "nothing to suppress, so nothing is stamped");
+    assert.equal((await store.findTask(fresh.id)).lastPoolNagAt, undefined, "its clock is untouched");
+  });
+
+  // So it still nags on its original schedule rather than twenty minutes later.
+  await withFrozenTime(AT_1025, async () => {
+    assert.equal((await service.runMaintenance()).nagged, 1, "the restart cost it nothing");
+    assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
+  });
+});
+
 await check("the backfill is idempotent, and leaves the second boot alone", async () =>
   withFrozenTime(AT_1000, async () => {
     const { service, store } = await setup();

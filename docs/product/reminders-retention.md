@@ -32,7 +32,9 @@ handed something that is already late.
 
 An `Open`, unassigned task re-posts to the group channel **every 20 minutes**
 during business hours until somebody claims it. Flat 20 minutes at every
-urgency. **OOO tasks are excluded** — a vacation notice is born unassigned and
+urgency. In practice the gap is 20-25 minutes and the six asks span a little
+over two hours: the scheduler wakes every 5 minutes, so a nag lands on the first
+tick past the threshold rather than on the threshold itself. **OOO tasks are excluded** — a vacation notice is born unassigned and
 stays that way until it auto-completes on the return date, so it is never
 waiting on hands.
 

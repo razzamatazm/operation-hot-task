@@ -33,6 +33,7 @@ import {
   computeClaimAnchoredDueAt,
   isPoolNagDue,
   isPoolNagEligible,
+  UNCLAIMED_ALERT_MS,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -1377,11 +1378,19 @@ export class TaskService {
 
      Stamping "now" says the truthful thing instead: these tasks have not been
      nagged, and their clock starts here. Each then nags on the normal cadence.
-     Safe to run every boot, because it only touches tasks that still lack the
-     field. A task created after this ran is unaffected and nags 20 minutes after
-     it is filed, which is the intended behaviour. */
+
+     Only tasks that are ALREADY past the nag threshold. This runs on every boot,
+     not just the first, so the discriminator matters: a task filed twelve
+     minutes before a restart has not earned a nag yet, so there is nothing to
+     suppress, and stamping it would push its first nag out by another twenty
+     minutes for no reason. Restart often enough and it would never nag at all.
+     A task that is unstamped AND already overdue for a nag is the shape this
+     exists for — either it predates the feature, or the server was down through
+     the window it should have nagged in, and in both cases starting its clock
+     here is the honest answer. */
   async backfillPoolNagClock(): Promise<{ stamped: number }> {
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
     const tasks = await this.store.allTasks();
     let stamped = 0;
     for (const task of tasks) {
@@ -1390,6 +1399,9 @@ export class TaskService {
       // no stamp, and stamping it would leave a misleading field on a task
       // nobody is being asked to pick up.
       if (!isPoolNagEligible(task) || task.lastPoolNagAt) {
+        continue;
+      }
+      if (nowMs - new Date(task.createdAt).getTime() < UNCLAIMED_ALERT_MS) {
         continue;
       }
       await this.store.updateTask(task.id, (current) =>

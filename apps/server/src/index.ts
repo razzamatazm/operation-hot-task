@@ -74,9 +74,12 @@ const bootstrap = async (): Promise<void> => {
     console.log(`loan_migration loans_created=${migrated.loansCreated} tasks_linked=${migrated.tasksLinked}`);
   }
   const service = new TaskService(store, notifier, sse, rules, activityFeedState, loanService);
-  /* One-time, idempotent (#207): start the pool-nag clock on tasks that were
-     already open when the nag shipped, so the first maintenance pass does not
-     read them as never-nagged and post one card per open task at once. */
+  /* Idempotent (#207): start the pool-nag clock on unclaimed tasks that are
+     already past the nag threshold with no stamp — the shape a task written
+     before the nag existed has — so the first maintenance pass does not read the
+     whole backlog as never-nagged and post one card per task at once. Runs every
+     boot; a task too young to have earned a nag is deliberately left alone, so a
+     restart never delays one. */
   const nagBackfill = await service.backfillPoolNagClock();
   if (nagBackfill.stamped > 0) {
     console.log(`pool_nag_backfill stamped=${nagBackfill.stamped}`);
