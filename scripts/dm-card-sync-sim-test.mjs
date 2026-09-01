@@ -29,7 +29,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { TeamsBotClient, closedStateFor, detailCard, noteCard, noteCardDataFromTask } from "../apps/server/dist/bot.js";
+import { TeamsBotClient, advanceFor, closedStateFor, detailCard, noteCard, noteCardDataFromTask } from "../apps/server/dist/bot.js";
 import { TeamsNotificationProvider } from "../apps/server/dist/notifications.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -274,9 +274,50 @@ await check("a mid-flight step syncs too, so the button re-arms to the next one"
   assert.equal(syncs.length, 1);
   assert.equal(syncs[0].task.status, "MERGE_DONE");
   assert.equal(moved.status, "MERGE_DONE");
-  // The button doesn't just vanish — it becomes the *next* step's.
-  const card = noteCard(noteCardDataFromTask(syncs[0].task, CHECKER));
-  assert.deepEqual(actionTitles(card), ["Reply", "Approve Merge"]);
+  // The button doesn't just vanish — it becomes the *next* step's, on the card
+  // of whoever owns that step. Approving the merge is the creator's move, not
+  // the assignee's (#173), so it re-arms there and nowhere else.
+  const forCreator = noteCard(noteCardDataFromTask(syncs[0].task, CREATOR));
+  assert.deepEqual(actionTitles(forCreator), ["Reply", "Approve Merge"]);
+  const forChecker = noteCard(noteCardDataFromTask(syncs[0].task, CHECKER));
+  assert.deepEqual(actionTitles(forChecker), ["Reply"], "the assignee doesn't approve their own merge");
+});
+
+/* The confirm card is the one posted straight back to whoever just tapped a
+   button, and it carries its own copy of the "what's next" affordance. It used
+   to gate that button for FRAUD only, on the reasoning that a fraud hand-off
+   passes the task to the other party — but so does every merge rung (#173), and
+   after the merge seats were guarded the assignee who tapped Merge Done was
+   handed an Approve Merge button the server would refuse. Both card surfaces now
+   ask `advanceFor`, which is the same question `canTransitionStatus` answers. */
+await check("the confirm card after a tap offers no button the tapper can't press", async () => {
+  const { service } = await serviceSetup();
+  const task = await service.createTask({ folderName: "Confirm-1", taskType: "LOAN_DOCS", urgency: "GREEN", points: 1, notes: "" }, CREATOR);
+  await service.claimTask(task.id, CHECKER);
+
+  // The assignee taps Merge Done. Approving it is the creator's move, so the
+  // card that comes back to the assignee shows no forward button at all.
+  const merged = await service.transitionStatus(task.id, "MERGE_DONE", CHECKER);
+  assert.equal(advanceFor(merged, CHECKER), undefined, "the tapper isn't offered the other party's move");
+  assert.deepEqual(
+    advanceFor(merged, CREATOR),
+    { status: "MERGE_APPROVED", label: "Approve Merge" },
+    "and the party who does own it still gets it"
+  );
+
+  // The creator taps Approve Merge. Completing is back to the assignee.
+  const approved = await service.transitionStatus(task.id, "MERGE_APPROVED", CREATOR);
+  assert.equal(advanceFor(approved, CREATOR), undefined, "the creator doesn't complete the task");
+  assert.deepEqual(advanceFor(approved, CHECKER), { status: "COMPLETED", label: "Complete" });
+});
+
+await check("a viewerless advance still describes the flow's next step", async () => {
+  // No viewer means no permission question to ask — the channel card has no one
+  // to gate against, and must keep the forward step it always showed.
+  const { service } = await serviceSetup();
+  const task = await service.createTask({ folderName: "Confirm-2", taskType: "LOAN_DOCS", urgency: "GREEN", points: 1, notes: "" }, CREATOR);
+  const claimed = await service.claimTask(task.id, CHECKER);
+  assert.deepEqual(advanceFor(claimed), { status: "MERGE_DONE", label: "Merge Done" });
 });
 
 await check("unclaiming syncs the ex-assignee, who is no longer a participant", async () => {

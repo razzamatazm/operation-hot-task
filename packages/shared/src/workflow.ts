@@ -312,7 +312,9 @@ export type PendingParty = "CREATOR" | "ASSIGNEE";
 
    The web collapsed row uses this for its passive `Waiting on <name>`
    indicator (#117) so the view never re-derives the flow. Status-only — it
-   says who the flow is waiting on, not who is permitted to act. */
+   says who the flow is waiting on, not who is permitted to act, though on the
+   merge rungs the two coincide by design: `canApproveMerge` gives MERGE_DONE's
+   next move to the same CREATOR this reports. */
 export const pendingPartyFor = (task: LoanTask): PendingParty | undefined => {
   switch (task.status) {
     case "MERGE_DONE":
@@ -505,6 +507,39 @@ export const canUnclaimTask = (task: LoanTask, user: UserIdentity): boolean => {
   return isSystem(user) || isAssignee;
 };
 
+/* LOAN_DOCS merge seat (#173). The merge chain hands the ball from one named
+   person to the other, so each rung belongs to exactly one of them:
+
+     CLAIMED    → MERGE_DONE      the assignee — they did the merge
+     MERGE_DONE → MERGE_APPROVED  the creator — they requested it and sign off
+
+   Both were unguarded: `canTransitionStatus` had no clause for either, so they
+   fell through to `{ ok: true }` for anyone, and the rules survived only as
+   inline checks in the web ladder. An assignee approving their own merge
+   defeats the approval step; a creator marking a merge done speaks for work
+   they didn't do. ADMIN confers nothing here (ADR-0003).
+
+   Status-guarded like `canUnclaimTask` so they answer safely on their own, and
+   in agreement with `pendingPartyFor`: the party that status says the flow is
+   waiting on is the party permitted to make the move out of it. */
+export const canMarkMergeDone = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.taskType !== "LOAN_DOCS" || task.status !== "CLAIMED") {
+    return false;
+  }
+
+  const isAssignee = task.assignee?.id === user.id;
+  return isSystem(user) || isAssignee;
+};
+
+export const canApproveMerge = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.status !== "MERGE_DONE") {
+    return false;
+  }
+
+  const isCreator = task.createdBy.id === user.id;
+  return isSystem(user) || isCreator;
+};
+
 export const canCancelTask = (task: LoanTask, user: UserIdentity): boolean => {
   const isCreator = task.createdBy.id === user.id;
   return isSystem(user) || isCreator;
@@ -619,6 +654,14 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
 
   if ((next === "CLAIMED" || next === "COMPLETED") && task.status === "NEEDS_REVIEW" && !canMoveNeedsReview(task, user)) {
     return { ok: false, reason: "Only assignee or creator can move a needs review task" };
+  }
+
+  if (next === "MERGE_DONE" && !canMarkMergeDone(task, user)) {
+    return { ok: false, reason: "Only the assignee can mark the merge done" };
+  }
+
+  if (next === "MERGE_APPROVED" && !canApproveMerge(task, user)) {
+    return { ok: false, reason: "Only the task creator can approve the merge" };
   }
 
   if (next === "CLAIMED" && task.status === "MERGE_DONE") {

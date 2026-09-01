@@ -52,7 +52,8 @@ const setup = async () => {
 /* Create a task, claim it, and walk its type-specific flow to COMPLETED —
    ending in COMPLETED with an assignee. LOAN_DOCS travels the longer
    MERGE_DONE → MERGE_APPROVED path, so advance along the shared flow rather
-   than assuming CLAIMED → COMPLETED. */
+   than assuming CLAIMED → COMPLETED — and each merge rung has its own seat
+   (#173), so the approval step is driven by the creator, not the assignee. */
 const createCompleted = async (service, taskType = "VALUE") => {
   // Relative to today, not hardcoded: createTask rejects an OOO whose return
   // date resolves to a due time in the past, so fixed dates rot into a failure.
@@ -65,7 +66,7 @@ const createCompleted = async (service, taskType = "VALUE") => {
   await service.claimTask(task.id, ASSIGNEE);
   const flow = flowFor(task).filter((s) => s !== "ARCHIVED");
   for (let i = flow.indexOf("CLAIMED") + 1; i < flow.length; i += 1) {
-    await service.transitionStatus(task.id, flow[i], ASSIGNEE);
+    await service.transitionStatus(task.id, flow[i], flow[i] === "MERGE_APPROVED" ? CREATOR : ASSIGNEE);
   }
   return task.id;
 };
