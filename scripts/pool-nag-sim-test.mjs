@@ -446,6 +446,34 @@ await check("a reopen does not buy a task another six asks", async () =>
   })
 );
 
+await check("the creator's back-to-the-pool door is nag zero too", async () => {
+  /* #208 added a third way a task lands back in the pool: the creator taking it
+     off a stalled holder. It posts the same CHANNEL_REOPENED card as the other
+     two, so it is nag zero for the same reason — and because it shares
+     `sendBackToPool`, it inherited the stamp rather than having to remember it.
+     This check is what would fail if that seam were ever split apart. */
+  const { service, store, events } = await setup();
+  let task;
+  await withFrozenTime(AT_1000, async () => {
+    task = await legacyOpenTask(service, store, "Stalled On");
+    await service.claimTask(task.id, CHECKER);
+    await service.returnToPool(task.id, CREATOR);
+    await service.settleBackgroundWork();
+
+    assert.equal(
+      events.filter((event) => event.target === "CHANNEL_REOPENED").length,
+      1,
+      "the room already has a fresh claimable card"
+    );
+    assert.ok((await store.findTask(task.id)).lastPoolNagAt, "so the clock is stamped");
+    assert.equal((await service.runMaintenance()).nagged, 0, "and no nag repeats it");
+  });
+
+  await withFrozenTime(AT_1025, async () => {
+    assert.equal((await service.runMaintenance()).nagged, 1, "twenty minutes on, asking again is fair");
+  });
+});
+
 await check("reopening onto a retained assignee is nobody's pool problem", async () =>
   withFrozenTime(AT_1000, async () => {
     const { service, store, events } = await setup();

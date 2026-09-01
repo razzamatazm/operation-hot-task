@@ -11,7 +11,6 @@ import {
   addChecklistItem,
   assignRefusalMessage,
   canAddNoteToTask,
-  canAssignTaskTo,
   canClaimTask,
   canDeleteChecklistItem,
   canEditChecklist,
@@ -22,6 +21,8 @@ import {
   canTransitionStatus,
   canUnclaimTask,
   assigneeRefusal,
+  handoffRefusal,
+  returnToPoolRefusal,
   claimRefusalMessage,
   editChecklistItemText,
   removeChecklistItem,
@@ -402,14 +403,65 @@ export class TaskService {
       throw new Error("Only the assignee can unclaim this task");
     }
 
+    return this.sendBackToPool(task, user, {
+      detail: `Returned to open queue by ${user.displayName}`,
+      method: "unclaimTask"
+    });
+  }
+
+  /* "Back to the pool" (#208) — the creator takes their own request off a holder
+     who has stalled on it.
+
+     This is the replacement for self-assignment. Taking over a stalled task used
+     to be something the taker did directly, by handing the task to themselves;
+     that door is closed, so somebody has to be able to free it, and it is the
+     person who asked for the work. The task lands OPEN and unassigned, the
+     channel gets a claimable card, and the next holder arrives through the front
+     door in the open.
+
+     The creator cannot then take it themselves — ADR-0003 still bars them from
+     their own task, which is exactly why this is a release and not a transfer. */
+  async returnToPool(taskId: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    const refusal = returnToPoolRefusal(task, user);
+    if (refusal) {
+      throw new Error(refusal);
+    }
+
+    return this.sendBackToPool(task, user, {
+      detail: `Put back in the pool by ${user.displayName}`,
+      method: "returnToPool"
+    });
+  }
+
+  /* The mechanism the two doors out of CLAIMED share — the assignee walking away
+     (`unclaimTask`) and the creator taking it back (`returnToPool`) — clearing
+     the seat, dropping the task to OPEN, recording it, and re-alerting the
+     channel. The POLICY — who may do it, and what the history reads — belongs to
+     the callers; this is only the move.
+
+     Distinct from `unassignInPlace` below, which keeps the status where it is.
+     That one is for a release mid-exchange, where the next holder should inherit
+     the pass and carry on. This one is for a task going back to the start of its
+     life, which is what "the pool" means. */
+  private async sendBackToPool(
+    task: LoanTask,
+    actor: UserIdentity,
+    { detail, method }: { detail: string; method: string }
+  ): Promise<LoanTask> {
     const now = new Date().toISOString();
-    const event = this.makeHistory(task.id, user, "TASK_UNCLAIMED", `Returned to open queue by ${user.displayName}`);
+    const exAssigneeId = task.assignee?.id;
+    const event = this.makeHistory(task.id, actor, "TASK_UNCLAIMED", detail);
     const updated = await this.writeTask(task.id, (current) => {
       /* The task is the pool's problem again, and the CHANNEL_REOPENED post
-         below is nag zero — so stamp the nag clock rather than leaving it
+         below is nag zero (#207) — so stamp the nag clock rather than leaving it
          absent. An absent stamp falls back to `createdAt`, which for anything
          that already sat out its first 20 minutes means a nag fires seconds
-         after the reopen post, saying the same thing twice. */
+         after the reopen post, saying the same thing twice. That reasoning is
+         why the stamp belongs on this shared seam rather than in either caller:
+         both doors post the card, so both are nag zero, and the creator's door
+         (#208) arrived after the rule and inherited it for free. */
       const { assignee: _assignee, ...withoutAssignee } = current;
       return { task: { ...withoutAssignee, status: "OPEN", lastPoolNagAt: now, updatedAt: now }, event };
     });
@@ -420,15 +472,17 @@ export class TaskService {
       await this.notify({
         type: "TASK_UNCLAIMED",
         task: updated,
-        actor: { id: user.id, displayName: user.displayName },
+        actor: { id: actor.id, displayName: actor.displayName },
         message: `${updated.folderName} is back up for grabs`,
         target: "CHANNEL_REOPENED"
       });
       // The ex-assignee is no longer on the task, so name them explicitly — their
       // DM card is the one still offering a Complete button they've just lost.
-      await this.emitCardSync(updated, task.assignee ? [task.assignee.id] : []);
+      // When the creator is the one freeing it, this is also how the displaced
+      // holder finds out.
+      await this.emitCardSync(updated, exAssigneeId ? [exAssigneeId] : []);
       await this.evaluateActivitySignals({ now: new Date(now) });
-    }, { method: "unclaimTask", taskId: updated.id });
+    }, { method, taskId: updated.id });
 
     return updated;
   }
@@ -461,7 +515,7 @@ export class TaskService {
     });
   }
 
-  /* The mechanism both releases share: clear the assignee, leave the status
+  /* The mechanism the releases share: clear the assignee, leave the status
      exactly where it is, record it, and tell the people looking at stale
      buttons. The POLICY — who may do it, and why — belongs to the callers; this
      is only the move. Returns the updated task.
@@ -1290,7 +1344,12 @@ export class TaskService {
          AWAITING_ITEMS / PENDING_APPROVAL — swaps assignee IN PLACE, status
          untouched: "the wrong checker picked this up" is the main reason anyone
          reaches for this, and that task is by definition not OPEN.
-       - Handing a task to whoever already holds it is a no-op, not an error.
+       - Handing a task to whoever already holds it is REFUSED (#208), not
+         silently accepted. Nothing to do and nothing done are the same thing;
+         reporting success for it is not.
+       - Nobody may hand a task to THEMSELVES (#208). Taking work off a
+         colleague is the creator's call now, made with `returnToPool` below,
+         not something the taker does to them directly.
        - DMs only. No channel post, no activity-feed alert: a handoff is a
          conversation between two people and the channel already saw the task.
        - The note rides the recipient's card only. It is never written as a
@@ -1304,18 +1363,12 @@ export class TaskService {
     const task = await this.requireTask(params.taskId);
     const note = params.note?.trim() || undefined;
 
-    /* Closed first, then the no-op. A closed task is rejected even when the
-       target already holds it — otherwise the API quietly 200s on a handoff of
-       a COMPLETED task, and "was it rejected?" depends on who you named. */
-    if (CLOSED_STATUSES.includes(task.status)) {
-      throw new Error("This task is closed — it can't be handed off");
-    }
-    // Already theirs: nothing to do, and nobody to notify.
-    if (task.assignee?.id === params.target.id) {
-      return task;
-    }
-    if (!canAssignTaskTo(task, params.target)) {
-      throw new Error(assigneeRefusal(task, params.target) ?? "This task can't be handed off");
+    /* One question, one answer, one sentence: closed, ineligible, already
+       theirs, and handing to yourself all come back from `handoffRefusal`, which
+       is the same function the picker filters with. */
+    const refusal = handoffRefusal(task, params.target, params.actor);
+    if (refusal) {
+      throw new Error(refusal);
     }
 
     const previous = task.assignee;

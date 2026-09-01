@@ -467,17 +467,30 @@ const isSystem = (user: UserIdentity): boolean => isSystemActor(user);
 const CREATOR_IS_ASSIGNEE = "created this task — a task takes a second pair of hands";
 
 /* The whole of "may this person be this task's assignee", as a reason or
-   `undefined` for yes. One function so the four doors an assignee can come
-   through — claim, handoff, self-handoff, and assignment at creation — give the
-   same answer AND the same explanation. Takes only the two fields it needs, so
+   `undefined` for yes. One function so every door an assignee can come through —
+   claim, handoff, and assignment at creation — gives the same answer AND the
+   same explanation. (Self-handoff used to be a fourth; #208 closed it, and
+   `handoffRefusal` is where that particular no now lives.) Takes only the two fields it needs, so
    the create path can ask before the task exists.
 
    Does not consider status: a closed task rejects a handoff for its own
    reasons, which is `canAssignTaskTo`'s business. */
 export const assigneeRefusal = (
-  task: Pick<LoanTask, "taskType" | "createdBy">,
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee">,
   candidate: UserIdentity
 ): string | undefined => {
+  /* Already theirs (#208). First, because it is the most concrete thing true of
+     the pair and it is not an eligibility problem — the candidate can work this
+     task fine, they are simply on it already, so any of the sentences below
+     would misdescribe the situation.
+
+     It lives in here rather than beside the throw in `assignTask` so the
+     promise this function makes holds: one answer AND one explanation at every
+     door. The create path passes a task that has no assignee yet, which is
+     `undefined` and never matches. */
+  if (isCurrentHolder(task, candidate)) {
+    return holderRefusalMessage(candidate.displayName);
+  }
   if (task.createdBy.id === candidate.id) {
     return `${candidate.displayName} ${CREATOR_IS_ASSIGNEE}`;
   }
@@ -488,7 +501,7 @@ export const assigneeRefusal = (
 };
 
 export const canBeAssignee = (
-  task: Pick<LoanTask, "taskType" | "createdBy">,
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee">,
   candidate: UserIdentity
 ): boolean => assigneeRefusal(task, candidate) === undefined;
 
@@ -538,6 +551,45 @@ export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
 export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string =>
   assigneeRefusal(task, user) ?? "This task isn't up for grabs right now";
 
+/* Nobody may point a task at themselves, by any route (#208). Handing yourself
+   a task used to be allowed and was the way to take over work somebody else had
+   claimed and stalled on. That route is closed: taking a task off a colleague is
+   now the creator's call, not the taker's, and the creator makes it by putting
+   the task back in the pool (`canReturnToPool`) where anyone may claim it in the
+   open.
+
+   A property of the actor/target pair rather than of the task, which is why it
+   sits here and not in `assigneeRefusal` — that function answers "may this
+   person hold this task", and the answer to that is still yes. */
+const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to put it back in the pool";
+
+/* The whole of "may this actor hand this task to this person", as a reason or
+   `undefined` for yes. Every refusal the handoff can give, in one place, so the
+   picker that hides a row and the service that throws give the same answer AND
+   the same sentence.
+
+   Order is deliberate: closed is a fact about the task and outranks everything;
+   then who may hold it at all (ADR-0003's creator rule earns its own explanation
+   ahead of the self rule, since a creator handing to themselves is refused for
+   the older and more specific reason); then the self rule. */
+export const handoffRefusal = (
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
+  target: UserIdentity,
+  actor: Pick<UserIdentity, "id">
+): string | undefined => {
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return "This task is closed — it can't be handed off";
+  }
+  const cannotHold = assigneeRefusal(task, target);
+  if (cannotHold) {
+    return cannotHold;
+  }
+  if (actor.id === target.id) {
+    return SELF_ASSIGN;
+  }
+  return undefined;
+};
+
 /* Handoff (ADR-0002): may this task be handed to this person?
    Eligibility is checked on the RECIPIENT, never the actor — anyone
    authenticated may hand a task off, but only to someone who could work it.
@@ -545,20 +597,75 @@ export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string 
    handoff can't route one to someone who then can't complete it. Closed tasks
    (COMPLETED / CANCELLED / ARCHIVED) are out of play entirely.
 
-   Self-handoff is deliberately allowed: it is just a claim, and is sometimes
-   the only way to take a task that `canClaimTask` won't let you claim (already
-   claimed by someone else). Handing a task to whoever already holds it is a
-   no-op, not an error, and the caller treats it as such.
+   A handoff points a task at SOMEBODY ELSE. Two things it may not do (#208):
 
-   ADR-0003 narrows that one step: self-handoff survives for everyone EXCEPT the
-   task's creator, who is refused here like anyone else routing a task back to
-   it. That's the door ADR-0002's version left open. */
-export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boolean => {
-  if (CLOSED_STATUSES.includes(task.status)) {
-    return false;
+   Hand a task to whoever already holds it. That used to be a silent no-op, on
+   the grounds that there was nothing to do. There is nothing to do, but "nothing
+   happened" and "your request was accepted" are different answers and the API
+   gave the second one to the first.
+
+   Hand a task to yourself. This one used to be allowed and was how you took work
+   off a colleague who had claimed something and stalled. That need is real, so
+   it moved rather than vanishing: the creator puts the task back in the pool
+   (`canReturnToPool`) and anyone claims it from there. What changed is not who
+   ends up holding the task but that it passes through the open queue on the way,
+   where the room can see it.
+
+   ADR-0003 is a separate and still-narrower rule on top: the creator may never
+   be the assignee, whoever is doing the handing. */
+export const canAssignTaskTo = (
+  task: LoanTask,
+  targetUser: UserIdentity,
+  actor: Pick<UserIdentity, "id">
+): boolean => handoffRefusal(task, targetUser, actor) === undefined;
+
+/* Who may put a claimed task back in the pool (#208).
+
+   The creator's counterpart to the handoff. With self-assignment gone, a task
+   somebody claimed and then stalled on needs a route back into play, and it
+   belongs to the person who asked for the work rather than to whoever fancies
+   taking it: the creator frees it, the channel gets a claimable card, and the
+   next holder arrives through the front door where everyone can see it.
+
+   Deliberately the same shape as `canUnclaimTask` — CLAIMED only — because it is
+   the same move from the other side, and "the pool" has one meaning: OPEN with
+   no assignee, exactly where a task starts. Releasing a task mid-flow is a
+   different move with a different name (FRAUD's "Release for any fraud checker",
+   and #145's auto-release), and those unassign IN PLACE precisely so the
+   exchange resumes rather than restarts. Dragging a NEEDS_REVIEW or MERGE_DONE
+   task back to OPEN would throw away a step nobody asked to undo.
+
+   The creator cannot then claim it themselves; ADR-0003 is untouched by this and
+   is the whole reason the move is a release rather than a transfer.
+
+   Written as a refusal with `canReturnToPool` on top, the same shape as the
+   handoff, so the button that hides itself and the service that throws give the
+   same answer AND the same sentence. A creator on a NEEDS_REVIEW task hears that
+   the status is wrong rather than being told they are not the creator. */
+export const returnToPoolRefusal = (task: LoanTask, user: UserIdentity): string | undefined => {
+  if (!task.assignee) {
+    return "This task is already in the pool";
   }
-  return canBeAssignee(task, targetUser);
+  if (task.status !== "CLAIMED") {
+    return "Only a claimed task can go back to the pool";
+  }
+  if (!isSystem(user) && task.createdBy.id !== user.id) {
+    return "Only the task creator can put a task back in the pool";
+  }
+  return undefined;
 };
+
+export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean =>
+  returnToPoolRefusal(task, user) === undefined;
+
+/* Does this person already hold this task? Named rather than inlined at the one
+   place that needed a new rule about it (#208). The same comparison is written
+   out longhand in the seat and party predicates below; those are pre-existing
+   and left alone, so this is not yet the single definition of "theirs". */
+const isCurrentHolder = (
+  task: Pick<LoanTask, "assignee">,
+  user: Pick<UserIdentity, "id">
+): boolean => task.assignee?.id === user.id;
 
 /* The role half of `canAssignTaskTo`, split out for the one caller that has no
    task yet: creating a task already handed off (`assigneeUserId` on the create
@@ -573,6 +680,13 @@ export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean
    retyped at each throw site. */
 export const assignRefusalMessage = (taskType: TaskType, targetName: string): string =>
   `${targetName} can't take a ${TASK_TYPE_LABELS[taskType]} — that needs a file checker`;
+
+/* The refusal for a handoff to the person already holding the task (#208).
+   Separate from `assignRefusalMessage` because it is not about eligibility —
+   the recipient is perfectly able to work the task, they are simply already on
+   it — and a "needs a file checker" sentence would be a lie. */
+export const holderRefusalMessage = (targetName: string): string =>
+  `${targetName} already has this task`;
 
 /* Who may attach a review note to a task: its creator or its assignee. The
    thread is a conversation between the two people with a stake in the task, so

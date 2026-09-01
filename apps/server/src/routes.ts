@@ -499,6 +499,19 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* Put a claimed task back in the pool (#208) — the creator's counterpart to
+     the handoff, and the only way a task moves off a stalled holder now that
+     nobody may hand one to themselves. Policy lives in the service. */
+  router.post("/tasks/:taskId/return-to-pool", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      const task = await service.returnToPool(req.params.taskId, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to return task to the pool");
+    }
+  });
+
   router.post("/tasks/:taskId/transition", async (req, res) => {
     try {
       const { status, reviewNotes } = transitionSchema.parse(req.body);
@@ -658,7 +671,8 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   /* Handoff (ADR-0002): point the task AT someone — this one does touch
      `assignee`, unlike /share above. Anyone authenticated may hand a task off;
      eligibility is enforced on the RECIPIENT (a Fraud Check only goes to a file
-     checker), and the service rejects closed tasks. Validates that the task and
+     checker), and the service rejects closed tasks, the task's own creator
+     (ADR-0003), and whoever already holds it (#208). Validates that the task and
      the target user both exist, matching /share's shape. */
   router.post("/tasks/:taskId/assign", async (req, res) => {
     try {

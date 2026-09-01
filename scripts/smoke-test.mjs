@@ -972,13 +972,18 @@ const run = async () => {
     assert.ok(/^Reassigned from /.test(assignRows[1].detail), "second reads as a reassignment");
     pushPass("handoff swaps the assignee in place and is recorded in history");
 
-    // Handing it to whoever already holds it is a no-op, not an error.
-    const noop = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+    /* Handing it to whoever already holds it is refused (#208). It used to 200
+       with the task unchanged, which reported success for a request that did
+       nothing at all. */
+    const alreadyTheirs = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
       user: users.admin,
       body: { assigneeUserId: users.otherOfficer.id }
     });
-    expectStatus(noop.status, 200, "handoff to the current assignee is a no-op", noop.json);
-    assert.equal(noop.json.task.updatedAt, reassigned.json.task.updatedAt, "the task is returned unchanged");
+    expectStatus(alreadyTheirs.status, 400, "handoff to the current assignee is refused", alreadyTheirs.json);
+    assert.match(alreadyTheirs.json.error, /already has this task/i, "and says why in the target's own terms");
+
+    const untouched = await request(server.baseUrl, "GET", `/tasks/${handoffId}`, { user: users.creator });
+    assert.equal(untouched.json.task.updatedAt, reassigned.json.task.updatedAt, "the refused handoff changed nothing");
 
     // Eligibility is enforced on the RECIPIENT: a fraud check only goes to a
     // file checker, even when a file checker is the one handing it over.
@@ -1013,16 +1018,42 @@ const run = async () => {
     expectStatus(eligible.status, 200, "fraud handoff to a file checker is allowed", eligible.json);
     pushPass("handoff eligibility is enforced on the recipient, not the actor");
 
-    /* Self-handoff itself survives (ADR-0002) — it is only the creator who is
-       barred. This is the affordance that lets someone take work off a
-       colleague who is stuck or away, so it has to keep working. */
+    /* Self-handoff is gone for everyone (#208), not just the creator. Taking
+       work off a colleague who is stuck or away used to happen this way; it is
+       now the creator's move, made in the open with "Back to the pool". */
     const selfHandoffByOther = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/assign`, {
       user: users.admin,
       body: { assigneeUserId: users.admin.id }
     });
-    expectStatus(selfHandoffByOther.status, 200, "non-creator self-handoff still works", selfHandoffByOther.json);
-    assert.equal(selfHandoffByOther.json.task.assignee.id, users.admin.id, "they took it off the current assignee");
-    pushPass("a non-creator can still hand a task to themselves");
+    expectStatus(selfHandoffByOther.status, 400, "non-creator self-handoff is refused", selfHandoffByOther.json);
+    assert.match(selfHandoffByOther.json.error ?? "", /hand a task to yourself/, "and points at the move that replaced it");
+    pushPass("nobody can hand a task to themselves, creator or not");
+
+    /* The replacement route end to end: the creator frees a claimed task, and
+       somebody else picks it up from the pool through the front door. */
+    const poolTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Stalled Task", taskType: "VALUE", notes: "nobody is moving on this" }
+    });
+    const poolTaskId = poolTask.json.task.id;
+    await request(server.baseUrl, "POST", `/tasks/${poolTaskId}/claim`, { user: users.otherOfficer });
+
+    const notCreator = await request(server.baseUrl, "POST", `/tasks/${poolTaskId}/return-to-pool`, {
+      user: users.admin
+    });
+    expectStatus(notCreator.status, 400, "only the creator may free a task", notCreator.json);
+
+    const freed = await request(server.baseUrl, "POST", `/tasks/${poolTaskId}/return-to-pool`, {
+      user: users.creator
+    });
+    expectStatus(freed.status, 200, "the creator puts a stalled task back in the pool", freed.json);
+    assert.equal(freed.json.task.status, "OPEN", "back where a task starts");
+    assert.equal(freed.json.task.assignee, undefined, "with the seat clear");
+
+    const retaken = await request(server.baseUrl, "POST", `/tasks/${poolTaskId}/claim`, { user: users.admin });
+    expectStatus(retaken.status, 200, "and anyone may claim it from there", retaken.json);
+    assert.equal(retaken.json.task.assignee.id, users.admin.id);
+    pushPass("the creator can put a stalled task back in the pool for someone else to claim");
 
     // A closed task is out of play. Completion belongs to the assignee.
     const closeHandoffTask = await request(server.baseUrl, "POST", `/tasks/${handoffId}/transition`, {
