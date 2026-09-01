@@ -30,6 +30,8 @@ import {
   computeDefaultDueAt,
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
+  computeClaimAnchoredDueAt,
+  isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
@@ -110,9 +112,20 @@ export class TaskService {
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
     const folderName = (input.folderName ?? "").trim();
     const points = clampPoints(input.points ?? 0);
+    /* A born-assigned task arrives with a holder, so it is claimed at the same
+       instant it is filed and gets the same anchored window a claim would give
+       it (ADR-0005). Without this a born-assigned RED task is due the moment it
+       exists — overdue on arrival, which is the exact bug #181 is about, just
+       through the one door that never passes through `withNewHolder`.
+
+       Unassigned still uses the plain default: an unclaimed task's `dueAt` is an
+       ordering signal for the pool, not yet anybody's deadline. */
     const dueAt = isOoo
       ? computeDueAtFromReturnDate(input.returnDate ?? "", this.appConfig)
-      : input.dueAt ?? computeDefaultDueAt(input.taskType, now, urgency, this.appConfig);
+      : input.dueAt ??
+        (assignee
+          ? computeClaimAnchoredDueAt(urgency, now, this.appConfig)
+          : computeDefaultDueAt(input.taskType, now, urgency, this.appConfig));
     if (isOoo && new Date(dueAt).getTime() <= now.getTime()) {
       throw new Error("returnDate must result in a future due time");
     }
@@ -272,6 +285,25 @@ export class TaskService {
     }));
   }
 
+  /* Everything that changes because the task has a new holder. The deadline
+     belongs to whoever currently holds it, so every door an assignee arrives
+     through re-anchors it to that instant (ADR-0005). Not unclaim or release,
+     since the next claimer re-anchors anyway. Born-assigned does not come
+     through here — creation and claim are the same moment, so the create path
+     anchors it directly. */
+  private withNewHolder(current: LoanTask, at: string): LoanTask {
+    const next = { ...current };
+    if (isDeadlineRecomputeExempt(current)) {
+      return next;
+    }
+
+    next.dueAt = computeClaimAnchoredDueAt(current.urgency, new Date(at), this.appConfig);
+    // The fresh clock deserves a fresh reminder cadence, matching what the
+    // PENDING_APPROVAL transition already does when it restamps its own dueAt.
+    delete next.lastReminderAt;
+    return next;
+  }
+
   async claimTask(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
 
@@ -291,7 +323,7 @@ export class TaskService {
     const event = this.makeHistory(task.id, user, "TASK_CLAIMED", `Claimed by ${user.displayName}`);
     const updated = await this.writeTask(task.id, (current) => ({
       task: {
-        ...current,
+        ...this.withNewHolder(current, now),
         status: claimedStatus,
         assignee: { id: user.id, displayName: user.displayName },
         updatedAt: now
@@ -1260,7 +1292,7 @@ export class TaskService {
     const event = this.makeHistory(task.id, params.actor, "TASK_ASSIGNED", detail);
     const updated = await this.writeTask(task.id, (current) => ({
       task: {
-        ...current,
+        ...this.withNewHolder(current, now),
         status: current.status === "OPEN" ? "CLAIMED" : current.status,
         assignee: { id: params.target.id, displayName: params.target.displayName },
         updatedAt: now
@@ -1379,7 +1411,7 @@ export class TaskService {
             type: "TASK_REMINDER",
             task: next,
             actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-            message: `Heads up — this one's overdue`,
+            message: `your time's up on ${next.folderName}`,
             target: "DM",
             recipientUserIds: reminderRecipients
           });
@@ -1557,8 +1589,13 @@ export class TaskService {
         }
       }
 
-      if (ACTIVE_STATUSES.includes(task.status) && isOverdue(task, now)) {
-        const overdueUserId = task.assignee?.id ?? task.createdBy.id;
+      /* Assignee only — no fallback to the creator (ADR-0005). An unclaimed task
+         is a staffing problem, not the creator's lateness, and a feed row saying
+         their own request is overdue is not something they can act on. The
+         count-up on their row already tells them what they can act on: that
+         nobody has taken it yet. */
+      if (ACTIVE_STATUSES.includes(task.status) && task.assignee && isOverdue(task, now)) {
+        const overdueUserId = task.assignee.id;
         const key = `${overdueUserId}:OVERDUE:${task.id}`;
         signals.set(key, {
           key,

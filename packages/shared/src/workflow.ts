@@ -247,6 +247,91 @@ export const computeDefaultDueAt = (
   return computeDueAtFromUrgency(urgency, now, config);
 };
 
+/* A task's deadline belongs to whoever currently holds it, so claiming or being
+   handed a task recomputes `dueAt` from its urgency at that instant — the pool
+   time it sat through is not charged to the person who eventually picks it up.
+   See ADR-0005. One flow is exempt, because its `dueAt` is not a deadline in
+   this sense: an OOO task's is the person's return date, and the maintenance
+   pass auto-completes on it, so moving it would end a vacation on the wrong day.
+
+   PENDING_APPROVAL is deliberately NOT exempt. It sets its own end-of-day clock
+   when a task *enters* it, and that transition does not come through here — this
+   runs only when a task changes hands. A FRAUD task released at PENDING_APPROVAL
+   and picked up the next morning would otherwise inherit the previous holder's
+   end-of-day, handing its new approver a deadline that expired before they had
+   the task: #181 all over again, one status further along. */
+export const isDeadlineRecomputeExempt = (task: Pick<LoanTask, "taskType">): boolean =>
+  task.taskType === "OOO";
+
+/* The instant the working day next opens at or after `from`: today's open when
+   `from` is a business date the day hasn't started on, otherwise the next
+   business date's open. */
+const nextBusinessOpen = (from: Date, config: AppConfig): Date => {
+  const local = zonedParts(from, config.businessTimezone);
+  const startMinutes = config.businessStartHour * 60 + config.businessStartMinute;
+  const beforeOpenToday =
+    isBusinessDate(local.year, local.month, local.day) && local.hour * 60 + local.minute < startMinutes;
+  const day = beforeOpenToday
+    ? { year: local.year, month: local.month, day: local.day }
+    : nextBusinessDate(local.year, local.month, local.day, 1);
+  return new Date(
+    zonedToUtcIso(day.year, day.month, day.day, config.businessStartHour, config.businessStartMinute, config.businessTimezone)
+  );
+};
+
+/* `RED` means "urgent now", so at creation its deadline is the present instant.
+   That is the right ordering signal for an unclaimed task, but it cannot be a
+   window: handed to somebody it would make them late the moment they accepted,
+   which is the one thing this rule exists to prevent. A claimed RED task gets a
+   real, if short, window instead — long enough to read the task, not long enough
+   to stop being the most urgent thing in the list. */
+const RED_CLAIM_WINDOW_MS = 15 * 60 * 1000;
+
+/* You cannot pick up a task that is already late — the clock does not start
+   until somebody takes it. So a task taken outside business hours is anchored to
+   the next business open rather than to the claim itself: grabbing something at
+   9pm buys you tomorrow morning, it does not burn your window overnight.
+
+   Inside business hours the anchor is the claim instant, and a window that would
+   overshoot today's close clamps to close. That clamp is deliberately
+   same-business-day only: applied unconditionally it would collapse GREEN, whose
+   window always lands past today's close, into this afternoon. RED is exempt
+   from the clamp: fifteen minutes means fifteen minutes, and clamping it near
+   close would hand somebody a five-minute deadline. */
+export const computeClaimAnchoredDueAt = (
+  urgency: UrgencyLevel,
+  claimedAt: Date,
+  config: AppConfig = DEFAULT_CONFIG
+): string => {
+  const anchor = isWithinBusinessHours(claimedAt, config) ? claimedAt : nextBusinessOpen(claimedAt, config);
+  if (urgency === "RED") {
+    return new Date(anchor.getTime() + RED_CLAIM_WINDOW_MS).toISOString();
+  }
+  const candidate = computeDueAtFromUrgency(urgency, anchor, config);
+
+  const localAnchor = zonedParts(anchor, config.businessTimezone);
+  const localDue = zonedParts(new Date(candidate), config.businessTimezone);
+  const sameDate =
+    localDue.year === localAnchor.year && localDue.month === localAnchor.month && localDue.day === localAnchor.day;
+  if (!sameDate) {
+    return candidate;
+  }
+
+  const endMinutes = config.businessEndHour * 60 + config.businessEndMinute;
+  if (localDue.hour * 60 + localDue.minute <= endMinutes) {
+    return candidate;
+  }
+
+  return zonedToUtcIso(
+    localDue.year,
+    localDue.month,
+    localDue.day,
+    config.businessEndHour,
+    config.businessEndMinute,
+    config.businessTimezone
+  );
+};
+
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
   const flow = flowFor(task);
   const index = flow.indexOf(task.status);
@@ -757,6 +842,36 @@ export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CON
   const end = config.businessEndHour * 60 + config.businessEndMinute;
   return minutes >= start && minutes <= end;
 };
+
+/* How long an unclaimed task sits unclaimed before its creator's row starts
+   shouting about it. The creator is the one person who can act on the answer,
+   so twenty minutes is the point at which "nobody has picked this up" stops
+   being normal and starts being worth chasing a human over. */
+const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
+
+/* Nobody currently holds this task, so its `dueAt` is not yet anybody's
+   obligation (ADR-0005). Deliberately NOT `status === "OPEN"`: a FRAUD task
+   released for any checker is unassigned at `PENDING_APPROVAL`, and that is
+   precisely the state this rule exists for. Testing the status instead of the
+   holder let the row render a red `OVERDUE BY` at a released task while the
+   server — which asks about the assignee — agreed it was nobody's lateness.
+   Closed tasks are excluded: they have no holder either, but their deadline
+   stopped meaning anything for a different reason. */
+export const isUnclaimed = (task: Pick<LoanTask, "status" | "assignee">): boolean =>
+  !task.assignee && !CLOSED_STATUSES.includes(task.status);
+
+/* Whether an unclaimed task has gone unclaimed long enough to be worth
+   flagging to its creator — the one person who can fix it by chasing a human.
+   Measured from creation, which is why this one does key on `OPEN`: for a task
+   that has never been claimed, "how long since it was filed" is the same
+   question as "how long has nobody taken it". For a task released back to the
+   pool part-way through, it is not — `createdAt` would count time somebody was
+   working on it, so that case gets no count-up rather than a wrong one. */
+export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
+  task.taskType !== "OOO" &&
+  task.status === "OPEN" &&
+  !task.assignee &&
+  now.getTime() - new Date(task.createdAt).getTime() >= UNCLAIMED_ALERT_MS;
 
 export const shouldSendReminder = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
   if (!isOverdue(task, now)) {

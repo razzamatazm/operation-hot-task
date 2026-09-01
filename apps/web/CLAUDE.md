@@ -163,13 +163,29 @@ stripe | pair          | due
   engine, and every other consumer agreed it wasn't overdue. Don't reintroduce
   a local overdue test here; a status added to the shared exclusion list has to
   reach both the badge and the red row stripe on its own.
-  `AWAITING_ITEMS` additionally swaps the deadline for a neutral
-  `WITH REQUESTER` / `WITH YOU` count-up (that is a display choice, made in
-  `groupedDue`; whether the task is *overdue* still isn't). The widest of those
-  labels measures ~125px against the 154px `due` track, so it fits without
-  wrapping — the label has no `nowrap`, so a longer one would grow row height
-  rather than shove its neighbours. See
-  [fraud-workflow.md](../../docs/product/fraud-workflow.md#reminder-rules).
+  Two statuses swap the deadline out entirely. Both are display choices made in
+  `groupedDue`; whether the task is *overdue* still isn't.
+  - `AWAITING_ITEMS` shows a neutral `WITH REQUESTER` / `WITH YOU` count-up. See
+    [fraud-workflow.md](../../docs/product/fraud-workflow.md#reminder-rules).
+  - An **unclaimed** task shows no countdown at all (ADR-0005) — its `dueAt`
+    restarts from whenever somebody takes it, so the number would be wrong the
+    moment it stopped being unclaimed. Its creator gets an `UNCLAIMED FOR`
+    count-up that reddens via the shared `isUnclaimedTooLong`, and only while
+    the task is still `OPEN`; everyone else gets the bare urgency time-frame.
+    "Unclaimed" is the shared `isUnclaimed` — **no assignee and not closed**,
+    not `status === "OPEN"`. A FRAUD task released for any checker is unassigned
+    at `PENDING_APPROVAL`, and testing the status instead of the holder is what
+    let that row render a red `OVERDUE BY` while the server agreed it was
+    nobody's lateness.
+
+  Watch the width here. The `due` track is 154px and
+  `.task-card-grouped-due-value` is `nowrap`, so an over-long pair overruns the
+  cell and rides back over the pair beside it rather than wrapping. The widest
+  label the cell renders is `WITH REQUESTER` (~125px with its value). The
+  urgency time-frames are the longest *values* — `Within 24 Hours` is ~122px on
+  its own — which is why that branch returns an **empty label**, the same way
+  closed rows do. Don't put a label back in front of a time-frame without
+  measuring it.
 - **action** (`--action-col-w`) — hamburger (32px) + 6px gap +
   `--quick-action-w` (116px). The cell is a two-track grid with the
   hamburger and the button placed by `grid-column`, not by source order,
@@ -470,8 +486,10 @@ Two consequences worth keeping straight:
   row's due-cell tooltip so the two can't drift — they had, before #166. It
   covers Completed/Archived (completion time, and **no** fall back to the due
   date when there's no stamp), OOO (`Returns`), `AWAITING_ITEMS` (the hand-off
-  stamp, no deadline quoted — the clock is the requester's), and `Due`
-  otherwise. Its `inTooltip` flag carries the one deliberate divergence: OOO
+  stamp, no deadline quoted — the clock is the requester's), **unclaimed**
+  (nothing at all — it returns `undefined`, because an unclaimed task has no
+  deadline to quote and the row beside it already suppresses one, ADR-0005), and
+  `Due` otherwise. Its `inTooltip` flag carries the one deliberate divergence: OOO
   shows in the block but not the tooltip, where the row's own cell already
   spells out the return date. Change the labels there, not at either call site.
 

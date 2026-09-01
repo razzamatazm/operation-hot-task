@@ -136,6 +136,23 @@ the requester and `them` for everyone else; `courtOf` never routes it to `pool`.
 _Avoid_: "stalled", "blocked" (nothing is stuck — the ball is with the
 requester)
 
+### Deadlines
+
+**Claim-anchored deadline**:
+The rule that a task's deadline is measured from the moment an assignee takes
+it, not from when it was filed. Recomputed from the task's urgency on claim and
+on every handoff, so pool time is never charged to the person who eventually
+picks the task up. OOO tasks are the one exemption. See
+[ADR-0005](docs/adr/0005-claim-anchored-deadline.md).
+_Avoid_: "resetting the clock" (nothing is reset — the deadline is computed
+fresh from the urgency that was asked for)
+
+**Pending claim**:
+An unclaimed task seen by its creator, showing how long it has gone unclaimed
+rather than how long is left. Counts up, and turns red at 20 minutes, because
+the fact that matters to the creator is that nobody has taken it, not that a
+deadline is approaching.
+
 ### Views
 
 **Grouped view** (a.k.a. **Courts view**):
