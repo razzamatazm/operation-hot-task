@@ -33,9 +33,17 @@ on.
 decision did not implement, because a no-op that silently moved a deadline is a
 way to extend your own window with no record of it beyond `updatedAt`. It was
 flagged rather than quietly dropped, and the answer came back that self-handoffs
-are not a workflow anybody uses — so the move went away instead of growing a
-meaning. Handing yourself a task you do NOT hold is untouched and does re-anchor,
-like any other change of hands.
+are not a workflow anybody uses.
+
+Be precise about what that removed, because the two are easy to confuse. What is
+refused is handing a task to **whoever already holds it**, by anyone — which is
+the move #181's line was about, and usually not a self-handoff at all. What
+survives is handing **yourself** a task you do not hold, which is always a
+self-handoff and is the documented escape hatch for taking over a task somebody
+else is sitting on. Keeping it was a scoping call made while implementing, not
+part of the instruction; it is flagged in
+[#208](https://github.com/razzamatazm/operation-hot-task/issues/208) for
+confirmation. It re-anchors the deadline like any other change of hands.
 
 You cannot pick up a task that is already late, because the clock does not start
 until somebody takes it. Inside business hours the window runs from the claim

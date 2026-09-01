@@ -658,7 +658,8 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   /* Handoff (ADR-0002): point the task AT someone — this one does touch
      `assignee`, unlike /share above. Anyone authenticated may hand a task off;
      eligibility is enforced on the RECIPIENT (a Fraud Check only goes to a file
-     checker), and the service rejects closed tasks. Validates that the task and
+     checker), and the service rejects closed tasks, the task's own creator
+     (ADR-0003), and whoever already holds it (#208). Validates that the task and
      the target user both exist, matching /share's shape. */
   router.post("/tasks/:taskId/assign", async (req, res) => {
     try {

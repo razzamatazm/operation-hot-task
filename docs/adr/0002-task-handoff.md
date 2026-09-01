@@ -7,9 +7,10 @@ become its assignee, by any route, including handing it to themselves or being
 handed it by a third party.
 
 [#208](https://github.com/razzamatazm/operation-hot-task/issues/208) — handing a
-task to whoever **already holds it** is now refused rather than treated as a
-silent no-op. Handing yourself a task you do not hold is untouched, and remains
-the only way to take a task somebody else is already sitting on.
+task to whoever **already holds it**, by anyone, is now refused rather than
+treated as a silent no-op. Note that this is a rule about the target, not the
+actor: handing **yourself** a task you do not hold is untouched, and remains the
+only way to take a task somebody else is already sitting on.
 
 ## Context
 

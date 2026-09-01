@@ -475,9 +475,21 @@ const CREATOR_IS_ASSIGNEE = "created this task — a task takes a second pair of
    Does not consider status: a closed task rejects a handoff for its own
    reasons, which is `canAssignTaskTo`'s business. */
 export const assigneeRefusal = (
-  task: Pick<LoanTask, "taskType" | "createdBy">,
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee">,
   candidate: UserIdentity
 ): string | undefined => {
+  /* Already theirs (#208). First, because it is the most concrete thing true of
+     the pair and it is not an eligibility problem — the candidate can work this
+     task fine, they are simply on it already, so any of the sentences below
+     would misdescribe the situation.
+
+     It lives in here rather than beside the throw in `assignTask` so the
+     promise this function makes holds: one answer AND one explanation at every
+     door. The create path passes a task that has no assignee yet, which is
+     `undefined` and never matches. */
+  if (isCurrentHolder(task, candidate)) {
+    return holderRefusalMessage(candidate.displayName);
+  }
   if (task.createdBy.id === candidate.id) {
     return `${candidate.displayName} ${CREATOR_IS_ASSIGNEE}`;
   }
@@ -488,7 +500,7 @@ export const assigneeRefusal = (
 };
 
 export const canBeAssignee = (
-  task: Pick<LoanTask, "taskType" | "createdBy">,
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee">,
   candidate: UserIdentity
 ): boolean => assigneeRefusal(task, candidate) === undefined;
 
@@ -564,16 +576,14 @@ export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boole
   if (CLOSED_STATUSES.includes(task.status)) {
     return false;
   }
-  if (isCurrentHolder(task, targetUser)) {
-    return false;
-  }
   return canBeAssignee(task, targetUser);
 };
 
-/* Does this person already hold this task? The one definition, so the picker
-   that hides a row, the predicate that refuses the move, and the service that
-   throws all agree on what "already theirs" means (#208). */
-export const isCurrentHolder = (
+/* Does this person already hold this task? Named rather than inlined at the one
+   place that needed a new rule about it (#208). The same comparison is written
+   out longhand in the seat and party predicates below; those are pre-existing
+   and left alone, so this is not yet the single definition of "theirs". */
+const isCurrentHolder = (
   task: Pick<LoanTask, "assignee">,
   user: Pick<UserIdentity, "id">
 ): boolean => task.assignee?.id === user.id;

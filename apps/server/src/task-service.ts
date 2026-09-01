@@ -31,8 +31,6 @@ import {
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
   computeClaimAnchoredDueAt,
-  isCurrentHolder,
-  holderRefusalMessage,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -1258,7 +1256,9 @@ export class TaskService {
          AWAITING_ITEMS / PENDING_APPROVAL — swaps assignee IN PLACE, status
          untouched: "the wrong checker picked this up" is the main reason anyone
          reaches for this, and that task is by definition not OPEN.
-       - Handing a task to whoever already holds it is a no-op, not an error.
+       - Handing a task to whoever already holds it is REFUSED (#208), not
+         silently accepted. Nothing to do and nothing done are the same thing;
+         reporting success for it is not.
        - DMs only. No channel post, no activity-feed alert: a handoff is a
          conversation between two people and the channel already saw the task.
        - The note rides the recipient's card only. It is never written as a
@@ -1277,15 +1277,9 @@ export class TaskService {
     if (CLOSED_STATUSES.includes(task.status)) {
       throw new Error("This task is closed — it can't be handed off");
     }
-    /* Already theirs: refused, not quietly accepted (#208). This used to return
-       the task unchanged, which told the caller their handoff succeeded when
-       nothing had happened — no history event, no notification, no change. The
-       explicit check runs ahead of `canAssignTaskTo` (which now also refuses it)
-       only to get the honest sentence out: the recipient is not ineligible, they
-       are already on the task. */
-    if (isCurrentHolder(task, params.target)) {
-      throw new Error(holderRefusalMessage(params.target.displayName));
-    }
+    /* Already theirs is refused here too, and needs no clause of its own: it is
+       one of the reasons `canAssignTaskTo` says no, and `assigneeRefusal` has
+       the sentence for it (#208). */
     if (!canAssignTaskTo(task, params.target)) {
       throw new Error(assigneeRefusal(task, params.target) ?? "This task can't be handed off");
     }
