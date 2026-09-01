@@ -1279,7 +1279,12 @@ button.btn-good:hover {
   align-items: center;
   gap: 8px;
 }
+/* Same shape as the item text below: the fill is a token, never a background
+   on :hover. Declaring `background: var(--panel)` here used to lose to
+   `button:hover`, and the box went brand navy under the cursor (#171). */
 .checklist-check {
+  --btn-bg: var(--panel);
+  --btn-bg-hover: var(--bg-soft);
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
@@ -1289,15 +1294,19 @@ button.btn-good:hover {
   justify-content: center;
   border: 1.5px solid var(--line);
   border-radius: 4px;
-  background: var(--panel);
   cursor: pointer;
 }
 .checklist-check:disabled {
+  /* Nothing to toggle, so the box holds whatever it's already showing. */
+  --btn-bg-hover: var(--btn-bg);
   cursor: default;
   opacity: 0.6;
 }
+/* Checked stays green under the cursor — the hover tint is an affordance for
+   the empty box, and swapping a filled state's colour reads as a state change. */
 .checklist-check-on {
-  background: var(--good);
+  --btn-bg: var(--good);
+  --btn-bg-hover: var(--good);
   border-color: var(--good);
   color: var(--on-accent);
 }

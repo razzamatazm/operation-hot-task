@@ -39,6 +39,7 @@ Never hard-code colors. Use the variables:
 | `--hot`  / `--hot-bg`       | Orange urgency, Loan Docs type bar       |
 | `--bad`  / `--bad-bg`       | Red urgency, overdue, cancelled, errors  |
 | `--row-alt`, `--row-hover`  | Striping and hover overlays              |
+| `--control-hover`           | Hover tint for a non-filled inline control|
 | `--shadow-sm`, `--shadow-md`| Card resting / hover elevation           |
 | `--focus-ring`              | `:focus-visible` ring                    |
 
@@ -451,6 +452,18 @@ Single base `<button>`, modified by class:
 - `.btn-danger` = transparent + bad outline (Cancel Task, destructive)
 - `.btn-warn` = filled warn (rare; reminder-related)
 - `.btn-sm` = compact size; use inside cards and tables
+
+The fill runs through `--btn-bg` / `--btn-bg-hover`: `button` declares both
+and paints `background: var(--btn-bg)`, `button:hover` reads the hover token.
+A ghost button is made by setting `--btn-bg: transparent` and
+`--btn-bg-hover: <tint>` on its class and **nothing else** — never by
+declaring `background` on `:hover`. A bare class loses to `button:hover` on
+specificity, so a `background` opt-out lands on the resting state only and the
+brand fill comes straight back under the cursor (#171); custom properties
+cascade on their own, so a token set on the class carries the hover state with
+it. `:disabled` works
+the same way — override the token (`--btn-bg-hover: var(--btn-bg)` for no
+affordance at all), don't add a `:hover` rule.
 
 Filled variants take their label color from `--on-accent`, never `#fff`.
 Light theme's accents are dark enough for white ink; dark and contrast use
