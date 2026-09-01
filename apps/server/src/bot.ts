@@ -654,6 +654,13 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
   };
 };
 
+/* The deep-link button, as a spreadable fragment. Every root-card state carries
+   it and every one of them must omit the `actions` key entirely when there's no
+   recorded link — an empty array is not the same card. `teamsTaskDeepLink`
+   returns undefined whenever `TEAMS_APP_ID` is unset, which is local and test. */
+const openUrlAction = (openUrl?: string): Record<string, unknown> =>
+  openUrl ? { actions: [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: openUrl }] } : {};
+
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card, but
    "Open in Hot Task" stays so the card is still useful after claiming.
@@ -670,27 +677,33 @@ const claimedCard = (outcome: ClaimOutcome, openUrl?: string, assigneeLine?: str
       ? [{ type: "TextBlock", text: assigneeLine ?? `Claimed by ${outcome.assignee}`, wrap: true, spacing: "Small", isSubtle: true }]
       : [])
   ],
-  ...(openUrl ? { actions: [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: openUrl }] } : {})
+  ...openUrlAction(openUrl)
 });
 
 /* Terminal state the root card is silently edited to when a task completes —
-   no buttons, just a record that it's done. */
-const completedCard = (folder: string, assignee?: string): Record<string, unknown> => ({
+   every action button is gone, but "Open in Hot Task" survives so the card that
+   records the finished work is still a way into it (#178). Also the ARCHIVED
+   rendering. */
+const completedCard = (folder: string, assignee?: string, openUrl?: string): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
     { type: "TextBlock", text: `✅ Completed — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" },
     ...(assignee ? [{ type: "TextBlock", text: `by ${assignee}`, wrap: true, spacing: "Small", isSubtle: true }] : [])
-  ]
+  ],
+  ...openUrlAction(openUrl)
 });
 
-/* Terminal cancelled state for the root card. */
-const cancelledCard = (folder: string): Record<string, unknown> => ({
+/* Terminal cancelled state for the root card. Keeps the link for the same
+   reason — a cancellation is exactly when someone goes to look at what
+   happened. */
+const cancelledCard = (folder: string, openUrl?: string): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
-  body: [{ type: "TextBlock", text: `🚫 Cancelled — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" }]
+  body: [{ type: "TextBlock", text: `🚫 Cancelled — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" }],
+  ...openUrlAction(openUrl)
 });
 
 /* The old root card is silently edited to this pointer when a task is re-opened
@@ -2067,15 +2080,20 @@ export class TeamsBotClient {
     await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }, thread?.card?.openUrl));
   }
 
-  /* Silently edit the channel card(s) to the terminal "completed" state. */
+  /* Silently edit the channel card(s) to the terminal "completed" state. The
+     link comes off the recorded thread rather than being rebuilt from the app
+     id, so a card posted before a config change keeps pointing where it always
+     pointed — the same read markTaskClaimed makes right above. */
   async markTaskCompleted(taskId: string, folder: string, assignee?: string): Promise<void> {
-    await this.updateTaskCard(taskId, completedCard(folder, assignee));
+    const thread = await this.threads.get(taskId);
+    await this.updateTaskCard(taskId, completedCard(folder, assignee, thread?.card?.openUrl));
   }
 
   /* Silently edit the channel card(s) to the terminal "cancelled" state — for a
      creator's card-tap Cancel and for a cancel from the web app alike. */
   async markTaskCancelled(taskId: string, folder: string): Promise<void> {
-    await this.updateTaskCard(taskId, cancelledCard(folder));
+    const thread = await this.threads.get(taskId);
+    await this.updateTaskCard(taskId, cancelledCard(folder, thread?.card?.openUrl));
   }
 
   /* Build the card a user sees when Teams auto-refreshes the user-specific view
@@ -2106,13 +2124,13 @@ export class TeamsBotClient {
         : base;
     }
     if (task.status === "COMPLETED") {
-      return withRefresh(completedCard(task.folderName, task.assignee?.displayName));
+      return withRefresh(completedCard(task.folderName, task.assignee?.displayName, content.openUrl));
     }
     if (task.status === "CANCELLED") {
-      return withRefresh(cancelledCard(task.folderName));
+      return withRefresh(cancelledCard(task.folderName, content.openUrl));
     }
     if (task.status === "ARCHIVED") {
-      return withRefresh(completedCard(task.folderName, task.assignee?.displayName));
+      return withRefresh(completedCard(task.folderName, task.assignee?.displayName, content.openUrl));
     }
     // In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state.
     return withRefresh(
