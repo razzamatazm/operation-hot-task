@@ -151,7 +151,11 @@ fresh from the urgency that was asked for)
 An unclaimed task seen by its creator, showing how long it has gone unclaimed
 rather than how long is left. Counts up, and turns red at 20 minutes, because
 the fact that matters to the creator is that nobody has taken it, not that a
-deadline is approaching.
+deadline is approaching. Measured from when the task last entered the pool, not
+from when it was filed: a task handed back on Wednesday has been up for grabs
+for minutes, whatever its age.
+_Avoid_: "unclaimed since it was created" — true only of a task that has never
+been claimed, and the reason the count-up used to overstate itself (#210).
 
 **Pool nag**:
 The recurring group-channel post that asks the room to pick up a task nobody has

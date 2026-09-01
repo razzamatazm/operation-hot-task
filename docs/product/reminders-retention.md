@@ -55,11 +55,13 @@ waiting on hands.
   `Open` from a closed status — both doors post a card, so both count as nag
   zero.
 - The creator's own row counts up ("unclaimed for 10 minutes") and turns red at
-  20. Both surfaces read the same 20-minute constant, so the threshold cannot
-  drift — but they anchor differently on purpose, and after a reopen or once the
-  six asks are spent the row can be red while the channel has gone quiet. The row
-  answers "how long has my request been sitting", which does not stop being true
-  when the room stops being asked.
+  20. Both surfaces read the same 20-minute constant **and the same anchor** —
+  the moment the task entered the pool, not the moment it was filed (#210) — so
+  neither the threshold nor the number can drift.
+- They can still fall out of step in one direction, on purpose: once the six asks
+  are spent, or outside business hours, the channel goes quiet while the row
+  stays red. The row answers "how long has my request been sitting", which does
+  not stop being true when the room stops being asked.
 - Tasks that were already open when this shipped have their clock started at
   first boot rather than at their creation date, so the feature arriving does
   not nag the channel once per task in the backlog.

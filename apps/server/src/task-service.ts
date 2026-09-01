@@ -34,6 +34,7 @@ import {
   computeClaimAnchoredDueAt,
   isPoolNagDue,
   isPoolNagEligible,
+  inPoolSince,
   UNCLAIMED_ALERT_MS,
   isDeadlineRecomputeExempt,
   firstName,
@@ -303,6 +304,7 @@ export class TaskService {
      rather than inheriting an exhausted one (#207). */
   private withNewHolder(current: LoanTask, at: string): LoanTask {
     const next = { ...current };
+    delete next.pooledSince;
     delete next.lastPoolNagAt;
     delete next.poolNagCount;
     if (isDeadlineRecomputeExempt(current)) {
@@ -463,7 +465,14 @@ export class TaskService {
          both doors post the card, so both are nag zero, and the creator's door
          (#208) arrived after the rule and inherited it for free. */
       const { assignee: _assignee, ...withoutAssignee } = current;
-      return { task: { ...withoutAssignee, status: "OPEN", lastPoolNagAt: now, updatedAt: now }, event };
+      // The task is up for grabs again as of NOW, so the "unclaimed for" clock
+      // restarts here (#210). Without it every surface quotes the time since the
+      // task was filed, which for anything handed back counts hours somebody was
+      // actually working on it.
+      return {
+        task: { ...withoutAssignee, status: "OPEN", pooledSince: now, lastPoolNagAt: now, updatedAt: now },
+        event
+      };
     });
 
     this.background(async () => {
@@ -533,7 +542,11 @@ export class TaskService {
     const event = this.makeHistory(task.id, actor, "TASK_RELEASED", detail);
     const updated = await this.writeTask(task.id, (current) => {
       const { assignee: _assignee, ...withoutAssignee } = current;
-      return { task: { ...withoutAssignee, updatedAt: now }, event };
+      // Unheld as of now, so the pool clock restarts here too (#210) — even
+      // though a released task keeps its status and so raises none of the
+      // "unclaimed for" signals today, the field should mean what its name says
+      // at every door rather than at most of them.
+      return { task: { ...withoutAssignee, pooledSince: now, updatedAt: now }, event };
     });
 
     this.background(async () => {
@@ -759,6 +772,7 @@ export class TaskService {
              unbounded nag — the exact thing the ceiling exists to close. In
              practice the count is already zero by the time anything reaches
              here, since every route through a holder clears it. */
+          moved.pooledSince = now;
           moved.lastPoolNagAt = now;
         }
       }
@@ -1558,7 +1572,7 @@ export class TaskService {
          at `MAX_POOL_NAGS`, which `isPoolNagDue` enforces off the count stamped
          here (#207). */
       if (isPoolNagDue(next, now, this.appConfig)) {
-        const unclaimedMinutes = Math.round((now.getTime() - new Date(next.createdAt).getTime()) / 60000);
+        const unclaimedMinutes = Math.round((now.getTime() - new Date(inPoolSince(next)).getTime()) / 60000);
         next = { ...next, lastPoolNagAt: nowIso, poolNagCount: (next.poolNagCount ?? 0) + 1, updatedAt: nowIso };
         nagged += 1;
         await this.notify({

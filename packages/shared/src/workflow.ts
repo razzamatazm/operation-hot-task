@@ -1023,18 +1023,32 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
 export const isUnclaimed = (task: Pick<LoanTask, "status" | "assignee">): boolean =>
   !task.assignee && !CLOSED_STATUSES.includes(task.status);
 
+/* How long this task has been sitting in the pool, as the instant it arrived
+   there (#210).
+
+   For a task nobody has ever claimed that is simply when it was filed, which is
+   why `createdAt` was the answer everywhere until now. It stops being the answer
+   the moment a task comes BACK: one claimed on Monday, worked on, and handed
+   back on Wednesday has been up for grabs for minutes, not for two days. Every
+   surface that says "unclaimed for" was reading `createdAt` and quoting the
+   wrong number to the room and to the creator alike.
+
+   One accessor rather than three call sites doing `?? createdAt`, because the
+   channel, the creator's row and the nag copy must never disagree about how long
+   a task has been waiting. */
+export const inPoolSince = (task: Pick<LoanTask, "pooledSince" | "createdAt">): string =>
+  task.pooledSince ?? task.createdAt;
+
 /* Whether an unclaimed task has gone unclaimed long enough to be worth
    flagging to its creator — the one person who can fix it by chasing a human.
-   Measured from creation, which is why this one does key on `OPEN`: for a task
-   that has never been claimed, "how long since it was filed" is the same
-   question as "how long has nobody taken it". For a task released back to the
-   pool part-way through, it is not — `createdAt` would count time somebody was
-   working on it, so that case gets no count-up rather than a wrong one. */
+   Measured from when it entered the pool, not from creation (#210): for a task
+   that has never been claimed those are the same instant, and for one handed
+   back they are not. */
 export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
   task.taskType !== "OOO" &&
   task.status === "OPEN" &&
   !task.assignee &&
-  now.getTime() - new Date(task.createdAt).getTime() >= UNCLAIMED_ALERT_MS;
+  now.getTime() - new Date(inPoolSince(task)).getTime() >= UNCLAIMED_ALERT_MS;
 
 export const shouldSendReminder = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
   if (!isOverdue(task, now)) {
