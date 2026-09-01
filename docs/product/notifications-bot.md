@@ -92,6 +92,19 @@
   a stored identity and calls `addReviewNote`; the card refreshes to confirm.
 - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM
   goes to creator
+- **Plain lifecycle DMs carry the task link too** (#174). The one-line notices —
+  claim, `Merge done`, `Done and dusted`, `Got the green light`, the fraud round
+  trip, handoff displacement, OOO auto-completion, the overdue nudge — read as
+  `<friendly type> - <message>`, with the folder name appended in parentheses
+  only when the message doesn't already name it. Whichever occurrence the reader
+  sees is a Markdown link to the same **Open in Hot Task** deep link the cards
+  use, so the notice is never a dead end. Composed once, in
+  `formatLifecycleDmText` (`packages/shared/src/types.ts`), so a lifecycle
+  message added later is linked by default. Without `TEAMS_APP_ID` there is no
+  link and the text is exactly what it was before — no placeholder, no dangling
+  parentheses. The DM send sets the activity's `textFormat` to `markdown`
+  explicitly rather than relying on the Bot Framework default, so the link never
+  renders as literal Markdown.
 
 ## DM Card Sync
 

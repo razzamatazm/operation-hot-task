@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, recentNoteThread } from "./bot.js";
@@ -424,15 +424,23 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "DM") {
-      // Friendly type label instead of the raw "[LOI]" tag, e.g.
-      // "LOI Check - Suzie claimed 2021 Broadway RWC LLC - Adams". Append the
-      // folder only when the message doesn't already name it (some messages —
-      // "Got the green light", "Heads up — this one's overdue" — need the
-      // context; the claim message already carries the folder).
-      const label = TASK_TYPE_LABELS[event.task.taskType];
-      const folder = event.task.folderName;
-      const namesFolder = folder ? event.message.includes(folder) : true;
-      const dmText = namesFolder ? `${label} - ${event.message}` : `${label} - ${event.message} (${folder})`;
+      /* Friendly type label instead of the raw "[LOI]" tag, e.g.
+         "LOI Check - Suzie claimed 2021 Broadway RWC LLC - Adams", with the
+         folder name carrying the deep link back to the task (#174). Composed
+         in `packages/shared` because this is the one point every lifecycle
+         notice passes through — completion, the merge steps, the fraud round
+         trip, handoff displacement, OOO auto-completion, overdue reminders —
+         so the next one added gets the link for free. With no TEAMS_APP_ID
+         `taskDeepLink` returns undefined and the text is exactly what it was
+         before. Markdown renders because the DM send sets the activity's
+         textFormat (see markdownText in bot.ts). */
+      const openUrl = taskDeepLink(event.task.id, event.task.folderName);
+      const dmText = formatLifecycleDmText({
+        typeLabel: TASK_TYPE_LABELS[event.task.taskType],
+        message: event.message,
+        folderName: event.task.folderName,
+        ...(openUrl ? { url: openUrl } : {})
+      });
       if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
         await this.botClient.sendToDmUsers(event.recipientUserIds, dmText);
         return;

@@ -67,6 +67,50 @@ export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
   OOO: "Out of Office"
 };
 
+/* Text of a plain lifecycle DM — the completion notice, the merge steps, the
+   fraud round trip, handoff displacement, OOO auto-completion and the overdue
+   reminder all read as `<friendly type> - <message>`, with the folder name
+   appended in parentheses only when the message doesn't already name it.
+
+   One composition point for every one of them (#174), so the folder name is
+   also the link back to the task: whichever occurrence the reader sees — the
+   inline one or the appended one — becomes the anchor. `url` comes from
+   `teamsTaskDeepLink`, which returns undefined with no app id (the normal case
+   locally and in tests); without it, or without a folder to hang the link on,
+   the text is character-for-character what it was before links existed, raw
+   folder name and all. */
+export const formatLifecycleDmText = (params: {
+  typeLabel: string;
+  message: string;
+  folderName?: string;
+  url?: string;
+}): string => {
+  // Deliberately untrimmed: this is the pre-link behaviour verbatim, and
+  // trimming here would silently reword every DM whose folder carries stray
+  // whitespace.
+  const folder = params.folderName ?? "";
+  const namesFolder = folder ? params.message.includes(folder) : true;
+  const body = namesFolder ? params.message : `${params.message} (${folder})`;
+  /* A square bracket in the folder name would end the anchor early, and no
+     amount of escaping fixes that in Teams' Markdown subset — so that folder
+     goes unlinked rather than rendering as literal `[folder](https://…)`,
+     which the reader would find worse than today's no link at all. */
+  if (!params.url || folder.trim().length === 0 || /[[\]]/.test(folder)) {
+    return `${params.typeLabel} - ${body}`;
+  }
+  /* Parentheses are the other way the anchor breaks, and they reach the URL
+     too: the folder name rides the deep link as `label=`, and
+     encodeURIComponent leaves `(` and `)` alone. One unbalanced paren in a
+     folder name ends the link destination early. Percent-escaping both in the
+     destination is the fix — the URL means the same thing, and the destination
+     then holds no parens to miscount. The anchor text itself is safe either
+     way; it's bracket-delimited. */
+  const href = params.url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+  // Replacer function, not a replacement string: `$&` and friends in a folder
+  // name would otherwise be expanded by String.replace.
+  return `${params.typeLabel} - ${body.replace(folder, () => `[${folder}](${href})`)}`;
+};
+
 /* First word of a display name — "Suzie Lim" → "Suzie". Used in compact
    notification copy. */
 export const firstName = (displayName: string): string => displayName.trim().split(/\s+/)[0] ?? displayName;

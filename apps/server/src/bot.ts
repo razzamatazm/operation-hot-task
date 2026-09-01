@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
-import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TurnContext } from "botbuilder";
+import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
 
@@ -2240,13 +2240,27 @@ export class TeamsBotClient {
     });
   }
 
+  /* Lifecycle DM text carries a Markdown link to the task (#174), and Teams
+     only renders Markdown when the activity says so. MessageFactory.text
+     leaves textFormat unset, which means the Bot Framework default — markdown
+     — but the default is a spec detail, not a promise from this code, and a
+     message that shows a literal `[folder](https://…)` is worse than no link.
+     So say it. This covers every plain-text DM, not just the lifecycle ones —
+     the note fallback interpolates a user-typed note body, which can well
+     contain `*` or `_`. That text was already being rendered as Markdown under
+     the default; naming the format changes nothing about it, it just stops the
+     rendering of a link we now depend on from resting on a default. */
+  private static markdownText(text: string): Partial<Activity> {
+    return { ...MessageFactory.text(text), textFormat: TextFormatTypes.Markdown };
+  }
+
   async sendToDms(text: string): Promise<void> {
     if (!this.adapter) {
       return;
     }
 
     const references = dedupeDmRefs((await this.store.read()).filter((entry) => entry.scope === "DM"));
-    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, MessageFactory.text(text))));
+    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, TeamsBotClient.markdownText(text))));
   }
 
   async sendToDmUsers(userIds: string[], text: string): Promise<void> {
@@ -2268,7 +2282,7 @@ export class TeamsBotClient {
       })
     );
 
-    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, MessageFactory.text(text))));
+    await Promise.all(references.map((entry) => this.proactiveSend(entry.reference, TeamsBotClient.markdownText(text))));
   }
 
   /* Resolve which channel group notifications target (an admin setting). When
