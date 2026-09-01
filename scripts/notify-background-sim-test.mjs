@@ -48,13 +48,44 @@ const gate = () => {
   return { opened, open: () => open() };
 };
 
-/* Business hours wide open. `runMaintenance` only sends reminders inside the
-   configured window, so a suite about fan-out TIMING that inherits the real
-   8:30–17:30 PT window silently becomes a test of what time of day it is: it
-   passes during the working day and fails every evening, on every branch,
-   including a pristine main. Reminder-window behaviour has its own coverage in
-   the scheduler sim, which controls its clock properly. */
-const ALWAYS_OPEN_CONFIG = { ...config, businessStartHour: 0, businessStartMinute: 0, businessEndHour: 23, businessEndMinute: 59 };
+/* `runMaintenance` only sends reminders inside the configured business window,
+   so a suite about fan-out TIMING that runs on the wall clock silently becomes
+   a test of when you ran it: it passes during the working day and fails every
+   evening and all weekend, on every branch, including a pristine main.
+
+   Widening the window in config isn't enough — `isWithinBusinessHours` refuses
+   Saturday and Sunday outright, whatever hours it is given, so a config-only
+   version of this fix still failed every weekend. Freeze the clock instead, the
+   way the scheduler sim does, and keep the real window: Friday 2026-02-13
+   09:00 PT is inside it. Reminder-window behaviour itself is the scheduler
+   sim's subject, not ours. */
+const BUSINESS_HOURS_INSTANT = "2026-02-13T17:00:00.000Z";
+
+const withFrozenTime = async (iso, fn) => {
+  const fixedMs = new Date(iso).getTime();
+  const RealDate = Date;
+
+  class MockDate extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) {
+        super(fixedMs);
+      } else {
+        super(...args);
+      }
+    }
+
+    static now() {
+      return fixedMs;
+    }
+  }
+
+  globalThis.Date = MockDate;
+  try {
+    return await fn();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+};
 
 const setup = async (notifyImpl, appConfig = config) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "notify-bg-sim-"));
@@ -222,12 +253,12 @@ await check("a throwing notifier fails neither the request nor the process", asy
   );
 });
 
-await check("runMaintenance still awaits its own notifications", async () => {
+await check("runMaintenance still awaits its own notifications", async () => withFrozenTime(BUSINESS_HOURS_INSTANT, async () => {
   // Seed an overdue CLAIMED task straight into the store so maintenance has a
   // reminder to send, then assert it has ALREADY been dispatched the moment
   // runMaintenance resolves — with no settleBackgroundWork call in between.
   // That is the assertion that fails if maintenance is ever backgrounded too.
-  const { service, store, events } = await setup(undefined, ALWAYS_OPEN_CONFIG);
+  const { service, store, events } = await setup();
   const past = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
   await store.replaceTasks([
     {
@@ -256,6 +287,6 @@ await check("runMaintenance still awaits its own notifications", async () => {
     1,
     "the reminder was dispatched before runMaintenance resolved — not backgrounded"
   );
-});
+}));
 
 console.log(`\nAll ${passed} background fan-out checks passed.`);
