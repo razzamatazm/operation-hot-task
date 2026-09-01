@@ -435,10 +435,11 @@ export class TaskService {
     });
   }
 
-  /* The mechanism the two doors out of CLAIMED share: clear the seat, drop the
-     task back to OPEN, record it, and re-alert the channel. The POLICY — who may
-     do it, and what the history reads — belongs to the callers; this is only the
-     move.
+  /* The mechanism the two doors out of CLAIMED share — the assignee walking away
+     (`unclaimTask`) and the creator taking it back (`returnToPool`) — clearing
+     the seat, dropping the task to OPEN, recording it, and re-alerting the
+     channel. The POLICY — who may do it, and what the history reads — belongs to
+     the callers; this is only the move.
 
      Distinct from `unassignInPlace` below, which keeps the status where it is.
      That one is for a release mid-exchange, where the next holder should inherit
@@ -454,10 +455,13 @@ export class TaskService {
     const event = this.makeHistory(task.id, actor, "TASK_UNCLAIMED", detail);
     const updated = await this.writeTask(task.id, (current) => {
       /* The task is the pool's problem again, and the CHANNEL_REOPENED post
-         below is nag zero — so stamp the nag clock rather than leaving it
+         below is nag zero (#207) — so stamp the nag clock rather than leaving it
          absent. An absent stamp falls back to `createdAt`, which for anything
          that already sat out its first 20 minutes means a nag fires seconds
-         after the reopen post, saying the same thing twice. */
+         after the reopen post, saying the same thing twice. That reasoning is
+         why the stamp belongs on this shared seam rather than in either caller:
+         both doors post the card, so both are nag zero, and the creator's door
+         (#208) arrived after the rule and inherited it for free. */
       const { assignee: _assignee, ...withoutAssignee } = current;
       return { task: { ...withoutAssignee, status: "OPEN", lastPoolNagAt: now, updatedAt: now }, event };
     });
