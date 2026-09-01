@@ -1,4 +1,4 @@
-import { submitBlockReason } from "./checklist.js";
+import { submitBlockReason, unresolvedForSubmit } from "./checklist.js";
 import { ACTION_LABELS } from "./labels.js";
 import { LoanTask, TaskStatus, UserIdentity } from "./types.js";
 import { botPrimaryAdvance } from "./workflow.js";
@@ -19,6 +19,11 @@ export interface FraudCardAction {
      the reason; the same sentence is what the server's refusal would say, so
      nobody learns the rule by being bounced. Absent means "go ahead". */
   blockedReason?: string;
+  /* How many items are blocking, alongside the sentence rather than recomputed
+     by each surface — a narrow slot (the web row's 116px action column) shows
+     the count where the full sentence won't fit, and it must never disagree
+     with the reason sitting next to it. Set exactly when `blockedReason` is. */
+  blockedCount?: number;
 }
 
 /* Which side of a Fraud Check's exchange a person occupies *on this task*.
@@ -82,13 +87,14 @@ export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id
     }
     // Submit hands the ball back, so it waits until the requester has resolved
     // every item — checked, or unchecked with a note saying why (#184).
+    const blocking = unresolvedForSubmit(task.checklist ?? []);
     const blockedReason = submitBlockReason(task.checklist ?? []);
     return [
       {
         kind: "transition",
         label: ACTION_LABELS.SUBMIT,
         targetStatus: "PENDING_APPROVAL",
-        ...(blockedReason ? { blockedReason } : {})
+        ...(blockedReason ? { blockedReason, blockedCount: blocking.length } : {})
       }
     ];
   }

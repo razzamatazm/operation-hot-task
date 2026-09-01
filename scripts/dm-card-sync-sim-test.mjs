@@ -409,6 +409,39 @@ await check("resyncTaskCards re-emits for a task's current state, and no-ops for
   assert.deepEqual(syncTargets(events), [], "an unknown id must not throw or emit");
 });
 
+await check("a FRAUD checklist write syncs the cards, so the Submit gate can't dead-end them (#184)", async () => {
+  const { service, events } = await serviceSetup();
+  const task = await service.createTask({ folderName: "Gate-1", taskType: "FRAUD", notes: "check it" }, CREATOR);
+  await service.claimTask(task.id, CHECKER);
+  const withItem = await service.addChecklistItem(task.id, "Bank statement", CHECKER);
+  await service.transitionStatus(task.id, "AWAITING_ITEMS", CHECKER);
+  await service.settleBackgroundWork();
+  await settle();
+  events.length = 0;
+
+  /* The requester answers the last item in the web app. No status moves, so
+     nothing in the transition path runs — and before this the card kept
+     offering the blocked Submit with no way to repair itself, because a blocked
+     Submit no longer produces the rejected tap that used to trigger a re-sync. */
+  await service.setChecklistItemChecked(task.id, withItem.checklist[0].id, true, undefined, CREATOR);
+  await service.settleBackgroundWork();
+  await settle();
+
+  const syncs = syncTargets(events);
+  assert.equal(syncs.length, 1, "the checklist write brings the cards along");
+  assert.equal(syncs[0].task.status, "AWAITING_ITEMS", "still the requester's phase");
+  const submit = (noteCard(noteCardDataFromTask(syncs[0].task, CREATOR)).actions ?? []).find((a) => a.title === "Submit");
+  assert.equal(submit.type, "Action.Execute", "and the card the sync renders can finally submit");
+
+  // Non-FRAUD tasks have no checklist path at all, so nothing changes for them.
+  events.length = 0;
+  const loi = await service.createTask({ folderName: "Gate-2", taskType: "LOI", urgency: "GREEN", points: 1, notes: "" }, CREATOR);
+  await service.settleBackgroundWork();
+  await settle();
+  assert.deepEqual(syncTargets(events).map((s) => s.task.id), [], "creating a plain task still syncs nothing");
+  assert.equal(loi.taskType, "LOI");
+});
+
 await check("the scheduler's OOO auto-complete retires the cards", async () => {
   const { service, events, store } = await serviceSetup();
   // createTask rejects an OOO whose return date has already passed, and

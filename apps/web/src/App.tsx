@@ -1031,7 +1031,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
       <div className="checklist-head">
         <span className="checklist-title">Outstanding items</span>
         <span className="checklist-count">{items.length === 0 ? "none yet" : `${open} open / ${items.length}`}</span>
-        {submitBlocked && <span className="checklist-blocked">{submitBlocked} to submit</span>}
+        {submitBlocked && <span className="checklist-blocked">{submitBlocked}</span>}
       </div>
 
       {sorted.length > 0 && (
@@ -1539,10 +1539,11 @@ const TaskCard = memo(({
         run: needsNote
           ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
           : () => { void onTransition(task.id, target); },
-        /* Carried through under the same name shared gives it, with the count
-           the narrow action column shows in place of the full sentence. */
+        /* Both carried through under the names shared gives them — the count
+           rides alongside the sentence rather than being recomputed here, so the
+           narrow action column can't disagree with the tooltip beside it. */
         ...(fraudQuick.blockedReason
-          ? { blockedReason: fraudQuick.blockedReason, blockedCount: unresolvedForSubmit(task.checklist ?? []).length }
+          ? { blockedReason: fraudQuick.blockedReason, blockedCount: fraudQuick.blockedCount ?? 0 }
           : {})
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {

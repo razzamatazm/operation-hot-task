@@ -295,8 +295,14 @@ sentence on the wrapper's `title` and the button's `aria-label`. Clicking
 anywhere in the slot expands the card, where the checklist head repeats the
 sentence and the blocking rows carry `.checklist-item-blocking`.
 
-Both the reason and the count come from `fraudCardActions(...).blockedReason`
-in `packages/shared` — the view never decides who may submit or when. This is
+Both come from `packages/shared` as a pair — `fraudCardActions(...)` returns
+`blockedReason` and `blockedCount` together, and the row carries the count
+through rather than recomputing it, so the slot can never contradict the
+sentence in its own tooltip. The view never decides who may submit or when.
+The button's placement is the slot's business too: the action cell's
+`grid-column` rules apply to its own children, never through the slot to the
+button (that is what pushed the sub-label into an implicit column and blew the
+116px track). This is
 the one state where an active row runs a hair past two lines; the sub-label is
 a state-specific hint, not a layout reflow, and it appears only on the blocked
 requester's own row.

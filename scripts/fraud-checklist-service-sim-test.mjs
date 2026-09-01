@@ -198,7 +198,13 @@ await check("a tick lands the note in the ticking seat's own field, and fires no
   const withItem = await service.addChecklistItem(id, "Bank statement", CHECKER);
   const itemId = withItem.checklist[0].id;
 
-  const before = events.length;
+  /* DM_CARD_SYNC is excluded on purpose: it edits the cards that already exist
+     in place — it creates nothing and pings nobody — and a FRAUD checklist write
+     has to send one, because the list is what decides whether the card offers
+     Submit at all (#184). What must never happen per checkbox is a *pinging*
+     notification, which is what this count is really guarding. */
+  const pings = () => events.filter((event) => event.target !== "DM_CARD_SYNC").length;
+  const before = pings();
   const byRequester = await service.setChecklistItemChecked(id, itemId, true, "already in the file", CREATOR);
   assert.equal(byRequester.checklist[0].note, "already in the file", "the requester's exception note");
   assert.equal(byRequester.checklist[0].checkerNote, undefined, "and not a word under the checker's name");
@@ -210,7 +216,7 @@ await check("a tick lands the note in the ticking seat's own field, and fires no
   assert.equal(byChecker.checklist[0].note, "already in the file", "the requester's note is untouched");
 
   await service.settleBackgroundWork();
-  assert.equal(events.length, before, "a DM per checkbox is how a bot gets muted");
+  assert.equal(pings(), before, "a DM per checkbox is how a bot gets muted");
 });
 
 await check("adder deletes their OWN fresh item; records one CHECKLIST_UPDATED event", async () => {
@@ -487,6 +493,41 @@ await check("submit gate (#184): drafts count, an empty checklist stays submitta
   await service.setChecklistItemChecked(id, draftItem.id, true, undefined, CREATOR);
   const back = await service.transitionStatus(id, "PENDING_APPROVAL", CREATOR);
   assert.equal(back.status, "PENDING_APPROVAL");
+});
+
+await check("submit gate (#184) is re-checked at write time: an item that lands after the guard still blocks", async () => {
+  const { service, store } = await setup();
+  const id = await claimedFraud(service);
+  const first = await service.addChecklistItem(id, "W-2", CHECKER);
+  await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  await service.setChecklistItemChecked(id, first.checklist[0].id, true, undefined, CREATOR);
+  // Everything is answered, so the guard the submit runs will say "go".
+
+  /* The window the gate has to survive: the checker is still writing the list
+     while the requester submits (#146 — both seats write at any live status), so
+     an unanswered ask can land between the guard's read and the write. Injected
+     at the store's own seam rather than raced on timing, which is the same
+     technique #158's queue relies on to be testable at all. */
+  const realUpdate = store.updateTask.bind(store);
+  let injected = false;
+  store.updateTask = async (taskId, apply) => {
+    if (!injected) {
+      injected = true;
+      await service.addChecklistItem(id, "and one more thing", CHECKER);
+    }
+    return realUpdate(taskId, apply);
+  };
+
+  await assert.rejects(
+    () => service.transitionStatus(id, "PENDING_APPROVAL", CREATOR),
+    /1 item still needs a check or a note/,
+    "a guard that read a stale list must not be what decides this"
+  );
+  store.updateTask = realUpdate;
+
+  const after = await service.getTask(id);
+  assert.equal(after.status, "AWAITING_ITEMS", "the ball stayed with the requester");
+  assert.equal(after.checklist.length, 2, "and the checker's late ask survived the refused write");
 });
 
 await check("approval gate: creator cannot approve; checker approves with exceptions (unresolved item)", async () => {

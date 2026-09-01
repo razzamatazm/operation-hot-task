@@ -2960,7 +2960,11 @@ button.btn-good:hover {
   gap: 6px;
 }
 .task-card-action-cell .task-card-menu { grid-column: 1; }
-.task-card-action-cell .task-card-quick-action,
+/* Placement is for the cell's OWN children only. The quick action is never one
+   of them anymore — it always renders inside `.task-card-quick-action-slot`
+   (#184) — and listing it here pinned it to column 2 of the SLOT's grid too,
+   which pushed the "N to resolve" sub-label into an implicit column 1 and grew
+   the slot to label + gap + 116px, overflowing the 116px action track. */
 .task-card-action-cell .task-card-quick-action-slot,
 .task-card-action-cell .task-card-quick-action-waiting,
 .task-card-action-cell .task-card-quick-action-empty { grid-column: 2; }
@@ -2973,6 +2977,9 @@ button.btn-good:hover {
   gap: 2px;
 }
 .task-card-quick-action:disabled {
+  /* It can't be pressed, so it claims nothing on hover: hold the resting fill
+     instead of taking --brand-hover (the token opt-out from #171). */
+  --btn-bg-hover: var(--btn-bg);
   cursor: not-allowed;
   opacity: 0.5;
 }

@@ -113,7 +113,9 @@ check("AWAITING_ITEMS: Submit carries a blockedReason while items are unresolved
   const item = (over) => ({ id: "i", text: "bank statement", checked: false, addedBy: "checker", addedOnPass: 1, ...over });
   const blocked = makeFraudTask({ status: "AWAITING_ITEMS", checklist: [item({ id: "a" }), item({ id: "b" })] });
   assert.deepEqual(fraudCardActions(blocked, CREATOR), [
-    { kind: "transition", label: "Submit", targetStatus: "PENDING_APPROVAL", blockedReason: "2 items still need a check or a note" }
+    // The count rides alongside the sentence so a narrow slot doesn't recompute
+    // it and end up disagreeing with the reason next to it.
+    { kind: "transition", label: "Submit", targetStatus: "PENDING_APPROVAL", blockedReason: "2 items still need a check or a note", blockedCount: 2 }
   ]);
   // Checked, or unchecked with the requester's own note — either resolves.
   const resolved = makeFraudTask({
