@@ -1765,15 +1765,18 @@ button.btn-good:hover {
    too (identical treatment to the replies), not a separate "Name: text"
    block style.
 
-   The cap is sized against a single-line note (24px glyph row + 10px gap):
-   170px is five notes clear with the sixth cut off, which is the scroll
-   affordance. It is a max-height, so a one-note thread still collapses to
-   that one note rather than reserving the whole box. */
+   The cap is sized against a single-line note. The 24px glyph is the tallest
+   thing on the row (the text is 0.86rem x 1.45 + 2px = ~22px), so a row is
+   24px and five of them with four 10px gaps come to 160px. 178px clears those
+   five and leaves 8px of the sixth showing past the gap — the clipped row is
+   the scroll affordance, and it only works if the number is past 170px, where
+   the sixth row's top edge sits. It is a max-height, so a one-note thread
+   still collapses to that one note rather than reserving the whole box. */
 .msgs {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 170px;
+  max-height: 178px;
   overflow-y: auto;
   padding-right: 4px;
 }
