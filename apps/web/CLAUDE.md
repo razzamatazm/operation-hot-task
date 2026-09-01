@@ -88,26 +88,22 @@ sections come from `buildCourtSections` and follow
 
 ### Collapsed row (the main list view)
 
-CSS grid with **fixed columns** so rows align top-to-bottom:
-
-```
-96px   | 78px     | 84px     | minmax(0,1fr) | 84px | 96px | 116px
-status | assigner | assignee | title         | poop | due  | action
-```
+Both views — flat and grouped — render the same row, and it is the grouped
+one: `.task-card-grouped`, built by `TaskCard`. There is no
+`.task-card-collapsed` container any more; the last of its CSS went in #169.
+For the grid itself see *Grouped collapsed row* below — this section covers
+what each slot **carries**, that one covers how it is laid out.
 
 Each slot has one job. When adding info, replace something — don't append:
 
-- **Status banner (mono, small)** — flat status name from `STATUS_BANNER`
-  via `resolveBanner` (`OPEN`, `IN PROGRESS`, `IN REVIEW`, `MERGE DONE`,
-  `MERGE APPROVED`, `COMPLETED!`, `CANCELLED`, `ARCHIVED`). Perspective
-  *no longer* rides on the banner — the Assigner/Assignee columns do that
-  work. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS rides on
-  the **title** as a hyphen suffix.
-- **Assigner / Assignee** — two stacked-label columns (`.task-card-people`,
-  mono, uppercase first-name). `ME` (assigner = current user) and `ME` /
-  `PENDING` (assignee = current user, or unassigned on OPEN) render in
-  `--bad` red so personal involvement and "still needs a claim" pop
-  without parsing the banner.
+- **Assigner → Assignee** — one line: avatar pill + first name on each side,
+  arrow between (`.task-card-pair`). The viewer's own name, in whichever slot
+  it lands, steps up to weight 600; an unclaimed task renders a dashed empty
+  avatar and an italic `Unclaimed`. First names never truncate — the title
+  column is the one that gives. Perspective rides here, not on a status
+  banner: #36 removed the banner row along with `resolveBanner` /
+  `STATUS_BANNER`. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS
+  rides on the **title** as a hyphen suffix.
 - **Title** — type label (e.g. `Loan Docs`), optional ` - <stage>` suffix
   in lighter weight via `task-card-collapsed-stage`, then folder name with
   optional `↗` external Humperdink link. Single line, ellipsized.
@@ -116,9 +112,11 @@ Each slot has one job. When adding info, replace something — don't append:
   width never changes. Creator can click any slot to set the score
   (clicking the current count clears to 0). See `PoopDisplay` /
   `.poop-track`. Hidden on mini rows.
-- **Due** — relative short form via `formatRelativeDue`: `due in 4h`,
-  `2d overdue`. Full absolute timestamp shows as `title` tooltip. Red +
-  bold (`.task-card-grouped-due-overdue`) when overdue.
+- **Due** — label and value side by side, right-aligned, built by
+  `groupedDue`. Full
+  absolute timestamp shows as `title` tooltip. Red + bold
+  (`.task-card-grouped-due-overdue`) when overdue. The rest — including why
+  it must ask the shared `isOverdue` — is under *Grouped collapsed row*.
 - **Action** — single contextual button (`Claim` / `Complete` /
   `Merge Done` / `Approve Merge` / `Send Items` / `Submit` / `Approve` /
   `Archive`). Picked by the `primaryAction` ladder in `TaskCard`.
@@ -302,10 +300,9 @@ reintroduce the auto-width override that breakpoint used to apply.
 ### Mini rows (closed tasks)
 
 Closed statuses (`COMPLETED` / `CANCELLED` / `ARCHIVED`) drop into the
-bottom of the grid as `.task-card-collapsed-mini` rows: half height
-(~28px min), no poop, no quick action (the hamburger stays), no
-"Assigner/Assignee" labels
-above the values. Title font shrinks. Clicking still expands to reveal
+bottom of the grid as `.task-card-grouped-mini` rows: half height
+(~28px min), no poop, no quick action (the hamburger stays). Title font
+shrinks. Clicking still expands to reveal
 full actions (Re-open / Archive). A task that was reopened back into an
 active status shows a **Restore** button in the expanded body (via
 `restoreTargetStatus`) that returns it to the exact closed status it came

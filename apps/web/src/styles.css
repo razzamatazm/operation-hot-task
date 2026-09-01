@@ -758,38 +758,7 @@ button.btn-good:hover {
   }
 }
 
-/* ── Collapsed task card row ──────────────────────────────── */
-
-/* Assigner / Assignee column — mono, tight, label-over-value.
-   Red "ME" / "PENDING" mark personal involvement & unassigned state. */
-.task-card-people {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  line-height: 1.1;
-}
-.task-card-people-label {
-  font-family: "DM Sans", sans-serif;
-  font-size: 0.62rem;
-  font-weight: 500;
-  color: var(--muted);
-  letter-spacing: 0.01em;
-}
-.task-card-people-value {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.task-card-people-me {
-  color: var(--bad);
-}
-
+/* ── Grouped row title block ──────────────────────────────── */
 .task-card-collapsed-title {
   display: flex;
   flex-direction: column;
