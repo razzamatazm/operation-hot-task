@@ -32,6 +32,9 @@ for `apps/web`.
   present it as built.
 - When the user confirms a product or workflow decision, record it in the
   relevant doc under `docs/product/` before moving on.
+- Worktrees belong in `.claude/worktrees/`, named for the ticket where there is
+  one. The reflex to avoid is `git worktree add ../oht-169`, which drops them
+  beside the repo in `~/repos`, where they read as new projects.
 
 ## Where to look
 

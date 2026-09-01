@@ -19,3 +19,7 @@ teams-app/*.zip
 # Throwaway debug harnesses. Disposable by design — they answer one question
 # and get deleted, so they never belong in history.
 scripts/debug/
+
+# Agent worktrees. AGENTS.md puts them here so they stop landing in ~/repos and
+# reading as new projects; they are checkouts, not sources.
+.claude/worktrees/
