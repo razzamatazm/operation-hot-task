@@ -18,9 +18,8 @@ FRAUD's `Awaiting Items` phase is excluded from this reminder engine — see
 
 Overdue reminders are **DMs to the assignee**, and only ever concern claimed
 work. An unclaimed task DMs nobody and raises no in-app overdue signal: it is a
-staffing problem rather than one person's lateness, and telling the creator their
-own request is late is not something they can act on. See
-[ADR-0005](../adr/0005-claim-anchored-deadline.md).
+staffing problem rather than one person's lateness, so the pressure goes to the
+room instead. See [ADR-0005](../adr/0005-claim-anchored-deadline.md).
 
 There is only one overdue message, because there is only one way to be overdue:
 the window that started when you took the task ran out. It names the task rather
@@ -29,14 +28,38 @@ definition the one holding it. A task picked up outside
 business hours starts its clock at the next business open, so nobody is ever
 handed something that is already late.
 
-## The unclaimed task
+## The pool nag
 
-Nothing chases an `Open`, unassigned task on a schedule. Its creator's own row
-counts up ("unclaimed for 10 minutes") and turns red at **20 minutes** — the
-creator is the one person who can act on the answer, by chasing a human. **OOO
-tasks are excluded**: a vacation notice is born unassigned and stays that way
-until it auto-completes on the return date, so it is never waiting on hands.
+An `Open`, unassigned task re-posts to the group channel **every 20 minutes**
+during business hours until somebody claims it. Flat 20 minutes at every
+urgency. In practice the gap is 20-25 minutes and the six asks span a little
+over two hours: the scheduler wakes every 5 minutes, so a nag lands on the first
+tick past the threshold rather than on the threshold itself. **OOO tasks are excluded** — a vacation notice is born unassigned and
+stays that way until it auto-completes on the return date, so it is never
+waiting on hands.
 
-Asking the group channel to pick the task up, on the same cadence, is a separate
-change — see
-[#207](https://github.com/razzamatazm/operation-hot-task/issues/207).
+- It is a **new** channel post each time. An in-place card edit notifies nobody,
+  which is the entire point.
+- Each nag deletes the nag before it, never the original creation card, so the
+  channel holds at most two cards per unclaimed task.
+- No `@mention` of anyone.
+- **It stops after six asks.** Two hours of business time is the point at which
+  the room has been told and repeating it is noise rather than pressure. What
+  remains is the original claimable card and the creator's own count-up row,
+  both aimed at somebody who can still act.
+- Claiming stops it, and resets the count: a task that comes back to the pool
+  later is a fresh ask of the room, not a continuation of the old one. A reopen
+  does not reset it — nobody took the task, so nothing has been earned.
+- Unclaiming restarts the cadence from the unclaim, since the re-posted
+  claimable card is itself the first nag. The same is true of a reopen back to
+  `Open` from a closed status — both doors post a card, so both count as nag
+  zero.
+- The creator's own row counts up ("unclaimed for 10 minutes") and turns red at
+  20. Both surfaces read the same 20-minute constant, so the threshold cannot
+  drift — but they anchor differently on purpose, and after a reopen or once the
+  six asks are spent the row can be red while the channel has gone quiet. The row
+  answers "how long has my request been sitting", which does not stop being true
+  when the room stops being asked.
+- Tasks that were already open when this shipped have their clock started at
+  first boot rather than at their creation date, so the feature arriving does
+  not nag the channel once per task in the backlog.

@@ -843,11 +843,60 @@ export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CON
   return minutes >= start && minutes <= end;
 };
 
-/* How long an unclaimed task sits unclaimed before its creator's row starts
-   shouting about it. The creator is the one person who can act on the answer,
-   so twenty minutes is the point at which "nobody has picked this up" stops
-   being normal and starts being worth chasing a human over. */
-const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
+/* How long an unclaimed task sits unclaimed before anybody is told about it.
+   Twenty minutes is the point at which "nobody has picked this up" stops being
+   normal and starts being worth chasing a human over.
+
+   One constant, because it answers two questions that must agree: when the
+   group channel gets nagged (ADR-0005, #207) and when the creator's own row
+   starts counting up. If they drifted apart the creator would watch a calm row
+   while the room was being pestered, or the reverse. */
+export const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
+
+/* How many times one task is worth re-asking the room before the nag gives up
+   (#207). At the cadence above that is two hours of business time. Past it the
+   channel has been told six times and a seventh post persuades nobody — what is
+   left is a staffing problem that more noise does not solve, and the signals
+   that remain (the creator's count-up row, the original claimable card) are the
+   ones aimed at somebody who can act. */
+export const MAX_POOL_NAGS = 6;
+
+/* Whether this task is the kind of thing the room can be asked to pick up at
+   all, timing aside: open, and nobody on it.
+
+   Split out from `isPoolNagDue` because the boot backfill needs exactly this
+   question and none of the timing — it stamps the tasks the nag would otherwise
+   read as never-nagged, and stamping anything else would leave a misleading
+   field on a task nobody is being asked to take. Two copies of it is how the
+   backfill and the nag would come to disagree about which tasks are the pool's.
+
+   An OOO task is a vacation notice, not a request for hands: it is born OPEN and
+   unassigned and stays that way until it auto-completes on the return date.
+   Without this clause the nag would ask the room to pick up someone's holiday
+   every 20 minutes of every business day until they got back. */
+export const isPoolNagEligible = (task: Pick<LoanTask, "taskType" | "status" | "assignee">): boolean =>
+  task.taskType !== "OOO" && task.status === "OPEN" && !task.assignee;
+
+/* Whether an unclaimed task is due another ask of the room (ADR-0005).
+
+   Anchored to the last nag. The fallback to `createdAt` is what makes a task
+   that has never been nagged eligible twenty minutes after it is filed — and it
+   is also why every task that predates this feature has to be stamped at boot
+   (`backfillPoolNagClock`), or the first maintenance pass reads the whole open
+   queue as never-nagged and nags all of it at once (#207). */
+export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
+  if (!isPoolNagEligible(task)) {
+    return false;
+  }
+  if ((task.poolNagCount ?? 0) >= MAX_POOL_NAGS) {
+    return false;
+  }
+  const since = task.lastPoolNagAt ?? task.createdAt;
+  if (now.getTime() - new Date(since).getTime() < UNCLAIMED_ALERT_MS) {
+    return false;
+  }
+  return isWithinBusinessHours(now, config);
+};
 
 /* Nobody currently holds this task, so its `dueAt` is not yet anybody's
    obligation (ADR-0005). Deliberately NOT `status === "OPEN"`: a FRAUD task
