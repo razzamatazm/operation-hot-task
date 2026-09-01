@@ -1468,7 +1468,7 @@ export class TaskService {
       if (!isPoolNagEligible(task) || task.lastPoolNagAt) {
         continue;
       }
-      if (nowMs - new Date(task.createdAt).getTime() < UNCLAIMED_ALERT_MS) {
+      if (nowMs - new Date(inPoolSince(task)).getTime() < UNCLAIMED_ALERT_MS) {
         continue;
       }
       await this.store.updateTask(task.id, (current) =>

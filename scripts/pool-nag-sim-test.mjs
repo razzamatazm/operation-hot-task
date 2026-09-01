@@ -502,6 +502,56 @@ await check("the creator's row counts the same clock as the channel", async () =
   });
 });
 
+await check("every door into the pool restarts the clock, and taking it stops it", async () => {
+  /* Three ways back in besides `unclaimTask`, which the checks above cover. The
+     read path is proved by mutating the accessor; these are the write paths, and
+     a door that forgets to stamp is the failure this change is most exposed to. */
+  const { service, store } = await setup();
+
+  await withFrozenTime(AT_1000, async () => {
+    // Door: the creator takes a stalled task back (#208).
+    const returned = await legacyOpenTask(service, store, "Creator Freed", 2 * 24 * 60);
+    await service.claimTask(returned.id, CHECKER);
+    await service.returnToPool(returned.id, CREATOR);
+    await service.settleBackgroundWork();
+    const freed = await store.findTask(returned.id);
+    assert.equal(freed.pooledSince, new Date().toISOString(), "return-to-pool stamps");
+    assert.equal(inPoolSince(freed), freed.pooledSince, "so the clock runs from the hand-back");
+
+    // Door: a reopen from a closed status with nobody on it.
+    const reopened = await legacyOpenTask(service, store, "Reopened Later", 2 * 24 * 60);
+    await patch(store, reopened.id, (current) => {
+      const { assignee: _assignee, ...rest } = current;
+      return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5) };
+    });
+    await service.transitionStatus(reopened.id, "OPEN", CREATOR);
+    await service.settleBackgroundWork();
+    assert.equal((await store.findTask(reopened.id)).pooledSince, new Date().toISOString(), "the reopen door stamps");
+
+    // Door: a FRAUD release, which keeps its status. Nothing reads the field in
+    // that state today, but it should still say something true.
+    const released = await service.createTask(
+      { folderName: "Released Check", taskType: "FRAUD", notes: "n", urgency: "GREEN" },
+      CREATOR
+    );
+    await service.claimTask(released.id, CHECKER);
+    await service.transitionStatus(released.id, "AWAITING_ITEMS", CHECKER, "items");
+    await service.transitionStatus(released.id, "PENDING_APPROVAL", CREATOR);
+    await service.releaseForAnyChecker(released.id, CREATOR);
+    await service.settleBackgroundWork();
+    const inPlace = await store.findTask(released.id);
+    assert.equal(inPlace.assignee, undefined, "unassigned in place");
+    assert.equal(inPlace.pooledSince, new Date().toISOString(), "and stamped, so the field never lies");
+
+    // And the way out: taking the task stops the clock entirely.
+    const taken = await store.findTask(returned.id);
+    assert.ok(taken.pooledSince, "still pooled before the claim");
+    await service.claimTask(returned.id, CHECKER);
+    await service.settleBackgroundWork();
+    assert.equal((await store.findTask(returned.id)).pooledSince, undefined, "a holder clears it");
+  });
+});
+
 await check("a task nobody ever claimed still counts from when it was filed", async () => {
   // The fallback: no `pooledSince` means it never left, so `createdAt` is right.
   const filed = openTask({ createdAt: new Date("2026-03-11T09:00:00-07:00").toISOString() });

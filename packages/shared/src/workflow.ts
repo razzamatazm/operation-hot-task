@@ -991,6 +991,22 @@ export const MAX_POOL_NAGS = 6;
 export const isPoolNagEligible = (task: Pick<LoanTask, "taskType" | "status" | "assignee">): boolean =>
   task.taskType !== "OOO" && task.status === "OPEN" && !task.assignee;
 
+/* How long this task has been sitting in the pool, as the instant it arrived
+   there (#210).
+
+   For a task nobody has ever claimed that is simply when it was filed, which is
+   why `createdAt` was the answer everywhere until now. It stops being the answer
+   the moment a task comes BACK: one claimed on Monday, worked on, and handed
+   back on Wednesday has been up for grabs for minutes, not for two days. Every
+   surface that says "unclaimed for" was reading `createdAt` and quoting the
+   wrong number to the room and to the creator alike.
+
+   One accessor rather than three call sites doing `?? createdAt`, because the
+   channel, the creator's row and the nag copy must never disagree about how long
+   a task has been waiting. */
+export const inPoolSince = (task: Pick<LoanTask, "pooledSince" | "createdAt">): string =>
+  task.pooledSince ?? task.createdAt;
+
 /* Whether an unclaimed task is due another ask of the room (ADR-0005).
 
    Anchored to the last nag. The fallback to `createdAt` is what makes a task
@@ -1005,7 +1021,11 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
   if ((task.poolNagCount ?? 0) >= MAX_POOL_NAGS) {
     return false;
   }
-  const since = task.lastPoolNagAt ?? task.createdAt;
+  // Falls back to when the task entered the pool, not to when it was filed
+  // (#210): a task handed back is owed its first nag twenty minutes from the
+  // hand-back. `inPoolSince` rather than `createdAt` makes that structural
+  // instead of resting on every door happening to stamp both fields.
+  const since = task.lastPoolNagAt ?? inPoolSince(task);
   if (now.getTime() - new Date(since).getTime() < UNCLAIMED_ALERT_MS) {
     return false;
   }
@@ -1023,27 +1043,23 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
 export const isUnclaimed = (task: Pick<LoanTask, "status" | "assignee">): boolean =>
   !task.assignee && !CLOSED_STATUSES.includes(task.status);
 
-/* How long this task has been sitting in the pool, as the instant it arrived
-   there (#210).
-
-   For a task nobody has ever claimed that is simply when it was filed, which is
-   why `createdAt` was the answer everywhere until now. It stops being the answer
-   the moment a task comes BACK: one claimed on Monday, worked on, and handed
-   back on Wednesday has been up for grabs for minutes, not for two days. Every
-   surface that says "unclaimed for" was reading `createdAt` and quoting the
-   wrong number to the room and to the creator alike.
-
-   One accessor rather than three call sites doing `?? createdAt`, because the
-   channel, the creator's row and the nag copy must never disagree about how long
-   a task has been waiting. */
-export const inPoolSince = (task: Pick<LoanTask, "pooledSince" | "createdAt">): string =>
-  task.pooledSince ?? task.createdAt;
-
 /* Whether an unclaimed task has gone unclaimed long enough to be worth
    flagging to its creator — the one person who can fix it by chasing a human.
    Measured from when it entered the pool, not from creation (#210): for a task
    that has never been claimed those are the same instant, and for one handed
-   back they are not. */
+   back they are not.
+
+   Still keyed on `status === "OPEN"` rather than on the holder-based
+   `isUnclaimed`, and the reason has changed. It used to be that `createdAt`
+   would have given a released task a wrong count-up, so it got none; with
+   `pooledSince` there is now a right one available. What keys it on OPEN today
+   is scope, not correctness: widening it would also start nagging the channel
+   about a Fraud Check released for any checker, which is a product call about
+   how loud that flow should be rather than a fix. Tracked in
+   [#213](https://github.com/razzamatazm/operation-hot-task/issues/213); until
+   then the release announces itself once, in place, and says nothing after.
+   `pooledSince` IS stamped on that path, so whichever way #213 goes, the number
+   is already there and correct. */
 export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
   task.taskType !== "OOO" &&
   task.status === "OPEN" &&

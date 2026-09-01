@@ -57,7 +57,12 @@ waiting on hands.
 - The creator's own row counts up ("unclaimed for 10 minutes") and turns red at
   20. Both surfaces read the same 20-minute constant **and the same anchor** —
   the moment the task entered the pool, not the moment it was filed (#210) — so
-  neither the threshold nor the number can drift.
+  neither the threshold nor the number can drift between them.
+- The anchor is only recorded from #210 onwards. A task handed back **before**
+  that shipped has no stamp and falls back to its filing date, so it will
+  overstate itself once more until somebody takes it or hands it back again.
+  Deliberate: there is no way to recover when a past hand-back happened, and
+  inventing one would be worse than a stale figure on a handful of rows.
 - They can still fall out of step in one direction, on purpose: once the six asks
   are spent, or outside business hours, the channel goes quiet while the row
   stays red. The row answers "how long has my request been sitting", which does

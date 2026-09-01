@@ -295,9 +295,10 @@ const groupedDue = (
      agreed to take, and the number they'd read would be wrong the moment they
      claimed it anyway.
 
-     Its creator is the exception, and only while the task has never been
-     claimed: they are the one person who can fix that by chasing a human, so
-     they get a count-up instead. */
+     Its creator is the exception: they are the one person who can fix that by
+     chasing a human, so they get a count-up instead. It runs from the moment the
+     task entered the pool (#210), so a task handed back counts from the hand-back
+     rather than from the day it was filed. */
   if (isUnclaimed(task)) {
     // When the row goes red is the shared rule's call, never this row's — same
     // reason isOverdue is delegated below. The twenty-minute threshold and the
