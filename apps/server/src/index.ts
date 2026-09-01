@@ -74,6 +74,13 @@ const bootstrap = async (): Promise<void> => {
     console.log(`loan_migration loans_created=${migrated.loansCreated} tasks_linked=${migrated.tasksLinked}`);
   }
   const service = new TaskService(store, notifier, sse, rules, activityFeedState, loanService);
+  /* One-time, idempotent (#207): start the pool-nag clock on tasks that were
+     already open when the nag shipped, so the first maintenance pass does not
+     read them as never-nagged and post one card per open task at once. */
+  const nagBackfill = await service.backfillPoolNagClock();
+  if (nagBackfill.stamped > 0) {
+    console.log(`pool_nag_backfill stamped=${nagBackfill.stamped}`);
+  }
   botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
   botClient.setClaimHandler(
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
