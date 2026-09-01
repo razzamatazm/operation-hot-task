@@ -118,7 +118,7 @@ Each slot has one job. When adding info, replace something — don't append:
   `.poop-track`. Hidden on mini rows.
 - **Due** — relative short form via `formatRelativeDue`: `due in 4h`,
   `2d overdue`. Full absolute timestamp shows as `title` tooltip. Red +
-  bold (`.task-card-collapsed-due-overdue`) when overdue.
+  bold (`.task-card-grouped-due-overdue`) when overdue.
 - **Action** — single contextual button (`Claim` / `Complete` /
   `Merge Done` / `Approve Merge` / `Send Items` / `Submit` / `Approve` /
   `Archive`). Picked by the `primaryAction` ladder in `TaskCard`.
