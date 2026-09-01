@@ -20,7 +20,17 @@ elapsed while the task was sitting in a queue.
 ## Decision
 
 **`dueAt` is recomputed from the task's urgency at the moment an assignee takes
-it**, on claim and on every handoff, including a self-handoff.
+it**, on claim, on every handoff to a different person, and at creation when the
+task is filed with an assignee already on it.
+
+A handoff to whoever already holds the task is **not** a recompute, because it
+is not an event: `assignTask` returns early on `task.assignee?.id ===
+target.id`, per [ADR-0002](0002-task-handoff.md), which settled that handing a
+task to its current holder is a no-op. #181 asked for a self-handoff to
+re-anchor, and that is the one line of it this decision does not implement — a
+no-op that silently moved a deadline would be a way to extend your own window
+with no record of it beyond `updatedAt`. Flagged rather than quietly dropped;
+if the ask was deliberate it needs its own change and its own reasoning.
 
 You cannot pick up a task that is already late, because the clock does not start
 until somebody takes it. Inside business hours the window runs from the claim

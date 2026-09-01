@@ -28,6 +28,8 @@ import {
   computeClaimAnchoredDueAt,
   computeDueAtFromUrgency,
   isDeadlineRecomputeExempt,
+  isOverdue,
+  isUnclaimed,
   isUnclaimedTooLong
 } from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
@@ -262,11 +264,21 @@ await check("a handoff re-anchors the deadline to the new holder", async () => w
 }));
 
 await check("unclaiming and releasing leave the deadline alone", async () => withFrozenTime(FROZEN_INSTANT, async () => {
-  const { service, store } = await setup();
+  const { service } = await setup();
   const task = await service.createTask({ folderName: "Handed Back", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
   const claimed = await service.claimTask(task.id, CHECKER);
   const unclaimed = await service.unclaimTask(task.id, CHECKER);
   assert.equal(unclaimed.dueAt, claimed.dueAt, "the next claimer re-anchors; nothing to do here");
+
+  // The other door back to the pool. This check was named for both and only
+  // ever exercised one of them.
+  const fraud = await service.createTask({ folderName: "Released", taskType: "FRAUD", notes: "n", urgency: "ORANGE" }, CREATOR);
+  await service.claimTask(fraud.id, CHECKER);
+  await service.transitionStatus(fraud.id, "AWAITING_ITEMS", CHECKER, "please gather these");
+  const pending = await service.transitionStatus(fraud.id, "PENDING_APPROVAL", CREATOR);
+  const released = await service.releaseForAnyChecker(fraud.id, CREATOR);
+  assert.equal(released.dueAt, pending.dueAt, "release leaves it alone too");
+  assert.equal(released.assignee, undefined);
 }));
 
 await check("an OOO task keeps its return date across a claim", async () => withFrozenTime(FROZEN_INSTANT, async () => {
@@ -366,6 +378,37 @@ await check("the creator's row reddens at twenty minutes unclaimed, and never fo
     assert.equal(ooo.assignee, undefined);
     await backdate(store, ooo.id, { createdAt: minutesAgo(120) });
     assert.equal(isUnclaimedTooLong(await service.getTask(ooo.id), new Date()), false);
+  }));
+
+await check("a task released back to the pool reads as unclaimed, not as overdue", async () =>
+  withFrozenTime(FROZEN_INSTANT, async () => {
+    const { service, store, events } = await setup();
+    const task = await service.createTask({ folderName: "Up For Grabs", taskType: "FRAUD", notes: "n", urgency: "ORANGE" }, CREATOR);
+    await service.claimTask(task.id, CHECKER);
+    await service.transitionStatus(task.id, "AWAITING_ITEMS", CHECKER, "please gather these");
+    await service.transitionStatus(task.id, "PENDING_APPROVAL", CREATOR);
+    await service.releaseForAnyChecker(task.id, CREATOR);
+    // Blow the deadline while nobody holds it.
+    await backdate(store, task.id, { dueAt: minutesAgo(30) });
+
+    const released = await service.getTask(task.id);
+    assert.equal(released.status, "PENDING_APPROVAL", "released in place — it is not OPEN");
+    assert.equal(released.assignee, undefined);
+    assert.equal(
+      isUnclaimed(released),
+      true,
+      "keying on OPEN instead of the holder is what let the row render a red OVERDUE BY here"
+    );
+    assert.equal(isOverdue(released, new Date()), true, "the deadline really has passed — the row just must not say so");
+
+    // And the server agrees it is nobody's lateness: no in-app overdue signal,
+    // because collectActiveSignals asks about the assignee, not the status.
+    await service.settleBackgroundWork();
+    events.length = 0;
+    await service.runMaintenance();
+    await service.settleBackgroundWork();
+    const overdueSignals = events.filter((e) => e.target === "ACTIVITY_FEED" && /running late/.test(e.message));
+    assert.equal(overdueSignals.length, 0);
   }));
 
 console.log(`\n${passed} checks passed`);

@@ -849,10 +849,24 @@ export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CON
    being normal and starts being worth chasing a human over. */
 const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
 
+/* Nobody currently holds this task, so its `dueAt` is not yet anybody's
+   obligation (ADR-0005). Deliberately NOT `status === "OPEN"`: a FRAUD task
+   released for any checker is unassigned at `PENDING_APPROVAL`, and that is
+   precisely the state this rule exists for. Testing the status instead of the
+   holder let the row render a red `OVERDUE BY` at a released task while the
+   server — which asks about the assignee — agreed it was nobody's lateness.
+   Closed tasks are excluded: they have no holder either, but their deadline
+   stopped meaning anything for a different reason. */
+export const isUnclaimed = (task: Pick<LoanTask, "status" | "assignee">): boolean =>
+  !task.assignee && !CLOSED_STATUSES.includes(task.status);
+
 /* Whether an unclaimed task has gone unclaimed long enough to be worth
    flagging to its creator — the one person who can fix it by chasing a human.
-   Measured from creation: what the creator wants to know is how long their
-   request has been sitting, and nothing else has restarted that clock. */
+   Measured from creation, which is why this one does key on `OPEN`: for a task
+   that has never been claimed, "how long since it was filed" is the same
+   question as "how long has nobody taken it". For a task released back to the
+   pool part-way through, it is not — `createdAt` would count time somebody was
+   working on it, so that case gets no count-up rather than a wrong one. */
 export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
   task.taskType !== "OOO" &&
   task.status === "OPEN" &&

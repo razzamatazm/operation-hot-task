@@ -23,7 +23,9 @@ own request is late is not something they can act on. See
 [ADR-0005](../adr/0005-claim-anchored-deadline.md).
 
 There is only one overdue message, because there is only one way to be overdue:
-the window that started when you took the task ran out. A task picked up outside
+the window that started when you took the task ran out. It names the task rather
+than the person — "your time's up on <folder>" — since the recipient is by
+definition the one holding it. A task picked up outside
 business hours starts its clock at the next business open, so nobody is ever
 handed something that is already late.
 
