@@ -44,7 +44,11 @@ Both views share one retention filter and one card component:
   (no poop/action columns) rather than living in a separate archived view.
   They're retained for `CLOSED_TTL_DAYS` before dropping off — see
   [reminders-retention.md](reminders-retention.md).
-- Clicking any row expands it inline to the full detail/action view.
+- Every row starts collapsed and stays collapsed until the viewer clicks it
+  open; clicking expands it inline to the full detail/action view. Cards never
+  open or close themselves — no status change, new note, or refresh moves a
+  row either way (#161). The collapsed row carries the primary action and the
+  menu, so nothing actionable is behind the fold.
 
 Full row layout, column semantics, and styling conventions are documented in
 [apps/web/CLAUDE.md](../../apps/web/CLAUDE.md) — that's the canonical
