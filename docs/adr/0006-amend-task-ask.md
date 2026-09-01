@@ -1,4 +1,4 @@
-# 0005. A task's ask is amendable by its creator, and only its ask
+# 0006. A task's ask is amendable by its creator, and only its ask
 
 Status: Accepted (design). Implementation tracked in
 [#160](https://github.com/razzamatazm/operation-hot-task/issues/160).

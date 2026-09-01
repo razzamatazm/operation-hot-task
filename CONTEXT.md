@@ -98,7 +98,7 @@ only, because the creator is the person whose request it is. Distinct from
 _Resolve_, which records a fact about the world, and from a _Handoff_, which
 moves the seat: an amendment changes what was asked for, never what happened or
 who is doing it. A task's type, its linked _Loan_, and both its seats are not
-amendable. See [ADR-0005](docs/adr/0005-post-creation-task-edit.md).
+amendable. See [ADR-0006](docs/adr/0006-amend-task-ask.md).
 _Avoid_: "edit the task" (too broad — most of a task is a record, not an ask)
 
 **Back-end access**:

@@ -14,7 +14,7 @@ Not yet implemented — do not present as current state. Everything else under
 - **Amending a task after it is filed** — its notes and its urgency, by its
   creator, on an active task. Today a task's own fields are immutable once
   created and the only remedy is to cancel and refile. Decided in
-  [ADR-0005](../adr/0005-post-creation-task-edit.md), tracked in
+  [ADR-0006](../adr/0006-amend-task-ask.md), tracked in
   [#160](https://github.com/razzamatazm/operation-hot-task/issues/160).
 
 Shipped, previously listed here: the Teams tab, the notification bot, Entra ID
