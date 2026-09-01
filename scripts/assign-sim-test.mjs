@@ -12,7 +12,9 @@
  *   - Eligibility is enforced on the RECIPIENT: a FRAUD task only goes to a
  *     FILE_CHECKER, whoever is doing the handing.
  *   - Anyone may hand off — an observer who is neither creator nor assignee.
- *   - Handing a task to whoever already holds it is a no-op, not an error.
+ *   - Handing a task to whoever already holds it is REFUSED (#208). It used to
+ *     return the task unchanged, which reported success for a request that did
+ *     nothing.
  *   - DMs only: a DM_ASSIGN card to the recipient, a one-line DM to a displaced
  *     assignee, and nothing on the channel or the activity feed.
  *   - The handoff note rides the DM_ASSIGN card and is NEVER written as a
@@ -209,20 +211,48 @@ await check("an uninvolved bystander may hand a task off", async () => {
   assert.equal(updated.assignee.id, CHECKER.id, "no creator/assignee/admin gate — ADR-0002");
 });
 
-await check("handing a task to its current assignee is a no-op", async () => {
+await check("handing a task to whoever already holds it is refused", async () => {
   const ctx = await setup();
   const task = await openTask(ctx.service);
   await ctx.service.claimTask(task.id, OFFICER);
   const before = await ctx.service.getTask(task.id);
 
-  const { result, emitted } = await capture(ctx, () =>
-    ctx.service.assignTask({ taskId: task.id, target: OFFICER, actor: CREATOR })
-  );
-  assert.equal(result.updatedAt, before.updatedAt, "the task comes back untouched, not re-stamped");
-  assert.deepEqual(emitted, [], "and nobody is notified about a handoff that didn't happen");
+  /* #208. This used to return the task unchanged and 200. Nothing happening and
+     the request succeeding are different answers, and the API gave the wrong
+     one — which is also what left ADR-0002 and ADR-0005 disagreeing about
+     whether the move re-anchors the deadline. */
+  const { emitted } = await capture(ctx, async () => {
+    await assert.rejects(
+      () => ctx.service.assignTask({ taskId: task.id, target: OFFICER, actor: CREATOR }),
+      /already has this task/i,
+      "the refusal names the situation, not an eligibility problem the target doesn't have"
+    );
+  });
+  assert.deepEqual(emitted, [], "nobody is notified about a handoff that didn't happen");
+
+  const after = await ctx.service.getTask(task.id);
+  assert.equal(after.updatedAt, before.updatedAt, "the task is untouched, not re-stamped");
+  assert.equal(after.assignee.id, OFFICER.id, "and still theirs");
 
   const history = await ctx.service.getHistory(task.id);
   assert.equal(history.filter((h) => h.action === "TASK_ASSIGNED").length, 0, "no history row either");
+
+  // The shared predicate the picker filters with agrees, so the row is never
+  // offered in the first place.
+  assert.equal(canAssignTaskTo(after, OFFICER), false);
+});
+
+await check("handing yourself a task you do NOT hold still works", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+
+  /* The affordance #208 deliberately leaves alone: taking a task somebody else
+     is already sitting on, which `canClaimTask` will not let you claim. Only the
+     no-op case went away. */
+  const taken = await ctx.service.assignTask({ taskId: task.id, target: CHECKER, actor: CHECKER });
+  assert.equal(taken.assignee.id, CHECKER.id);
+  assert.equal(canAssignTaskTo(taken, CHECKER), false, "but now it IS theirs, so a repeat is refused");
 });
 
 await check("the recipient gets a DM_ASSIGN card and nothing hits the channel", async () => {

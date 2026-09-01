@@ -1438,18 +1438,16 @@ const TaskCard = memo(({
     (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
   );
   /* Handoff candidates (ADR-0002) — a deliberately different set from share's.
-     Everyone eligible to work this task except whoever already holds it
-     (handing it to them is a no-op), INCLUDING yourself: self-handoff is just a
-     claim, and it is sometimes the only way to take a task you can't otherwise
-     claim.
+     Everyone eligible to work this task, which still INCLUDES yourself when you
+     don't hold it: handing a task to yourself is sometimes the only way to take
+     one somebody else is already sitting on.
 
-     The creator is NOT in the list (ADR-0003). Not as a special case here — the
-     row carries no copy of the rule any more. `canAssignTaskTo` is the same
-     predicate the server enforces, so it drops the creator and non-checkers on
-     a Fraud Check alike, and the picker can't route around a door the server
-     would shut. */
-  const assignCandidates = directory.filter(
-    (p) => p.id !== task.assignee?.id && canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles })
+     Neither the creator (ADR-0003) nor whoever currently holds the task (#208)
+     is in the list, and neither is a special case here — the row carries no copy
+     of any of those rules. `canAssignTaskTo` is the same predicate the server
+     enforces, so the picker cannot route around a door the server would shut. */
+  const assignCandidates = directory.filter((p) =>
+    canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles })
   );
   /* Two links to this task:
      - `webShareLink` — the plain browser URL. The `#task-<id>` fragment is

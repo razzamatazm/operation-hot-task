@@ -1,9 +1,15 @@
 # 0002. Tasks can be handed off to another user
 
-Status: Accepted; the self-handoff rule below is superseded by
+Status: Accepted, with the self-handoff rule below narrowed twice since.
+
 [ADR-0003](0003-creator-is-never-assignee.md) — a task's creator can never
 become its assignee, by any route, including handing it to themselves or being
-handed it by a third party. Handoff-to-self remains available to everyone else.
+handed it by a third party.
+
+[#208](https://github.com/razzamatazm/operation-hot-task/issues/208) — handing a
+task to whoever **already holds it** is now refused rather than treated as a
+silent no-op. Handing yourself a task you do not hold is untouched, and remains
+the only way to take a task somebody else is already sitting on.
 
 ## Context
 

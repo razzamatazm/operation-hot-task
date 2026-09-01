@@ -60,7 +60,8 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   `Needs Review`, Fraud's `Awaiting Items` / `Pending Approval`) swaps assignee
   in place with its status untouched. Closed tasks (`Completed` / `Archived` /
   `Cancelled`) cannot be handed off. Handing a task to whoever already holds it
-  is a no-op.
+  is refused (#208) — the picker never offers the row, and the API says so rather
+  than reporting success for a request that would change nothing.
 - Both people are told, by DM only — see
   [notifications-bot.md](notifications-bot.md#routing). Displacing an assignee
   is never silent.

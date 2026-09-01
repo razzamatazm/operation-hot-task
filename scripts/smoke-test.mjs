@@ -972,13 +972,18 @@ const run = async () => {
     assert.ok(/^Reassigned from /.test(assignRows[1].detail), "second reads as a reassignment");
     pushPass("handoff swaps the assignee in place and is recorded in history");
 
-    // Handing it to whoever already holds it is a no-op, not an error.
-    const noop = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
+    /* Handing it to whoever already holds it is refused (#208). It used to 200
+       with the task unchanged, which reported success for a request that did
+       nothing at all. */
+    const alreadyTheirs = await request(server.baseUrl, "POST", `/tasks/${handoffId}/assign`, {
       user: users.admin,
       body: { assigneeUserId: users.otherOfficer.id }
     });
-    expectStatus(noop.status, 200, "handoff to the current assignee is a no-op", noop.json);
-    assert.equal(noop.json.task.updatedAt, reassigned.json.task.updatedAt, "the task is returned unchanged");
+    expectStatus(alreadyTheirs.status, 400, "handoff to the current assignee is refused", alreadyTheirs.json);
+    assert.match(alreadyTheirs.json.error, /already has this task/i, "and says why in the target's own terms");
+
+    const untouched = await request(server.baseUrl, "GET", `/tasks/${handoffId}`, { user: users.creator });
+    assert.equal(untouched.json.task.updatedAt, reassigned.json.task.updatedAt, "the refused handoff changed nothing");
 
     // Eligibility is enforced on the RECIPIENT: a fraud check only goes to a
     // file checker, even when a file checker is the one handing it over.

@@ -23,14 +23,19 @@ elapsed while the task was sitting in a queue.
 it**, on claim, on every handoff to a different person, and at creation when the
 task is filed with an assignee already on it.
 
-A handoff to whoever already holds the task is **not** a recompute, because it
-is not an event: `assignTask` returns early on `task.assignee?.id ===
-target.id`, per [ADR-0002](0002-task-handoff.md), which settled that handing a
-task to its current holder is a no-op. #181 asked for a self-handoff to
-re-anchor, and that is the one line of it this decision does not implement — a
-no-op that silently moved a deadline would be a way to extend your own window
-with no record of it beyond `updatedAt`. Flagged rather than quietly dropped;
-if the ask was deliberate it needs its own change and its own reasoning.
+A handoff to whoever already holds the task is **not** a recompute, and no longer
+raises the question: since
+[#208](https://github.com/razzamatazm/operation-hot-task/issues/208) the move is
+refused outright rather than silently accepted, so there is no event to re-anchor
+on.
+
+#181 had asked for a self-handoff to re-anchor. That was the one line of it this
+decision did not implement, because a no-op that silently moved a deadline is a
+way to extend your own window with no record of it beyond `updatedAt`. It was
+flagged rather than quietly dropped, and the answer came back that self-handoffs
+are not a workflow anybody uses — so the move went away instead of growing a
+meaning. Handing yourself a task you do NOT hold is untouched and does re-anchor,
+like any other change of hands.
 
 You cannot pick up a task that is already late, because the clock does not start
 until somebody takes it. Inside business hours the window runs from the claim

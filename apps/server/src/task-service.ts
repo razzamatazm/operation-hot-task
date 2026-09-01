@@ -31,6 +31,8 @@ import {
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
   computeClaimAnchoredDueAt,
+  isCurrentHolder,
+  holderRefusalMessage,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -1270,15 +1272,19 @@ export class TaskService {
     const task = await this.requireTask(params.taskId);
     const note = params.note?.trim() || undefined;
 
-    /* Closed first, then the no-op. A closed task is rejected even when the
-       target already holds it — otherwise the API quietly 200s on a handoff of
-       a COMPLETED task, and "was it rejected?" depends on who you named. */
+    /* Closed first. A closed task is rejected even when the target already holds
+       it, so "was it rejected?" never depends on who you named. */
     if (CLOSED_STATUSES.includes(task.status)) {
       throw new Error("This task is closed — it can't be handed off");
     }
-    // Already theirs: nothing to do, and nobody to notify.
-    if (task.assignee?.id === params.target.id) {
-      return task;
+    /* Already theirs: refused, not quietly accepted (#208). This used to return
+       the task unchanged, which told the caller their handoff succeeded when
+       nothing had happened — no history event, no notification, no change. The
+       explicit check runs ahead of `canAssignTaskTo` (which now also refuses it)
+       only to get the honest sentence out: the recipient is not ineligible, they
+       are already on the task. */
+    if (isCurrentHolder(task, params.target)) {
+      throw new Error(holderRefusalMessage(params.target.displayName));
     }
     if (!canAssignTaskTo(task, params.target)) {
       throw new Error(assigneeRefusal(task, params.target) ?? "This task can't be handed off");

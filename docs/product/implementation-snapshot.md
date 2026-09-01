@@ -59,7 +59,7 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     call it; eligibility is checked on the **recipient** (a Fraud Check only
     goes to a `FILE_CHECKER`). `OPEN` → `CLAIMED`; an in-flight task swaps
     assignee with its status unchanged; closed tasks are rejected; handing a
-    task to its current assignee is a no-op. A task can also be born handed off
+    task to its current assignee is rejected (#208). A task can also be born handed off
     via `assigneeUserId` / `assigneeNote` on `POST /api/tasks`.
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`

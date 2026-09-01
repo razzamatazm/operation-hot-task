@@ -545,20 +545,38 @@ export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string 
    handoff can't route one to someone who then can't complete it. Closed tasks
    (COMPLETED / CANCELLED / ARCHIVED) are out of play entirely.
 
-   Self-handoff is deliberately allowed: it is just a claim, and is sometimes
-   the only way to take a task that `canClaimTask` won't let you claim (already
-   claimed by someone else). Handing a task to whoever already holds it is a
-   no-op, not an error, and the caller treats it as such.
+   Handing a task to somebody who does not hold it yet is still allowed even when
+   they could not have claimed it — that is the point of the handoff, and it is
+   sometimes the only way to take a task another person is already sitting on.
 
-   ADR-0003 narrows that one step: self-handoff survives for everyone EXCEPT the
-   task's creator, who is refused here like anyone else routing a task back to
-   it. That's the door ADR-0002's version left open. */
+   What is NOT allowed is handing a task to whoever already holds it (#208). It
+   used to be a silent no-op on the grounds that there was nothing to do. There
+   is nothing to do, but "nothing happened" and "your request was accepted" are
+   different answers and the API gave the second one to the first. It also left
+   ADR-0002 and ADR-0005 contradicting each other about whether that move
+   re-anchors the deadline — a question with no right answer while the move
+   itself is meaningless. Refusing it retires the question.
+
+   ADR-0003 narrows the rest one step: a handoff to yourself survives for
+   everyone EXCEPT the task's creator, who is refused here like anyone else
+   routing a task back to it. That's the door ADR-0002's version left open. */
 export const canAssignTaskTo = (task: LoanTask, targetUser: UserIdentity): boolean => {
   if (CLOSED_STATUSES.includes(task.status)) {
     return false;
   }
+  if (isCurrentHolder(task, targetUser)) {
+    return false;
+  }
   return canBeAssignee(task, targetUser);
 };
+
+/* Does this person already hold this task? The one definition, so the picker
+   that hides a row, the predicate that refuses the move, and the service that
+   throws all agree on what "already theirs" means (#208). */
+export const isCurrentHolder = (
+  task: Pick<LoanTask, "assignee">,
+  user: Pick<UserIdentity, "id">
+): boolean => task.assignee?.id === user.id;
 
 /* The role half of `canAssignTaskTo`, split out for the one caller that has no
    task yet: creating a task already handed off (`assigneeUserId` on the create
@@ -573,6 +591,13 @@ export const canWorkTaskType = (taskType: TaskType, user: UserIdentity): boolean
    retyped at each throw site. */
 export const assignRefusalMessage = (taskType: TaskType, targetName: string): string =>
   `${targetName} can't take a ${TASK_TYPE_LABELS[taskType]} — that needs a file checker`;
+
+/* The refusal for a handoff to the person already holding the task (#208).
+   Separate from `assignRefusalMessage` because it is not about eligibility —
+   the recipient is perfectly able to work the task, they are simply already on
+   it — and a "needs a file checker" sentence would be a lie. */
+export const holderRefusalMessage = (targetName: string): string =>
+  `${targetName} already has this task`;
 
 /* Who may attach a review note to a task: its creator or its assignee. The
    thread is a conversation between the two people with a stake in the task, so
