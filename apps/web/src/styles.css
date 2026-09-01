@@ -1652,8 +1652,12 @@ button.btn-good:hover {
    card body. Deliberately unlike the items above it: no hover, no pointer, the
    monospace treatment the strip already had, and a hairline plus the panel's
    own padding for separation so it reads as a footnote rather than one more
-   thing to click. Its own `padding-top` matches the panel's `gap` so the rule
-   sits centred in the space. `:first-child` is the menu with nothing but
+   thing to click. The rule sits centred in the space because the gap above it
+   and the padding below it come to the same 8px: the panel's own `gap: 6px`
+   plus this block's `margin-top: 2px` above, against `padding-top: 8px` below.
+   That is the whole reason for the otherwise arbitrary-looking 2px margin — it
+   is 8 minus the panel gap, so if the panel's `gap` changes this margin has to
+   change with it. `:first-child` is the menu with nothing but
    timestamps in it — closed tasks, tasks you have no seat on — where there is
    no group above to divide from. */
 .task-card-menu-times {

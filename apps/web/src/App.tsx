@@ -213,28 +213,36 @@ const elapsedSince = (sinceIso: string, nowMs: number): string => liveCountdown(
    `inTooltip` carries the one difference that is deliberate rather than drift:
    an OOO task reads "Returns" in the timestamp block, but its collapsed row
    already devotes a whole cell to the return date, so the tooltip stays quiet
-   rather than repeating it under the cursor. */
-const taskTimeMeta = (task: LoanTask): { label: string; value: string; inTooltip: boolean } | undefined => {
+   rather than repeating it under the cursor.
+
+   `iso` is the same instant as `value`, unformatted, so the timestamp block can
+   hand it to `<time dateTime>` — `value` is a localised string no machine reads.
+   For an OOO task with no `returnDate` the two describe the same fallback from
+   different angles: `value` is the due date rendered as a PT calendar day,
+   `iso` the underlying instant. */
+const taskTimeMeta = (task: LoanTask): { label: string; value: string; iso: string; inTooltip: boolean } | undefined => {
   if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
     // No completion stamp means no second line at all. Falling back to the due
     // date here would quote a deadline at a task that has already landed.
     return task.completedAt
-      ? { label: "Completed", value: formatDate(task.completedAt), inTooltip: true }
+      ? { label: "Completed", value: formatDate(task.completedAt), iso: task.completedAt, inTooltip: true }
       : undefined;
   }
   if (task.taskType === "OOO") {
     return {
       label: "Returns",
       value: task.returnDate ? formatWallDate(task.returnDate) : formatPtDateOnly(task.dueAt),
+      iso: task.returnDate ?? task.dueAt,
       inTooltip: false
     };
   }
   // The deadline is the requester's while a check sits with them, so neither
   // surface quotes one — the hand-off stamp is the honest thing to show.
   if (task.status === "AWAITING_ITEMS") {
-    return { label: "Sent to requester", value: formatDate(handedOffAt(task)), inTooltip: true };
+    const handedOff = handedOffAt(task);
+    return { label: "Sent to requester", value: formatDate(handedOff), iso: handedOff, inTooltip: true };
   }
-  return { label: "Due", value: formatDate(task.dueAt), inTooltip: true };
+  return { label: "Due", value: formatDate(task.dueAt), iso: task.dueAt, inTooltip: true };
 };
 
 /* The label-over-value "DUE IN / 6h" cell shown in a grouped row. Closed
@@ -1863,13 +1871,20 @@ const TaskCard = memo(({
      thing a later refactor breaks silently. */
   /* Created plus the task's other timestamp, at the foot of the panel below a
      hairline — the way a context menu carries "Last modified" (#166). Reference
-     detail, not a move anyone makes, so it reads as plain text: no role, no tab
-     stop, nothing to arrow onto between the actions and the end of the menu. It
-     used to be a full row plus its rule at the bottom of every expanded card. */
+     detail, not a move anyone makes, so it reads as plain text: no pointer, no
+     tab stop, nothing to arrow onto between the actions and the end of the menu.
+     It used to be a full row plus its rule at the bottom of every expanded card.
+
+     `role="group"` rather than `role="none"`: `group` is an owned role of
+     `menu`, so the block stays a labelled, announced part of the panel — with
+     `none` a screen reader in menu mode walks past it and the information is
+     simply absent. It is still not a `menuitem`, so it is neither focusable nor
+     an arrow-key stop. The dates are `<time>` so the machine-readable instant
+     travels with the localised string a person reads. */
   const menuTimestamps = (
-    <div className="task-card-menu-times" role="none">
-      <span><b>Created</b> {formatDate(task.createdAt)}</span>
-      {timeMeta && <span><b>{timeMeta.label}</b> {timeMeta.value}</span>}
+    <div className="task-card-menu-times" role="group" aria-label="Timestamps">
+      <span><b>Created</b> <time dateTime={task.createdAt}>{formatDate(task.createdAt)}</time></span>
+      {timeMeta && <span><b>{timeMeta.label}</b> <time dateTime={timeMeta.iso}>{timeMeta.value}</time></span>}
     </div>
   );
 
@@ -1894,7 +1909,13 @@ const TaskCard = memo(({
         type="button"
         ref={menuTriggerRef}
         className="task-card-menu-trigger"
-        aria-label="More actions"
+        /* Not "More actions": since #166 the panel opens on rows that have
+           none — a closed task, a task you hold no seat on — carrying nothing
+           but the timestamp block. Naming the container rather than its
+           contents is true on every row, and keeps the label out of the
+           business of reasoning about which actions exist, which is the same
+           trap `menuHasContent` below was written to avoid. */
+        aria-label="Task menu"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onClick={(e) => { e.stopPropagation(); if (menuOpen) closeMenu(); else setMenuOpen(true); }}

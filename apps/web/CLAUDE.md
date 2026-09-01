@@ -430,8 +430,13 @@ its Esc handler exempts text fields.
 
 The panel ends with a non-interactive block (`.task-card-menu-times`):
 `Created`, then the task's one other timestamp. Plain text below a hairline,
-the way a context menu carries "Last modified" — no hover, no tab stop,
-`role="none"` so it isn't announced as a menu item.
+the way a context menu carries "Last modified" — no hover, no tab stop, and
+`role="group" aria-label="Timestamps"` rather than `menuitem`: `group` is an
+owned role of `menu`, so the block is announced as a labelled part of the panel
+without becoming focusable or an arrow-key stop. (`role="none"` would hide it
+from a screen reader in menu mode entirely.) Each date is a `<time dateTime>`,
+which is why `taskTimeMeta` returns the raw `iso` next to its formatted
+`value`.
 
 Two consequences worth keeping straight:
 
