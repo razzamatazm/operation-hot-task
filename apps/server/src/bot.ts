@@ -476,6 +476,23 @@ const advanceButton = (taskId: string, advance?: AdvanceAction): Record<string, 
    it too. Plain transitions and release are one-tap Action.Execute. */
 const fraudActionButtons = (taskId: string, actions: FraudCardAction[]): Record<string, unknown>[] =>
   actions.map((action) => {
+    /* Blocked by the task's state rather than by who's tapping (#184: Submit
+       waits until every checklist item is checked or noted). Adaptive Cards 1.4
+       has no disabled action, so the button opens the reason in place instead of
+       firing a move the server would refuse — the card says why, which is the
+       same thing the web button's disabled hint says. */
+    if (action.blockedReason) {
+      return {
+        type: "Action.ShowCard",
+        title: action.label,
+        card: {
+          $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+          type: "AdaptiveCard",
+          version: "1.4",
+          body: [{ type: "TextBlock", text: action.blockedReason, wrap: true }]
+        }
+      };
+    }
     if (action.kind === "release") {
       return { type: "Action.Execute", title: action.label, verb: "releaseTask", data: { taskId } };
     }

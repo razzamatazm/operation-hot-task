@@ -35,8 +35,11 @@ import {
   setChecklistItemChecked,
   setChecklistItemNote,
   sortChecklist,
-  unresolvedCount
+  submitBlockReason,
+  unresolvedCount,
+  unresolvedForSubmit
 } from "../packages/shared/dist/checklist.js";
+import { canTransitionStatus } from "../packages/shared/dist/workflow.js";
 
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };
 const CREATOR = { id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
@@ -306,6 +309,66 @@ check("no checklist edits on non-FRAUD tasks; closed means frozen", () => {
     assert.ok(!canEditChecklist(done, CHECKER), `${status} refuses the checker`);
     assert.ok(!canEditChecklist(done, CREATOR), `${status} refuses the requester`);
   }
+});
+
+/* #184 — Submit is gated on every item being resolved: checked, or unchecked
+   with the REQUESTER's note saying why. */
+check("unresolvedForSubmit: unchecked + no requester note is the only blocker", () => {
+  const items = [
+    item({ id: "a", checked: true }),
+    item({ id: "b", checked: false, note: "lender never issued one" }),
+    item({ id: "c", checked: false }),
+    item({ id: "d", checked: false, note: "   " }),
+    // The checker's rework note is the ASK, not the answer to it.
+    item({ id: "e", checked: false, checkerNote: "this scan is illegible" }),
+    // A checked item needs no note at all, whoever added it.
+    item({ id: "f", checked: true, addedBy: "creator" })
+  ];
+  assert.deepEqual(unresolvedForSubmit(items).map((i) => i.id), ["c", "d", "e"]);
+  assert.deepEqual(unresolvedForSubmit([]), [], "an empty checklist blocks nothing");
+  assert.equal(submitBlockReason([]), undefined);
+  assert.equal(submitBlockReason(items), "3 items still need a check or a note");
+  assert.equal(submitBlockReason([item({ id: "c" })]), "1 item still needs a check or a note");
+  assert.equal(submitBlockReason([item({ checked: true })]), undefined);
+});
+
+check("a draft item blocks Submit like any other", () => {
+  // Submit itself is the hand-off that commits drafts, so shipping an
+  // unresolved draft is the same problem as shipping an unresolved item.
+  const drafted = [item({ id: "a", draft: true })];
+  assert.deepEqual(unresolvedForSubmit(drafted).map((i) => i.id), ["a"]);
+  const resolved = setChecklistItemChecked(drafted, "a", true, undefined, "creator");
+  assert.deepEqual(unresolvedForSubmit(resolved), []);
+});
+
+check("canTransitionStatus refuses AWAITING_ITEMS → PENDING_APPROVAL with unresolved items", () => {
+  const blocked = makeFraudTask({ status: "AWAITING_ITEMS", checklist: [item({ id: "a" }), item({ id: "b", checked: true })] });
+  const refusal = canTransitionStatus(blocked, "PENDING_APPROVAL", CREATOR);
+  assert.equal(refusal.ok, false);
+  assert.equal(refusal.reason, "1 item still needs a check or a note", "the refusal carries a message the caller can surface");
+
+  // Unchecked with the requester's note = a deliberate "here's why", which is
+  // exactly what the checker needs.
+  const noted = makeFraudTask({ status: "AWAITING_ITEMS", checklist: [item({ id: "a", note: "borrower has no second account" })] });
+  assert.ok(canTransitionStatus(noted, "PENDING_APPROVAL", CREATOR).ok);
+
+  // The checker's rework note doesn't answer the ask.
+  const checkerNoted = makeFraudTask({ status: "AWAITING_ITEMS", checklist: [item({ id: "a", checkerNote: "needs a clearer copy" })] });
+  assert.equal(canTransitionStatus(checkerNoted, "PENDING_APPROVAL", CREATOR).ok, false);
+
+  // Nothing outstanding, nothing to gate.
+  const empty = makeFraudTask({ status: "AWAITING_ITEMS", checklist: [] });
+  assert.ok(canTransitionStatus(empty, "PENDING_APPROVAL", CREATOR).ok);
+  assert.ok(canTransitionStatus(makeFraudTask({ status: "AWAITING_ITEMS" }), "PENDING_APPROVAL", CREATOR).ok, "no checklist at all is submittable");
+});
+
+check("the submit gate is about state, not seat — and the system still bypasses", () => {
+  const blocked = makeFraudTask({ status: "AWAITING_ITEMS", checklist: [item({ id: "a" })] });
+  // Seat first: the checker's refusal is still the seat refusal, not the gate's.
+  assert.equal(canTransitionStatus(blocked, "PENDING_APPROVAL", CHECKER).reason, "Only the task creator can submit for approval");
+  // isSystem bypasses, consistent with the other gates.
+  const system = { id: "system", displayName: "System", roles: ["ADMIN"] };
+  assert.ok(canTransitionStatus(blocked, "PENDING_APPROVAL", system).ok, "the system actor bypasses the gate");
 });
 
 console.log(`\nAll ${passed} FRAUD checklist shared-model checks passed.`);

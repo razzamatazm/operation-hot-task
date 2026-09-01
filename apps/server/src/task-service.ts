@@ -35,6 +35,8 @@ import {
   formatOooHeadline,
   isWithinBusinessHours,
   isOverdue,
+  isSystemActor,
+  submitBlockReason,
   shouldPurgeArchived,
   shouldSendReminder,
   SYSTEM_ACTOR
@@ -550,10 +552,26 @@ export class TaskService {
        (`current`), not the copy the guards above ran against. The two differ
        whenever a seat ticks a checklist item while somebody moves the status:
        building the new task from the stale copy would carry the stale list and
-       write it back over the tick (#158). The guards stay outside — they answer
-       "may this person make this move", which a checklist write doesn't
-       change. */
+       write it back over the tick (#158). Most guards stay outside — they answer
+       "may this person make this move", which a checklist write doesn't change.
+       The one that isn't like that is the Submit gate, re-checked below inside
+       this closure: it reads the checklist, which is exactly the contended
+       field. */
     const updated = await this.writeTask(task.id, (current) => {
+      /* #184's gate, re-evaluated against the list as it is at write time. The
+         copy the outer `canTransitionStatus` ran against can already be stale:
+         the checker may add an item in the window between that read and this
+         write (both seats write the checklist at any live status since #146),
+         and submitting on the stale read lands the task in PENDING_APPROVAL
+         with an item nobody has answered — the gate's whole job. Throwing here
+         writes nothing (see `Store.updateTask`) and rejects only this caller.
+         `isSystem` bypasses, same as it does in the shared predicate. */
+      if (next === "PENDING_APPROVAL" && !isSystemActor(user)) {
+        const blocked = submitBlockReason(current.checklist ?? []);
+        if (blocked) {
+          throw new Error(blocked);
+        }
+      }
       const moved: LoanTask = {
         ...current,
         status: next,
@@ -807,9 +825,11 @@ export class TaskService {
     await this.evaluateActivitySignals({ now: new Date(now) });
   }
 
-  /* Silently bring a task's DM cards back in line with its live status. Called on
-     demand when a card action is rejected — the bot's self-heal for a sync that
-     was dropped, since delivery is best-effort and never retried. */
+  /* Silently bring a task's DM cards back in line with its live state. Two
+     callers: the bot, when a card action is rejected (self-heal for a sync that
+     was dropped — delivery is best-effort and never retried), and a FRAUD
+     checklist write, whose new list can open or close the Submit gate the card's
+     buttons are drawn from (#184). */
   async resyncTaskCards(taskId: string): Promise<void> {
     const task = await this.store.findTask(taskId);
     if (task) {
@@ -1068,10 +1088,27 @@ export class TaskService {
   ): Promise<LoanTask> {
     const now = new Date().toISOString();
     const event = this.makeHistory(task.id, user, "CHECKLIST_UPDATED", detail);
-    return this.writeTask(task.id, (current) => ({
+    const updated = await this.writeTask(task.id, (current) => ({
       task: { ...current, checklist: apply(current), updatedAt: now },
       event
     }));
+
+    /* A checklist write moves the Submit gate (#184), and the gate decides
+       whether the requester's DM card offers Submit at all — so on a FRAUD task
+       the list IS card state, not just body content. Nothing else brought the
+       card along: this path sends no notification, note cards carry no `refresh`
+       block, and the card's only self-repair was a rejected tap. Since the card
+       now renders a blocked Submit as an inert reason instead of a tap the
+       server refuses, there is no rejected tap left to trigger it — the
+       requester who resolves the last item in the web app would be left staring
+       at a card that still says "1 item still needs a check or a note", with
+       nothing to press. Background and chained per task like every other
+       fan-out: the request never waits on a Teams round-trip, and a failed sync
+       never fails the write that landed. */
+    if (updated.taskType === "FRAUD") {
+      this.background(() => this.resyncTaskCards(updated.id), { method: "persistChecklist", taskId: updated.id });
+    }
+    return updated;
   }
 
   /* Append a ReviewNote to the task and fan out the note notifications. Callers

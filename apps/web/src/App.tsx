@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -986,6 +986,15 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
   const items = task.checklist ?? [];
   const sorted = sortChecklist(items);
   const open = unresolvedCount(items);
+  /* The submit gate (#184), shown only to the person it gates and only while
+     they hold the ball: every item wants a check, or a note saying why not.
+     Who-and-when comes from the shared action set rather than being re-derived
+     here — one answer to "may this viewer submit yet", the same one the card's
+     button reads. `open` above is the softer count: an item the requester has
+     explained is still open, but it no longer blocks the hand-back. */
+  const submitBlocked = fraudCardActions(task, user).find((a) => a.targetStatus === "PENDING_APPROVAL")?.blockedReason;
+  /* Which rows to point at, so the requester isn't hunting the list for them. */
+  const blockingIds = new Set(submitBlocked ? unresolvedForSubmit(items).map((i) => i.id) : []);
 
   /* Recording reality — tick, add, write your own note — is one grant, held by
      both seats at any live status. */
@@ -1022,6 +1031,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
       <div className="checklist-head">
         <span className="checklist-title">Outstanding items</span>
         <span className="checklist-count">{items.length === 0 ? "none yet" : `${open} open / ${items.length}`}</span>
+        {submitBlocked && <span className="checklist-blocked">{submitBlocked}</span>}
       </div>
 
       {sorted.length > 0 && (
@@ -1038,7 +1048,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
             const ownNote = ownChecklistNote(item, seat);
             const editingNote = active?.id === item.id && active.kind === "note";
             return (
-              <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}`}>
+              <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}${blockingIds.has(item.id) ? " checklist-item-blocking" : ""}`}>
                 <div className="checklist-item-main">
                   <button
                     type="button"
@@ -1505,7 +1515,11 @@ const TaskCard = memo(({
     fraudQuick && fraudQuick.kind === "transitionWithNote" && !fraudHasChecklist
       ? fraudQuick.targetStatus
       : undefined;
-  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void };
+  /* `blockedReason` is set when the move is the phase's forward step but the
+     task's state won't take it yet — today only Submit, held until every
+     checklist item is checked or noted (#184). Same sentence the server's
+     refusal would carry, so the button doesn't teach a different rule. */
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; blockedCount?: number };
   let primaryAction: QuickAction | null = null;
   if (showActions) {
     // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
@@ -1524,7 +1538,13 @@ const TaskCard = memo(({
         kind: "good",
         run: needsNote
           ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
-          : () => { void onTransition(task.id, target); }
+          : () => { void onTransition(task.id, target); },
+        /* Both carried through under the names shared gives them — the count
+           rides alongside the sentence rather than being recomputed here, so the
+           narrow action column can't disagree with the tooltip beside it. */
+        ...(fraudQuick.blockedReason
+          ? { blockedReason: fraudQuick.blockedReason, blockedCount: fraudQuick.blockedCount ?? 0 }
+          : {})
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
@@ -2107,13 +2127,31 @@ const TaskCard = memo(({
               spacer entirely instead of reserving its 116px, which used to
               strand empty space between the outcome stamp and the menu. */}
           {!mini && (primaryAction ? (
-            <button
-              type="button"
-              className={quickActionClass}
-              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+            /* A blocked action keeps its slot rather than vanishing: the
+               requester needs to see that Submit is the next step and why it
+               won't go. The title rides the wrapper because a disabled button
+               doesn't raise the hover events a tooltip needs. */
+            <span
+              className="task-card-quick-action-slot"
+              title={primaryAction.blockedReason}
+              onClick={(e) => { if (primaryAction!.blockedReason) { e.stopPropagation(); setExpanded(true); } }}
             >
-              {primaryAction.label}
-            </button>
+              <button
+                type="button"
+                className={quickActionClass}
+                disabled={Boolean(primaryAction.blockedReason)}
+                aria-label={primaryAction.blockedReason ? `${primaryAction.label} — ${primaryAction.blockedReason}` : undefined}
+                onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+              >
+                {primaryAction.label}
+              </button>
+              {/* The column is one button wide, so the slot shows the count and
+                  the full sentence rides the title, the button's aria-label and
+                  the expanded checklist head — next to the rows it names. */}
+              {primaryAction.blockedReason && (
+                <span className="task-card-quick-action-blocked">{`${primaryAction.blockedCount} to resolve`}</span>
+              )}
+            </span>
           ) : waitingLabel ? (
             /* Passive indicator, not a control — no button, no handler. */
             <span className="task-card-quick-action-waiting" title={waitingLabel}>{waitingLabel}</span>

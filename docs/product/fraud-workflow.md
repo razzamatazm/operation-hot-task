@@ -22,7 +22,8 @@ task. Non-FRAUD task types never enter these statuses.
 - `Claimed -> Awaiting Items` — **checker only** (the assignee); the
   "Send Items" action.
 - `Awaiting Items -> Pending Approval` — **requester only** (the creator);
-  the "Submit" action.
+  the "Submit" action, gated on every checklist item being resolved (#184 —
+  see "Submit is gated on a resolved list" below).
 - `Pending Approval -> Completed` — **checker only** (the assignee, who must
   still hold FILE_CHECKER); the "Approve" action, gated by the normal
   completion rule.
@@ -86,6 +87,19 @@ Rules:
   predicates and got two identical `+ note` buttons, and the two note endpoints
   let the caller pick the field — so an admin acting as the checker could write
   a note in the requester's name.)
+- **Submit is gated on a resolved list (#184).** `Awaiting Items -> Pending
+  Approval` is refused while any item is **unchecked with no `note`**. A check
+  says *collected or not needed*; an unchecked item with the requester's note
+  says *here is why I could not get this* — either is an answer, and the
+  hand-back needs one per item. The note that unblocks is the requester's
+  `note`, never the checker's `checkerNote`: the rework note is the *ask*, not
+  the answer to it. Applies to every item regardless of `addedBy` or
+  `addedOnPass`, and to `draft` items too (the Submit is itself the hand-off
+  that commits them). An **empty checklist stays submittable** — nothing
+  outstanding, nothing to gate. Enforced in `canTransitionStatus`, so the
+  refusal carries the reason ("3 items still need a check or a note"); `SYSTEM`
+  bypasses it like the other gates. The UI mirrors it: Submit renders disabled
+  with the count, and the blocking rows are highlighted in the list.
 - **Ordering.** Stable add-order (#96, reverses the earlier float-to-top
   rule) — checking or unchecking an item never changes its position. No
   manual reorder in v1.
