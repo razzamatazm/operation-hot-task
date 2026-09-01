@@ -196,23 +196,6 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
-    if (event.target === "CHANNEL_NAG") {
-      // The pool nag (ADR-0005): a task nobody has claimed, re-asked of the room.
-      // A fresh post, because an in-place edit pings nobody — same reasoning as
-      // CHANNEL_REOPENED below. The nag message names the folder itself, so it
-      // is the card headline rather than being run through the usual
-      // "<Type> - <message> (<folder>)" shaping.
-      const card = this.buildChannelCard(event.task);
-      await this.botClient.postPoolNag(
-        event.task.id,
-        event.message,
-        card.detail,
-        card.openUrl,
-        event.task.createdBy.id
-      );
-      return;
-    }
-
     if (event.target === "CHANNEL_REOPENED") {
       // A task went back to OPEN (unclaimed or re-opened). Design A: re-alert the
       // channel with a FRESH claimable card as a new thread (so a "notify on new

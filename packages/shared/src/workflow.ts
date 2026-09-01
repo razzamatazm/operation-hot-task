@@ -250,13 +250,18 @@ export const computeDefaultDueAt = (
 /* A task's deadline belongs to whoever currently holds it, so claiming or being
    handed a task recomputes `dueAt` from its urgency at that instant — the pool
    time it sat through is not charged to the person who eventually picks it up.
-   See ADR-0005. Two flows are exempt because their `dueAt` is not a deadline in
+   See ADR-0005. One flow is exempt, because its `dueAt` is not a deadline in
    this sense: an OOO task's is the person's return date, and the maintenance
-   pass auto-completes on it, so moving it ends a vacation on the wrong day; and
-   PENDING_APPROVAL has already set its own end-of-day clock on entry, which a
-   second recompute would fight. */
-export const isDeadlineRecomputeExempt = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
-  task.taskType === "OOO" || task.status === "PENDING_APPROVAL";
+   pass auto-completes on it, so moving it would end a vacation on the wrong day.
+
+   PENDING_APPROVAL is deliberately NOT exempt. It sets its own end-of-day clock
+   when a task *enters* it, and that transition does not come through here — this
+   runs only when a task changes hands. A FRAUD task released at PENDING_APPROVAL
+   and picked up the next morning would otherwise inherit the previous holder's
+   end-of-day, handing its new approver a deadline that expired before they had
+   the task: #181 all over again, one status further along. */
+export const isDeadlineRecomputeExempt = (task: Pick<LoanTask, "taskType">): boolean =>
+  task.taskType === "OOO";
 
 /* The instant the working day next opens at or after `from`: today's open when
    `from` is a business date the day hasn't started on, otherwise the next
@@ -838,39 +843,21 @@ export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CON
   return minutes >= start && minutes <= end;
 };
 
-/* How long an unclaimed task is left alone before the pool is asked again
-   (ADR-0005). One constant, because it answers two questions that must agree:
-   when the channel gets nagged, and when the creator's own row turns red. If
-   they drifted apart the creator would watch a calm row while the room was
-   being pestered, or vice versa. */
-export const POOL_NAG_INTERVAL_MS = 20 * 60 * 1000;
-
-/* Whether an unclaimed task is due another ask of the room. Anchored to the
-   last nag, falling back to creation for a task that has never been nagged. */
-export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
-  // An OOO task is a vacation notice, not a request for hands: it is born OPEN
-  // and unassigned and stays that way until it auto-completes on the return
-  // date. Without this it would ask the room to pick up someone's holiday every
-  // 20 minutes of every business day until they got back.
-  if (task.taskType === "OOO" || task.status !== "OPEN" || task.assignee) {
-    return false;
-  }
-  const since = task.lastPoolNagAt ?? task.createdAt;
-  if (now.getTime() - new Date(since).getTime() < POOL_NAG_INTERVAL_MS) {
-    return false;
-  }
-  return isWithinBusinessHours(now, config);
-};
+/* How long an unclaimed task sits unclaimed before its creator's row starts
+   shouting about it. The creator is the one person who can act on the answer,
+   so twenty minutes is the point at which "nobody has picked this up" stops
+   being normal and starts being worth chasing a human over. */
+const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
 
 /* Whether an unclaimed task has gone unclaimed long enough to be worth
    flagging to its creator — the one person who can fix it by chasing a human.
-   Measured from creation, not from the last nag: the creator wants to know how
-   long their request has been sitting, not how recently the room was asked. */
+   Measured from creation: what the creator wants to know is how long their
+   request has been sitting, and nothing else has restarted that clock. */
 export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
   task.taskType !== "OOO" &&
   task.status === "OPEN" &&
   !task.assignee &&
-  now.getTime() - new Date(task.createdAt).getTime() >= POOL_NAG_INTERVAL_MS;
+  now.getTime() - new Date(task.createdAt).getTime() >= UNCLAIMED_ALERT_MS;
 
 export const shouldSendReminder = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
   if (!isOverdue(task, now)) {

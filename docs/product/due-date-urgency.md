@@ -32,11 +32,14 @@
     unclaimed task but would make whoever took it late on arrival. A claimed
     `Urgent Now` task gets **15 minutes** from its anchor, exempt from the
     end-of-day clamp so a late-afternoon claim still gets the full fifteen.
-  - **OOO tasks and a Fraud Check in `Pending Approval` never recompute.** An
-    OOO task's due time is the person's return date and it auto-completes on it;
-    `Pending Approval` already sets its own end-of-day clock on entry.
+  - **OOO tasks never recompute.** An OOO task's due time is the person's
+    return date and it auto-completes on it, so moving it would end a vacation
+    on the wrong day. Every other type and status does recompute, including a
+    Fraud Check released at `Pending Approval` — that status sets its own
+    end-of-day clock when a task *enters* it, which is a different event from
+    the task changing hands.
 - An **unclaimed** task shows its urgency time-frame rather than a countdown, to
   everyone except its creator, who sees how long it has gone unclaimed (OOO
   excepted — it shows its return date, and is never treated as waiting on
-  anyone). Nobody
-  should read a red row about work they have not agreed to take.
+  anyone). Nobody should read a red row about work they have not agreed to
+  take.

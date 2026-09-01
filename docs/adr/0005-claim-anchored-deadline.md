@@ -36,18 +36,33 @@ anchor — long enough to read the task, not long enough to stop being the most
 urgent thing in the list. It is exempt from the end-of-day clamp, since clamping
 it near close would hand somebody a five-minute deadline.
 
-**OOO and `PENDING_APPROVAL` are exempt.** An OOO task's `dueAt` is the person's
-return date and the maintenance pass auto-completes the task when it passes, so
-moving it would end someone's vacation on the wrong day. `PENDING_APPROVAL`
-already recomputes to end of business day on entry and a second recompute would
-fight it.
+**OOO is the only exemption.** An OOO task's `dueAt` is the person's return date
+and the maintenance pass auto-completes the task when it passes, so moving it
+would end someone's vacation on the wrong day.
+
+`PENDING_APPROVAL` is deliberately not exempt, though an earlier draft of this
+decision made it one. It does set its own end-of-business-day clock, but only on
+*entry*, and entering a status is not the same event as changing hands. A FRAUD
+task released for any checker stays at `PENDING_APPROVAL` with no assignee; the
+person who picks it up the next morning would otherwise inherit the previous
+holder's expired deadline, which is #181 again one status further along.
+
+**A born-assigned task is anchored at creation.** Creation and claim are the same
+instant when a task is filed with an assignee, so it gets the same anchored
+window a claim would give it. Without this the one door that never passes through
+the claim path hands its assignee a task that is already late — most visibly a
+born-assigned `RED` task, due the moment it exists.
 
 **The missed ask becomes the pool's problem, not a record.** Since the original
 deadline is gone once the task is claimed, the fix for an unclaimed task blowing
-its window is pressure rather than accounting: an unclaimed task re-posts to the
-group channel every 20 minutes during business hours until somebody takes it,
-and the creator's own row counts up ("unclaimed for 10 minutes") and turns red
-at 20.
+its window is pressure rather than accounting. What ships here is the half of
+that which costs nothing to get wrong: an unclaimed task raises no in-app overdue
+signal and DMs nobody, and its creator's own row counts up ("unclaimed for 10
+minutes") and turns red at 20. Asking the room — a recurring group-channel post
+on the same cadence — is deliberately held back to its own decision and its own
+change, because a repeating channel post that misfires is loud, public, and
+addressed to everybody at once. Tracked in
+[#207](https://github.com/razzamatazm/operation-hot-task/issues/207).
 
 ## Considered and rejected
 

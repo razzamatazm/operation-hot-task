@@ -277,10 +277,6 @@ export interface LoanTask {
       Set on entry, never cleared: nothing reads it in other statuses and
       keeping it leaves a record of the last hand-off. */
   awaitingItemsSince?: string;
-  /** When the pool nag last posted to the group channel for this unclaimed task
-      (ADR-0005). Absent until the first nag, and cleared on unclaim so the
-      reopen post acts as nag zero rather than being immediately doubled up. */
-  lastPoolNagAt?: string;
 }
 
 export interface TaskHistoryEvent {
@@ -342,7 +338,7 @@ export interface NotificationEvent {
      cards already sitting in participants' chats, so their buttons track the
      task's live status instead of freezing at whatever step they were sent at.
      Emitted on every status change; creates nothing, pings nobody. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* Free-text note from the actor, surfaced in the recipient's card (issue #41
      share, and the Handoff's DM_ASSIGN card — ADR-0002). Optional. */

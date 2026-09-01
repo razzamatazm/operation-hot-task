@@ -9,12 +9,15 @@
  *     the claim's own business date collapses a 24-hour window into this
  *     afternoon, and nothing downstream would notice.
  *   - `TaskService` against a real (temp-file) store with an observing
- *     notifier, for the doors an assignee arrives through and for the pool nag.
+ *     notifier, for the doors an assignee arrives through.
  *
- * runMaintenance reads its own clock, so nag timing is driven by backdating
- * `createdAt`/`lastPoolNagAt` in the store rather than by faking time. Business
- * hours are held wide open for the same reason the fan-out sim does it: a suite
- * that inherits the real 8:30-17:30 window is a test of what time of day it is.
+ * Every service-level check runs inside `withFrozenTime` at a Wednesday
+ * mid-morning, against the REAL 8:30-17:30 window. An earlier draft instead held
+ * business hours wide open and read the wall clock, which made the suite a test
+ * of what time of day it happened to run: `isWithinBusinessHours` rejects
+ * Saturday and Sunday before it ever looks at the configured hours, so those
+ * checks failed every weekend. Freezing the clock is what #192 did to the
+ * fan-out sim for exactly this reason; the helper below is its shape.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -25,7 +28,6 @@ import {
   computeClaimAnchoredDueAt,
   computeDueAtFromUrgency,
   isDeadlineRecomputeExempt,
-  isPoolNagDue,
   isUnclaimedTooLong
 } from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
@@ -40,7 +42,6 @@ const config = {
   businessEndMinute: 30,
   archiveRetentionDays: 90
 };
-const ALWAYS_OPEN_CONFIG = { ...config, businessStartHour: 0, businessStartMinute: 0, businessEndHour: 23, businessEndMinute: 59 };
 
 const CREATOR = { id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };
@@ -66,7 +67,41 @@ const pacificDate = (iso) => {
   return `${p.year}-${p.month}-${p.day}`;
 };
 
-const setup = async (appConfig = ALWAYS_OPEN_CONFIG) => {
+/* Wednesday 2026-03-11, 10:00 Pacific — inside the real business window, well
+   clear of open, close and the DST boundary, so a check that cares about any of
+   them has to say so itself. */
+const FROZEN_INSTANT = "2026-03-11T10:00:00-07:00";
+
+/* Pin `new Date()` and `Date.now()` for the duration of `fn`. The service reads
+   its own clock (see #204), so this is the only way to make a service-level
+   deadline assertion mean the same thing on a Tuesday and on a Sunday. */
+const withFrozenTime = async (iso, fn) => {
+  const fixedMs = new Date(iso).getTime();
+  const RealDate = Date;
+
+  class MockDate extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) {
+        super(fixedMs);
+      } else {
+        super(...args);
+      }
+    }
+
+    static now() {
+      return fixedMs;
+    }
+  }
+
+  globalThis.Date = MockDate;
+  try {
+    return await fn();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+};
+
+const setup = async (appConfig = config) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "claim-deadline-sim-"));
   const store = new TaskStore(path.join(dir, "tasks.json"));
   await store.init();
@@ -89,7 +124,7 @@ const check = async (label, fn) => {
   console.log(`  ok - ${label}`);
 };
 
-console.log("Claim-anchored deadlines and the pool nag — #181");
+console.log("Claim-anchored deadlines — #181");
 
 /* ---------------------------------------------------------------- the clamp */
 
@@ -146,16 +181,15 @@ await check("GREEN taken in the evening still gets its 24 hours, measured from o
   assert.equal(pacificClock(due), "08:30");
 });
 
-await check("the exemption predicate covers OOO and PENDING_APPROVAL only", async () => {
-  assert.equal(isDeadlineRecomputeExempt({ taskType: "OOO", status: "CLAIMED" }), true);
-  assert.equal(isDeadlineRecomputeExempt({ taskType: "FRAUD", status: "PENDING_APPROVAL" }), true);
-  assert.equal(isDeadlineRecomputeExempt({ taskType: "FRAUD", status: "CLAIMED" }), false);
-  assert.equal(isDeadlineRecomputeExempt({ taskType: "VALUE", status: "OPEN" }), false);
+await check("OOO is the only flow exempt from the recompute", async () => {
+  assert.equal(isDeadlineRecomputeExempt({ taskType: "OOO" }), true);
+  assert.equal(isDeadlineRecomputeExempt({ taskType: "FRAUD" }), false);
+  assert.equal(isDeadlineRecomputeExempt({ taskType: "VALUE" }), false);
 });
 
 /* ------------------------------------------------------------- the doors */
 
-await check("claiming a task that sat in the pool restarts its hour", async () => {
+await check("claiming a task that sat in the pool restarts its hour", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service, store } = await setup();
   const task = await service.createTask(
     { folderName: "Sat In Pool", taskType: "VALUE", notes: "n", urgency: "ORANGE" },
@@ -168,15 +202,15 @@ await check("claiming a task that sat in the pool restarts its hour", async () =
   const claimed = await service.claimTask(task.id, CHECKER);
   const remainingMinutes = (new Date(claimed.dueAt).getTime() - Date.now()) / 60_000;
   assert.ok(remainingMinutes > 55 && remainingMinutes <= 60, `a full hour from the claim, got ${remainingMinutes}m`);
-});
+}));
 
-await check("a stale reminder stamp does not survive the recompute", async () => {
+await check("a stale reminder stamp does not survive the recompute", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service, store } = await setup();
   const task = await service.createTask({ folderName: "Stale Stamp", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
   await backdate(store, task.id, { lastReminderAt: minutesAgo(30) });
   const claimed = await service.claimTask(task.id, CHECKER);
   assert.equal(claimed.lastReminderAt, undefined, "the fresh clock gets a fresh reminder cadence");
-});
+}));
 
 await check("a task taken after close starts its clock at the next business open", async () => {
   const evening = at(21, 0);
@@ -201,7 +235,7 @@ await check("a Friday-evening claim lands on Monday, not Saturday", async () => 
   assert.equal(pacificClock(due), "09:30");
 });
 
-await check("the normal overdue reminder names the task, not the person", async () => {
+await check("the normal overdue reminder names the task, not the person", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service, store, events } = await setup();
   const task = await service.createTask({ folderName: "Ran Out", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
   await service.claimTask(task.id, CHECKER);
@@ -213,9 +247,9 @@ await check("the normal overdue reminder names the task, not the person", async 
   await service.settleBackgroundWork();
   const reminder = events.find((e) => e.target === "DM" && e.type === "TASK_REMINDER");
   assert.match(reminder.message, /^your time's up on Ran Out$/);
-});
+}));
 
-await check("a handoff re-anchors the deadline to the new holder", async () => {
+await check("a handoff re-anchors the deadline to the new holder", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service, store } = await setup();
   const task = await service.createTask({ folderName: "Passed On", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
   await service.claimTask(task.id, CHECKER);
@@ -225,17 +259,17 @@ await check("a handoff re-anchors the deadline to the new holder", async () => {
   const handed = await service.assignTask({ taskId: task.id, target: OTHER, actor: CHECKER });
   const remainingMinutes = (new Date(handed.dueAt).getTime() - Date.now()) / 60_000;
   assert.ok(remainingMinutes > 55, `the recipient gets their own hour, got ${remainingMinutes}m`);
-});
+}));
 
-await check("unclaiming and releasing leave the deadline alone", async () => {
+await check("unclaiming and releasing leave the deadline alone", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service, store } = await setup();
   const task = await service.createTask({ folderName: "Handed Back", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
   const claimed = await service.claimTask(task.id, CHECKER);
   const unclaimed = await service.unclaimTask(task.id, CHECKER);
   assert.equal(unclaimed.dueAt, claimed.dueAt, "the next claimer re-anchors; nothing to do here");
-});
+}));
 
-await check("an OOO task keeps its return date across a claim", async () => {
+await check("an OOO task keeps its return date across a claim", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service } = await setup();
   const startDate = "2027-06-01";
   const returnDate = "2027-06-08";
@@ -245,122 +279,59 @@ await check("an OOO task keeps its return date across a claim", async () => {
   );
   const claimed = await service.claimTask(task.id, CHECKER);
   assert.equal(claimed.dueAt, task.dueAt, "moving it would end the vacation on the wrong day");
-});
+}));
 
-/* -------------------------------------------------------------- the pool nag */
+await check("a born-assigned RED task is not overdue the instant it exists", async () =>
+  withFrozenTime(FROZEN_INSTANT, async () => {
+    const { service } = await setup();
+    // Creation and claim are the same moment here, so this task never passes
+    // through the claim door — it has to be anchored on the way in or it lands
+    // on its assignee already late, which is #181 through the one remaining door.
+    const task = await service.createTask(
+      { folderName: "Born Urgent", taskType: "VALUE", notes: "n", urgency: "RED" },
+      CREATOR,
+      CHECKER
+    );
+    assert.equal(task.status, "CLAIMED");
+    const remainingMinutes = (new Date(task.dueAt).getTime() - Date.now()) / 60_000;
+    assert.ok(remainingMinutes > 14 && remainingMinutes <= 15, `a real fifteen minutes, got ${remainingMinutes}m`);
 
-await check("an unclaimed task nags the channel at 20 minutes, not at 19", async () => {
-  const { service, store, events } = await setup();
-  const task = await service.createTask({ folderName: "Missed In The Shuffle", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
+    const unassigned = await service.createTask(
+      { folderName: "Born Open", taskType: "VALUE", notes: "n", urgency: "RED" },
+      CREATOR
+    );
+    assert.equal(
+      unassigned.dueAt,
+      new Date(Date.now()).toISOString(),
+      "unclaimed RED still sorts to the top on a due-now deadline"
+    );
+  }));
 
-  await backdate(store, task.id, { createdAt: minutesAgo(19) });
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 0, "19 minutes is not yet 20");
+await check("a FRAUD task released at PENDING_APPROVAL re-anchors for whoever picks it up", async () =>
+  withFrozenTime(FROZEN_INSTANT, async () => {
+    const { service, store } = await setup();
+    const task = await service.createTask({ folderName: "Left Hanging", taskType: "FRAUD", notes: "n", urgency: "ORANGE" }, CREATOR);
+    await service.claimTask(task.id, CHECKER);
+    await service.transitionStatus(task.id, "AWAITING_ITEMS", CHECKER, "please gather these");
+    const pending = await service.transitionStatus(task.id, "PENDING_APPROVAL", CREATOR);
+    assert.equal(pending.status, "PENDING_APPROVAL");
 
-  await backdate(store, task.id, { createdAt: minutesAgo(21) });
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  const nags = events.filter((e) => e.target === "CHANNEL_NAG");
-  assert.equal(nags.length, 1);
-  assert.match(nags[0].message, /Missed In The Shuffle is still unclaimed after 21 minutes, who's taking it\?/);
-  assert.equal(nags[0].recipientUserIds, undefined, "the room, not a person");
-});
+    // Entering PENDING_APPROVAL stamps an end-of-today clock. Burn it down to
+    // the state a Friday-evening release leaves behind: a deadline that is
+    // nearly gone before the next approver has even seen the task.
+    await backdate(store, task.id, { dueAt: new Date(Date.now() + 60_000).toISOString() });
+    await service.releaseForAnyChecker(task.id, CREATOR);
 
-await check("the nag repeats every 20 minutes and never DMs anyone", async () => {
-  const { service, store, events } = await setup();
-  const task = await service.createTask({ folderName: "Still Sitting", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
-  await backdate(store, task.id, { createdAt: minutesAgo(60), lastPoolNagAt: minutesAgo(5) });
-
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 0, "only 5 minutes since the last nag");
-
-  await backdate(store, task.id, { lastPoolNagAt: minutesAgo(25) });
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 1);
-  assert.equal(events.filter((e) => e.target === "DM").length, 0, "an unclaimed task never DMs anybody");
-});
-
-await check("an OOO task is never nagged about — it is a notice, not a request for hands", async () => {
-  const { service, store, events } = await setup();
-  const task = await service.createTask(
-    { folderName: "Beach Week", taskType: "OOO", notes: "n", startDate: "2027-06-01", returnDate: "2027-06-08" },
-    CREATOR
-  );
-  // Born OPEN and unassigned, and it stays that way until it auto-completes on
-  // the return date — so a nag rule keyed only on "OPEN and unassigned" would
-  // ask the room to pick up a holiday every 20 minutes for a week.
-  assert.equal(task.status, "OPEN");
-  assert.equal(task.assignee, undefined);
-  await backdate(store, task.id, { createdAt: minutesAgo(120) });
-
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 0);
-
-  const aged = await service.getTask(task.id);
-  assert.equal(isPoolNagDue(aged, new Date(), ALWAYS_OPEN_CONFIG), false);
-  assert.equal(isUnclaimedTooLong(aged, new Date()), false, "and the creator's row does not redden either");
-});
-
-await check("the nag stays silent outside business hours", async () => {
-  // A window that cannot contain "now", whatever time the suite runs.
-  const nowHour = Number(pacificParts(new Date().toISOString()).hour);
-  const closedHour = (nowHour + 3) % 24;
-  const CLOSED = { ...config, businessStartHour: closedHour, businessStartMinute: 0, businessEndHour: closedHour, businessEndMinute: 1 };
-  const { service, store, events } = await setup(CLOSED);
-  const task = await service.createTask({ folderName: "After Hours", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
-  await backdate(store, task.id, { createdAt: minutesAgo(90) });
-
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 0);
-});
-
-await check("claiming stops the nag, and unclaiming restarts its cadence", async () => {
-  const { service, store, events } = await setup();
-  const task = await service.createTask({ folderName: "Grabbed At Last", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
-  await backdate(store, task.id, { createdAt: minutesAgo(45), lastPoolNagAt: minutesAgo(25) });
-
-  const claimed = await service.claimTask(task.id, CHECKER);
-  assert.equal(claimed.lastPoolNagAt, undefined, "somebody is on it, so it is no longer the pool's problem");
-
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(events.filter((e) => e.target === "CHANNEL_NAG").length, 0, "a claimed task is never nagged about");
-
-  const unclaimed = await service.unclaimTask(task.id, CHECKER);
-  assert.ok(unclaimed.lastPoolNagAt, "the reopen post is nag zero, so the cadence is stamped from it");
-  await service.settleBackgroundWork();
-  events.length = 0;
-  await service.runMaintenance();
-  await service.settleBackgroundWork();
-  assert.equal(
-    events.filter((e) => e.target === "CHANNEL_NAG").length,
-    0,
-    "and the cadence restarts from the unclaim rather than firing immediately on the original createdAt"
-  );
-});
+    const claimed = await service.claimTask(task.id, OTHER);
+    assert.equal(claimed.status, "PENDING_APPROVAL", "released in place — the status does not rewind");
+    const remaining = new Date(claimed.dueAt).getTime() - Date.now();
+    assert.ok(remaining > 60_000, "the new approver does not inherit the last one's expired clock");
+    assert.equal(pacificClock(claimed.dueAt), "17:30", "they get the same end-of-day the status grants on entry");
+  }));
 
 /* ------------------------------------------------ the creator's in-app signal */
 
-await check("an unclaimed overdue task no longer raises an in-app signal for its creator", async () => {
+await check("an unclaimed overdue task no longer raises an in-app signal for its creator", async () => withFrozenTime(FROZEN_INSTANT, async () => {
   const { service, store, events } = await setup();
   const task = await service.createTask({ folderName: "Nobody Home", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
   await backdate(store, task.id, { dueAt: minutesAgo(30) });
@@ -370,7 +341,31 @@ await check("an unclaimed overdue task no longer raises an in-app signal for its
   await service.runMaintenance();
   await service.settleBackgroundWork();
   const feed = events.filter((e) => e.target === "ACTIVITY_FEED" && /running late/.test(e.message));
-  assert.equal(feed.length, 0, "the pool nag and the creator's own row cover this now");
-});
+  assert.equal(feed.length, 0, "an unclaimed task is a staffing problem, not the creator's lateness");
+}));
+
+await check("the creator's row reddens at twenty minutes unclaimed, and never for OOO", async () =>
+  withFrozenTime(FROZEN_INSTANT, async () => {
+    const { service, store } = await setup();
+    const task = await service.createTask({ folderName: "Still Nobody", taskType: "VALUE", notes: "n", urgency: "ORANGE" }, CREATOR);
+
+    await backdate(store, task.id, { createdAt: minutesAgo(19) });
+    assert.equal(isUnclaimedTooLong(await service.getTask(task.id), new Date()), false, "19 minutes is not yet 20");
+
+    await backdate(store, task.id, { createdAt: minutesAgo(21) });
+    assert.equal(isUnclaimedTooLong(await service.getTask(task.id), new Date()), true);
+
+    // OOO is born OPEN and unassigned and stays that way until it auto-completes
+    // on the return date, so a rule keyed only on "OPEN and unassigned" would
+    // redden a holiday for its whole duration.
+    const ooo = await service.createTask(
+      { folderName: "Beach Week", taskType: "OOO", notes: "n", startDate: "2027-06-01", returnDate: "2027-06-08" },
+      CREATOR
+    );
+    assert.equal(ooo.status, "OPEN");
+    assert.equal(ooo.assignee, undefined);
+    await backdate(store, ooo.id, { createdAt: minutesAgo(120) });
+    assert.equal(isUnclaimedTooLong(await service.getTask(ooo.id), new Date()), false);
+  }));
 
 console.log(`\n${passed} checks passed`);

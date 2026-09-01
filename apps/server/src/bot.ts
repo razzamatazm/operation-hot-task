@@ -24,11 +24,7 @@ interface StoredThread {
   /* `userId` is recorded for DM posts so a later status-driven re-sync can
      rebuild each recipient's card with the buttons *that* viewer should see.
      Absent on channel posts (and on DM entries written before it existed). */
-  /* `kind` distinguishes the original creation card from a pool-nag card
-     (ADR-0005), so a fresh nag deletes only the nag before it. Absent on DM
-     posts and on channel posts written before nags existed — treat as "create",
-     which is the safe reading: an unmarked post is never deleted. */
-  posts: Array<{ reference: Partial<ConversationReference>; activityId: string; userId?: string; kind?: "create" | "nag" }>;
+  posts: Array<{ reference: Partial<ConversationReference>; activityId: string; userId?: string }>;
   /* The claimable-card content, kept so the user-specific refresh can rebuild
      the creator's Cancel view (and the OPEN base card) without re-deriving it. */
   card?: { title: string; detail: string; openUrl?: string; creatorUserIds?: string[] };
@@ -2181,18 +2177,8 @@ export class TeamsBotClient {
       await this.updateTaskCard(taskId, claimable);
       return;
     }
-    /* Point the old card(s) at the new post, then make the new post the record.
-       Any pool-nag cards are deleted rather than pointed at: the save below
-       replaces the recorded posts wholesale, so a nag left standing would keep
-       a live Claim button on a card nothing can reconcile any more — a claim
-       from it would leave it reading "up for grabs" forever. */
-    const existing = await this.threads.get(taskId);
+    // Point the old card(s) at the new post, then make the new post the record.
     await this.updateTaskCard(taskId, reopenedPointerCard(card.folder));
-    for (const stale of existing?.posts ?? []) {
-      if (stale.kind === "nag") {
-        await this.proactiveDelete(stale.reference, stale.activityId);
-      }
-    }
     await this.threads.save({ taskId, posts, card: storedCard });
   }
 
@@ -2440,81 +2426,6 @@ export class TeamsBotClient {
      CLAIMED, so it posts the claimed-card variant — announced, but with no
      Claim button to appear and immediately vanish. The thread is still
      recorded, so completion/cancellation still edit this card in place. */
-  /* Post one card as a new thread in every channel the bot broadcasts to, and
-     return what landed. A new top-level channel post has to go through
-     createConversation (a proactive send to the channel root returns
-     NotImplemented), so every caller that wants to actually re-alert a channel
-     rather than silently edit an existing card shares this shape. */
-  private async broadcastCard(
-    card: Record<string, unknown>,
-    summary: string,
-    kind: "create" | "nag"
-  ): Promise<StoredThread["posts"]> {
-    const references = await this.targetChannelReferences();
-    const activity = MessageFactory.attachment(CardFactory.adaptiveCard(card));
-    // Short channel-list preview / notification text (otherwise Teams says
-    // "Card"); the full headline + folder lives in the card body.
-    activity.summary = summary;
-    const posts: StoredThread["posts"] = [];
-    for (const entry of references) {
-      const post = await this.createChannelThread(entry, activity);
-      if (post) {
-        posts.push({ ...post, kind });
-      }
-    }
-    return posts;
-  }
-
-  /* The pool nag (ADR-0005): a fresh channel post asking the room to pick up a
-     task nobody has claimed. It has to be a new post rather than an edit of the
-     existing card — an in-place edit notifies nobody, which is the entire point
-     of the feature, and the same reasoning repostReopenedTask records.
-
-     Post first, then delete the previous nag, so a failed post never leaves the
-     channel with nothing claimable. The original creation card is never deleted:
-     it is the record that the task was filed, and it is what the creator sees
-     their own request in. So the channel holds at most two cards per unclaimed
-     task.
-
-     The stored `card` blob stays the original claimable content, so a refresh on
-     either card renders the same view. The nag title is a nudge at post time,
-     not a permanent identity for the task. */
-  async postPoolNag(
-    taskId: string,
-    title: string,
-    detail: string,
-    openUrl?: string,
-    creatorAadObjectId?: string
-  ): Promise<void> {
-    if (!this.adapter) {
-      return;
-    }
-    const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
-    const card = adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
-    const existing = await this.threads.get(taskId);
-    const posted = await this.broadcastCard(card, plainSummary(title), "nag");
-    if (posted.length === 0) {
-      // Nothing new landed, so leave the previous nag standing rather than
-      // clearing the channel of the only claimable card there.
-      return;
-    }
-
-    const previous = existing?.posts ?? [];
-    // An unmarked post predates nags (or is a DM) and is never deleted — the
-    // safe reading, since the one card we must never remove is the creation
-    // card that records the task was filed.
-    const kept = previous.filter((post) => post.kind !== "nag");
-    const staleNags = previous.filter((post) => post.kind === "nag");
-    for (const stale of staleNags) {
-      await this.proactiveDelete(stale.reference, stale.activityId);
-    }
-    await this.threads.save({
-      taskId,
-      posts: [...kept, ...posted],
-      ...(existing?.card ? { card: existing.card } : { card: { title, detail, ...(openUrl ? { openUrl } : {}), creatorUserIds } })
-    });
-  }
-
   async postTaskCard(
     taskId: string,
     title: string,
@@ -2527,11 +2438,22 @@ export class TeamsBotClient {
     if (!this.adapter) {
       return;
     }
+    const references = await this.targetChannelReferences();
     const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
     const card = assignedTo
       ? claimedCard({ ok: true, message: title, assignee: assignedTo }, openUrl, `Assigned to ${assignedTo}`)
       : adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
-    const posts = await this.broadcastCard(card, summary?.trim() || plainSummary(title), "create");
+    const activity = MessageFactory.attachment(CardFactory.adaptiveCard(card));
+    // Short channel-list preview / notification text (otherwise Teams says
+    // "Card"); the full headline + folder lives in the card body.
+    activity.summary = summary?.trim() || plainSummary(title);
+    const posts: StoredThread["posts"] = [];
+    for (const entry of references) {
+      const post = await this.createChannelThread(entry, activity);
+      if (post) {
+        posts.push(post);
+      }
+    }
     if (posts.length > 0) {
       await this.threads.save({ taskId, posts, card: { title, detail, ...(openUrl ? { openUrl } : {}), creatorUserIds } });
     }

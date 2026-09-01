@@ -142,8 +142,8 @@ requester)
 The rule that a task's deadline is measured from the moment an assignee takes
 it, not from when it was filed. Recomputed from the task's urgency on claim and
 on every handoff, so pool time is never charged to the person who eventually
-picks the task up. OOO tasks and a Fraud Check in `Pending Approval` are the two
-exemptions. See [ADR-0005](docs/adr/0005-claim-anchored-deadline.md).
+picks the task up. OOO tasks are the one exemption. See
+[ADR-0005](docs/adr/0005-claim-anchored-deadline.md).
 _Avoid_: "resetting the clock" (nothing is reset — the deadline is computed
 fresh from the urgency that was asked for)
 
@@ -152,17 +152,6 @@ An unclaimed task seen by its creator, showing how long it has gone unclaimed
 rather than how long is left. Counts up, and turns red at 20 minutes, because
 the fact that matters to the creator is that nobody has taken it, not that a
 deadline is approaching.
-
-**Pool nag**:
-The recurring group-channel post that asks the room to pick up a task nobody has
-claimed. Fires every 20 minutes during business hours, replaces the nag before
-it, and stops the moment someone claims. Only ever concerns unclaimed work — a
-claimed task's deadline is between its assignee and the reminder engine, and is
-never raised in the channel.
-_Avoid_: calling it "the reminder" — that names the assignee's overdue DM, a
-different message to a different person about a different clock. (Both ride the
-same `TASK_REMINDER` notification type on the wire; the surfaces, not the type,
-are what tell them apart.)
 
 ### Views
 

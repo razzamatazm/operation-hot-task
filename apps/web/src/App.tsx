@@ -242,6 +242,14 @@ const taskTimeMeta = (task: LoanTask): { label: string; value: string; iso: stri
     const handedOff = handedOffAt(task);
     return { label: "Sent to requester", value: formatDate(handedOff), iso: handedOff, inTooltip: true };
   }
+  /* An unclaimed task has no deadline to quote — it restarts from whenever
+     somebody takes it (ADR-0005), so the date sitting here would be wrong the
+     moment it stopped being unclaimed. `groupedDue` already suppresses it in the
+     row; this is the same task read through the tooltip and the hamburger, and
+     the whole point of one definition is that they cannot disagree. */
+  if (task.status === "OPEN" && !task.assignee) {
+    return undefined;
+  }
   return { label: "Due", value: formatDate(task.dueAt), iso: task.dueAt, inTooltip: true };
 };
 
@@ -288,16 +296,15 @@ const groupedDue = (
      claimed it anyway.
 
      Its creator is the exception: they are the one person who can fix an
-     unclaimed task by chasing a human, so they get a count-up that reddens once
-     the pool nag has started asking the room. */
+     unclaimed task by chasing a human, so they get a count-up instead. */
   if (task.status === "OPEN" && !task.assignee) {
     if (!viewerIsRequester) {
       return { label: "URGENCY", value: URGENCY_TIMEFRAMES[task.urgency], overdue: false, done: false };
     }
     // When the row goes red is the shared rule's call, never this row's — same
-    // reason isOverdue is delegated below. The threshold has to agree with the
-    // server's nag cadence, so the creator's row reddens at the moment the room
-    // starts being asked, and one definition keeps them from drifting.
+    // reason isOverdue is delegated below. The twenty-minute threshold lives in
+    // the shared model so this row and the server cannot drift apart on what
+    // "too long unclaimed" means.
     return {
       label: "UNCLAIMED FOR",
       value: elapsedSince(task.createdAt, nowMs),

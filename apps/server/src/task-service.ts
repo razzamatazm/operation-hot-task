@@ -31,7 +31,6 @@ import {
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
   computeClaimAnchoredDueAt,
-  isPoolNagDue,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -113,9 +112,20 @@ export class TaskService {
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
     const folderName = (input.folderName ?? "").trim();
     const points = clampPoints(input.points ?? 0);
+    /* A born-assigned task arrives with a holder, so it is claimed at the same
+       instant it is filed and gets the same anchored window a claim would give
+       it (ADR-0005). Without this a born-assigned RED task is due the moment it
+       exists — overdue on arrival, which is the exact bug #181 is about, just
+       through the one door that never passes through `withNewHolder`.
+
+       Unassigned still uses the plain default: an unclaimed task's `dueAt` is an
+       ordering signal for the pool, not yet anybody's deadline. */
     const dueAt = isOoo
       ? computeDueAtFromReturnDate(input.returnDate ?? "", this.appConfig)
-      : input.dueAt ?? computeDefaultDueAt(input.taskType, now, urgency, this.appConfig);
+      : input.dueAt ??
+        (assignee
+          ? computeClaimAnchoredDueAt(urgency, now, this.appConfig)
+          : computeDefaultDueAt(input.taskType, now, urgency, this.appConfig));
     if (isOoo && new Date(dueAt).getTime() <= now.getTime()) {
       throw new Error("returnDate must result in a future due time");
     }
@@ -277,16 +287,12 @@ export class TaskService {
 
   /* Everything that changes because the task has a new holder. The deadline
      belongs to whoever currently holds it, so every door an assignee arrives
-     through re-anchors it to that instant (ADR-0005). Not born-assigned —
-     creation and claim are the same moment, so the create path's default is
-     already right — and not unclaim or release, since the next claimer
-     re-anchors anyway.
-
-     The nag clock goes regardless of the deadline exemptions: somebody is on the
-     task now, so it has stopped being the pool's problem whatever its type. */
+     through re-anchors it to that instant (ADR-0005). Not unclaim or release,
+     since the next claimer re-anchors anyway. Born-assigned does not come
+     through here — creation and claim are the same moment, so the create path
+     anchors it directly. */
   private withNewHolder(current: LoanTask, at: string): LoanTask {
     const next = { ...current };
-    delete next.lastPoolNagAt;
     if (isDeadlineRecomputeExempt(current)) {
       return next;
     }
@@ -388,13 +394,8 @@ export class TaskService {
     const now = new Date().toISOString();
     const event = this.makeHistory(task.id, user, "TASK_UNCLAIMED", `Returned to open queue by ${user.displayName}`);
     const updated = await this.writeTask(task.id, (current) => {
-      /* The task is the pool's problem again, and the CHANNEL_REOPENED post
-         below is nag zero — so stamp the nag clock rather than clearing it. A
-         cleared stamp falls back to `createdAt`, which for anything that sat
-         out its first 20 minutes means a nag fires seconds after the reopen
-         post, saying the same thing twice. */
       const { assignee: _assignee, ...withoutAssignee } = current;
-      return { task: { ...withoutAssignee, status: "OPEN", lastPoolNagAt: now, updatedAt: now }, event };
+      return { task: { ...withoutAssignee, status: "OPEN", updatedAt: now }, event };
     });
 
     this.background(async () => {
@@ -1334,12 +1335,11 @@ export class TaskService {
     return updated;
   }
 
-  async runMaintenance(): Promise<{ reminded: number; nagged: number; purged: number; autoArchived: number }> {
+  async runMaintenance(): Promise<{ reminded: number; purged: number; autoArchived: number }> {
     const now = new Date();
     const tasks = await this.store.allTasks();
 
     let reminded = 0;
-    let nagged = 0;
     let autoArchived = 0;
     const historyEvents: TaskHistoryEvent[] = [];
     const updatedTasks: LoanTask[] = [];
@@ -1418,32 +1418,13 @@ export class TaskService {
         }
       }
 
-      /* The pool nag (ADR-0005). An unclaimed task blowing its deadline is a
-         staffing problem, so the pressure goes to the room rather than to the
-         creator's inbox — and it repeats, because the whole failure mode is a
-         task getting missed in the shuffle. Flat 20 minutes for every urgency:
-         volume is low because tasks are normally grabbed immediately, and a
-         cadence that varies by urgency is a cadence nobody can predict. */
-      if (isPoolNagDue(next, now, this.appConfig)) {
-        const unclaimedMinutes = Math.round((now.getTime() - new Date(next.createdAt).getTime()) / 60000);
-        next = { ...next, lastPoolNagAt: nowIso, updatedAt: nowIso };
-        nagged += 1;
-        await this.notify({
-          type: "TASK_REMINDER",
-          task: next,
-          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-          message: `${next.folderName} is still unclaimed after ${unclaimedMinutes} minutes, who's taking it?`,
-          target: "CHANNEL_NAG"
-        });
-      }
-
       updatedTasks.push(next);
     }
 
     const toPurge = updatedTasks.filter((task) => shouldPurgeArchived(task, now, this.appConfig.archiveRetentionDays));
     const retained = updatedTasks.filter((task) => !toPurge.some((purge) => purge.id === task.id));
 
-    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0 || nagged > 0 || historyEvents.length > 0) {
+    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0 || historyEvents.length > 0) {
       await this.store.replaceTasks(retained);
       for (const event of historyEvents) {
         await this.store.appendHistory(event);
@@ -1457,7 +1438,6 @@ export class TaskService {
 
     return {
       reminded,
-      nagged,
       purged: toPurge.length,
       autoArchived
     };
@@ -1610,9 +1590,10 @@ export class TaskService {
       }
 
       /* Assignee only — no fallback to the creator (ADR-0005). An unclaimed task
-         is a staffing problem, and it now has two better signals than a feed row
-         telling the creator their own request is late: the pool nag asking the
-         room, and the count-up on the creator's own row. */
+         is a staffing problem, not the creator's lateness, and a feed row saying
+         their own request is overdue is not something they can act on. The
+         count-up on their row already tells them what they can act on: that
+         nobody has taken it yet. */
       if (ACTIVE_STATUSES.includes(task.status) && task.assignee && isOverdue(task, now)) {
         const overdueUserId = task.assignee.id;
         const key = `${overdueUserId}:OVERDUE:${task.id}`;

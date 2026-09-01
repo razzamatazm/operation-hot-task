@@ -18,28 +18,23 @@ FRAUD's `Awaiting Items` phase is excluded from this reminder engine — see
 
 Overdue reminders are **DMs to the assignee**, and only ever concern claimed
 work. An unclaimed task DMs nobody and raises no in-app overdue signal: it is a
-staffing problem rather than one person's lateness, so the pressure goes to the
-room instead. See [ADR-0005](../adr/0005-claim-anchored-deadline.md).
+staffing problem rather than one person's lateness, and telling the creator their
+own request is late is not something they can act on. See
+[ADR-0005](../adr/0005-claim-anchored-deadline.md).
 
 There is only one overdue message, because there is only one way to be overdue:
 the window that started when you took the task ran out. A task picked up outside
 business hours starts its clock at the next business open, so nobody is ever
 handed something that is already late.
 
-## The pool nag
+## The unclaimed task
 
-An `Open`, unassigned task re-posts to the group channel **every 20 minutes**
-during business hours until somebody claims it. Flat 20 minutes at every
-urgency. **OOO tasks are excluded** — a vacation notice is born unassigned and
-stays that way until it auto-completes on the return date, so it is never
-waiting on hands.
+Nothing chases an `Open`, unassigned task on a schedule. Its creator's own row
+counts up ("unclaimed for 10 minutes") and turns red at **20 minutes** — the
+creator is the one person who can act on the answer, by chasing a human. **OOO
+tasks are excluded**: a vacation notice is born unassigned and stays that way
+until it auto-completes on the return date, so it is never waiting on hands.
 
-- It is a **new** channel post each time. An in-place card edit notifies nobody,
-  which is the entire point.
-- Each nag deletes the nag before it, never the original creation card, so the
-  channel holds at most two cards per unclaimed task.
-- No `@mention` of anyone.
-- Claiming stops it. Unclaiming restarts the cadence from the unclaim, since the
-  re-posted claimable card is itself the first nag.
-- The creator's own row counts up ("unclaimed for 10 minutes") and turns red at
-  20, the moment the room starts being asked.
+Asking the group channel to pick the task up, on the same cadence, is a separate
+change — see
+[#207](https://github.com/razzamatazm/operation-hot-task/issues/207).
