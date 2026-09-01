@@ -49,6 +49,11 @@ Both views share one retention filter and one card component:
   open or close themselves — no status change, new note, or refresh moves a
   row either way (#161). The collapsed row carries the primary action and the
   menu, so nothing actionable is behind the fold.
+- **Collapse all**, on the list header next to Grouped/Flat, shuts every card
+  you have open in the list you're looking at, in one press. Cards behind
+  another tab or loan filter are untouched, and a collapse sticks until you
+  open the card again. There is no Expand all — opening cards you never asked
+  for is the behaviour above that got removed.
 
 Full row layout, column semantics, and styling conventions are documented in
 [apps/web/CLAUDE.md](../../apps/web/CLAUDE.md) — that's the canonical
