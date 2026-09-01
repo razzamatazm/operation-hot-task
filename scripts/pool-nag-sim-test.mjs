@@ -397,6 +397,27 @@ await check("THE BLOCKER: the status door back to OPEN stamps the clock too", as
   });
 });
 
+await check("a reopen does not buy a task another six asks", async () =>
+  withFrozenTime(AT_1000, async () => {
+    const { service, store } = await setup();
+    const task = await legacyOpenTask(service, store, "Round And Round");
+    /* Unassigned and closed with its ceiling already spent. Resetting the count
+       on this door would make COMPLETED -> OPEN an unbounded nag: cycle the task
+       and the room gets another six asks every time. Claiming is what earns a
+       fresh ceiling, because that is the only door where somebody actually took
+       the work. */
+    await patch(store, task.id, (current) => {
+      const { assignee: _assignee, ...rest } = current;
+      return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5), poolNagCount: MAX_POOL_NAGS };
+    });
+
+    const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
+    await service.settleBackgroundWork();
+    assert.equal(reopened.status, "OPEN");
+    assert.equal((await store.findTask(task.id)).poolNagCount, MAX_POOL_NAGS, "the ceiling survives the reopen");
+  })
+);
+
 await check("reopening onto a retained assignee is nobody's pool problem", async () =>
   withFrozenTime(AT_1000, async () => {
     const { service, store, events } = await setup();

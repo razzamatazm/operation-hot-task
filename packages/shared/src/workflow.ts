@@ -861,6 +861,22 @@ export const UNCLAIMED_ALERT_MS = 20 * 60 * 1000;
    ones aimed at somebody who can act. */
 export const MAX_POOL_NAGS = 6;
 
+/* Whether this task is the kind of thing the room can be asked to pick up at
+   all, timing aside: open, and nobody on it.
+
+   Split out from `isPoolNagDue` because the boot backfill needs exactly this
+   question and none of the timing — it stamps the tasks the nag would otherwise
+   read as never-nagged, and stamping anything else would leave a misleading
+   field on a task nobody is being asked to take. Two copies of it is how the
+   backfill and the nag would come to disagree about which tasks are the pool's.
+
+   An OOO task is a vacation notice, not a request for hands: it is born OPEN and
+   unassigned and stays that way until it auto-completes on the return date.
+   Without this clause the nag would ask the room to pick up someone's holiday
+   every 20 minutes of every business day until they got back. */
+export const isPoolNagEligible = (task: Pick<LoanTask, "taskType" | "status" | "assignee">): boolean =>
+  task.taskType !== "OOO" && task.status === "OPEN" && !task.assignee;
+
 /* Whether an unclaimed task is due another ask of the room (ADR-0005).
 
    Anchored to the last nag. The fallback to `createdAt` is what makes a task
@@ -869,11 +885,7 @@ export const MAX_POOL_NAGS = 6;
    (`backfillPoolNagClock`), or the first maintenance pass reads the whole open
    queue as never-nagged and nags all of it at once (#207). */
 export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
-  // An OOO task is a vacation notice, not a request for hands: it is born OPEN
-  // and unassigned and stays that way until it auto-completes on the return
-  // date. Without this it would ask the room to pick up someone's holiday every
-  // 20 minutes of every business day until they got back.
-  if (task.taskType === "OOO" || task.status !== "OPEN" || task.assignee) {
+  if (!isPoolNagEligible(task)) {
     return false;
   }
   if ((task.poolNagCount ?? 0) >= MAX_POOL_NAGS) {

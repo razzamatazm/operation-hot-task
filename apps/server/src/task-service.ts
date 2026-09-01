@@ -32,6 +32,7 @@ import {
   computeDueAtFromUrgency,
   computeClaimAnchoredDueAt,
   isPoolNagDue,
+  isPoolNagEligible,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -694,9 +695,16 @@ export class TaskService {
              out its first 20 minutes gets a nag seconds later repeating the post
              the room has just read. Only on the branch that actually lands at
              OPEN — retaining an assignee returns to CLAIMED, which posts nothing
-             and is nobody's pool problem. */
+             and is nobody's pool problem.
+
+             The stamp only. The spent-nag count is deliberately NOT reset here:
+             claiming is what earns a task a fresh ceiling, because somebody
+             actually took it. A reopen has had no such hand, and resetting on
+             this door would make a task cycled through COMPLETED and back an
+             unbounded nag — the exact thing the ceiling exists to close. In
+             practice the count is already zero by the time anything reaches
+             here, since every route through a holder clears it. */
           moved.lastPoolNagAt = now;
-          delete moved.poolNagCount;
         }
       }
       if (next === "NEEDS_REVIEW" && reviewNotes) {
@@ -1377,10 +1385,11 @@ export class TaskService {
     const tasks = await this.store.allTasks();
     let stamped = 0;
     for (const task of tasks) {
-      // Same shape as the nag itself minus the timing: anything the nag would
-      // never look at needs no stamp, and stamping it would only leave a
-      // misleading field on a task nobody is being asked to pick up.
-      if (task.taskType === "OOO" || task.status !== "OPEN" || task.assignee || task.lastPoolNagAt) {
+      // The nag's own eligibility rule, so the two cannot come to disagree about
+      // which tasks are the pool's — anything the nag would never look at needs
+      // no stamp, and stamping it would leave a misleading field on a task
+      // nobody is being asked to pick up.
+      if (!isPoolNagEligible(task) || task.lastPoolNagAt) {
         continue;
       }
       await this.store.updateTask(task.id, (current) =>
