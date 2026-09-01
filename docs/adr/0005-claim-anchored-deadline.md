@@ -75,14 +75,22 @@ born-assigned `RED` task, due the moment it exists.
 
 **The missed ask becomes the pool's problem, not a record.** Since the original
 deadline is gone once the task is claimed, the fix for an unclaimed task blowing
-its window is pressure rather than accounting. What ships here is the half of
-that which costs nothing to get wrong: an unclaimed task raises no in-app overdue
-signal and DMs nobody, and its creator's own row counts up ("unclaimed for 10
-minutes") and turns red at 20. Asking the room — a recurring group-channel post
-on the same cadence — is deliberately held back to its own decision and its own
-change, because a repeating channel post that misfires is loud, public, and
-addressed to everybody at once. Tracked in
-[#207](https://github.com/razzamatazm/operation-hot-task/issues/207).
+its window is pressure rather than accounting. An unclaimed task raises no in-app
+overdue signal and DMs nobody; its creator's own row counts up ("unclaimed for 10
+minutes") and turns red at 20, and the group channel is asked to pick it up on
+the same cadence.
+
+The two halves shipped separately. The quiet half — the count-up row, the absent
+DM — landed with this ADR in
+[#185](https://github.com/razzamatazm/operation-hot-task/pull/185). Asking the
+room was held back to its own change, because a repeating channel post that
+misfires is loud, public and addressed to everybody at once, and review had found
+two ways it did: every open task nagging at once on the first pass after deploy,
+and a double-post through the second door back to `Open`. Both were fixed and it
+shipped in [#207](https://github.com/razzamatazm/operation-hot-task/issues/207),
+with a boot backfill so the feature's arrival does not nag the backlog and a
+ceiling of six asks so one task cannot nag forever. `docs/product/reminders-retention.md`
+carries the current behaviour.
 
 ## Considered and rejected
 

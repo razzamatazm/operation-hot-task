@@ -32,6 +32,9 @@ import {
   computeDueAtFromReturnDate,
   computeDueAtFromUrgency,
   computeClaimAnchoredDueAt,
+  isPoolNagDue,
+  isPoolNagEligible,
+  UNCLAIMED_ALERT_MS,
   isDeadlineRecomputeExempt,
   firstName,
   formatNewTaskHeadline,
@@ -291,9 +294,17 @@ export class TaskService {
      through re-anchors it to that instant (ADR-0005). Not unclaim or release,
      since the next claimer re-anchors anyway. Born-assigned does not come
      through here — creation and claim are the same moment, so the create path
-     anchors it directly. */
+     anchors it directly.
+
+     The nag clock is dropped regardless of the deadline exemptions: somebody is
+     on the task now, so it has stopped being the pool's problem whatever its
+     type. The spent-nag count goes with it, because a task that comes back to
+     the pool later is a fresh ask of the room and deserves its own ceiling
+     rather than inheriting an exhausted one (#207). */
   private withNewHolder(current: LoanTask, at: string): LoanTask {
     const next = { ...current };
+    delete next.lastPoolNagAt;
+    delete next.poolNagCount;
     if (isDeadlineRecomputeExempt(current)) {
       return next;
     }
@@ -442,8 +453,13 @@ export class TaskService {
     const exAssigneeId = task.assignee?.id;
     const event = this.makeHistory(task.id, actor, "TASK_UNCLAIMED", detail);
     const updated = await this.writeTask(task.id, (current) => {
+      /* The task is the pool's problem again, and the CHANNEL_REOPENED post
+         below is nag zero — so stamp the nag clock rather than leaving it
+         absent. An absent stamp falls back to `createdAt`, which for anything
+         that already sat out its first 20 minutes means a nag fires seconds
+         after the reopen post, saying the same thing twice. */
       const { assignee: _assignee, ...withoutAssignee } = current;
-      return { task: { ...withoutAssignee, status: "OPEN", updatedAt: now }, event };
+      return { task: { ...withoutAssignee, status: "OPEN", lastPoolNagAt: now, updatedAt: now }, event };
     });
 
     this.background(async () => {
@@ -722,6 +738,24 @@ export class TaskService {
         moved.reopenedFrom = current.status;
         if (current.assignee) {
           moved.status = "CLAIMED";
+        } else {
+          /* The second door back to the pool, and it needs the same stamp
+             `unclaimTask` makes for the same reason (#207): the CHANNEL_REOPENED
+             post `notifyStatusChange` fires below IS nag zero. Without this the
+             clock falls back to `createdAt`, and a task reopened after sitting
+             out its first 20 minutes gets a nag seconds later repeating the post
+             the room has just read. Only on the branch that actually lands at
+             OPEN — retaining an assignee returns to CLAIMED, which posts nothing
+             and is nobody's pool problem.
+
+             The stamp only. The spent-nag count is deliberately NOT reset here:
+             claiming is what earns a task a fresh ceiling, because somebody
+             actually took it. A reopen has had no such hand, and resetting on
+             this door would make a task cycled through COMPLETED and back an
+             unbounded nag — the exact thing the ceiling exists to close. In
+             practice the count is already zero by the time anything reaches
+             here, since every route through a holder clears it. */
+          moved.lastPoolNagAt = now;
         }
       }
       if (next === "NEEDS_REVIEW" && reviewNotes) {
@@ -1384,11 +1418,55 @@ export class TaskService {
     return updated;
   }
 
-  async runMaintenance(): Promise<{ reminded: number; purged: number; autoArchived: number }> {
+  /* One-time, idempotent backfill (#207), run at boot alongside ADR-0001's loan
+     migration. `isPoolNagDue` falls back to `createdAt` for a task with no
+     `lastPoolNagAt`, which is every task written before the nag existed — so
+     without this the first maintenance pass after deploy reads the entire open
+     queue as overdue for a nag and posts one card per task, all at once, to a
+     channel that has done nothing to deserve it.
+
+     Stamping "now" says the truthful thing instead: these tasks have not been
+     nagged, and their clock starts here. Each then nags on the normal cadence.
+
+     Only tasks that are ALREADY past the nag threshold. This runs on every boot,
+     not just the first, so the discriminator matters: a task filed twelve
+     minutes before a restart has not earned a nag yet, so there is nothing to
+     suppress, and stamping it would push its first nag out by another twenty
+     minutes for no reason. Restart often enough and it would never nag at all.
+     A task that is unstamped AND already overdue for a nag is the shape this
+     exists for — either it predates the feature, or the server was down through
+     the window it should have nagged in, and in both cases starting its clock
+     here is the honest answer. */
+  async backfillPoolNagClock(): Promise<{ stamped: number }> {
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
+    const tasks = await this.store.allTasks();
+    let stamped = 0;
+    for (const task of tasks) {
+      // The nag's own eligibility rule, so the two cannot come to disagree about
+      // which tasks are the pool's — anything the nag would never look at needs
+      // no stamp, and stamping it would leave a misleading field on a task
+      // nobody is being asked to pick up.
+      if (!isPoolNagEligible(task) || task.lastPoolNagAt) {
+        continue;
+      }
+      if (nowMs - new Date(task.createdAt).getTime() < UNCLAIMED_ALERT_MS) {
+        continue;
+      }
+      await this.store.updateTask(task.id, (current) =>
+        current.lastPoolNagAt ? { task: current } : { task: { ...current, lastPoolNagAt: now } }
+      );
+      stamped += 1;
+    }
+    return { stamped };
+  }
+
+  async runMaintenance(): Promise<{ reminded: number; nagged: number; purged: number; autoArchived: number }> {
     const now = new Date();
     const tasks = await this.store.allTasks();
 
     let reminded = 0;
+    let nagged = 0;
     let autoArchived = 0;
     const historyEvents: TaskHistoryEvent[] = [];
     const updatedTasks: LoanTask[] = [];
@@ -1467,13 +1545,34 @@ export class TaskService {
         }
       }
 
+      /* The pool nag (ADR-0005). An unclaimed task blowing its deadline is a
+         staffing problem, so the pressure goes to the room rather than to the
+         creator's inbox — and it repeats, because the whole failure mode is a
+         task getting missed in the shuffle. Flat 20 minutes for every urgency:
+         volume is low because tasks are normally grabbed immediately, and a
+         cadence that varies by urgency is a cadence nobody can predict. It stops
+         at `MAX_POOL_NAGS`, which `isPoolNagDue` enforces off the count stamped
+         here (#207). */
+      if (isPoolNagDue(next, now, this.appConfig)) {
+        const unclaimedMinutes = Math.round((now.getTime() - new Date(next.createdAt).getTime()) / 60000);
+        next = { ...next, lastPoolNagAt: nowIso, poolNagCount: (next.poolNagCount ?? 0) + 1, updatedAt: nowIso };
+        nagged += 1;
+        await this.notify({
+          type: "TASK_REMINDER",
+          task: next,
+          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+          message: `${next.folderName} is still unclaimed after ${unclaimedMinutes} minutes, who's taking it?`,
+          target: "CHANNEL_NAG"
+        });
+      }
+
       updatedTasks.push(next);
     }
 
     const toPurge = updatedTasks.filter((task) => shouldPurgeArchived(task, now, this.appConfig.archiveRetentionDays));
     const retained = updatedTasks.filter((task) => !toPurge.some((purge) => purge.id === task.id));
 
-    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0 || historyEvents.length > 0) {
+    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0 || nagged > 0 || historyEvents.length > 0) {
       await this.store.replaceTasks(retained);
       for (const event of historyEvents) {
         await this.store.appendHistory(event);
@@ -1487,6 +1586,7 @@ export class TaskService {
 
     return {
       reminded,
+      nagged,
       purged: toPurge.length,
       autoArchived
     };

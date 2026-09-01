@@ -4,8 +4,8 @@ export const startScheduler = (service: TaskService): NodeJS.Timeout => {
   const interval = setInterval(async () => {
     try {
       const results = await service.runMaintenance();
-      if (results.reminded > 0 || results.purged > 0 || results.autoArchived > 0) {
-        console.log(`[scheduler] reminders=${results.reminded} autoArchived=${results.autoArchived} purged=${results.purged}`);
+      if (results.reminded > 0 || results.nagged > 0 || results.purged > 0 || results.autoArchived > 0) {
+        console.log(`[scheduler] reminders=${results.reminded} nags=${results.nagged} autoArchived=${results.autoArchived} purged=${results.purged}`);
       }
     } catch (error) {
       console.error("[scheduler] failed", error);

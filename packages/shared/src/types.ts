@@ -277,6 +277,19 @@ export interface LoanTask {
       Set on entry, never cleared: nothing reads it in other statuses and
       keeping it leaves a record of the last hand-off. */
   awaitingItemsSince?: string;
+  /** When the pool nag last posted to the group channel for this unclaimed task
+      (ADR-0005). Absent until the first nag, and stamped rather than cleared on
+      every door back to OPEN, because the reopen post the channel already gets
+      is nag zero — see `unclaimTask`. Also stamped by the boot backfill, so a
+      task that predates the nag is not read as "never nagged" and does not fire
+      the instant the feature ships (#207). */
+  lastPoolNagAt?: string;
+  /** How many pool nags this task has already spent (#207). The nag repeats,
+      but not forever: past `MAX_POOL_NAGS` the room has been asked enough and
+      re-asking is noise, so the count is the ceiling's memory. Absent means
+      none sent. Reset when the task finds a holder, since the next spell in the
+      pool is a fresh ask. */
+  poolNagCount?: number;
 }
 
 export interface TaskHistoryEvent {
@@ -338,7 +351,7 @@ export interface NotificationEvent {
      cards already sitting in participants' chats, so their buttons track the
      task's live status instead of freezing at whatever step they were sent at.
      Emitted on every status change; creates nothing, pings nobody. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* Free-text note from the actor, surfaced in the recipient's card (issue #41
      share, and the Handoff's DM_ASSIGN card — ADR-0002). Optional. */

@@ -153,6 +153,19 @@ rather than how long is left. Counts up, and turns red at 20 minutes, because
 the fact that matters to the creator is that nobody has taken it, not that a
 deadline is approaching.
 
+**Pool nag**:
+The recurring group-channel post that asks the room to pick up a task nobody has
+claimed. Fires every 20 minutes during business hours, replaces the nag before
+it, and stops the moment someone claims. It also stops on its own after six
+asks: past that the room has heard it, and a seventh post persuades nobody who
+was not already going to take the task. Only ever concerns unclaimed work — a
+claimed task's deadline is between its assignee and the reminder engine, and is
+never raised in the channel.
+_Avoid_: calling it "the reminder" — that names the assignee's overdue DM, a
+different message to a different person about a different clock. (Both ride the
+same `TASK_REMINDER` notification type on the wire; the surfaces, not the type,
+are what tell them apart.)
+
 ### Views
 
 **Grouped view** (a.k.a. **Courts view**):
