@@ -24,9 +24,10 @@
  *   - A task created with an assignee is born CLAIMED in ONE operation, and its
  *     channel post still goes out (as the claimed-card variant, which the
  *     notifications provider picks off task.assignee).
- *   - Second pair of hands (ADR-0003): the creator is refused at all four doors
- *     an assignee comes through — claim, self-handoff, a third party handing it
- *     back, and assignment at creation.
+ *   - Second pair of hands (ADR-0003): the creator is refused at every door an
+ *     assignee comes through — claim, a third party handing it back, and
+ *     assignment at creation. (Self-handoff used to be a fourth; #208 closed it
+ *     for everybody, so the creator is no longer a special case there.)
  *   - Nobody may hand a task to THEMSELVES (#208), creator or not. Taking work
  *     off a stalled holder is the creator's move now (`returnToPool`), made in
  *     the open, rather than the taker's to make quietly.
@@ -513,6 +514,23 @@ await check("only the creator may put a task back in the pool", async () => {
     "not even the holder — they have Unclaim for that"
   );
   assert.equal((await ctx.service.getTask(task.id)).assignee.id, OFFICER.id);
+});
+
+await check("the refusal says which rule refused, not the nearest one", async () => {
+  const ctx = await setup();
+  const task = await openTask(ctx.service);
+  await ctx.service.claimTask(task.id, OFFICER);
+  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", CREATOR);
+
+  /* The creator IS the creator, so telling them they are not is a lie the
+     shared refusal exists to prevent — the reason this move is unavailable here
+     is the status. */
+  await assert.rejects(
+    () => ctx.service.returnToPool(task.id, CREATOR),
+    /only a claimed task/i,
+    "the status is what is wrong, so that is what it says"
+  );
+  assert.equal(canReturnToPool(await ctx.service.getTask(task.id), CREATOR), false);
 });
 
 await check("a task already in the pool cannot be returned to it", async () => {

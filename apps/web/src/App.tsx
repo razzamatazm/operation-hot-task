@@ -1440,19 +1440,17 @@ const TaskCard = memo(({
     (p) => p.id !== user.id && p.id !== task.createdBy.id && p.id !== task.assignee?.id
   );
   /* Handoff candidates (ADR-0002) — a deliberately different set from share's.
-     Everyone eligible to work this task, which still INCLUDES yourself when you
-     don't hold it: handing a task to yourself is sometimes the only way to take
-     one somebody else is already sitting on.
+     Everyone eligible to work this task except three people: you, the creator
+     (ADR-0003), and whoever currently holds it (#208).
 
-     You are not in the list, and neither is the creator (ADR-0003) nor whoever
-     currently holds the task (#208). None of them is a special case here — the
-     row carries no copy of any of those rules. `canAssignTaskTo` is the same
-     predicate the server enforces, so the picker cannot route around a door the
-     server would shut.
+     None of them is a special case here — the row carries no copy of any of
+     those rules. `canAssignTaskTo` is the same predicate the server enforces, so
+     the picker cannot route around a door the server would shut.
 
-     Handing yourself a task used to be how you took over work somebody had
-     claimed and stalled on. That is now the creator's move, not the taker's:
-     they put it back in the pool and anyone claims it from there. */
+     You are missing from your own picker because handing yourself a task is how
+     people used to take over work somebody had claimed and stalled on. That is
+     now the creator's move rather than the taker's: they put it back in the pool
+     and anyone claims it from there, in the open. */
   const assignCandidates = directory.filter((p) =>
     canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles }, user)
   );

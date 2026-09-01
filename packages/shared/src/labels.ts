@@ -6,9 +6,11 @@
    "Approve" while the bot rendered "Approve Merge" for the same transition is
    the drift this module exists to prevent.
 
-   Length matters: every label here can land in the collapsed row's
-   fixed-width quick-action slot (116px, see .task-card-quick-action in
-   apps/web/styles.css), so `Approve Merge` — the longest — sets the ceiling.
+   Length matters for the labels that ride the collapsed row's fixed-width
+   quick-action slot (116px, see .task-card-quick-action in apps/web/styles.css),
+   where `Approve Merge` — the longest of them — sets the ceiling. Menu-only
+   labels are exempt and deliberately longer: `Release for any fraud checker` and
+   `Back to the pool` never enter the slot, and a menu row sizes to its text.
    SEND_OUTSTANDING_ITEMS used to be exempt: it is note-required, so it lived
    only in the expanded body and on bot cards. It now rides the slot too (the
    checker's one next step on a CLAIMED fraud check, so it belongs where every

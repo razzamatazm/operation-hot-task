@@ -28,7 +28,8 @@ act, so the two ends of it are always two different people. See
 [ADR-0003](../adr/0003-creator-is-never-assignee.md).
 
 - Enforced at **every** door an assignee can come through: claiming, handoff,
-  handing a task to yourself, and `assigneeUserId` at creation.
+  and `assigneeUserId` at creation. (Handing a task to yourself was a fourth
+  door; #208 closed it for everybody, creator or not.)
 - It is a property of the task (`createdBy.id !== assignee.id`), not of the
   actor, so a **third party cannot hand a task back to its creator** either.
 - No task type is exempt. An OOO task's creator is the person going out and its

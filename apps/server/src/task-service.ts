@@ -11,7 +11,6 @@ import {
   addChecklistItem,
   assignRefusalMessage,
   canAddNoteToTask,
-  canAssignTaskTo,
   canClaimTask,
   canDeleteChecklistItem,
   canEditChecklist,
@@ -23,7 +22,7 @@ import {
   canUnclaimTask,
   assigneeRefusal,
   handoffRefusal,
-  canReturnToPool,
+  returnToPoolRefusal,
   claimRefusalMessage,
   editChecklistItemText,
   removeChecklistItem,
@@ -414,11 +413,9 @@ export class TaskService {
   async returnToPool(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
 
-    if (!task.assignee) {
-      throw new Error("This task is already in the pool");
-    }
-    if (!canReturnToPool(task, user)) {
-      throw new Error("Only the task creator can put a task back in the pool");
+    const refusal = returnToPoolRefusal(task, user);
+    if (refusal) {
+      throw new Error(refusal);
     }
 
     return this.sendBackToPool(task, user, {
@@ -1331,7 +1328,7 @@ export class TaskService {
     /* One question, one answer, one sentence: closed, ineligible, already
        theirs, and handing to yourself all come back from `handoffRefusal`, which
        is the same function the picker filters with. */
-    const refusal = handoffRefusal(task, params.actor, params.target);
+    const refusal = handoffRefusal(task, params.target, params.actor);
     if (refusal) {
       throw new Error(refusal);
     }

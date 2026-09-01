@@ -467,9 +467,10 @@ const isSystem = (user: UserIdentity): boolean => isSystemActor(user);
 const CREATOR_IS_ASSIGNEE = "created this task — a task takes a second pair of hands";
 
 /* The whole of "may this person be this task's assignee", as a reason or
-   `undefined` for yes. One function so the four doors an assignee can come
-   through — claim, handoff, self-handoff, and assignment at creation — give the
-   same answer AND the same explanation. Takes only the two fields it needs, so
+   `undefined` for yes. One function so every door an assignee can come through —
+   claim, handoff, and assignment at creation — gives the same answer AND the
+   same explanation. (Self-handoff used to be a fourth; #208 closed it, and
+   `handoffRefusal` is where that particular no now lives.) Takes only the two fields it needs, so
    the create path can ask before the task exists.
 
    Does not consider status: a closed task rejects a handoff for its own
@@ -573,8 +574,8 @@ const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to pu
    the older and more specific reason); then the self rule. */
 export const handoffRefusal = (
   task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
-  actor: Pick<UserIdentity, "id">,
-  target: UserIdentity
+  target: UserIdentity,
+  actor: Pick<UserIdentity, "id">
 ): string | undefined => {
   if (CLOSED_STATUSES.includes(task.status)) {
     return "This task is closed — it can't be handed off";
@@ -596,26 +597,27 @@ export const handoffRefusal = (
    handoff can't route one to someone who then can't complete it. Closed tasks
    (COMPLETED / CANCELLED / ARCHIVED) are out of play entirely.
 
-   Handing a task to somebody who does not hold it yet is still allowed even when
-   they could not have claimed it — that is the point of the handoff, and it is
-   sometimes the only way to take a task another person is already sitting on.
+   A handoff points a task at SOMEBODY ELSE. Two things it may not do (#208):
 
-   What is NOT allowed is handing a task to whoever already holds it (#208). It
-   used to be a silent no-op on the grounds that there was nothing to do. There
-   is nothing to do, but "nothing happened" and "your request was accepted" are
-   different answers and the API gave the second one to the first. It also left
-   ADR-0002 and ADR-0005 contradicting each other about whether that move
-   re-anchors the deadline — a question with no right answer while the move
-   itself is meaningless. Refusing it retires the question.
+   Hand a task to whoever already holds it. That used to be a silent no-op, on
+   the grounds that there was nothing to do. There is nothing to do, but "nothing
+   happened" and "your request was accepted" are different answers and the API
+   gave the second one to the first.
 
-   ADR-0003 narrows the rest one step: a handoff to yourself survives for
-   everyone EXCEPT the task's creator, who is refused here like anyone else
-   routing a task back to it. That's the door ADR-0002's version left open. */
+   Hand a task to yourself. This one used to be allowed and was how you took work
+   off a colleague who had claimed something and stalled. That need is real, so
+   it moved rather than vanishing: the creator puts the task back in the pool
+   (`canReturnToPool`) and anyone claims it from there. What changed is not who
+   ends up holding the task but that it passes through the open queue on the way,
+   where the room can see it.
+
+   ADR-0003 is a separate and still-narrower rule on top: the creator may never
+   be the assignee, whoever is doing the handing. */
 export const canAssignTaskTo = (
   task: LoanTask,
   targetUser: UserIdentity,
   actor: Pick<UserIdentity, "id">
-): boolean => handoffRefusal(task, actor, targetUser) === undefined;
+): boolean => handoffRefusal(task, targetUser, actor) === undefined;
 
 /* Who may put a claimed task back in the pool (#208).
 
@@ -634,13 +636,27 @@ export const canAssignTaskTo = (
    task back to OPEN would throw away a step nobody asked to undo.
 
    The creator cannot then claim it themselves; ADR-0003 is untouched by this and
-   is the whole reason the move is a release rather than a transfer. */
-export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.status !== "CLAIMED" || !task.assignee) {
-    return false;
+   is the whole reason the move is a release rather than a transfer.
+
+   Written as a refusal with `canReturnToPool` on top, the same shape as the
+   handoff, so the button that hides itself and the service that throws give the
+   same answer AND the same sentence. A creator on a NEEDS_REVIEW task hears that
+   the status is wrong rather than being told they are not the creator. */
+export const returnToPoolRefusal = (task: LoanTask, user: UserIdentity): string | undefined => {
+  if (!task.assignee) {
+    return "This task is already in the pool";
   }
-  return isSystem(user) || task.createdBy.id === user.id;
+  if (task.status !== "CLAIMED") {
+    return "Only a claimed task can go back to the pool";
+  }
+  if (!isSystem(user) && task.createdBy.id !== user.id) {
+    return "Only the task creator can put a task back in the pool";
+  }
+  return undefined;
 };
+
+export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean =>
+  returnToPoolRefusal(task, user) === undefined;
 
 /* Does this person already hold this task? Named rather than inlined at the one
    place that needed a new rule about it (#208). The same comparison is written
