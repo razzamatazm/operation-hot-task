@@ -35,6 +35,12 @@
   --bad-bg: #fce8e9;
   --row-alt: rgba(0, 0, 0, 0.018);
   --row-hover: rgba(0, 0, 0, 0.032);
+  /* Hover tint for a control that isn't a filled button — the checklist item
+     text and its notes (#171). Deliberately not --row-hover: that one is tuned
+     for a full-width table stripe, where a large area carries a weak tint. On
+     a short inline control there isn't enough area for it to register, and in
+     dark it disappeared into the panel entirely. */
+  --control-hover: rgba(0, 0, 0, 0.055);
   --shadow-sm: 0 1px 3px rgba(26, 24, 20, 0.06);
   --shadow-md: 0 4px 16px rgba(26, 24, 20, 0.07);
   --focus-ring: 0 0 0 2px rgba(44, 94, 160, 0.3);
@@ -94,6 +100,7 @@
   --bad-bg: #2c1c1c;
   --row-alt: rgba(255, 255, 255, 0.015);
   --row-hover: rgba(255, 255, 255, 0.035);
+  --control-hover: rgba(255, 255, 255, 0.1);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
   --focus-ring: 0 0 0 2px rgba(201, 144, 63, 0.35);
@@ -135,6 +142,7 @@
   --bad-bg: #330000;
   --row-alt: rgba(255, 255, 255, 0.04);
   --row-hover: rgba(255, 255, 255, 0.08);
+  --control-hover: rgba(255, 255, 255, 0.18);
   --shadow-sm: none;
   --shadow-md: none;
   --focus-ring: 0 0 0 2px #18ffff;
@@ -459,7 +467,15 @@ input:focus, select:focus, textarea:focus {
 textarea { resize: vertical; }
 
 /* ── Buttons ──────────────────────────────────────────────── */
+/* The fill runs through tokens rather than the resolved property. A bare class
+   selector loses to `button:hover` on specificity, so a variant that only set
+   `background: transparent` opted out of the resting state and got the brand
+   fill straight back on hover (#171). Custom properties cascade on their own,
+   so setting --btn-bg on a class now beats the element-level declaration and
+   carries the hover state with it — a button can't half-opt-out. */
 button {
+  --btn-bg: var(--brand);
+  --btn-bg-hover: var(--brand-hover);
   cursor: pointer;
   border: none;
   border-radius: 5px;
@@ -467,12 +483,12 @@ button {
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
-  background: var(--brand);
+  background: var(--btn-bg);
   color: var(--on-accent);
   transition: background 0.15s;
 }
 
-button:hover { background: var(--brand-hover); }
+button:hover { background: var(--btn-bg-hover); }
 button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 button.btn-sm {
@@ -1263,7 +1279,12 @@ button.btn-good:hover {
   align-items: center;
   gap: 8px;
 }
+/* Same shape as the item text below: the fill is a token, never a background
+   on :hover. Declaring `background: var(--panel)` here used to lose to
+   `button:hover`, and the box went brand navy under the cursor (#171). */
 .checklist-check {
+  --btn-bg: var(--panel);
+  --btn-bg-hover: var(--bg-soft);
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
@@ -1273,15 +1294,19 @@ button.btn-good:hover {
   justify-content: center;
   border: 1.5px solid var(--line);
   border-radius: 4px;
-  background: var(--panel);
   cursor: pointer;
 }
 .checklist-check:disabled {
+  /* Nothing to toggle, so the box holds whatever it's already showing. */
+  --btn-bg-hover: var(--btn-bg);
   cursor: default;
   opacity: 0.6;
 }
+/* Checked stays green under the cursor — the hover tint is an affordance for
+   the empty box, and swapping a filled state's colour reads as a state change. */
 .checklist-check-on {
-  background: var(--good);
+  --btn-bg: var(--good);
+  --btn-bg-hover: var(--good);
   border-color: var(--good);
   color: var(--on-accent);
 }
@@ -1304,17 +1329,27 @@ button.btn-good:hover {
 .checklist-item-done .checklist-adder { opacity: 0.55; }
 
 .checklist-item-text {
+  --btn-bg: transparent;
+  /* Faint neutral overlay — enough to say "clickable", nothing like the brand
+     fill this used to get. The horizontal padding and its matching negative
+     margin let the tint hug the text instead of reading as a full-bleed bar,
+     without moving anything. */
+  --btn-bg-hover: var(--control-hover);
   flex: 1 1 auto;
   text-align: left;
-  background: transparent;
   border: none;
-  padding: 2px 0;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
   font-family: "DM Sans", sans-serif;
   font-size: 0.86rem;
   color: var(--ink);
   cursor: text;
 }
+/* Not clickable, so it claims nothing on hover. Higher specificity than the
+   class above, which is all it takes to win the token. */
 .checklist-item-text:disabled {
+  --btn-bg-hover: transparent;
   cursor: default;
 }
 .checklist-item-done .checklist-item-text {
@@ -1384,16 +1419,20 @@ button.btn-good:hover {
   margin: 4px 0 0 26px;
 }
 .checklist-note {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
   text-align: left;
   border: none;
-  background: transparent;
-  padding: 2px 0;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
   font-family: "DM Sans", sans-serif;
   font-size: 0.78rem;
   color: var(--ink-secondary);
   cursor: pointer;
 }
 .checklist-note:disabled {
+  --btn-bg-hover: transparent;
   cursor: default;
 }
 .checklist-note b {
@@ -1401,9 +1440,12 @@ button.btn-good:hover {
   color: var(--ink);
 }
 .checklist-note-add {
+  /* Colour-only hover, which is what its :hover rule below always intended —
+     the background it used to grow came from the global rule, not from here. */
+  --btn-bg: transparent;
+  --btn-bg-hover: transparent;
   align-self: flex-start;
   border: none;
-  background: transparent;
   padding: 0;
   font-family: "JetBrains Mono", monospace;
   font-size: 0.6rem;
