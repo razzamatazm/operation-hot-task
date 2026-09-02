@@ -21,6 +21,8 @@ import {
   normalizeLoanName,
   searchLoans
 } from "../packages/shared/dist/loan.js";
+import { parseHumperdinkPayload } from "../packages/shared/dist/humperdink.js";
+import { applyImportedLoan, initialCreateForm } from "../apps/web/src/create-form-state.ts";
 import { LoanStore, TaskStore } from "../apps/server/dist/store.js";
 import { LoanService } from "../apps/server/dist/loan-service.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -256,6 +258,59 @@ const run = async () => {
     assert.equal(await idOf(t5.id), await idOf(t6.id), "Acme Corp typo variant still merges");
     assert.equal((await loanStore.all()).length, 5, "five distinct loans persisted");
     pass("migration keeps serial-numbered loans distinct while merging true typo variants");
+  });
+
+  /* ── A Humperdink import lands on the existing loan (#194) ─
+
+     The whole point of shipping the link with the name: the URL is the
+     canonical key (ADR-0001), so a task filed from an imported payload joins
+     the loan that URL already names instead of minting a second one. Runs the
+     real parser and the real create-form reducer into the real service, so a
+     change on any of the three that broke the join would show up here. */
+  await withTempDir(async ({ service, loanStore }) => {
+    const loanUrl = "https://humperdink.loneoakfund.com/Loans/Details/335203";
+    // The loan already exists in Hot Task, filed by hand some weeks ago and
+    // spelled differently by whoever typed it.
+    const existing = await service.create({ name: "adams harbor", humperdinkLink: loanUrl });
+
+    const pasted = JSON.stringify({
+      kind: "hot-task-humperdink",
+      version: 1,
+      loanName: "Adams - Harbor",
+      loanUrl
+    });
+    const parsed = parseHumperdinkPayload(pasted);
+    assert.equal(parsed.ok, true, "the pasted payload parses");
+    const form = applyImportedLoan(initialCreateForm(), parsed.payload);
+    assert.equal(form.folderName, "Adams - Harbor", "Folder Name filled from the payload");
+    assert.equal(form.humperdinkLink, loanUrl, "Humperdink Link filled from the payload");
+    assert.equal(form.loanId, "", "no loan is pre-selected — the link resolves it");
+
+    const linked = await service.resolveForTask({
+      loanId: form.loanId || undefined,
+      name: form.folderName,
+      humperdinkLink: form.humperdinkLink
+    });
+    assert.equal(linked.id, existing.id, "the imported task links to the existing loan for that URL");
+    assert.equal((await loanStore.all()).length, 1, "no duplicate loan was created");
+    pass("a task created from an imported Humperdink payload joins the existing loan for that URL");
+  });
+
+  /* Same page, second visit: the URL Humperdink hands back can differ in case
+     or a trailing slash, which normalizeLinkKey already folds. Pinned here
+     because the import is the first thing feeding it machine-produced URLs. */
+  await withTempDir(async ({ service, loanStore }) => {
+    const first = await service.create({
+      name: "Adams - Harbor",
+      humperdinkLink: "https://humperdink.loneoakfund.com/Loans/Details/335203"
+    });
+    const again = await service.resolveForTask({
+      name: "Adams - Harbor (rush)",
+      humperdinkLink: "https://Humperdink.LoneOakFund.com/Loans/Details/335203/"
+    });
+    assert.equal(again.id, first.id, "a case/slash variant of the same page is the same loan");
+    assert.equal((await loanStore.all()).length, 1, "still one loan");
+    pass("importing the same loan page twice never mints a second loan");
   });
 
   for (const line of results) console.log(line);

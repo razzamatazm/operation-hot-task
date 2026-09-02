@@ -23,3 +23,8 @@ scripts/debug/
 # Agent worktrees. AGENTS.md puts them here so they stop landing in ~/repos and
 # reading as new projects; they are checkouts, not sources.
 .claude/worktrees/
+
+# A saved copy of a real Humperdink loan details page, kept as the selector
+# reference for tools/humperdink/. ~1.3 MB of markup plus a few hundred asset
+# files, and it is customer data — save your own, keep it out of history.
+humperdinkscrape/

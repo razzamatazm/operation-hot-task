@@ -3063,6 +3063,31 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate, init
      pending state, which is half the fix: the reporter's read was "the button
      didn't register my click," and a disabled `Creating…` corrects that. */
   const [submitting, setSubmitting] = useState(false);
+  /* Humperdink import (#194). `importText` is the paste target — the human
+     presses paste, the app never reads the clipboard itself. `imported` is the
+     button's own confirmation, cleared the moment the text changes so the label
+     can't claim a paste it hasn't taken. */
+  const [importText, setImportText] = useState("");
+  const [imported, setImported] = useState(false);
+
+  /* Take a pasted Humperdink payload into the form, or say why it can't.
+     A failure leaves every field exactly as it was: the parser returns a reason
+     rather than a null so the filer, who has no console open, gets told. */
+  const importFromHumperdink = (): void => {
+    const result = parseHumperdinkPayload(importText);
+    if (!result.ok) {
+      setImported(false);
+      showToast(result.error, { variant: "error" });
+      return;
+    }
+    setForm((c) => applyImportedLoan(c, result.payload));
+    // Keep the typeahead in step with the name the import just wrote, and shut
+    // it — the loan is settled, so a suggestion list over it is only noise.
+    setLoanQuery(result.payload.loanName);
+    setLoanSuggestOpen(false);
+    setLoanHighlight(-1);
+    setImported(true);
+  };
 
   /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
      by a task the current user created (merged loans share one id, so they
@@ -3218,6 +3243,38 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate, init
     >
       <div className="form-panel">
       <form className="task-form" onSubmit={handleSubmit}>
+        {/* Humperdink import (#194). Above Folder Name because it fills Folder
+            Name — the shortcut sits where the typing it saves would start.
+            Hidden for OOO: a vacation has no loan and no Humperdink link. */}
+        {form.taskType !== "OOO" && (
+          <div className="span-full task-form-import">
+            <label className="task-form-import-field">
+              Paste from Humperdink
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="Paste what Send to Hot Task copied"
+                value={importText}
+                onChange={(e) => {
+                  setImportText(e.target.value);
+                  setImported(false);
+                }}
+                onKeyDown={(e) => {
+                  // Enter in this field means "import", not "create the task" —
+                  // the form's implicit submit would file a half-filled task
+                  // out from under a paste.
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    importFromHumperdink();
+                  }
+                }}
+              />
+            </label>
+            <button type="button" className="btn-ghost btn-sm" onClick={importFromHumperdink}>
+              {imported ? "Imported" : "Import from Humperdink"}
+            </button>
+          </div>
+        )}
         <label>
           {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
           {form.taskType === "OOO" ? (
