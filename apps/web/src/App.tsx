@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -3614,6 +3614,11 @@ export const App = () => {
      the task id as subEntityId). Held until the task is present in `tasks`,
      then expanded + scrolled into view by the effect below. */
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  /* Task to claim on arrival, set only by a link that carried the explicit
+     claim intent — the channel card's "Claim & Open" (#180). Focus happens
+     either way: the claim never blocks the navigation, and when it doesn't land
+     the reason is a toast over a tab already open on the task. */
+  const [claimOnArrivalId, setClaimOnArrivalId] = useState<string | null>(null);
   /* When the active user changes (mock user picker), reset the in-memory
      maps to that user's stored data BEFORE the writer effects run — so we
      don't clobber B's localStorage with A's state. setState during render is
@@ -3800,6 +3805,13 @@ export const App = () => {
         const deepLinkTaskId = context.page?.subPageId ?? context.subEntityId;
         if (deepLinkTaskId) {
           setFocusTaskId(deepLinkTaskId);
+          /* "Claim & Open" adds an explicit opt-in field beside subEntityId in
+             the link's context; every other link this app builds or the bot
+             sends carries no such field and stays view-only, so a link pasted
+             into a chat never claims a task for whoever opens it (#180). */
+          if (readClaimIntent(context)) {
+            setClaimOnArrivalId(deepLinkTaskId);
+          }
         }
 
         /* Teams host present → resolve the real identity via SSO. */
@@ -3909,6 +3921,42 @@ export const App = () => {
       showToast(err instanceof Error ? err.message : "Failed to claim task", { variant: "error" });
     }
   }, [user, refresh, showToast]);
+
+  /* Claim on arrival, for a deep link that carried the claim intent — the
+     channel card's "Claim & Open" (#180).
+
+     Waits for the task to be in `tasks` for the same reason the focus effect
+     does: a cold open fetches after Teams init, and firing before the task is
+     here would leave nothing to name in a refusal. The claim goes through the
+     ordinary authenticated endpoint as the signed-in user, so `canClaimTask`
+     stays the only authority on whether it's allowed and the sentence it
+     refuses with — already held, not up for grabs, or the creator's own task
+     (ADR-0003) — is what the toast says. Nothing here re-decides eligibility.
+
+     One shot per link: the ref guards against a re-run while the POST is in
+     flight, since `tasks` changes underneath this effect. */
+  const claimedOnArrival = useRef<string | null>(null);
+  useEffect(() => {
+    if (!claimOnArrivalId || !tasks.some((t) => t.id === claimOnArrivalId)) {
+      return;
+    }
+    if (claimedOnArrival.current === claimOnArrivalId) {
+      return;
+    }
+    claimedOnArrival.current = claimOnArrivalId;
+    const taskId = claimOnArrivalId;
+    setClaimOnArrivalId(null);
+    void (async () => {
+      try {
+        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/claim`, { method: "POST" }, user);
+      } catch (err) {
+        // Never blocking: the tab is already open on the task, so the failure
+        // is a toast beside it rather than a wall in front of it.
+        showToast(err instanceof Error ? err.message : "Couldn't claim that task", { variant: "error" });
+      }
+      await refresh();
+    })();
+  }, [claimOnArrivalId, tasks, user, refresh, showToast]);
 
   const onUnclaim = useCallback(async (taskId: string): Promise<void> => {
     try {

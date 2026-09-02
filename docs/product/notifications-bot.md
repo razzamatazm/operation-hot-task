@@ -17,8 +17,8 @@
 
 ## Routing
 
-- New task created: channel post as an Adaptive Card with a one-tap **Claim**
-  button and an **Open in Hot Task** deep link, plus in-app event. The card's
+- New task created: channel post as an Adaptive Card with two actions —
+  **Claim & Open** and **Open in Hot Task** — plus in-app event. The card's
   root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
   so follow-ups can thread.
   - Title is `<creator> <type phrase>: <file name>`, e.g. `Tyler needs a set of
@@ -56,6 +56,45 @@
     The server's `webUrl` comes from the **optional** `APP_BASE_URL` env var
     and the param is omitted entirely when it's unset; the web app passes its
     own `window.location.origin`.
+  - **Claim & Open** claims the task and lands you on it, in one tap. It is an
+    `Action.OpenUrl` on the same deep link carrying an opt-in claim intent, and
+    the web app performs the claim on arrival through the ordinary
+    authenticated endpoint as the signed-in user. An Adaptive Card action can
+    only do one of the two — `Action.Execute` runs server-side and can't
+    navigate, `Action.OpenUrl` navigates and hits no API — so the combined
+    button is a link, and the claim happens where the user's own token already
+    is. Claiming without opening is the rarer path and has no button of its
+    own.
+    - **The claim intent is opt-in and lives in its own field**
+      (`claimOnOpen: true`) inside the link's `context` JSON, beside
+      `subEntityId` — never a prefix or sentinel on the task id. Every other
+      caller of `teamsTaskDeepLink` (the plain Open button, the DM cards, the
+      activity feed, the web app's "Copy link") produces the byte-identical
+      view-only URL it always did, so a link pasted into a chat can never claim
+      a task for whoever opens it. `withClaimIntent` derives the claim twin from
+      a link already recorded, so both buttons point where the card has always
+      pointed even across a config change.
+    - **The claim never blocks the navigation.** The tab opens on the task
+      expanded either way. A refusal is a toast beside it carrying the reason
+      the rule gives — already held, not up for grabs, or
+      [ADR-0003](../adr/0003-creator-is-never-assignee.md)'s "you created this
+      task" — from `claimRefusalMessage`, which is the same authority the server
+      refuses with. The web app re-decides nothing.
+    - **The creator never sees a claim affordance.** They get the Cancel view
+      through the card's user-specific refresh block, which needs their Teams
+      MRI. When they have never messaged the bot, that MRI now comes off the
+      **channel roster** instead of only a stored DM reference — otherwise the
+      creator fell back to the claim-for-all card and would be offered a claim
+      barred by ADR-0003, which with a link fails *after* navigation. A roster
+      that can't place them degrades to the old behaviour rather than failing.
+    - **With no deep link there is no Claim & Open**, because there is no link
+      to hang it on — `teamsTaskDeepLink` returns undefined whenever the app id
+      is unset, which is every local and test environment. The card then renders
+      the original one-tap `Action.Execute` **Claim**, so it is still claimable.
+      The invoke handler stays wired for that path and for every card posted
+      before the change.
+    - A claim made this way retires the Claim affordance everywhere, like any
+      other claim: the in-place card edit fires on *any* claim, web or card tap.
 - **Pool nag** (`CHANNEL_NAG`, [ADR-0005](../adr/0005-claim-anchored-deadline.md)):
   an unclaimed task re-posts a fresh claimable card to the channel every 20
   minutes during business hours, up to six times. A new post rather than an
@@ -68,8 +107,8 @@
   the root message id is unknown (e.g. the bot restarted, or the task predates
   threading).
 - The **root channel card is edited in place** through the task's whole life —
-  claimable → claimed → terminal — so a claim made from one card retires the
-  Claim button everywhere it was posted. Never a new message: the edits are
+  claimable → claimed → terminal — so a claim made from one card, by any route,
+  retires the claim affordance everywhere it was posted. Never a new message: the edits are
   silent, so nobody is re-pinged as a task moves.
   - **Every card after creation is one headline plus one context line**, and
     nothing else — no detail block. The context line names the four facts the
@@ -225,10 +264,13 @@ place, so a card's buttons always show the step that is actually next.
 
 ## Card Interactions
 
-- Tapping **Claim** on a card resolves the Teams user (`from.aadObjectId`) to a
-  stored identity, claims the task, then refreshes the card (button removed) and
-  threads the "grabbed this one" reply. Unknown/inactive users get a toast and
-  no claim.
+- Tapping the card's `Action.Execute` **Claim** — the linkless fallback, and
+  every card posted before **Claim & Open** — resolves the Teams user
+  (`from.aadObjectId`) to a stored identity, claims the task, then refreshes the
+  card (button removed) and threads the "grabbed this one" reply.
+  Unknown/inactive users get a toast and no claim, and so does anyone the rule
+  refuses: the toast is `claimRefusalMessage`'s sentence, which names the real
+  reason rather than a catch-all.
 - **Advance/Complete** buttons (note + claim cards) call `botPrimaryAdvance` for
   the next forward step (Merge Done → Approve Merge → Complete for Loan
   Docs; Complete otherwise), then transition via the task service and refresh to
