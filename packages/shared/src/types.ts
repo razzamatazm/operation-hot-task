@@ -39,6 +39,14 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
   `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
+/* Headline of the channel card once somebody takes the task. Composed here
+   because two surfaces build it — the in-place edit on claim, and the
+   user-specific refresh rebuilding the same card from the live task — and a
+   claimed card that reads two ways depending on which one rendered it is the
+   drift this card family already had once (#193). */
+export const formatClaimedHeadline = (assigneeName: string | undefined, folderName: string): string =>
+  `${assigneeName ?? "Someone"} grabbed ${folderName}`;
+
 /* A Fraud Check released back to the pool is NOT a new request — it's a
    half-finished one whose checker walked away, so the channel card says so
    rather than borrowing the "needs a Fraud Check" headline and reading as a
@@ -85,13 +93,18 @@ export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
    `assigneeVerb` is how the holder got there — "claimed by" for a real claim,
    "done by" on the completed card, "assigned to" for a task born assigned
    (Handoff at creation, ADR-0002), which nobody claimed. */
-export const formatChannelContextLine = (params: {
+export interface ChannelCardContext {
   taskType: TaskType;
+  /** The file name, or — on OOO — the Vacation Description, which never
+      reaches the line. */
   folderName: string;
+  /** Display name of whoever asked for the work. */
   createdBy: string;
+  /** Display name of whoever holds it now, absent when nobody does. */
   assignee?: string;
-  assigneeVerb?: string;
-}): string => {
+}
+
+export const formatChannelContextLine = (params: ChannelCardContext & { assigneeVerb?: string }): string => {
   const segments: string[] = [TASK_TYPE_LABELS[params.taskType]];
   if (params.taskType !== "OOO" && params.folderName.trim()) {
     segments.push(params.folderName.trim());

@@ -219,8 +219,7 @@ await check("a card-tap claim renders the same body as a web claim", async () =>
   assert.deepEqual(response.body.value.body, webCard.body, "one claim, one card body");
 });
 
-await check("a task born assigned reads 'assigned to', not 'claimed by'", async () => {
-  const { client, posted } = await botSetup();
+const postBornAssigned = async (client) => {
   await client.postTaskCard(
     "task-1",
     "Dana Requester needs an LOI checked: Smith-1042",
@@ -228,13 +227,37 @@ await check("a task born assigned reads 'assigned to', not 'claimed by'", async 
     undefined,
     "Dana Requester needs an LOI checked",
     CREATOR.id,
-    contextFor()
+    { ...contextFor(), assigneeId: CHECKER.id }
   );
+};
+
+await check("a task born assigned reads 'assigned to', not 'claimed by'", async () => {
+  const { client, posted } = await botSetup();
+  await postBornAssigned(client);
 
   const card = cardOf(posted[0]);
   assert.equal(headline(card), "Dana Requester needs an LOI checked: Smith-1042");
   assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester · assigned to Casey Checker");
   assert.deepEqual(actionTitles(card), [], "no Claim button to appear and then vanish");
+});
+
+await check("a refresh does not turn a task born assigned into a claim", async () => {
+  const { client } = await botSetup();
+  await postBornAssigned(client);
+
+  // Nothing on the task says it was never claimed — the assignee looks the
+  // same either way — so the refresh leans on what the post recorded.
+  client.setTaskLookup(async () => taskAt("CLAIMED"));
+  const card = await client.handleRefreshCard("task-1", "aad-viewer");
+  assert.equal(headline(card), "Dana Requester needs an LOI checked: Smith-1042");
+  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester · assigned to Casey Checker");
+
+  // Once it changes hands somebody really did claim it, and the card says so.
+  const other = { id: "aad-other", displayName: "Robin Checker" };
+  client.setTaskLookup(async () => taskAt("CLAIMED", { assignee: other }));
+  const reclaimed = await client.handleRefreshCard("task-1", "aad-viewer");
+  assert.equal(headline(reclaimed), "Robin Checker grabbed Smith-1042");
+  assert.equal(contextLine(reclaimed), "LOI Check · Smith-1042 · asked by Dana Requester · claimed by Robin Checker");
 });
 
 console.log(`\n${passed} checks passed`);

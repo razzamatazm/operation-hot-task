@@ -130,7 +130,11 @@
   the channel post uses the **claimed-card** variant instead of the claimable
   one — announced, with no Claim button to appear and then vanish. It keeps the
   creation headline and reads `assigned to <assignee>` on its context line,
-  because nobody claimed it. Deliberately
+  because nobody claimed it. Nothing on the task itself records that — an
+  assignee looks the same however it got there — so the thread record remembers
+  who the task was born in the hands of, and a later Teams refresh keeps saying
+  "assigned to" until the task changes hands, at which point somebody really did
+  claim it and the card says so. Deliberately
   quiet: channel messages set no `channelData.notification.alert`, and the
   activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
   which this isn't. The recipient still gets the `DM_ASSIGN` card.

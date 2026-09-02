@@ -190,7 +190,9 @@ export class TeamsNotificationProvider implements NotificationProvider {
         card.openUrl,
         card.summary,
         event.task.createdBy.id,
-        event.task.assignee ? channelCardContext(event.task) : undefined
+        event.task.assignee
+          ? { ...channelCardContext(event.task), assigneeId: event.task.assignee.id }
+          : undefined
       );
       await this.webhookIfBroadcasting({ title: card.summary, text: card.detail });
       return;
