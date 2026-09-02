@@ -78,7 +78,10 @@ deadline is gone once the task is claimed, the fix for an unclaimed task blowing
 its window is pressure rather than accounting. An unclaimed task raises no in-app
 overdue signal and DMs nobody; its creator's own row counts up ("unclaimed for 10
 minutes") and turns red at 20, and the group channel is asked to pick it up on
-the same cadence.
+the same cadence. The two pressures part company in one place (#213): a FRAUD
+task released for any checker is unheld at `Pending Approval`, so the creator's
+row counts up for it, while the channel is asked once by the release itself and
+not nagged after.
 
 The two halves shipped separately. The quiet half — the count-up row, the absent
 DM — landed with this ADR in

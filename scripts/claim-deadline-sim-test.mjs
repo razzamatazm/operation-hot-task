@@ -30,7 +30,9 @@ import {
   isDeadlineRecomputeExempt,
   isOverdue,
   isUnclaimed,
-  isUnclaimedTooLong
+  isUnclaimedTooLong,
+  isPoolNagDue,
+  isPoolNagEligible
 } from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -409,6 +411,38 @@ await check("a task released back to the pool reads as unclaimed, not as overdue
     await service.settleBackgroundWork();
     const overdueSignals = events.filter((e) => e.target === "ACTIVITY_FEED" && /running late/.test(e.message));
     assert.equal(overdueSignals.length, 0);
+  }));
+
+await check("a fraud check released for any checker counts up for its creator, and does not nag the room", async () =>
+  withFrozenTime(FROZEN_INSTANT, async () => {
+    const { service, store } = await setup();
+    const task = await service.createTask({ folderName: "Needs A Checker", taskType: "FRAUD", notes: "n", urgency: "ORANGE" }, CREATOR);
+    await service.claimTask(task.id, CHECKER);
+    await service.transitionStatus(task.id, "AWAITING_ITEMS", CHECKER, "please gather these");
+    await service.transitionStatus(task.id, "PENDING_APPROVAL", CREATOR);
+    await service.releaseForAnyChecker(task.id, CREATOR);
+
+    /* The clock is `pooledSince`, stamped by the release — NOT `createdAt`,
+       which here counts the time the first checker spent working on it (#210).
+       Backdating only `pooledSince` is what tells the two apart. */
+    await backdate(store, task.id, { pooledSince: minutesAgo(19) });
+    const young = await service.getTask(task.id);
+    assert.equal(young.status, "PENDING_APPROVAL", "released in place — it is not OPEN");
+    assert.equal(isUnclaimedTooLong(young, new Date()), false, "19 minutes is not yet 20, released or otherwise");
+
+    await backdate(store, task.id, { pooledSince: minutesAgo(21) });
+    const old = await service.getTask(task.id);
+    assert.equal(
+      isUnclaimedTooLong(old, new Date()),
+      true,
+      "the seat is empty and has been for twenty minutes — the creator is the one person who can chase it (#213)"
+    );
+
+    /* #213 option 2: the creator gets told, the channel does not. The release
+       announces itself once and then stays quiet, so a released check must
+       never become nag-eligible. */
+    assert.equal(isPoolNagEligible(old), false, "final approval asks the room once, not every twenty minutes (#213)");
+    assert.equal(isPoolNagDue(old, new Date(), config), false);
   }));
 
 console.log(`\n${passed} checks passed`);

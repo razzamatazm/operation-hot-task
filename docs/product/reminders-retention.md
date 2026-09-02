@@ -58,6 +58,13 @@ waiting on hands.
   20. Both surfaces read the same 20-minute constant **and the same anchor** —
   the moment the task entered the pool, not the moment it was filed (#210) — so
   neither the threshold nor the number can drift between them.
+- The count-up follows the empty seat, not the status (#213). A FRAUD task
+  released for any checker holds at `Pending Approval` with nobody on it, and
+  its creator's row counts up like any other pooled task. The **channel** nag
+  does not follow it there: the release posts its own "up for grabs — final
+  approval needed" card once and the room is not asked again. Telling the one
+  person who can chase a checker is cheap; six re-posts of a final approval is
+  not.
 - The anchor is only recorded from #210 onwards. A task handed back **before**
   that shipped has no stamp and falls back to its filing date, so it will
   overstate itself once more until somebody takes it or hands it back again.

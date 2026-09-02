@@ -300,18 +300,27 @@ const groupedDue = (
      task entered the pool (#210), so a task handed back counts from the hand-back
      rather than from the day it was filed. */
   if (isUnclaimed(task)) {
-    // When the row goes red is the shared rule's call, never this row's — same
-    // reason isOverdue is delegated below. The twenty-minute threshold and the
-    // "never claimed" part both live in the shared model, so this row and the
-    // server cannot drift apart on what "too long unclaimed" means.
-    /* Counted from when the task entered the pool, not from when it was filed
+    /* One count-up, calm or red, so the two cannot cover different sets of
+       tasks (#213). They used to be two branches with a `status === "OPEN"`
+       test on the calm one, which meant a Fraud Check released for any checker
+       showed nothing at all and then snapped straight to red at twenty minutes.
+
+       When it goes red is the shared rule's call, never this row's — same
+       reason isOverdue is delegated below. The twenty-minute threshold, the
+       empty-seat test and the OOO exemption all live in the shared model, so
+       this row and the server cannot drift apart on what "too long unclaimed"
+       means.
+
+       Counted from when the task entered the pool, not from when it was filed
        (#210) — the shared accessor, so this row and the channel nag quote the
        same number. They are the same instant for a task nobody ever claimed. */
-    if (viewerIsRequester && isUnclaimedTooLong(task, new Date(nowMs))) {
-      return { label: "UNCLAIMED FOR", value: elapsedSince(inPoolSince(task), nowMs), overdue: true, done: false };
-    }
-    if (viewerIsRequester && task.status === "OPEN") {
-      return { label: "UNCLAIMED FOR", value: elapsedSince(inPoolSince(task), nowMs), overdue: false, done: false };
+    if (viewerIsRequester) {
+      return {
+        label: "UNCLAIMED FOR",
+        value: elapsedSince(inPoolSince(task), nowMs),
+        overdue: isUnclaimedTooLong(task, new Date(nowMs)),
+        done: false
+      };
     }
     /* No label. `Within 24 Hours` is the widest thing this cell renders and it
        is self-describing; pairing it with an `URGENCY` label overruns the 154px
