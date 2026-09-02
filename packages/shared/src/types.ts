@@ -67,6 +67,44 @@ export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
   OOO: "Out of Office"
 };
 
+/* The one context line every post-creation channel card carries under its
+   headline (#193). The claimed / completed / cancelled cards used to be rebuilt
+   from the folder name alone, which dropped the two facts a reader scrolling
+   the channel actually wants — who asked for this, and what kind of work it was
+   — the moment the card left its created state.
+
+   Reads as `LOI Check · Smith-1042 · asked by Tyler · done by Suzie`: the
+   friendly type label (the same `TASK_TYPE_LABELS` wording every DM surface
+   uses, never a second phrasing), the file name, the assigner, the current
+   holder. A segment is omitted rather than rendered empty, so a cancelled task
+   nobody claimed simply ends after the assigner.
+
+   OOO carries no file name: an OOO task's Folder Name is a Vacation
+   Description and the task has no Loan behind it, so there is nothing to name.
+
+   `assigneeVerb` is how the holder got there — "claimed by" for a real claim,
+   "done by" on the completed card, "assigned to" for a task born assigned
+   (Handoff at creation, ADR-0002), which nobody claimed. */
+export const formatChannelContextLine = (params: {
+  taskType: TaskType;
+  folderName: string;
+  createdBy: string;
+  assignee?: string;
+  assigneeVerb?: string;
+}): string => {
+  const segments: string[] = [TASK_TYPE_LABELS[params.taskType]];
+  if (params.taskType !== "OOO" && params.folderName.trim()) {
+    segments.push(params.folderName.trim());
+  }
+  if (params.createdBy.trim()) {
+    segments.push(`asked by ${params.createdBy.trim()}`);
+  }
+  if (params.assignee?.trim()) {
+    segments.push(`${params.assigneeVerb ?? "claimed by"} ${params.assignee.trim()}`);
+  }
+  return segments.join(" · ");
+};
+
 /* Text of a plain lifecycle DM — the completion notice, the merge steps, the
    fraud round trip, handoff displacement, OOO auto-completion and the overdue
    reminder all read as `<friendly type> - <message>`, with the folder name

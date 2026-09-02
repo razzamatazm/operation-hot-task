@@ -71,9 +71,33 @@
   claimable → claimed → terminal — so a claim made from one card retires the
   Claim button everywhere it was posted. Never a new message: the edits are
   silent, so nobody is re-pinged as a task moves.
-  - At a terminal status the card becomes a record: `✅ Completed — <folder>`
-    (also used for ARCHIVED) or `🚫 Cancelled — <folder>`, with every action
-    button dropped except **Open in Hot Task**, which survives so the card that
+  - **Every card after creation is one headline plus one context line**, and
+    nothing else — no detail block. The context line names the four facts the
+    creation headline carried and the later edits used to drop: the task type as
+    its `TASK_TYPE_LABELS` label, the file name, the assigner, and whoever holds
+    the task now. It reads
+    `LOI Check · Smith-1042 · asked by Tyler · done by Suzie`. Composed once, by
+    `formatChannelContextLine` (`packages/shared/src/types.ts`).
+    - Headlines by stage: `<claimer> grabbed <folder>` on claim,
+      `✅ Completed — <folder>` (also used for ARCHIVED),
+      `🚫 Cancelled — <folder>`.
+    - The holder segment says how they got there: `claimed by` on the claimed
+      and cancelled cards, `done by` on the completed one, `assigned to` for a
+      task born assigned (nobody claimed that one).
+    - A segment with nothing to say is **omitted, not blanked**. A task
+      cancelled before anyone took it ends at `asked by Tyler`.
+    - **OOO carries no file name.** An OOO task's Folder Name is a Vacation
+      Description and the task has no Loan behind it, so the line is
+      `Out of Office · asked by Tyler · done by Suzie`.
+    - The facts are threaded in from the task snapshot the notification layer
+      already holds (`channelCardContext` in `apps/server/src/bot.ts`). The card
+      layer never reads the store and never re-derives a fact from the folder
+      name. The user-specific refresh path rebuilds from the live task and
+      passes the same facts, so a Teams refresh replays the card it was edited
+      to rather than reverting to a folder-only form. A card-tap claim and a web
+      claim go through the same builder and render the same body.
+  - At a terminal status the card becomes a record, with every action button
+    dropped except **Open in Hot Task**, which survives so the card that
     records the finished work is still a way into it. The URL is the one
     recorded when the card was first posted, so a card keeps pointing where it
     always pointed across a config change. With no link recorded — the case
@@ -104,7 +128,9 @@
     under anyone, so that is never silent.
 - **Task created already handed off** (`assigneeUserId` on the create payload):
   the channel post uses the **claimed-card** variant instead of the claimable
-  one — announced, with no Claim button to appear and then vanish. Deliberately
+  one — announced, with no Claim button to appear and then vanish. It keeps the
+  creation headline and reads `assigned to <assignee>` on its context line,
+  because nobody claimed it. Deliberately
   quiet: channel messages set no `channelData.notification.alert`, and the
   activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
   which this isn't. The recipient still gets the `DM_ASSIGN` card.
