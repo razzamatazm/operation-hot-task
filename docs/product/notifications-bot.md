@@ -21,12 +21,21 @@
   button and an **Open in Hot Task** deep link, plus in-app event. The card's
   root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
   so follow-ups can thread.
-  - Title is `[<TASK_TYPE>] <creator> <type phrase>: <file name>`,
-    e.g. `[LOAN_DOCS] Tyler needs a set of loan docs done: Smith-1042`.
-    Per-type phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked",
-    VALUE "needs a Value Check", OOO "is out of office", etc.). The file name
-    links to the task's Humperdink link when one exists. Urgency is NOT in the
-    title (it moved to the detail block).
+  - Title is `<creator> <type phrase>: <file name>`, e.g. `Tyler needs a set of
+    loan docs done: Smith-1042`, composed by `formatNewTaskHeadline`. Per-type
+    phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked", VALUE
+    "needs a Value Check", OOO "needs OOO Coverage", etc.). The file name links
+    to the task's Humperdink link when one exists. Urgency is NOT in the title
+    (it moved to the detail block).
+  - **No plain type tag on this card, by decision.** Every other notification
+    surface names the type as its `TASK_TYPE_LABELS` noun ("LOI Check"), and
+    the raw `[LOI]`-style bracket tag this card once carried is gone. It is not
+    returning as a friendly-label tag either: four of the six needs-phrases
+    already contain the label verbatim, so a tag beside the phrase stutters
+    ("Tyler needs a Fraud Check - Fraud Check"), and the two that differ
+    (`LOAN_DOCS`, `OOO`) still name themselves plainly in the sentence. The
+    type was only ever ambiguous on the cards *after* creation, which is a
+    separate problem from this card's copy.
   - Detail block is `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as
     its time-frame label ("Within 1 Hour"), not the raw colour code. Folder is
     omitted — the file name is already in the title.
