@@ -738,9 +738,6 @@ button.btn-good:hover {
 .task-card-archived .task-card-collapsed-type {
   color: var(--ink-secondary);
 }
-.task-card-archived .status-banner-label {
-  color: var(--good);
-}
 
 /* Celebrating — green halo pulse for ~3s when the creator's task hits a
    completion milestone (COMPLETED or LOAN_DOCS MERGE_DONE). The card is
@@ -1449,107 +1446,12 @@ button.btn-good:hover {
   padding: 4px 0;
 }
 
-/* ── Status banner (muted, text-only) ─────────────────────── */
-.status-banner {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.66rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  width: fit-content;
-  background: transparent;
-  border: none;
-  padding: 0;
-  line-height: 1.15;
-}
-/* Multi-word banner labels (IN PROGRESS / MERGE DONE / ...) embed a
-   newline in the source string — render it as a line break. */
-.status-banner-label {
-  white-space: pre-line;
-}
-
-.status-banner-sub {
-  font-weight: 500;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
-
-.status-open {
-  color: var(--ink-secondary);
-}
-
-.status-pending {
-  color: var(--muted);
-  font-weight: 500;
-}
-
-.status-claimed {
-  color: var(--ink);
-}
-
-.status-merge {
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.status-completed {
-  color: var(--good);
-  font-weight: 700;
-}
-
-.status-cancelled {
-  color: var(--bad);
-  font-weight: 700;
-}
-
-.status-archived {
-  color: var(--muted);
-}
-
-.task-card-title {
-  font-family: "DM Sans", sans-serif;
-  font-weight: 700;
-  font-size: 1.02rem;
-  line-height: 1.28;
-  color: var(--ink);
-}
-
-.task-card-title a {
-  color: var(--brand);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border-bottom: 1px solid var(--brand);
-  padding-bottom: 1px;
-  text-decoration: none;
-}
-
-.task-card-title a:hover {
-  color: var(--brand-hover);
-  border-bottom-color: var(--brand-hover);
-  text-decoration: none;
-}
-
-.task-card-title a:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: 3px;
-}
-
+/* ── External link icon ───────────────────────────────────── */
 .external-link-icon {
   font-size: 0.82em;
   line-height: 1;
   transform: translateY(-1px);
   opacity: 0.85;
-}
-
-.task-card-tags {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
 }
 
 /* ── Actions menu ─────────────────────────────────────────── */
@@ -1929,7 +1831,8 @@ button.btn-good:hover {
   50% { opacity: 0.65; }
 }
 
-/* Unread-note dot — sits inline next to the status banner label, pulsing red. */
+/* Unread-note dot — sits inline at the end of the collapsed row's type
+   label, pulsing red. */
 .task-card-unread-dot {
   display: inline-block;
   width: 7px;

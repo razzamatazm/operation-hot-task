@@ -14,8 +14,8 @@ think bookkeeping pad with sharp typography.
 - Body: **DM Sans** (400 / 500 / 600)
 - Mono / metadata / badges: **JetBrains Mono** (uppercase, tracked, small)
 
-Mono is reserved for non-prose: status banners, dates, counts, type labels,
-section counts. Prose stays in DM Sans. Don't mix.
+Mono is reserved for non-prose: dates, counts, type labels, section
+counts. Prose stays in DM Sans. Don't mix.
 
 ## Theme Tokens
 
@@ -524,8 +524,9 @@ Per-user "I've seen the latest note from someone else" map persists in
 note arrives from the other party, the recipient's card:
 
 - Drops dim (`hasUnreadNote` short-circuits `dimmed`).
-- Pulses a small red `.task-card-unread-dot` (8px, `--bad`) next to the
-  status-banner label, animated via `pulse-unread`.
+- Pulses a small red `.task-card-unread-dot` (8px, `--bad`) at the end of
+  the collapsed row's type label (`.task-card-collapsed-type`), animated via
+  `pulse-unread`.
 
 **Only for a Party.** `hasUnreadNote` comes from `hasUnreadNoteForViewer`
 (`packages/shared/src/notes.ts`), which gates the note check on the viewer
