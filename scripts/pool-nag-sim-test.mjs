@@ -182,8 +182,12 @@ await check("the nag stops at the ceiling rather than repeating forever", async 
 
 await check("the channel cadence and the creator's row read one constant", async () => {
   // Not a tautology: the two predicates are separate functions, and the point of
-  // the shared constant is that the creator cannot be watching a calm row while
-  // the room is being pestered. Straddle the threshold and they must agree.
+  // the shared constant is that for a task in the pool the creator cannot be
+  // watching a calm row while the room is being pestered. Straddle the threshold
+  // and they must agree. What they agree about is the THRESHOLD, not the set of
+  // tasks: since #213 the creator's row also counts up for a FRAUD check
+  // released in place, which the channel is deliberately never nagged about.
+  // Every task here is an `openTask`, where the two do cover the same ground.
   const justUnder = new Date(NOW.getTime() - UNCLAIMED_ALERT_MS + 60_000).toISOString();
   const justOver = new Date(NOW.getTime() - UNCLAIMED_ALERT_MS - 60_000).toISOString();
 
@@ -528,8 +532,9 @@ await check("every door into the pool restarts the clock, and taking it stops it
     await service.settleBackgroundWork();
     assert.equal((await store.findTask(reopened.id)).pooledSince, new Date().toISOString(), "the reopen door stamps");
 
-    // Door: a FRAUD release, which keeps its status. Nothing reads the field in
-    // that state today, but it should still say something true.
+    // Door: a FRAUD release, which keeps its status. Since #213 the creator's
+    // count-up reads the field in exactly that state, so the stamp is load-
+    // bearing here rather than merely honest.
     const released = await service.createTask(
       { folderName: "Released Check", taskType: "FRAUD", notes: "n", urgency: "GREEN" },
       CREATOR

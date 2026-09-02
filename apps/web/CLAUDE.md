@@ -170,13 +170,14 @@ stripe | pair          | due
   - An **unclaimed** task shows no countdown at all (ADR-0005) — its `dueAt`
     restarts from whenever somebody takes it, so the number would be wrong the
     moment it stopped being unclaimed. Its creator gets an `UNCLAIMED FOR`
-    count-up that reddens via the shared `isUnclaimedTooLong`, and only while
-    the task is still `OPEN`; everyone else gets the bare urgency time-frame.
-    "Unclaimed" is the shared `isUnclaimed` — **no assignee and not closed**,
-    not `status === "OPEN"`. A FRAUD task released for any checker is unassigned
-    at `PENDING_APPROVAL`, and testing the status instead of the holder is what
-    let that row render a red `OVERDUE BY` while the server agreed it was
-    nobody's lateness.
+    count-up that reddens via the shared `isUnclaimedTooLong`; everyone else
+    gets the bare urgency time-frame. "Unclaimed" is the shared `isUnclaimed` —
+    **no assignee and not closed**, not `status === "OPEN"` — and since #213
+    both the calm count-up and the reddening one ask that same question, so they
+    cover the same rows. A FRAUD task released for any checker is unassigned at
+    `PENDING_APPROVAL`: testing the status instead of the holder is what let
+    that row render a red `OVERDUE BY` while the server agreed it was nobody's
+    lateness, and what left the released check with no count-up at all.
 
   Watch the width here. The `due` track is 154px and
   `.task-card-grouped-due-value` is `nowrap`, so an over-long pair overruns the

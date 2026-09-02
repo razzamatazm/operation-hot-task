@@ -987,7 +987,13 @@ export const MAX_POOL_NAGS = 6;
    An OOO task is a vacation notice, not a request for hands: it is born OPEN and
    unassigned and stays that way until it auto-completes on the return date.
    Without this clause the nag would ask the room to pick up someone's holiday
-   every 20 minutes of every business day until they got back. */
+   every 20 minutes of every business day until they got back.
+
+   Keyed on OPEN even though `isUnclaimedTooLong` no longer is (#213). A FRAUD
+   task released for any checker is unheld and claimable, so the creator's row
+   counts up for it — but the channel is asked for a final approver once, by the
+   release itself, and not again. Chasing one person who can act is cheap;
+   six re-posts of the same ask is a noise budget nobody asked for. */
 export const isPoolNagEligible = (task: Pick<LoanTask, "taskType" | "status" | "assignee">): boolean =>
   task.taskType !== "OOO" && task.status === "OPEN" && !task.assignee;
 
@@ -1049,21 +1055,21 @@ export const isUnclaimed = (task: Pick<LoanTask, "status" | "assignee">): boolea
    that has never been claimed those are the same instant, and for one handed
    back they are not.
 
-   Still keyed on `status === "OPEN"` rather than on the holder-based
-   `isUnclaimed`, and the reason has changed. It used to be that `createdAt`
-   would have given a released task a wrong count-up, so it got none; with
-   `pooledSince` there is now a right one available. What keys it on OPEN today
-   is scope, not correctness: widening it would also start nagging the channel
-   about a Fraud Check released for any checker, which is a product call about
-   how loud that flow should be rather than a fix. Tracked in
-   [#213](https://github.com/razzamatazm/operation-hot-task/issues/213); until
-   then the release announces itself once, in place, and says nothing after.
-   `pooledSince` IS stamped on that path, so whichever way #213 goes, the number
-   is already there and correct. */
+   Keyed on the holder-based `isUnclaimed`, not on `status === "OPEN"` (#213). A
+   FRAUD task released for any checker is unassigned in place at
+   `PENDING_APPROVAL` — the code calls it "up for grabs" in the channel and
+   `canClaimTask` opens for it — so an OPEN key made it the one pooled task that
+   raised nothing at all for its creator, however long it sat. That was
+   defensible while the only clock was `createdAt`, which for a released task
+   counts the hours the first checker spent working on it; `pooledSince` is
+   stamped on that path too, so there is now a right number to show.
+
+   Wider than `isPoolNagEligible` on purpose, and that is the one place the two
+   pool rules answer different questions rather than drifting — the reasoning is
+   on `isPoolNagEligible` above. */
 export const isUnclaimedTooLong = (task: LoanTask, now: Date): boolean =>
   task.taskType !== "OOO" &&
-  task.status === "OPEN" &&
-  !task.assignee &&
+  isUnclaimed(task) &&
   now.getTime() - new Date(inPoolSince(task)).getTime() >= UNCLAIMED_ALERT_MS;
 
 export const shouldSendReminder = (task: LoanTask, now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
