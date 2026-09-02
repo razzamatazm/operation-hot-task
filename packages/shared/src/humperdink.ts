@@ -38,8 +38,10 @@ export const HUMPERDINK_PAYLOAD_VERSION = 1;
 /** The highest version this app can read. See the versioning rules above. */
 export const SUPPORTED_HUMPERDINK_PAYLOAD_VERSION = 1;
 
-/** Every Humperdink loan details URL looks like `/Loans/Details/<id>`. */
-export const LOAN_DETAILS_PATH = /\/Loans\/Details\/[^/?#]+/i;
+/** Every Humperdink loan details URL has the path `/Loans/Details/<id>`.
+    Anchored on purpose — an unanchored match calls
+    `https://evil.example/x/Loans/Details/1` a loan page. */
+export const LOAN_DETAILS_PATH = /^\/Loans\/Details\/[^/]+\/?$/i;
 
 /** Humperdink titles its loan details page `<LoanName> - Details`. */
 export const LOAN_TITLE_SUFFIX = " - Details";
@@ -75,9 +77,29 @@ export const loanNameFromPageTitle = (title: string | null | undefined): string 
   return text.slice(0, text.length - suffix.length).trim();
 };
 
-/** True when a URL points at a Humperdink loan details page. */
-export const isLoanDetailsUrl = (url: string | null | undefined): boolean =>
-  LOAN_DETAILS_PATH.test((url ?? "").trim());
+/* True when a URL points at a Humperdink loan details page.
+
+   Three separate gates, because this value does not stop at the form: it fills
+   `humperdinkLink`, becomes the canonical key for a Loan (ADR-0001), and is
+   rendered as an `href` on every card for that loan. A pasted payload is
+   attacker-supplied text — the human copied it from a page we don't control —
+   so `javascript:` and a lookalike path buried inside some other site's URL
+   both have to fail here rather than at the `<a>`.
+
+   The host deliberately isn't checked: Humperdink's hostname isn't configured
+   anywhere in the app, and the field has always accepted a typed URL. */
+export const isLoanDetailsUrl = (url: string | null | undefined): boolean => {
+  const value = (url ?? "").trim();
+  if (!value) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+  return LOAN_DETAILS_PATH.test(parsed.pathname);
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,9 +130,15 @@ export const parseHumperdinkPayload = (text: string | null | undefined): Humperd
     return { ok: false, error: NOT_OURS };
   }
 
+  // Past this point the paste IS ours, so nothing below tells the filer to go
+  // and press Send to Hot Task — they already did. Every message from here on
+  // is about the payload, not about where payloads come from.
   const version = decoded.version;
   if (typeof version !== "number" || !Number.isFinite(version) || version < 1) {
-    return { ok: false, error: NOT_OURS };
+    return {
+      ok: false,
+      error: "That payload doesn't say which version it is. Re-copy it with an up-to-date Send to Hot Task script."
+    };
   }
   if (version > SUPPORTED_HUMPERDINK_PAYLOAD_VERSION) {
     return {

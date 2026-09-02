@@ -24,6 +24,7 @@ import {
   HUMPERDINK_PAYLOAD_KIND,
   HUMPERDINK_PAYLOAD_VERSION,
   SUPPORTED_HUMPERDINK_PAYLOAD_VERSION,
+  isLoanDetailsUrl,
   loanNameFromPageTitle,
   parseHumperdinkPayload
 } from "../packages/shared/src/humperdink.ts";
@@ -118,7 +119,7 @@ const runUserscript = ({ title, href, clipboard = "ok" }) => {
     return handle;
   };
 
-  const sandbox = { document, location: url, navigator, setTimeout: unrefed, clearTimeout, console };
+  const sandbox = { document, location: url, navigator, setTimeout: unrefed, clearTimeout, console, URL };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(USERSCRIPT, sandbox);
@@ -200,6 +201,18 @@ test("a page that isn't a loan details page reports the problem and copies nothi
   const page = runUserscript({
     title: "Adams - Harbor - Details",
     href: "https://humperdink.loneoakfund.com/Loans/Index"
+  });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /loan details URL/);
+});
+
+test("a lookalike path on some other site is not a loan page either", async () => {
+  // The @match line should never let this run here at all, but the control
+  // makes its own decision rather than trusting the match.
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: "https://evil.example/x/Loans/Details/335203"
   });
   await page.press();
   assert.deepEqual(page.copied, []);
@@ -320,6 +333,37 @@ test("a link that isn't a loan details page is rejected", () => {
   assert.match(result.error, /isn't a Humperdink loan page/);
 });
 
+/* The link doesn't stop at the form: it becomes the canonical key for a Loan
+   (ADR-0001) and is rendered as an `href` on every card for that loan. A pasted
+   payload is attacker-supplied text — the human copied it off a page we don't
+   control — so the check has to hold here rather than at the anchor. */
+test("only an http(s) URL whose whole path is a loan details path counts as one", () => {
+  const notLoanPages = [
+    "javascript:alert(1)//Loans/Details/1",
+    "data:text/html,/Loans/Details/1",
+    "https://evil.example/redirect?to=/Loans/Details/1",
+    "https://evil.example/x/Loans/Details/1",
+    "/Loans/Details/335203",
+    "Loans/Details/335203",
+    "",
+    "   "
+  ];
+  for (const url of notLoanPages) assert.equal(isLoanDetailsUrl(url), false, `${url} is not a loan page`);
+
+  const loanPages = [
+    "https://humperdink.loneoakfund.com/Loans/Details/335203",
+    "https://humperdink.loneoakfund.com/Loans/Details/335203/",
+    "http://humperdink.local/loans/details/335203"
+  ];
+  for (const url of loanPages) assert.equal(isLoanDetailsUrl(url), true, `${url} is a loan page`);
+});
+
+test("a payload carrying a javascript: link is rejected, not filled into the form", () => {
+  const result = parseHumperdinkPayload(payloadText({ loanUrl: "javascript:alert(1)//Loans/Details/1" }));
+  assert.equal(result.ok, false);
+  assert.match(result.error, /isn't a Humperdink loan page/);
+});
+
 /* The versioning rules in humperdink.ts, exercised. Userscripts are
    self-installed, so the script in the field and the deployed app are always
    different ages — in both directions. */
@@ -330,9 +374,29 @@ test("a payload from a newer script than this app understands says to update", (
   assert.match(result.error, /needs updating/);
 });
 
-test("a missing or nonsense version is not treated as ours", () => {
+/* A payload carrying our `kind` is ours whatever else is wrong with it, so it
+   must never be answered with "press Send to Hot Task, then paste here" — the
+   filer already did that, and doing it again fixes nothing. */
+test("a missing or nonsense version is rejected as a bad payload, not as a stray paste", () => {
   for (const version of [undefined, 0, -1, "1", null, Number.NaN]) {
-    assert.equal(parseHumperdinkPayload(payloadText({ version })).ok, false, `version ${String(version)}`);
+    const result = parseHumperdinkPayload(payloadText({ version }));
+    assert.equal(result.ok, false, `version ${String(version)}`);
+    assert.match(result.error, /doesn't say which version it is/);
+    assert.doesNotMatch(result.error, /isn't a Humperdink payload/);
+  }
+});
+
+test("no message about our own payload tells the filer to go and re-press the button", () => {
+  const ours = [
+    payloadText({ version: 99 }),
+    payloadText({ version: undefined }),
+    payloadText({ loanName: "" }),
+    payloadText({ loanUrl: "https://humperdink.loneoakfund.com/Loans/Index" })
+  ];
+  for (const text of ours) {
+    const result = parseHumperdinkPayload(text);
+    assert.equal(result.ok, false);
+    assert.doesNotMatch(result.error, /isn't a Humperdink payload/, text);
   }
 });
 

@@ -31,7 +31,7 @@
   var PAYLOAD_KIND = "hot-task-humperdink";
   var PAYLOAD_VERSION = 1;
   var TITLE_SUFFIX = " - details";
-  var LOAN_DETAILS_PATH = /\/Loans\/Details\/[^/?#]+/i;
+  var LOAN_DETAILS_PATH = /^\/Loans\/Details\/[^/]+\/?$/i;
 
   var BUTTON_ID = "hot-task-send-control";
   var IDLE_LABEL = "Send to Hot Task";
@@ -46,15 +46,21 @@
     return text.slice(0, text.length - TITLE_SUFFIX.length).trim();
   }
 
-  /* Origin + path only. Humperdink's details URLs are path-only in practice,
-     and dropping any query/hash keeps the link stable as the canonical key for
-     a Loan on the Hot Task side (ADR-0001) — otherwise a visit that happened to
-     carry a tracking param would mint a second loan. */
+  /* Origin + path only, or "" when this isn't a loan details page. Humperdink's
+     details URLs are path-only in practice, and dropping any query/hash keeps
+     the link stable as the canonical key for a Loan on the Hot Task side
+     (ADR-0001) — otherwise a visit that happened to carry a tracking param
+     would mint a second loan. The same three gates the Hot Task parser applies
+     (parses, http(s), whole path is a details path). */
   function loanUrlFrom(location) {
-    var href = String(location && location.href ? location.href : "");
-    var origin = String(location && location.origin ? location.origin : "");
-    var pathname = String(location && location.pathname ? location.pathname : "");
-    return origin && pathname ? origin + pathname : href.split("#")[0].split("?")[0];
+    try {
+      var url = new URL(String(location && location.href ? location.href : ""));
+      if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+      if (!LOAN_DETAILS_PATH.test(url.pathname)) return "";
+      return url.origin + url.pathname;
+    } catch (err) {
+      return "";
+    }
   }
 
   /* Build the payload, or say what's missing. Never returns a partial payload:
@@ -65,7 +71,7 @@
     var loanName = loanNameFromTitle(doc.title);
     if (!loanName) missing.push('the loan name (the page title should read "<loan> - Details")');
     var loanUrl = loanUrlFrom(location);
-    if (!LOAN_DETAILS_PATH.test(loanUrl)) missing.push("the loan details URL");
+    if (!loanUrl) missing.push("the loan details URL");
     if (missing.length > 0) {
       return { ok: false, error: "Couldn't read " + missing.join(" or ") + "." };
     }
