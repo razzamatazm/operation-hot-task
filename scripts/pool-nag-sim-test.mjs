@@ -22,11 +22,13 @@
  *   so an unstamped door lets a nag fire seconds later repeating the post the
  *   room has only just read.
  *
- * Every service-level check runs inside `withFrozenTime` at a Wednesday
- * mid-morning against the REAL 8:30-17:30 window, for the reason
+ * Every service-level check hands `runMaintenance` a Wednesday mid-morning
+ * instant (#204) and runs it against the REAL 8:30-17:30 window, for the reason
  * claim-deadline-sim-test.mjs records: `isWithinBusinessHours` rejects the
  * weekend before it looks at configured hours, so a suite that reads the wall
- * clock is a test of what day it happened to run on.
+ * clock is a test of what day it happened to run on. The doors that put a task
+ * into the pool still stamp their own writes off the wall clock, so `rebaseOnto`
+ * below moves what they wrote onto that same Wednesday.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -56,39 +58,15 @@ const config = {
 const CREATOR = { id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };
 
-/* Wednesday 2026-03-11, Pacific — a weekday clear of the DST boundary. 10:00 is
-   well inside the window; 18:30 is after close and 07:00 before open, for the
-   two checks that care. */
-const AT_1000 = "2026-03-11T10:00:00-07:00";
-const AT_1025 = "2026-03-11T10:25:00-07:00";
-const AT_1050 = "2026-03-11T10:50:00-07:00";
-const AFTER_CLOSE = "2026-03-11T18:30:00-07:00";
-
-const withFrozenTime = async (iso, fn) => {
-  const fixedMs = new Date(iso).getTime();
-  const RealDate = Date;
-
-  class MockDate extends RealDate {
-    constructor(...args) {
-      if (args.length === 0) {
-        super(fixedMs);
-      } else {
-        super(...args);
-      }
-    }
-
-    static now() {
-      return fixedMs;
-    }
-  }
-
-  globalThis.Date = MockDate;
-  try {
-    return await fn();
-  } finally {
-    globalThis.Date = RealDate;
-  }
-};
+/* Wednesday 2026-03-11, Pacific — a weekday clear of the DST boundary. Every
+   time of day here is well inside the 8:30-17:30 window except AFTER_CLOSE,
+   which is the one check that cares about being outside it. */
+const AT_1000 = new Date("2026-03-11T10:00:00-07:00");
+const AT_1005 = new Date("2026-03-11T10:05:00-07:00");
+const AT_1012 = new Date("2026-03-11T10:12:00-07:00");
+const AT_1025 = new Date("2026-03-11T10:25:00-07:00");
+const AT_1050 = new Date("2026-03-11T10:50:00-07:00");
+const AFTER_CLOSE = new Date("2026-03-11T18:30:00-07:00");
 
 const setup = async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pool-nag-sim-"));
@@ -104,7 +82,44 @@ const patch = async (store, taskId, apply) => store.updateTask(taskId, (current)
 
 const minutesAgo = (n) => new Date(Date.now() - n * 60_000).toISOString();
 
+/* Only `runMaintenance` takes its instant as a parameter (#204). The doors a
+   task goes back into the pool through — unclaim, reopen, return-to-pool, the
+   FRAUD release — stamp their writes off the wall clock, and so does the boot
+   backfill. So once those have run, move every stamp in the store onto the
+   timeline maintenance is about to be handed: "treat this moment as `instant`".
+   Every interval on every task survives untouched. Only the origin moves, which
+   is the one thing these checks do not care about and the wall clock is the one
+   thing they cannot be allowed to depend on. */
+const rebaseOnto = async (store, instant) => {
+  const delta = instant.getTime() - Date.now();
+  const shift = (iso) => (iso === undefined ? undefined : new Date(new Date(iso).getTime() + delta).toISOString());
+  /* Every stamp on the task, found by name rather than listed. A field added to
+     `LoanTask` later must not quietly stop being shifted, because that failure
+     shows up as a test that still passes. */
+  const isStamp = (key, value) =>
+    typeof value === "string" &&
+    (key.endsWith("At") || key.endsWith("Since")) &&
+    !Number.isNaN(Date.parse(value));
+
+  for (const task of await store.allTasks()) {
+    await patch(store, task.id, (current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([key, value]) => [key, isStamp(key, value) ? shift(value) : value])
+      )
+    );
+  }
+};
+
 const nagsIn = (events) => events.filter((event) => event.target === "CHANNEL_NAG");
+
+/* A door's stamp has to be BOTH the instant of its own write (`updatedAt`, which
+   the same write set) and actually now — a stamp carried forward from an earlier
+   write would satisfy the first on its own. Neither half reads a business
+   calendar, so this says the same thing on a Sunday. */
+const stampedByThisWrite = (task, field) => {
+  assert.equal(task[field], task.updatedAt, `${field} is the instant of the write that set it`);
+  assert.ok(Date.now() - new Date(task[field]).getTime() < 60_000, `${field} is now, not carried over`);
+};
 
 /* A task in the shape the data file holds them in today: open, unclaimed, well
    past the twenty-minute mark, and with no `lastPoolNagAt` because the field did
@@ -145,7 +160,7 @@ const openTask = (over = {}) => ({
   ...over
 });
 
-const NOW = new Date(AT_1000);
+const NOW = AT_1000;
 
 await check("an hour-old unclaimed task is due a nag", async () => {
   assert.equal(isPoolNagDue(openTask(), NOW, config), true);
@@ -171,7 +186,7 @@ await check("a task that has left OPEN is not nagged", async () => {
 });
 
 await check("nothing is nagged outside business hours", async () => {
-  assert.equal(isPoolNagDue(openTask(), new Date(AFTER_CLOSE), config), false);
+  assert.equal(isPoolNagDue(openTask(), AFTER_CLOSE, config), false);
 });
 
 await check("the nag stops at the ceiling rather than repeating forever", async () => {
@@ -200,54 +215,49 @@ await check("the channel cadence and the creator's row read one constant", async
 
 /* ------------------------------------------- blocker 1: the first pass after deploy */
 
-await check("THE BLOCKER: without the backfill, every legacy open task nags at once", async () =>
-  withFrozenTime(AT_1000, async () => {
-    const { service, store, events } = await setup();
-    await legacyOpenTask(service, store, "Legacy One");
-    await legacyOpenTask(service, store, "Legacy Two");
-    await legacyOpenTask(service, store, "Legacy Three");
+await check("THE BLOCKER: without the backfill, every legacy open task nags at once", async () => {
+  const { service, store, events } = await setup();
+  await legacyOpenTask(service, store, "Legacy One");
+  await legacyOpenTask(service, store, "Legacy Two");
+  await legacyOpenTask(service, store, "Legacy Three");
+  await rebaseOnto(store, AT_1000);
 
-    const result = await service.runMaintenance();
+  const result = await service.runMaintenance(AT_1000);
 
-    /* Pinned on purpose. This is what ships if the boot backfill is removed:
-       three tasks that have been sitting quietly for an hour and a half all
-       shout at the channel on the first maintenance pass, because an absent
-       stamp reads as "never nagged" and their `createdAt` is long past. */
-    assert.equal(result.nagged, 3);
-    assert.equal(nagsIn(events).length, 3);
-  })
-);
+  /* Pinned on purpose. This is what ships if the boot backfill is removed:
+     three tasks that have been sitting quietly for an hour and a half all
+     shout at the channel on the first maintenance pass, because an absent
+     stamp reads as "never nagged" and their `createdAt` is long past. */
+  assert.equal(result.nagged, 3);
+  assert.equal(nagsIn(events).length, 3);
+});
 
-await check("after the backfill, the same queue says nothing on the first pass", async () =>
-  withFrozenTime(AT_1000, async () => {
-    const { service, store, events } = await setup();
-    await legacyOpenTask(service, store, "Legacy One");
-    await legacyOpenTask(service, store, "Legacy Two");
-    await legacyOpenTask(service, store, "Legacy Three");
+await check("after the backfill, the same queue says nothing on the first pass", async () => {
+  const { service, store, events } = await setup();
+  await legacyOpenTask(service, store, "Legacy One");
+  await legacyOpenTask(service, store, "Legacy Two");
+  await legacyOpenTask(service, store, "Legacy Three");
 
-    const backfilled = await service.backfillPoolNagClock();
-    assert.equal(backfilled.stamped, 3, "all three were open, unclaimed and unstamped");
+  const backfilled = await service.backfillPoolNagClock();
+  assert.equal(backfilled.stamped, 3, "all three were open, unclaimed and unstamped");
+  await rebaseOnto(store, AT_1000);
 
-    const result = await service.runMaintenance();
-    assert.equal(result.nagged, 0, "their clock starts at the backfill, not at creation");
-    assert.equal(nagsIn(events).length, 0, "and the channel hears nothing");
-  })
-);
+  const result = await service.runMaintenance(AT_1000);
+  assert.equal(result.nagged, 0, "their clock starts at the backfill, not at creation");
+  assert.equal(nagsIn(events).length, 0, "and the channel hears nothing");
+});
 
 await check("the backfill delays the nag, it does not cancel it", async () => {
   const { service, store, events } = await setup();
-  await withFrozenTime(AT_1000, async () => {
-    await legacyOpenTask(service, store, "Legacy One");
-    await legacyOpenTask(service, store, "Legacy Two");
-    await service.backfillPoolNagClock();
-    await service.runMaintenance();
-  });
+  await legacyOpenTask(service, store, "Legacy One");
+  await legacyOpenTask(service, store, "Legacy Two");
+  await service.backfillPoolNagClock();
+  await rebaseOnto(store, AT_1000);
+  await service.runMaintenance(AT_1000);
 
-  await withFrozenTime(AT_1025, async () => {
-    const result = await service.runMaintenance();
-    assert.equal(result.nagged, 2, "twenty-five minutes past the backfill, both are due");
-    assert.equal(nagsIn(events).length, 2);
-  });
+  const result = await service.runMaintenance(AT_1025);
+  assert.equal(result.nagged, 2, "twenty-five minutes past the backfill, both are due");
+  assert.equal(nagsIn(events).length, 2);
 });
 
 await check("a restart does not delay the first nag of a task too young to have earned one", async () => {
@@ -256,200 +266,176 @@ await check("a restart does not delay the first nag of a task too young to have 
      filed minutes before a deploy has its clock reset by the restart, and a
      busy deploy window starves its first nag entirely. */
   const { service, store, events } = await setup();
-  let fresh;
-  await withFrozenTime(AT_1000, async () => {
-    fresh = await service.createTask(
-      { folderName: "Filed Just Now", taskType: "VALUE", notes: "n", urgency: "GREEN" },
-      CREATOR
-    );
-  });
+  const fresh = await service.createTask(
+    { folderName: "Filed Just Now", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
 
   // A restart twelve minutes later, while the task is still too young to nag.
-  await withFrozenTime("2026-03-11T10:12:00-07:00", async () => {
-    const backfilled = await service.backfillPoolNagClock();
-    assert.equal(backfilled.stamped, 0, "nothing to suppress, so nothing is stamped");
-    assert.equal((await store.findTask(fresh.id)).lastPoolNagAt, undefined, "its clock is untouched");
-  });
+  await patch(store, fresh.id, (current) => ({ ...current, createdAt: minutesAgo(12) }));
+  const backfilled = await service.backfillPoolNagClock();
+  assert.equal(backfilled.stamped, 0, "nothing to suppress, so nothing is stamped");
+  assert.equal((await store.findTask(fresh.id)).lastPoolNagAt, undefined, "its clock is untouched");
 
-  // So it still nags on its original schedule rather than twenty minutes later.
-  await withFrozenTime(AT_1025, async () => {
-    assert.equal((await service.runMaintenance()).nagged, 1, "the restart cost it nothing");
-    assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
-  });
+  // So it still nags on its original schedule rather than twenty minutes later:
+  // filed at 10:00, restarted at 10:12, nagged at 10:25.
+  await rebaseOnto(store, AT_1012);
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "the restart cost it nothing");
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
 });
 
-await check("the backfill is idempotent, and leaves the second boot alone", async () =>
-  withFrozenTime(AT_1000, async () => {
-    const { service, store } = await setup();
-    await legacyOpenTask(service, store, "Legacy One");
+await check("the backfill is idempotent, and leaves the second boot alone", async () => {
+  const { service, store } = await setup();
+  await legacyOpenTask(service, store, "Legacy One");
 
-    assert.equal((await service.backfillPoolNagClock()).stamped, 1);
-    assert.equal((await service.backfillPoolNagClock()).stamped, 0, "nothing left without a stamp");
-  })
-);
+  assert.equal((await service.backfillPoolNagClock()).stamped, 1);
+  assert.equal((await service.backfillPoolNagClock()).stamped, 0, "nothing left without a stamp");
+});
 
-await check("the backfill touches only what the nag would look at", async () =>
-  withFrozenTime(AT_1000, async () => {
-    const { service, store } = await setup();
+await check("the backfill touches only what the nag would look at", async () => {
+  const { service, store } = await setup();
 
-    const ooo = await service.createTask(
-      { folderName: "Vacation", taskType: "OOO", notes: "n", startDate: "2026-03-16", returnDate: "2026-03-20" },
-      CREATOR
-    );
-    const claimed = await legacyOpenTask(service, store, "Already Taken");
-    await service.claimTask(claimed.id, CHECKER);
-    await service.settleBackgroundWork();
+  const ooo = await service.createTask(
+    // Far enough out to be a real holiday whenever this suite is run — the
+    // OOO due date is the one thing here the wall clock still gates.
+    { folderName: "Vacation", taskType: "OOO", notes: "n", startDate: "2030-03-18", returnDate: "2030-03-22" },
+    CREATOR
+  );
+  const claimed = await legacyOpenTask(service, store, "Already Taken");
+  await service.claimTask(claimed.id, CHECKER);
+  await service.settleBackgroundWork();
 
-    assert.equal((await service.backfillPoolNagClock()).stamped, 0);
-    assert.equal((await store.findTask(ooo.id)).lastPoolNagAt, undefined, "a holiday is not stamped");
-    assert.equal((await store.findTask(claimed.id)).lastPoolNagAt, undefined, "nor is a task with a holder");
-  })
-);
+  assert.equal((await service.backfillPoolNagClock()).stamped, 0);
+  assert.equal((await store.findTask(ooo.id)).lastPoolNagAt, undefined, "a holiday is not stamped");
+  assert.equal((await store.findTask(claimed.id)).lastPoolNagAt, undefined, "nor is a task with a holder");
+});
 
 await check("a task filed after the backfill nags on the normal cadence", async () => {
   const { service, store, events } = await setup();
-  let filed;
-  await withFrozenTime(AT_1000, async () => {
-    await service.backfillPoolNagClock();
-    filed = await service.createTask(
-      { folderName: "Filed Today", taskType: "VALUE", notes: "n", urgency: "GREEN" },
-      CREATOR
-    );
-    assert.equal((await service.runMaintenance()).nagged, 0, "brand new, nobody has had a chance yet");
-  });
+  await service.backfillPoolNagClock();
+  const filed = await service.createTask(
+    { folderName: "Filed Today", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  await rebaseOnto(store, AT_1000);
+  assert.equal((await service.runMaintenance(AT_1000)).nagged, 0, "brand new, nobody has had a chance yet");
 
-  await withFrozenTime(AT_1025, async () => {
-    // Twenty-five minutes old and still nobody's: this is the feature working.
-    const result = await service.runMaintenance();
-    assert.equal(result.nagged, 1);
-    assert.equal(nagsIn(events).length, 1);
-    assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
-    assert.equal((await store.findTask(filed.id)).poolNagCount, 1);
-  });
+  // Twenty-five minutes old and still nobody's: this is the feature working.
+  const result = await service.runMaintenance(AT_1025);
+  assert.equal(result.nagged, 1);
+  assert.equal(nagsIn(events).length, 1);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
+  assert.equal((await store.findTask(filed.id)).poolNagCount, 1);
 });
 
 /* -------------------------------------------------------- blocker 1: the ceiling */
 
 await check("a task stops nagging once it has spent its ceiling", async () => {
   const { service, store, events } = await setup();
-  let task;
-  await withFrozenTime(AT_1000, async () => {
-    task = await legacyOpenTask(service, store, "Nobody Wants This");
-    // One short of the ceiling, last nagged long enough ago to be due again.
-    await patch(store, task.id, (current) => ({
-      ...current,
-      poolNagCount: MAX_POOL_NAGS - 1,
-      lastPoolNagAt: minutesAgo(30)
-    }));
+  const task = await legacyOpenTask(service, store, "Nobody Wants This");
+  // One short of the ceiling, last nagged long enough ago to be due again.
+  await patch(store, task.id, (current) => ({
+    ...current,
+    poolNagCount: MAX_POOL_NAGS - 1,
+    lastPoolNagAt: minutesAgo(30)
+  }));
+  await rebaseOnto(store, AT_1000);
 
-    assert.equal((await service.runMaintenance()).nagged, 1, "the last one it is owed");
-    assert.equal((await store.findTask(task.id)).poolNagCount, MAX_POOL_NAGS);
-  });
+  assert.equal((await service.runMaintenance(AT_1000)).nagged, 1, "the last one it is owed");
+  assert.equal((await store.findTask(task.id)).poolNagCount, MAX_POOL_NAGS);
 
-  await withFrozenTime(AT_1050, async () => {
-    assert.equal((await service.runMaintenance()).nagged, 0, "and never again for this spell in the pool");
-    assert.equal(nagsIn(events).length, 1);
-  });
+  assert.equal((await service.runMaintenance(AT_1050)).nagged, 0, "and never again for this spell in the pool");
+  assert.equal(nagsIn(events).length, 1);
 });
 
 await check("a task that finds a holder gets a fresh ceiling if it comes back", async () => {
   const { service, store } = await setup();
-  await withFrozenTime(AT_1000, async () => {
-    const task = await legacyOpenTask(service, store, "Round Trip");
-    await patch(store, task.id, (current) => ({
-      ...current,
-      poolNagCount: MAX_POOL_NAGS,
-      lastPoolNagAt: minutesAgo(30)
-    }));
+  const task = await legacyOpenTask(service, store, "Round Trip");
+  await patch(store, task.id, (current) => ({
+    ...current,
+    poolNagCount: MAX_POOL_NAGS,
+    lastPoolNagAt: minutesAgo(30)
+  }));
 
-    await service.claimTask(task.id, CHECKER);
-    await service.settleBackgroundWork();
-    const claimed = await store.findTask(task.id);
-    assert.equal(claimed.poolNagCount, undefined, "an exhausted count is not carried back into the pool");
-    assert.equal(claimed.lastPoolNagAt, undefined, "and neither is the stamp");
-  });
+  await service.claimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  const claimed = await store.findTask(task.id);
+  assert.equal(claimed.poolNagCount, undefined, "an exhausted count is not carried back into the pool");
+  assert.equal(claimed.lastPoolNagAt, undefined, "and neither is the stamp");
 });
 
 /* ------------------------------------------------- blocker 2: the two reopen doors */
 
 await check("THE BLOCKER: unclaiming does not let a nag repeat the reopen post", async () => {
   const { service, store, events } = await setup();
-  await withFrozenTime(AT_1000, async () => {
-    const task = await legacyOpenTask(service, store, "Handed Back");
-    await service.claimTask(task.id, CHECKER);
-    await service.unclaimTask(task.id, CHECKER);
-    // The notification fan-out is backgrounded (#119), so an assertion about
-    // what the channel received has to wait for it rather than race it.
-    await service.settleBackgroundWork();
+  const task = await legacyOpenTask(service, store, "Handed Back");
+  await service.claimTask(task.id, CHECKER);
+  await service.unclaimTask(task.id, CHECKER);
+  // The notification fan-out is backgrounded (#119), so an assertion about
+  // what the channel received has to wait for it rather than race it.
+  await service.settleBackgroundWork();
 
-    // The channel has just been re-alerted with a fresh claimable card. That
-    // post is nag zero; a nag now would say the same thing twice.
-    assert.equal(
-      events.filter((event) => event.target === "CHANNEL_REOPENED").length,
-      1,
-      "the reopen post is the thing a nag would be duplicating"
-    );
-    assert.equal((await service.runMaintenance()).nagged, 0);
-    assert.equal(nagsIn(events).length, 0);
-    assert.ok((await store.findTask(task.id)).lastPoolNagAt, "the door stamped the clock");
-  });
+  // The channel has just been re-alerted with a fresh claimable card. That
+  // post is nag zero; a nag now would say the same thing twice.
+  assert.equal(
+    events.filter((event) => event.target === "CHANNEL_REOPENED").length,
+    1,
+    "the reopen post is the thing a nag would be duplicating"
+  );
+  await rebaseOnto(store, AT_1000);
+  assert.equal((await service.runMaintenance(AT_1000)).nagged, 0);
+  assert.equal(nagsIn(events).length, 0);
+  assert.ok((await store.findTask(task.id)).lastPoolNagAt, "the door stamped the clock");
 
-  await withFrozenTime(AT_1025, async () => {
-    assert.equal((await service.runMaintenance()).nagged, 1, "twenty minutes later it is a fair ask again");
-  });
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "twenty minutes later it is a fair ask again");
 });
 
 await check("THE BLOCKER: the status door back to OPEN stamps the clock too", async () => {
   const { service, store, events } = await setup();
-  await withFrozenTime(AT_1000, async () => {
-    const task = await legacyOpenTask(service, store, "Reopened");
-    /* Closed with nobody on it — the state a FRAUD check released for any
-       checker lands in when it is approved from PENDING_APPROVAL unassigned.
-       That is the one that reaches the OPEN branch below rather than falling
-       back to CLAIMED, and it is the door `unclaimTask` does not cover. */
-    await patch(store, task.id, (current) => {
-      const { assignee: _assignee, ...rest } = current;
-      return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5) };
-    });
-
-    const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
-    await service.settleBackgroundWork();
-    assert.equal(reopened.status, "OPEN", "no assignee to retain, so it really is back in the pool");
-    assert.equal(
-      events.filter((event) => event.target === "CHANNEL_REOPENED").length,
-      1,
-      "which means the channel got its fresh claimable card — nag zero"
-    );
-
-    assert.equal((await service.runMaintenance()).nagged, 0, "so the nag does not immediately repeat it");
-    assert.equal(nagsIn(events).length, 0);
+  const task = await legacyOpenTask(service, store, "Reopened");
+  /* Closed with nobody on it — the state a FRAUD check released for any
+     checker lands in when it is approved from PENDING_APPROVAL unassigned.
+     That is the one that reaches the OPEN branch below rather than falling
+     back to CLAIMED, and it is the door `unclaimTask` does not cover. */
+  await patch(store, task.id, (current) => {
+    const { assignee: _assignee, ...rest } = current;
+    return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5) };
   });
 
-  await withFrozenTime(AT_1025, async () => {
-    assert.equal((await service.runMaintenance()).nagged, 1);
-  });
+  const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
+  await service.settleBackgroundWork();
+  assert.equal(reopened.status, "OPEN", "no assignee to retain, so it really is back in the pool");
+  assert.equal(
+    events.filter((event) => event.target === "CHANNEL_REOPENED").length,
+    1,
+    "which means the channel got its fresh claimable card — nag zero"
+  );
+
+  await rebaseOnto(store, AT_1000);
+  assert.equal((await service.runMaintenance(AT_1000)).nagged, 0, "so the nag does not immediately repeat it");
+  assert.equal(nagsIn(events).length, 0);
+
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
 });
 
-await check("a reopen does not buy a task another six asks", async () =>
-  withFrozenTime(AT_1000, async () => {
-    const { service, store } = await setup();
-    const task = await legacyOpenTask(service, store, "Round And Round");
-    /* Unassigned and closed with its ceiling already spent. Resetting the count
-       on this door would make COMPLETED -> OPEN an unbounded nag: cycle the task
-       and the room gets another six asks every time. Claiming is what earns a
-       fresh ceiling, because that is the only door where somebody actually took
-       the work. */
-    await patch(store, task.id, (current) => {
-      const { assignee: _assignee, ...rest } = current;
-      return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5), poolNagCount: MAX_POOL_NAGS };
-    });
+await check("a reopen does not buy a task another six asks", async () => {
+  const { service, store } = await setup();
+  const task = await legacyOpenTask(service, store, "Round And Round");
+  /* Unassigned and closed with its ceiling already spent. Resetting the count
+     on this door would make COMPLETED -> OPEN an unbounded nag: cycle the task
+     and the room gets another six asks every time. Claiming is what earns a
+     fresh ceiling, because that is the only door where somebody actually took
+     the work. */
+  await patch(store, task.id, (current) => {
+    const { assignee: _assignee, ...rest } = current;
+    return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5), poolNagCount: MAX_POOL_NAGS };
+  });
 
-    const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
-    await service.settleBackgroundWork();
-    assert.equal(reopened.status, "OPEN");
-    assert.equal((await store.findTask(task.id)).poolNagCount, MAX_POOL_NAGS, "the ceiling survives the reopen");
-  })
-);
+  const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
+  await service.settleBackgroundWork();
+  assert.equal(reopened.status, "OPEN");
+  assert.equal((await store.findTask(task.id)).poolNagCount, MAX_POOL_NAGS, "the ceiling survives the reopen");
+});
 
 await check("a task handed back says how long it has been up for grabs, not how old it is", async () => {
   /* #210. The nag used to count from `createdAt`, so a task filed two days ago,
@@ -457,23 +443,19 @@ await check("a task handed back says how long it has been up for grabs, not how 
      twenty-five minutes after it returned to the pool. True of the task, false
      of the sentence it is in. */
   const { service, store, events } = await setup();
-  let task;
-  await withFrozenTime(AT_1000, async () => {
-    // Filed two days ago and claimed, so `createdAt` is nowhere near the truth.
-    task = await legacyOpenTask(service, store, "Old Folder", 2 * 24 * 60);
-    await service.claimTask(task.id, CHECKER);
-    await service.unclaimTask(task.id, CHECKER);
-    await service.settleBackgroundWork();
-  });
+  // Filed two days ago and claimed, so `createdAt` is nowhere near the truth.
+  const task = await legacyOpenTask(service, store, "Old Folder", 2 * 24 * 60);
+  await service.claimTask(task.id, CHECKER);
+  await service.unclaimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  await rebaseOnto(store, AT_1000);
 
-  await withFrozenTime(AT_1025, async () => {
-    assert.equal((await service.runMaintenance()).nagged, 1);
-    assert.match(
-      nagsIn(events)[0].message,
-      /still unclaimed after 25 minutes/,
-      "counted from re-entering the pool, not from when it was filed"
-    );
-  });
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
+  assert.match(
+    nagsIn(events)[0].message,
+    /still unclaimed after 25 minutes/,
+    "counted from re-entering the pool, not from when it was filed"
+  );
 
   const stored = await store.findTask(task.id);
   assert.ok(stored.pooledSince, "the door stamped when it went back");
@@ -482,28 +464,22 @@ await check("a task handed back says how long it has been up for grabs, not how 
 
 await check("the creator's row counts the same clock as the channel", async () => {
   const { service, store } = await setup();
-  let task;
-  await withFrozenTime(AT_1000, async () => {
-    task = await legacyOpenTask(service, store, "Handed Back Fresh", 2 * 24 * 60);
-    await service.claimTask(task.id, CHECKER);
-    await service.unclaimTask(task.id, CHECKER);
-    await service.settleBackgroundWork();
-  });
+  const task = await legacyOpenTask(service, store, "Handed Back Fresh", 2 * 24 * 60);
+  await service.claimTask(task.id, CHECKER);
+  await service.unclaimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  await rebaseOnto(store, AT_1000);
 
   /* Five minutes back in the pool. Reading `createdAt` the row would shout
      "unclaimed for 2 days" and go red immediately; the room, meanwhile, has not
      been asked once. The two surfaces share the threshold AND the anchor. */
-  await withFrozenTime("2026-03-11T10:05:00-07:00", async () => {
-    const fresh = await store.findTask(task.id);
-    assert.equal(isUnclaimedTooLong(fresh, new Date()), false, "five minutes is not too long");
-    assert.equal(isPoolNagDue(fresh, new Date(), config), false, "and the room is not asked either");
-  });
+  const fresh = await store.findTask(task.id);
+  assert.equal(isUnclaimedTooLong(fresh, AT_1005), false, "five minutes is not too long");
+  assert.equal(isPoolNagDue(fresh, AT_1005, config), false, "and the room is not asked either");
 
-  await withFrozenTime(AT_1025, async () => {
-    const aged = await store.findTask(task.id);
-    assert.equal(isUnclaimedTooLong(aged, new Date()), true, "twenty-five minutes is");
-    assert.equal(isPoolNagDue(aged, new Date(), config), true, "and both surfaces turn together");
-  });
+  const aged = await store.findTask(task.id);
+  assert.equal(isUnclaimedTooLong(aged, AT_1025), true, "twenty-five minutes is");
+  assert.equal(isPoolNagDue(aged, AT_1025, config), true, "and both surfaces turn together");
 });
 
 await check("every door into the pool restarts the clock, and taking it stops it", async () => {
@@ -512,49 +488,47 @@ await check("every door into the pool restarts the clock, and taking it stops it
      a door that forgets to stamp is the failure this change is most exposed to. */
   const { service, store } = await setup();
 
-  await withFrozenTime(AT_1000, async () => {
-    // Door: the creator takes a stalled task back (#208).
-    const returned = await legacyOpenTask(service, store, "Creator Freed", 2 * 24 * 60);
-    await service.claimTask(returned.id, CHECKER);
-    await service.returnToPool(returned.id, CREATOR);
-    await service.settleBackgroundWork();
-    const freed = await store.findTask(returned.id);
-    assert.equal(freed.pooledSince, new Date().toISOString(), "return-to-pool stamps");
-    assert.equal(inPoolSince(freed), freed.pooledSince, "so the clock runs from the hand-back");
+  // Door: the creator takes a stalled task back (#208).
+  const returned = await legacyOpenTask(service, store, "Creator Freed", 2 * 24 * 60);
+  await service.claimTask(returned.id, CHECKER);
+  await service.returnToPool(returned.id, CREATOR);
+  await service.settleBackgroundWork();
+  const freed = await store.findTask(returned.id);
+  stampedByThisWrite(freed, "pooledSince");
+  assert.equal(inPoolSince(freed), freed.pooledSince, "so the clock runs from the hand-back");
 
-    // Door: a reopen from a closed status with nobody on it.
-    const reopened = await legacyOpenTask(service, store, "Reopened Later", 2 * 24 * 60);
-    await patch(store, reopened.id, (current) => {
-      const { assignee: _assignee, ...rest } = current;
-      return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5) };
-    });
-    await service.transitionStatus(reopened.id, "OPEN", CREATOR);
-    await service.settleBackgroundWork();
-    assert.equal((await store.findTask(reopened.id)).pooledSince, new Date().toISOString(), "the reopen door stamps");
-
-    // Door: a FRAUD release, which keeps its status. Since #213 the creator's
-    // count-up reads the field in exactly that state, so the stamp is load-
-    // bearing here rather than merely honest.
-    const released = await service.createTask(
-      { folderName: "Released Check", taskType: "FRAUD", notes: "n", urgency: "GREEN" },
-      CREATOR
-    );
-    await service.claimTask(released.id, CHECKER);
-    await service.transitionStatus(released.id, "AWAITING_ITEMS", CHECKER, "items");
-    await service.transitionStatus(released.id, "PENDING_APPROVAL", CREATOR);
-    await service.releaseForAnyChecker(released.id, CREATOR);
-    await service.settleBackgroundWork();
-    const inPlace = await store.findTask(released.id);
-    assert.equal(inPlace.assignee, undefined, "unassigned in place");
-    assert.equal(inPlace.pooledSince, new Date().toISOString(), "and stamped, so the field never lies");
-
-    // And the way out: taking the task stops the clock entirely.
-    const taken = await store.findTask(returned.id);
-    assert.ok(taken.pooledSince, "still pooled before the claim");
-    await service.claimTask(returned.id, CHECKER);
-    await service.settleBackgroundWork();
-    assert.equal((await store.findTask(returned.id)).pooledSince, undefined, "a holder clears it");
+  // Door: a reopen from a closed status with nobody on it.
+  const reopened = await legacyOpenTask(service, store, "Reopened Later", 2 * 24 * 60);
+  await patch(store, reopened.id, (current) => {
+    const { assignee: _assignee, ...rest } = current;
+    return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5) };
   });
+  await service.transitionStatus(reopened.id, "OPEN", CREATOR);
+  await service.settleBackgroundWork();
+  stampedByThisWrite(await store.findTask(reopened.id), "pooledSince");
+
+  // Door: a FRAUD release, which keeps its status. Since #213 the creator's
+  // count-up reads the field in exactly that state, so the stamp is load-
+  // bearing here rather than merely honest.
+  const released = await service.createTask(
+    { folderName: "Released Check", taskType: "FRAUD", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  await service.claimTask(released.id, CHECKER);
+  await service.transitionStatus(released.id, "AWAITING_ITEMS", CHECKER, "items");
+  await service.transitionStatus(released.id, "PENDING_APPROVAL", CREATOR);
+  await service.releaseForAnyChecker(released.id, CREATOR);
+  await service.settleBackgroundWork();
+  const inPlace = await store.findTask(released.id);
+  assert.equal(inPlace.assignee, undefined, "unassigned in place");
+  stampedByThisWrite(inPlace, "pooledSince");
+
+  // And the way out: taking the task stops the clock entirely.
+  const taken = await store.findTask(returned.id);
+  assert.ok(taken.pooledSince, "still pooled before the claim");
+  await service.claimTask(returned.id, CHECKER);
+  await service.settleBackgroundWork();
+  assert.equal((await store.findTask(returned.id)).pooledSince, undefined, "a holder clears it");
 });
 
 await check("a task nobody ever claimed still counts from when it was filed", async () => {
@@ -571,40 +545,35 @@ await check("the creator's back-to-the-pool door is nag zero too", async () => {
      `sendBackToPool`, it inherited the stamp rather than having to remember it.
      This check is what would fail if that seam were ever split apart. */
   const { service, store, events } = await setup();
-  let task;
-  await withFrozenTime(AT_1000, async () => {
-    task = await legacyOpenTask(service, store, "Stalled On");
-    await service.claimTask(task.id, CHECKER);
-    await service.returnToPool(task.id, CREATOR);
-    await service.settleBackgroundWork();
+  const task = await legacyOpenTask(service, store, "Stalled On");
+  await service.claimTask(task.id, CHECKER);
+  await service.returnToPool(task.id, CREATOR);
+  await service.settleBackgroundWork();
 
-    assert.equal(
-      events.filter((event) => event.target === "CHANNEL_REOPENED").length,
-      1,
-      "the room already has a fresh claimable card"
-    );
-    assert.ok((await store.findTask(task.id)).lastPoolNagAt, "so the clock is stamped");
-    assert.equal((await service.runMaintenance()).nagged, 0, "and no nag repeats it");
-  });
+  assert.equal(
+    events.filter((event) => event.target === "CHANNEL_REOPENED").length,
+    1,
+    "the room already has a fresh claimable card"
+  );
+  assert.ok((await store.findTask(task.id)).lastPoolNagAt, "so the clock is stamped");
+  await rebaseOnto(store, AT_1000);
+  assert.equal((await service.runMaintenance(AT_1000)).nagged, 0, "and no nag repeats it");
 
-  await withFrozenTime(AT_1025, async () => {
-    assert.equal((await service.runMaintenance()).nagged, 1, "twenty minutes on, asking again is fair");
-  });
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "twenty minutes on, asking again is fair");
 });
 
-await check("reopening onto a retained assignee is nobody's pool problem", async () =>
-  withFrozenTime(AT_1000, async () => {
-    const { service, store, events } = await setup();
-    const task = await legacyOpenTask(service, store, "Still Theirs");
-    await service.claimTask(task.id, CHECKER);
-    await patch(store, task.id, (current) => ({ ...current, status: "COMPLETED", completedAt: minutesAgo(5) }));
+await check("reopening onto a retained assignee is nobody's pool problem", async () => {
+  const { service, store, events } = await setup();
+  const task = await legacyOpenTask(service, store, "Still Theirs");
+  await service.claimTask(task.id, CHECKER);
+  await patch(store, task.id, (current) => ({ ...current, status: "COMPLETED", completedAt: minutesAgo(5) }));
 
-    const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
-    await service.settleBackgroundWork();
-    assert.equal(reopened.status, "CLAIMED", "the assignee is retained, so it never reaches the pool");
-    assert.equal(events.filter((event) => event.target === "CHANNEL_REOPENED").length, 0);
-    assert.equal((await service.runMaintenance()).nagged, 0);
-  })
-);
+  const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
+  await service.settleBackgroundWork();
+  assert.equal(reopened.status, "CLAIMED", "the assignee is retained, so it never reaches the pool");
+  assert.equal(events.filter((event) => event.target === "CHANNEL_REOPENED").length, 0);
+  await rebaseOnto(store, AT_1000);
+  assert.equal((await service.runMaintenance(AT_1000)).nagged, 0);
+});
 
 console.log(`\n${passed} checks passed`);

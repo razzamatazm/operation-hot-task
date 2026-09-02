@@ -975,7 +975,7 @@ export class TaskService {
      `alsoNotify` names people who should still be synced even though they're no
      longer participants — an unclaim or a fraud release strips the assignee, and
      it's exactly that ex-assignee holding a card with a button they've lost. */
-  private async emitCardSync(task: LoanTask, alsoNotify: string[] = []): Promise<void> {
+  private async emitCardSync(task: LoanTask, alsoNotify: string[] = [], at: Date = new Date()): Promise<void> {
     await this.notify({
       type: "TASK_STATUS_CHANGED",
       task,
@@ -983,7 +983,7 @@ export class TaskService {
       message: `${task.folderName} cards synced`,
       target: "DM_CARD_SYNC",
       ...(alsoNotify.length > 0 ? { recipientUserIds: alsoNotify } : {})
-    });
+    }, at);
   }
 
   async addReviewNote(taskId: string, text: string, user: UserIdentity): Promise<LoanTask> {
@@ -1479,8 +1479,15 @@ export class TaskService {
     return { stamped };
   }
 
-  async runMaintenance(): Promise<{ reminded: number; nagged: number; purged: number; autoArchived: number }> {
-    const now = new Date();
+  /* `now` is the instant the whole pass reasons from — every comparison it
+     makes and every stamp it writes, including the ones `notify` and
+     `makeHistory` put on their own records. It defaults to the wall clock, so
+     the scheduler calls this with no arguments; the sim tests pass an explicit
+     instant instead of swapping out `globalThis.Date` (#204). A pass that took
+     the instant for its decisions but re-read the clock for its stamps would be
+     worse than one that took neither: a test would freeze half of it and drift
+     silently on the rest. */
+  async runMaintenance(now: Date = new Date()): Promise<{ reminded: number; nagged: number; purged: number; autoArchived: number }> {
     const tasks = await this.store.allTasks();
 
     let reminded = 0;
@@ -1504,14 +1511,14 @@ export class TaskService {
           completedAt: nowIso,
           updatedAt: nowIso
         };
-        historyEvents.push(this.makeHistory(task.id, SYSTEM_ACTOR, "TASK_STATUS_CHANGED", "AUTO_COMPLETED_RETURN_DATE"));
+        historyEvents.push(this.makeHistory(task.id, SYSTEM_ACTOR, "TASK_STATUS_CHANGED", "AUTO_COMPLETED_RETURN_DATE", now));
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: next,
           actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
           message: `${next.folderName} wrapped itself up on the return date`,
           target: "IN_APP"
-        });
+        }, now);
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: next,
@@ -1519,10 +1526,10 @@ export class TaskService {
           message: `Auto-completed while you were out — welcome back`,
           target: "DM",
           recipientUserIds: [next.createdBy.id]
-        });
+        }, now);
         // The scheduler closes this task without going through transitionStatus,
         // so it has to retire the DM cards itself.
-        await this.emitCardSync(next);
+        await this.emitCardSync(next, [], now);
       }
 
       // Auto-archive completed/cancelled tasks after 14 days to keep active queues clean.
@@ -1538,7 +1545,7 @@ export class TaskService {
           };
           autoArchived += 1;
           // Archiving retires the reply box the COMPLETED banner still allowed.
-          await this.emitCardSync(next);
+          await this.emitCardSync(next, [], now);
         }
       }
 
@@ -1559,7 +1566,7 @@ export class TaskService {
             message: `your time's up on ${next.folderName}`,
             target: "DM",
             recipientUserIds: reminderRecipients
-          });
+          }, now);
         }
       }
 
@@ -1581,7 +1588,7 @@ export class TaskService {
           actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
           message: `${next.folderName} is still unclaimed after ${unclaimedMinutes} minutes, who's taking it?`,
           target: "CHANNEL_NAG"
-        });
+        }, now);
       }
 
       updatedTasks.push(next);
@@ -1699,7 +1706,7 @@ export class TaskService {
         message: note.message,
         target: "ACTIVITY_FEED",
         recipientUserIds: note.recipientUserIds
-      });
+      }, now);
     }
   }
 
@@ -1850,14 +1857,14 @@ export class TaskService {
     }
   }
 
-  private async notify(event: Omit<NotificationEvent, "createdAt">): Promise<void> {
+  private async notify(event: Omit<NotificationEvent, "createdAt">, at: Date = new Date()): Promise<void> {
     try {
       await this.notifier.notify({
         ...event,
         ...(event.recipientUserIds && event.recipientUserIds.length > 0
           ? { recipientUserIds: Array.from(new Set(event.recipientUserIds)) }
           : {}),
-        createdAt: new Date().toISOString()
+        createdAt: at.toISOString()
       });
     } catch (error) {
       console.error("notification_send_failed", {
@@ -1893,13 +1900,13 @@ export class TaskService {
     return updated;
   }
 
-  private makeHistory(taskId: string, user: UserIdentity, action: string, detail: string): TaskHistoryEvent {
+  private makeHistory(taskId: string, user: UserIdentity, action: string, detail: string, at: Date = new Date()): TaskHistoryEvent {
     return {
       id: uuid(),
       taskId,
       action,
       detail,
-      at: new Date().toISOString(),
+      at: at.toISOString(),
       by: {
         id: user.id,
         displayName: user.displayName

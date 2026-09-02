@@ -28,34 +28,15 @@ class CaptureNotifier {
   }
 }
 
-const withFrozenTime = async (iso, fn) => {
-  const fixedMs = new Date(iso).getTime();
-  const RealDate = Date;
+/* Friday 2026-02-13. 09:00 PT is inside the real 8:30-17:30 window and 08:00 PT
+   is before it opens — the two checks about the reminder window are the reason
+   this suite states an instant at all rather than reading the wall clock. */
+const IN_HOURS = new Date("2026-02-13T17:00:00.000Z");
+const OUT_OF_HOURS = new Date("2026-02-13T16:00:00.000Z");
 
-  class MockDate extends RealDate {
-    constructor(...args) {
-      if (args.length === 0) {
-        super(fixedMs);
-      } else {
-        super(...args);
-      }
-    }
-
-    static now() {
-      return fixedMs;
-    }
-  }
-
-  globalThis.Date = MockDate;
-  try {
-    return await fn();
-  } finally {
-    globalThis.Date = RealDate;
-  }
-};
-
-const makeTask = (overrides = {}) => {
-  const now = new Date().toISOString();
+// `now` is the ISO stamp the task is filed at — every check states the instant
+// it is reasoning from, and hands the same one to `runMaintenance`.
+const makeTask = (now, overrides = {}) => {
   return {
     id: uuid(),
     folderName: "Scheduler Test",
@@ -97,14 +78,15 @@ const run = async () => {
     assert.equal(julyDue, "2026-07-15T15:30:00.000Z");
     pass("return date conversion respects PT DST offsets");
 
-    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
-      const overdue = makeTask({
+    {
+      const now = IN_HOURS;
+      const overdue = makeTask(now.toISOString(), {
         dueAt: "2026-02-13T15:00:00.000Z",
         status: "CLAIMED"
       });
 
       const { service, store, notifier } = await bootService([overdue]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.reminded, 1);
       assert.equal(output.autoArchived, 0);
@@ -113,76 +95,81 @@ const run = async () => {
       assert.ok(tasks[0].lastReminderAt, "lastReminderAt should be set");
       assert.equal(notifier.events.filter((e) => e.type === "TASK_REMINDER").length, 1);
       pass("overdue task is reminded during business hours");
-    });
+    }
 
-    await withFrozenTime("2026-02-13T16:00:00.000Z", async () => {
-      const overdue = makeTask({
+    {
+      const now = OUT_OF_HOURS;
+      const overdue = makeTask(now.toISOString(), {
         dueAt: "2026-02-13T15:00:00.000Z",
         status: "CLAIMED"
       });
 
       const { service, store } = await bootService([overdue]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.reminded, 0);
       const tasks = await store.allTasks();
       assert.equal(tasks[0].lastReminderAt, undefined);
       pass("no reminder sent outside business hours");
-    });
+    }
 
-    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
-      const throttled = makeTask({
+    {
+      const now = IN_HOURS;
+      const throttled = makeTask(now.toISOString(), {
         dueAt: "2026-02-13T15:00:00.000Z",
         status: "CLAIMED",
         lastReminderAt: "2026-02-13T16:30:00.000Z"
       });
 
       const { service } = await bootService([throttled]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.reminded, 0);
       pass("hourly reminder throttle is enforced");
-    });
+    }
 
-    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
-      const staleCompleted = makeTask({
+    {
+      const now = IN_HOURS;
+      const staleCompleted = makeTask(now.toISOString(), {
         status: "COMPLETED",
         completedAt: "2026-01-20T10:00:00.000Z",
         assignee: { id: "assignee", displayName: "Assignee" }
       });
 
       const { service, store } = await bootService([staleCompleted]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.autoArchived, 1);
       const tasks = await store.allTasks();
       assert.equal(tasks[0].status, "ARCHIVED");
       assert.ok(tasks[0].archivedAt, "archivedAt should be set");
       pass("completed tasks older than 14 days are auto-archived");
-    });
+    }
 
-    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
-      const staleArchived = makeTask({
+    {
+      const now = IN_HOURS;
+      const staleArchived = makeTask(now.toISOString(), {
         status: "ARCHIVED",
         archivedAt: "2025-10-01T10:00:00.000Z"
       });
-      const recentArchived = makeTask({
+      const recentArchived = makeTask(now.toISOString(), {
         status: "ARCHIVED",
         archivedAt: "2026-01-20T10:00:00.000Z"
       });
 
       const { service, store } = await bootService([staleArchived, recentArchived]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.purged, 1);
       const tasks = await store.allTasks();
       assert.equal(tasks.length, 1);
       assert.equal(tasks[0].id, recentArchived.id);
       pass("archive retention purge removes only records older than 90 days");
-    });
+    }
 
-    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
-      const ooo = makeTask({
+    {
+      const now = IN_HOURS;
+      const ooo = makeTask(now.toISOString(), {
         taskType: "OOO",
         dueAt: "2026-02-13T16:59:00.000Z",
         status: "OPEN",
@@ -190,7 +177,7 @@ const run = async () => {
       });
 
       const { service, store, notifier } = await bootService([ooo]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.reminded, 0);
       const tasks = await store.allTasks();
@@ -207,24 +194,39 @@ const run = async () => {
       assert.ok(autoComplete, "the auto-completion is recorded in history");
       assert.ok(isSystemActor(autoComplete.by), "recorded against the SYSTEM actor, not a borrowed ADMIN");
       pass("ooo task auto-completes at return-date due time, driven by SYSTEM");
-    });
+
+      /* Every stamp the pass writes comes off the instant it was handed, not
+         off a fresh read of the wall clock. A half-injected pass would let
+         these drift while the decisions above stayed frozen. */
+      assert.equal(tasks[0].completedAt, now.toISOString(), "completedAt is the injected instant");
+      assert.equal(tasks[0].updatedAt, now.toISOString(), "updatedAt is the injected instant");
+      assert.equal(autoComplete.at, now.toISOString(), "the history event is stamped with the injected instant");
+      assert.deepEqual(
+        [...new Set(notifier.events.map((e) => e.createdAt))],
+        [now.toISOString()],
+        "every notification the pass sends is stamped with the injected instant"
+      );
+      pass("maintenance stamps come from the injected instant, not the wall clock");
+    }
 
     /* SYSTEM carries no roles at all — it gets past the actor gates on the
        strength of its id, so stripping ADMIN's workflow powers (#143) can't
        take OOO auto-completion down with it. */
     assert.deepEqual(SYSTEM_ACTOR.roles, [], "SYSTEM holds no roles");
     {
-      const fraud = makeTask({ taskType: "FRAUD", status: "CLAIMED" });
+      const now = IN_HOURS;
+      const fraud = makeTask(now.toISOString(), { taskType: "FRAUD", status: "CLAIMED" });
       const strangerWithRole = { id: "nobody", displayName: "Nobody", roles: ["FILE_CHECKER"] };
       assert.ok(canCompleteTask(fraud, SYSTEM_ACTOR), "SYSTEM passes the actor gate it holds no role or seat for");
       assert.ok(!canCompleteTask(fraud, strangerWithRole), "a human who is neither party still cannot");
-      const closed = makeTask({ status: "ARCHIVED" });
+      const closed = makeTask(now.toISOString(), { status: "ARCHIVED" });
       assert.ok(!canCompleteTask(closed, SYSTEM_ACTOR), "SYSTEM still cannot make a move the flow disallows");
       pass("SYSTEM bypasses actor gates but not flow legality");
     }
 
-    await withFrozenTime("2026-02-13T17:00:00.000Z", async () => {
-      const alreadyCompletedOoo = makeTask({
+    {
+      const now = IN_HOURS;
+      const alreadyCompletedOoo = makeTask(now.toISOString(), {
         taskType: "OOO",
         dueAt: "2026-02-13T16:00:00.000Z",
         status: "COMPLETED",
@@ -232,13 +234,13 @@ const run = async () => {
       });
 
       const { service, store } = await bootService([alreadyCompletedOoo]);
-      const output = await service.runMaintenance();
+      const output = await service.runMaintenance(now);
 
       assert.equal(output.reminded, 0);
       const tasks = await store.allTasks();
       assert.equal(tasks[0].status, "COMPLETED");
       pass("closed ooo tasks are not auto-completed again");
-    });
+    }
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
