@@ -92,26 +92,34 @@ export const withClaimIntent = (url: string | undefined): string | undefined => 
   if (!query) {
     return undefined;
   }
-  const params = new URLSearchParams(query);
-  const raw = params.get("context");
-  if (!raw) {
-    return undefined;
+  /* Rewritten param by param with `encodeURIComponent`, not through
+     `URLSearchParams.toString()`, which encodes a space as `+` where the
+     builder writes `%20`. `label` is the folder name and folder names have
+     spaces in them, so the round trip has to speak the builder's dialect or the
+     two buttons on one card would carry differently-encoded twins. */
+  const rewritten: string[] = [];
+  let seenContext = false;
+  for (const pair of query.split("&")) {
+    const eq = pair.indexOf("=");
+    const key = eq === -1 ? pair : pair.slice(0, eq);
+    const value = eq === -1 ? "" : decodeURIComponent(pair.slice(eq + 1));
+    if (key !== "context") {
+      rewritten.push(`${key}=${encodeURIComponent(value)}`);
+      continue;
+    }
+    let context: Record<string, unknown>;
+    try {
+      context = JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+    if (!context.subEntityId) {
+      return undefined;
+    }
+    seenContext = true;
+    rewritten.push(`context=${encodeURIComponent(JSON.stringify({ ...context, [CLAIM_INTENT_FIELD]: true }))}`);
   }
-  let context: Record<string, unknown>;
-  try {
-    context = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-  if (!context.subEntityId) {
-    return undefined;
-  }
-  params.set("context", JSON.stringify({ ...context, [CLAIM_INTENT_FIELD]: true }));
-  /* URLSearchParams percent-encodes to the same set the builder's
-     encodeURIComponent does, bar `+` for a space, which none of these values
-     can contain — the label is the one free-text param and it is re-encoded
-     from its decoded form here. */
-  return `${base}?${params.toString()}`;
+  return seenContext ? `${base}?${rewritten.join("&")}` : undefined;
 };
 
 /* Read the claim intent back off whatever the host handed the tab.

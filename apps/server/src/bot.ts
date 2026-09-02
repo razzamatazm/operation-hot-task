@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -684,8 +684,8 @@ const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string;
     ],
     actions: [
       claimUrl
-        ? { type: "Action.OpenUrl", title: "Claim & Open", url: claimUrl }
-        : { type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } },
+        ? { type: "Action.OpenUrl", title: ACTION_LABELS.CLAIM_AND_OPEN, url: claimUrl }
+        : { type: "Action.Execute", title: ACTION_LABELS.CLAIM, verb: "claimTask", data: { taskId: opts.taskId } },
       ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
     ]
   };

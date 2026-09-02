@@ -31,7 +31,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { readClaimIntent, teamsTaskDeepLink, withClaimIntent } from "../packages/shared/dist/index.js";
+import { claimRefusalMessage, readClaimIntent, teamsTaskDeepLink, withClaimIntent } from "../packages/shared/dist/index.js";
 import { TeamsBotClient } from "../apps/server/dist/bot.js";
 
 let passed = 0;
@@ -86,6 +86,52 @@ await check("withClaimIntent turns a recorded link into its claim twin and nothi
   assert.equal(withClaimIntent(undefined), undefined);
   assert.equal(withClaimIntent(teamsTaskDeepLink("app-id")), undefined);
   assert.equal(withClaimIntent("https://teams.microsoft.com/l/entity/app-id/loan-tasks-home?context=not-json"), undefined);
+});
+
+await check("a folder name with a space encodes the same way in both twins", () => {
+  // URLSearchParams would write `+` here where the builder writes `%20`, which
+  // would leave one card carrying two differently-encoded versions of one link.
+  const viewOnly = teamsTaskDeepLink("app-id", "task-1", { label: "Smith 1042 (rush)" });
+  const claim = withClaimIntent(viewOnly);
+  const label = (url) => url.split("&").find((part) => part.startsWith("label="));
+  assert.equal(label(claim), label(viewOnly));
+  assert.equal(label(claim), "label=Smith%201042%20(rush)");
+});
+
+await check("a refusal names which no it is", () => {
+  /* One sentence for four different situations is survivable while the only
+     refusals come from a button the UI has already hidden. Claim & Open claims
+     on arrival, where a lost race and a cancelled task are ordinary outcomes
+     and the reader has no other way to tell them apart. */
+  const creator = { id: "u-creator", displayName: "Dana Requester", roles: ["OFFICER"], active: true };
+  const checker = { id: "u-checker", displayName: "Casey Checker", roles: ["OFFICER"], active: true };
+  const other = { id: "u-other", displayName: "Robin Checker", roles: ["OFFICER"], active: true };
+  const task = {
+    id: "task-1",
+    folderName: "Smith-1042",
+    taskType: "LOI",
+    status: "OPEN",
+    createdBy: { id: creator.id, displayName: creator.displayName }
+  };
+
+  assert.match(claimRefusalMessage(task, creator), /created this task/, "ADR-0003, by name");
+  assert.equal(
+    claimRefusalMessage({ ...task, status: "CLAIMED", assignee: { id: checker.id, displayName: checker.displayName } }, other),
+    "Casey Checker already has this task"
+  );
+  assert.equal(
+    claimRefusalMessage({ ...task, status: "CANCELLED" }, other),
+    "This one is cancelled — there's nothing left to claim"
+  );
+  assert.equal(
+    claimRefusalMessage({ ...task, status: "COMPLETED" }, other),
+    "This one is completed — there's nothing left to claim"
+  );
+  // The holder hears that it is already theirs, not that they are barred.
+  assert.equal(
+    claimRefusalMessage({ ...task, status: "CLAIMED", assignee: { id: checker.id, displayName: checker.displayName } }, checker),
+    "Casey Checker already has this task"
+  );
 });
 
 await check("the reader treats anything it can't positively identify as view-only", () => {

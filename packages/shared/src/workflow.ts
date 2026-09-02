@@ -542,9 +542,29 @@ export const canClaimTask = (task: LoanTask, user: UserIdentity): boolean => {
 
 /* Why this user can't claim this task. `canClaimTask` is the gate; this is the
    sentence shown when it says no, so a refusal reads as a rule rather than a
-   bug. */
-export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string =>
-  assigneeRefusal(task, user) ?? "This task isn't up for grabs right now";
+   bug.
+
+   It names which no it is. `assigneeRefusal` answers the ones about the pair —
+   you already hold it, you created it (ADR-0003), your role can't work this type
+   — and the two below are about the task: somebody else got there first, or it
+   has left play entirely. A single "isn't up for grabs" covered all three, which
+   was survivable while the only refusals came from a button the UI had already
+   hidden, but the channel card's "Claim & Open" claims on arrival (#180), where
+   a lost race and a cancelled task are the ordinary outcomes and the reader has
+   no other way to tell them apart. */
+export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string => {
+  const pair = assigneeRefusal(task, user);
+  if (pair) {
+    return pair;
+  }
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return `This one is ${task.status.toLowerCase()} — there's nothing left to claim`;
+  }
+  if (task.assignee) {
+    return holderRefusalMessage(task.assignee.displayName);
+  }
+  return "This task isn't up for grabs right now";
+};
 
 /* Nobody may point a task at themselves, by any route (#208). Handing yourself
    a task used to be allowed and was the way to take over work somebody else had

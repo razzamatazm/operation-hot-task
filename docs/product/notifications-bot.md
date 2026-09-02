@@ -75,11 +75,16 @@
       a link already recorded, so both buttons point where the card has always
       pointed even across a config change.
     - **The claim never blocks the navigation.** The tab opens on the task
-      expanded either way. A refusal is a toast beside it carrying the reason
-      the rule gives — already held, not up for grabs, or
-      [ADR-0003](../adr/0003-creator-is-never-assignee.md)'s "you created this
-      task" — from `claimRefusalMessage`, which is the same authority the server
-      refuses with. The web app re-decides nothing.
+      expanded either way, and it goes through the same claim call every other
+      claim in the web app does. A refusal is a toast beside it carrying the
+      sentence `claimRefusalMessage` gives, which now names *which* no it is:
+      somebody else got there first ("Casey already has this task"), the task
+      has left play ("This one is cancelled — there's nothing left to claim"),
+      or [ADR-0003](../adr/0003-creator-is-never-assignee.md)'s "you created
+      this task". One sentence for all of them was survivable while refusals
+      only came from a button the UI had already hidden; on this path a lost
+      race and a cancelled task are ordinary outcomes. The web app re-decides
+      nothing — `canClaimTask` is still the only authority.
     - **The creator never sees a claim affordance.** They get the Cancel view
       through the card's user-specific refresh block, which needs their Teams
       MRI. When they have never messaged the bot, that MRI now comes off the

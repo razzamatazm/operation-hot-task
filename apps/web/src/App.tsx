@@ -3925,19 +3925,27 @@ export const App = () => {
   /* Claim on arrival, for a deep link that carried the claim intent — the
      channel card's "Claim & Open" (#180).
 
-     Waits for the task to be in `tasks` for the same reason the focus effect
-     does: a cold open fetches after Teams init, and firing before the task is
-     here would leave nothing to name in a refusal. The claim goes through the
-     ordinary authenticated endpoint as the signed-in user, so `canClaimTask`
-     stays the only authority on whether it's allowed and the sentence it
-     refuses with — already held, not up for grabs, or the creator's own task
-     (ADR-0003) — is what the toast says. Nothing here re-decides eligibility.
+     The same `onClaim` every other claim in the app goes through, so there is
+     one POST, one refresh and one failure surface: `canClaimTask` stays the
+     only authority on whether a claim is allowed, and the sentence it refuses
+     with — someone else got there first, the task has left play, or you created
+     it (ADR-0003) — is what the toast says. Nothing here re-decides
+     eligibility, and nothing here blocks: the focus effect has already opened
+     the tab on the task, so a refusal lands beside it rather than in front
+     of it.
 
-     One shot per link: the ref guards against a re-run while the POST is in
-     flight, since `tasks` changes underneath this effect. */
+     Deliberately not waiting for the task to appear in `tasks`. A task the
+     viewer's list doesn't hold — filtered out, or aged past the closed-task
+     window — would otherwise be claimed silently and never reported, and the
+     refusal reads off the server's answer rather than off the local snapshot
+     anyway. It does wait for SSO in prod, where the placeholder identity has no
+     id and the request would 401.
+
+     The ref is what makes it one shot. StrictMode runs a mount effect twice in
+     dev, and both passes see the same state. */
   const claimedOnArrival = useRef<string | null>(null);
   useEffect(() => {
-    if (!claimOnArrivalId || !tasks.some((t) => t.id === claimOnArrivalId)) {
+    if (!claimOnArrivalId || (!IS_DEV && !user.id)) {
       return;
     }
     if (claimedOnArrival.current === claimOnArrivalId) {
@@ -3946,17 +3954,8 @@ export const App = () => {
     claimedOnArrival.current = claimOnArrivalId;
     const taskId = claimOnArrivalId;
     setClaimOnArrivalId(null);
-    void (async () => {
-      try {
-        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/claim`, { method: "POST" }, user);
-      } catch (err) {
-        // Never blocking: the tab is already open on the task, so the failure
-        // is a toast beside it rather than a wall in front of it.
-        showToast(err instanceof Error ? err.message : "Couldn't claim that task", { variant: "error" });
-      }
-      await refresh();
-    })();
-  }, [claimOnArrivalId, tasks, user, refresh, showToast]);
+    void onClaim(taskId);
+  }, [claimOnArrivalId, user, onClaim]);
 
   const onUnclaim = useCallback(async (taskId: string): Promise<void> => {
     try {
