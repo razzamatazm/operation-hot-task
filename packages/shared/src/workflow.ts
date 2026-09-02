@@ -1,6 +1,6 @@
 import { submitBlockReason } from "./checklist.js";
 import { ACTION_LABELS } from "./labels.js";
-import { AppConfig, isSystemActor, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
+import { AppConfig, CLOSED_STATUSES, isSystemActor, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -34,11 +34,6 @@ export const FRAUD_FLOW: TaskStatus[] = [
    LOAN_DOCS / FRAUD / STANDARD split so callers never re-derive it inline. */
 export const flowFor = (task: LoanTask): TaskStatus[] =>
   task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : task.taskType === "FRAUD" ? FRAUD_FLOW : STANDARD_FLOW;
-
-/* The terminal/closed statuses — a task here is done being worked. Canonical
-   list so the web view, workflow rules, and services agree on what "closed"
-   means. */
-export const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "CANCELLED", "ARCHIVED"];
 
 const ALWAYS_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   OPEN: ["CANCELLED"],

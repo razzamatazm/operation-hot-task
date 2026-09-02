@@ -185,6 +185,11 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+/* The terminal/closed statuses — a task here is done being worked. Canonical
+   list so the web view, workflow rules, and services agree on what "closed"
+   means. */
+export const CLOSED_STATUSES: TaskStatus[] = ["COMPLETED", "CANCELLED", "ARCHIVED"];
+
 export interface UserIdentity {
   id: string;
   displayName: string;

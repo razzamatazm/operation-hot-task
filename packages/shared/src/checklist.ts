@@ -1,6 +1,5 @@
 import { fraudSeat } from "./fraud.js";
-import { LoanTask, UserIdentity } from "./types.js";
-import { CLOSED_STATUSES } from "./workflow.js";
+import { CLOSED_STATUSES, LoanTask, UserIdentity } from "./types.js";
 
 /* Structured outstanding-items checklist for FRAUD checks (#44). Replaces the
    old free-text "outstanding items" handoff with a list the two participants

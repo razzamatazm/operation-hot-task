@@ -18,8 +18,8 @@
  */
 import assert from "node:assert/strict";
 
+import { CLOSED_STATUSES } from "../packages/shared/dist/types.js";
 import {
-  CLOSED_STATUSES,
   FRAUD_FLOW,
   botPrimaryAdvance,
   canClaimTask,
