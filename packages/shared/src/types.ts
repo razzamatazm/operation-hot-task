@@ -1,3 +1,9 @@
+/* Type-only, and it has to stay that way. checklist.ts takes a value from this
+   module (CLOSED_STATUSES, below), so this edge is the return leg of a loop
+   that only stays harmless because `import type` erases at compile time. Turn
+   it into a value import and the pair becomes a real module cycle — a
+   module-scope const here that reads a checklist export would TDZ at import
+   time. See #205. */
 import type { ChecklistItem } from "./checklist.js";
 
 export const TASK_TYPES = ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const;
