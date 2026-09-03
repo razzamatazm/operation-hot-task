@@ -85,18 +85,111 @@ const withFields = (over = {}) => {
   return fields;
 };
 
+/* ── The contact and property grids (#197) ───────────────
+
+   These two are NOT in the page's HTML: Humperdink fetches them after render
+   and paints them into jqxGrids. Each grid is a header row of column headers
+   and a body of rows whose cells sit in the same column order, so the headers
+   below are the contract — the scrape finds its columns by matching this text,
+   never by counting positions.
+
+   Both header lists and the row values are copied from a saved copy of a real
+   loan details page, double space in `Purchase  Price` and all. */
+const CONTACT_HEADERS = ["", "", "Type", "Name", "Company", "Email", "Primary Phone", "Alternate Phone", "Notes"];
+const CONTACT_ROWS = [
+  ["", "", "Broker", "Dan LuVisi", "Market Capital Group", "dluvisi@mcglend.com", "(310) 265-4492", "", ""],
+  ["", "", "Borrower", "Duda Adams", "", "", "", "", ""],
+  ["", "", "Escrow", "Somebody At Escrow", "First American", "", "", "", ""]
+];
+
+const PROPERTY_HEADERS = [
+  "",
+  "Parcel",
+  "Address",
+  "Transaction",
+  "Property",
+  "Purchase  Price",
+  "Purchase Date",
+  "Existing Debt",
+  "Final Value",
+  "Loan Amount"
+];
+/* Humperdink packs the whole address into one `<br/>`-split cell; the scrape
+   wants the street line only. The saved loan refinances its one property. */
+const HARBOR_ADDRESS = "217 to 225 S. Harbor Boulevard,  <br>Santa Ana,  CA 92704, Orange";
+const PROPERTY_ROWS = [
+  ["", "1", HARBOR_ADDRESS, "Refinance-Standard", "Apartment", "$0", "", "$0", "$3,260,267", "$1,300,000"]
+];
+
+/** A page whose grids and rows can be swapped out per test. */
+const withGrids = (over = {}) => ({
+  contactHeaders: CONTACT_HEADERS,
+  contactRows: CONTACT_ROWS,
+  propertyHeaders: PROPERTY_HEADERS,
+  propertyRows: PROPERTY_ROWS,
+  ...over
+});
+
 /* ── A DOM small enough to read, big enough for the script ──
 
    The userscript touches exactly this much of the page: the title, the address
    bar, one button it creates and appends, and the clipboard. Anything it starts
    reaching for beyond this (a selector into Humperdink's markup, say) fails
    here loudly, which is the point. */
-const runUserscript = ({ title, href, clipboard = "ok", fields = TERMS_FIELDS }) => {
+const runUserscript = ({
+  title,
+  href,
+  clipboard = "ok",
+  fields = TERMS_FIELDS,
+  grids = withGrids(),
+  /* Divides every timer the script sets, so a test can run the control's
+     twenty-second wait-for-the-grids ceiling in a fraction of a second. */
+  clockScale = 1
+}) => {
   const url = new URL(href);
   const copied = [];
   const created = [];
   let mountedButton = null;
   let buttonsMounted = 0;
+  let page = grids;
+
+  /* One grid cell. `textContent` strips the markup the way a browser would;
+     `innerHTML` keeps the `<br/>` the address scrape splits on. */
+  const gridCell = (html) => ({
+    role: "gridcell",
+    innerHTML: html,
+    textContent: String(html).replace(/<[^>]*>/g, " ")
+  });
+
+  /* The two jqxGrid tables the script reads, rebuilt from `page` on every
+     lookup — so a test can hand the grids over mid-run and model Humperdink's
+     background fetch landing late. A grid list of `null` is the grid element
+     itself being gone; `[]` is the grid painted but still empty. */
+  const gridElement = (role, rowsOrHeaders) => {
+    if (rowsOrHeaders === null) return null;
+    const children =
+      role === "columnheader"
+        ? rowsOrHeaders.map((text) => ({ role, textContent: text }))
+        : rowsOrHeaders.map((cells) => ({
+            role,
+            cells: cells.map(gridCell),
+            querySelectorAll(selector) {
+              return selector.includes("gridcell") ? this.cells : [];
+            }
+          }));
+    return {
+      querySelectorAll(selector) {
+        return selector.includes(role) ? children : [];
+      }
+    };
+  };
+
+  const GRID_ELEMENTS = {
+    columntableContactsGrid: () => gridElement("columnheader", page.contactHeaders),
+    contenttableContactsGrid: () => gridElement("row", page.contactRows),
+    columntablePropertiesGrid: () => gridElement("columnheader", page.propertyHeaders),
+    contenttablePropertiesGrid: () => gridElement("row", page.propertyRows)
+  };
 
   const createElement = (tag) => {
     const el = {
@@ -127,12 +220,13 @@ const runUserscript = ({ title, href, clipboard = "ok", fields = TERMS_FIELDS })
   const document = {
     title,
     createElement,
-    /* The script's own control first, then the page's terms fields. An id the
-       page doesn't carry returns null, which is what a Humperdink release that
-       renamed a field looks like from in here. */
+    /* The script's own control first, then the page's terms fields and its two
+       grids. An id the page doesn't carry returns null, which is what a
+       Humperdink release that renamed something looks like from in here. */
     getElementById: (id) =>
       created.find((el) => el.mounted && el.id === id) ??
-      (Object.prototype.hasOwnProperty.call(fields, id) ? { id, value: fields[id] } : null),
+      (Object.prototype.hasOwnProperty.call(fields, id) ? { id, value: fields[id] } : null) ??
+      (Object.prototype.hasOwnProperty.call(GRID_ELEMENTS, id) ? GRID_ELEMENTS[id]() : null),
     body: {
       appendChild(el) {
         el.mounted = true;
@@ -171,7 +265,7 @@ const runUserscript = ({ title, href, clipboard = "ok", fields = TERMS_FIELDS })
   /* The control resets its own label on a timer. Unref it, or every test here
      holds the process open for the full six seconds. */
   const unrefed = (fn, ms) => {
-    const handle = setTimeout(fn, ms);
+    const handle = setTimeout(fn, ms / clockScale);
     handle.unref?.();
     return handle;
   };
@@ -190,6 +284,10 @@ const runUserscript = ({ title, href, clipboard = "ok", fields = TERMS_FIELDS })
     /* Tampermonkey can run the script again on a soft navigation. */
     remount() {
       vm.runInContext(USERSCRIPT, sandbox);
+    },
+    /* Humperdink's background fetch landing, after the script already mounted. */
+    loadGrids(next) {
+      page = { ...page, ...next };
     },
     /* Let the click handler's clipboard promise settle before we read the label. */
     async press() {
@@ -484,8 +582,8 @@ const scrapeTerms = async (fields) => {
   return result.payload.terms ?? {};
 };
 
-const scrapeNote = async (fields) => {
-  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields });
+const scrapeNote = async (fields, grids = withGrids()) => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields, grids });
   await page.press();
   const result = parseHumperdinkPayload(page.copied[0]);
   assert.equal(result.ok, true, result.error);
@@ -555,7 +653,9 @@ test("a loan using none of the conditional panels carries none of them", async (
   }
 });
 
-test("its note is the core terms and nothing else", async () => {
+/* The whole note the saved loan produces: core terms, its two contacts, and no
+   property block because its one property is a refinance. */
+test("its note is the core terms and its people, and nothing else", async () => {
   const note = await scrapeNote(TERMS_FIELDS);
   assert.equal(
     note,
@@ -569,7 +669,11 @@ test("its note is the core terms and nothing else", async () => {
       "Interest Rate: Months 13–24 at 8.40%",
       "Origination Fee: 2.0000 points",
       "Broker Fee: 2.0000 points",
-      "Evaluation Fee: $1,750.00"
+      "Evaluation Fee: $1,750.00",
+      "",
+      "Contacts",
+      "Broker: Dan LuVisi",
+      "Borrower: Duda Adams"
     ].join("\n")
   );
 });
@@ -654,7 +758,8 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
       "Seller Financing",
       "Disbursement Options",
       "Interest Reserve",
-      "Partial Reconveyance"
+      "Partial Reconveyance",
+      "Contacts"
     ]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
@@ -785,5 +890,301 @@ test("a zero in the core terms is a real term and says so", async () => {
 test("the blended figures read as their own block under the junior loan", async () => {
   const note = await scrapeNote(withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%" }));
   const headings = note.split("\n\n").map((block) => block.split("\n")[0]);
-  assert.deepEqual(headings, ["Loan Terms", "Junior Financing", "Blended Totals"]);
+  assert.deepEqual(headings, ["Loan Terms", "Junior Financing", "Blended Totals", "Contacts"]);
+});
+
+/* ── The people and the properties (#197) ───────────────────
+
+   These two come off Humperdink's jqxGrids, which the page fetches AFTER it
+   renders. Everything below matches on header text and contact type text —
+   Humperdink's row ids are positional (`row0ContactsGrid`), so anything built
+   on them points at the wrong person the first time somebody adds a contact. */
+
+const acquisitionRow = (over = {}) => {
+  const row = [...PROPERTY_ROWS[0]];
+  row[2] = over.address ?? "1400 Ocean Avenue,  <br>Long Beach,  CA 90802, Los Angeles";
+  row[3] = over.transaction ?? "Acquisition";
+  row[5] = over.price ?? "$850,000";
+  return row;
+};
+
+/** Long enough for the control's grid poll to have ticked a few times. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+
+const scrapePayload = async (over = {}) => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
+  await page.press();
+  assert.equal(page.copied.length, 1, page.button.textContent);
+  const result = parseHumperdinkPayload(page.copied[0]);
+  assert.equal(result.ok, true, result.error);
+  return result.payload;
+};
+
+test("the broker and the borrower travel, matched on contact type", async () => {
+  const payload = await scrapePayload();
+  assert.deepEqual(payload.contacts, [
+    { type: "Broker", name: "Dan LuVisi" },
+    { type: "Borrower", name: "Duda Adams" }
+  ]);
+});
+
+/* The contact grid's rows are in whatever order Humperdink returns them and its
+   row ids are positional. Reordering the grid must not reorder the note or —
+   far worse — hand the borrower's name to the broker's label. */
+test("shuffling the contact rows changes nothing about the note", async () => {
+  const shuffled = [CONTACT_ROWS[2], CONTACT_ROWS[1], CONTACT_ROWS[0]];
+  const payload = await scrapePayload({ grids: withGrids({ contactRows: shuffled }) });
+  assert.deepEqual(payload.contacts, [
+    { type: "Broker", name: "Dan LuVisi" },
+    { type: "Borrower", name: "Duda Adams" }
+  ]);
+});
+
+/* The same for the columns: Humperdink can reorder or insert one, and the
+   scrape finds `Type` and `Name` by their header text. */
+test("an inserted column doesn't shift the scrape onto the wrong cell", async () => {
+  const headers = ["Rating", ...CONTACT_HEADERS];
+  const rows = CONTACT_ROWS.map((row) => ["A+", ...row]);
+  const payload = await scrapePayload({ grids: withGrids({ contactHeaders: headers, contactRows: rows }) });
+  assert.deepEqual(payload.contacts, [
+    { type: "Broker", name: "Dan LuVisi" },
+    { type: "Borrower", name: "Duda Adams" }
+  ]);
+});
+
+test("the loan's other contacts stay in Humperdink", async () => {
+  const note = await scrapeNote(TERMS_FIELDS);
+  assert.doesNotMatch(note, /Escrow/);
+  assert.doesNotMatch(note, /Somebody At Escrow/);
+});
+
+test("a loan with two borrowers carries both, under the borrower label", async () => {
+  const rows = [...CONTACT_ROWS, ["", "", "Borrower", "Marta Adams", "", "", "", "", ""]];
+  const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
+  assert.deepEqual(payload.contacts, [
+    { type: "Broker", name: "Dan LuVisi" },
+    { type: "Borrower", name: "Duda Adams" },
+    { type: "Borrower", name: "Marta Adams" }
+  ]);
+});
+
+test("a loan with no broker just carries the borrower", async () => {
+  const rows = CONTACT_ROWS.filter((row) => row[2] !== "Broker");
+  const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
+  assert.deepEqual(payload.contacts, [{ type: "Borrower", name: "Duda Adams" }]);
+});
+
+/* AC: "A loan with no acquisitions produces no property section." The saved
+   loan refinances its one property. */
+test("a refinanced property contributes nothing", async () => {
+  const payload = await scrapePayload();
+  assert.equal("properties" in payload, false);
+  assert.doesNotMatch(humperdinkNoteText(payload), /Properties Acquired/);
+  assert.doesNotMatch(humperdinkNoteText(payload), /Harbor Boulevard/);
+});
+
+/* AC: "only their street address and purchase price". Humperdink packs the
+   whole address into one `<br/>`-split cell. */
+test("an acquired property carries its street address and its purchase price", async () => {
+  const payload = await scrapePayload({ grids: withGrids({ propertyRows: [acquisitionRow()] }) });
+  assert.deepEqual(payload.properties, [
+    { address: "1400 Ocean Avenue", purchasePrice: "$850,000" }
+  ]);
+});
+
+test("nothing else off the property row travels", async () => {
+  const note = await scrapeNote(TERMS_FIELDS, withGrids({ propertyRows: [acquisitionRow()] }));
+  assert.equal(note.split("\n\n").pop(), "Properties Acquired\n1400 Ocean Avenue — $850,000");
+  for (const excluded of ["Apartment", "Long Beach", "90802", "Los Angeles"]) {
+    assert.doesNotMatch(note, new RegExp(excluded), `${excluded} is not what an LOI check needs`);
+  }
+});
+
+test("an acquisition of any kind counts", async () => {
+  for (const transaction of ["Acquisition", "Acquisition with Refi Cross", "Purchase-Standard"]) {
+    const payload = await scrapePayload({
+      grids: withGrids({ propertyRows: [acquisitionRow({ transaction })] })
+    });
+    assert.equal(payload.properties.length, 1, transaction);
+  }
+});
+
+/* AC: "A loan where the loan-level scenario and the per-property transaction
+   disagree follows the per-property signal." One loan can buy some properties
+   and refinance others, so `comboLoanScenarioType` is never consulted — this
+   asserts that by contradicting it in both directions. */
+test("the per-property transaction wins over the loan-level scenario type", async () => {
+  const bought = await scrapePayload({
+    fields: withFields({ comboLoanScenarioType: "Refinance" }),
+    grids: withGrids({ propertyRows: [acquisitionRow()] })
+  });
+  assert.deepEqual(bought.properties, [{ address: "1400 Ocean Avenue", purchasePrice: "$850,000" }]);
+
+  const refinanced = await scrapePayload({ fields: withFields({ comboLoanScenarioType: "Acquisition" }) });
+  assert.equal("properties" in refinanced, false);
+});
+
+test("a mixed loan carries only the properties it is buying", async () => {
+  const payload = await scrapePayload({
+    grids: withGrids({
+      propertyRows: [
+        PROPERTY_ROWS[0],
+        acquisitionRow(),
+        acquisitionRow({ address: "88 Palm Court, <br>Irvine, CA 92602", price: "$1,200,000" })
+      ]
+    })
+  });
+  assert.deepEqual(payload.properties, [
+    { address: "1400 Ocean Avenue", purchasePrice: "$850,000" },
+    { address: "88 Palm Court", purchasePrice: "$1,200,000" }
+  ]);
+});
+
+test("an acquisition with no purchase price filled in carries the address alone", async () => {
+  const payload = await scrapePayload({
+    grids: withGrids({ propertyRows: [acquisitionRow({ price: "$0" })] })
+  });
+  assert.deepEqual(payload.properties, [{ address: "1400 Ocean Avenue" }]);
+  assert.match(humperdinkNoteText(payload), /Properties Acquired\n1400 Ocean Avenue$/);
+});
+
+/* AC: "Note sections read in a stable order alongside the terms from #196." */
+test("the people and the properties read after the terms, always in that order", async () => {
+  const note = await scrapeNote(
+    withFields({ txtLoanTermsNotes: "Rate locked 14 days." }),
+    withGrids({ propertyRows: [acquisitionRow()] })
+  );
+  assert.deepEqual(
+    note.split("\n\n").map((block) => block.split("\n")[0]),
+    ["Loan Terms", "Loan Term Notes", "Contacts", "Properties Acquired"]
+  );
+  assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
+});
+
+/* AC: "The control shows `Loading` until both background loads have arrived,
+   then completes." */
+test("the control reads Loading until both grids have painted", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    grids: withGrids({ contactRows: [], propertyRows: [] })
+  });
+  assert.equal(page.button.textContent, "Loading…");
+
+  // Pressing while it waits copies nothing and says why.
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /Still loading/);
+
+  page.loadGrids({ contactRows: CONTACT_ROWS, propertyRows: PROPERTY_ROWS });
+  await settle();
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(parseHumperdinkPayload(page.copied[0]).ok, true);
+});
+
+test("one grid arriving is not both", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    grids: withGrids({ contactRows: [], propertyRows: [] })
+  });
+  page.loadGrids({ contactRows: CONTACT_ROWS });
+  await settle();
+  assert.equal(page.button.textContent, "Loading…");
+});
+
+test("a page whose grids are already painted never says Loading", () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
+  assert.equal(page.button.textContent, "Send to Hot Task");
+});
+
+/* AC: "Missing contacts or properties are reported, not silently omitted." */
+test("a grid whose element is gone is reported and nothing is copied", async () => {
+  // A missing grid and a slow one look the same from in here, so the control
+  // waits for it like any other and names it once it has given up.
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    grids: withGrids({ contactRows: null }),
+    clockScale: 200
+  });
+  assert.equal(page.button.textContent, "Loading…");
+  await settle();
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /contenttableContactsGrid/);
+});
+
+test("a column the scrape needs going missing is reported by name", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    grids: withGrids({ propertyHeaders: PROPERTY_HEADERS.map((h) => (h.trim() === "Purchase  Price" ? "Price" : h)) })
+  });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /Purchase Price column/);
+});
+
+/* A grid that never loads is the timeout case: the button becomes pressable
+   again so the filer gets told what didn't arrive rather than a spinner
+   forever. `clockScale` runs the control's twenty-second ceiling in a tenth of
+   a second so this test doesn't. */
+test("grids that never arrive are reported once the control gives up waiting", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    grids: withGrids({ contactRows: [], propertyRows: [] }),
+    clockScale: 200
+  });
+  await settle();
+  assert.equal(page.button.textContent, "Send to Hot Task", "it stops claiming to be loading");
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /hadn't finished loading/);
+});
+
+/* ── What the parser will accept as people and properties ── */
+
+test("junk contacts and properties cost the import nothing", () => {
+  for (const junk of ["a string", 42, null, {}, [null, 7, "x"], [{ name: "no type" }, { type: "Broker" }]]) {
+    const result = parseHumperdinkPayload(payloadText({ contacts: junk, properties: junk }));
+    assert.equal(result.ok, true, JSON.stringify(junk));
+    assert.equal("contacts" in result.payload, false);
+    assert.equal("properties" in result.payload, false);
+  }
+});
+
+test("a property with no address is dropped rather than rendered as a bare price", () => {
+  const result = parseHumperdinkPayload(
+    payloadText({ properties: [{ address: "", purchasePrice: "$1" }, { address: "12 Elm St" }] })
+  );
+  assert.deepEqual(result.payload.properties, [{ address: "12 Elm St" }]);
+});
+
+test("a runaway grid is capped rather than pasted whole into a note", () => {
+  const contacts = Array.from({ length: 50 }, () => ({ type: "Broker", name: "A" }));
+  const properties = Array.from({ length: 100 }, (_, i) => ({ address: `${i} Elm St` }));
+  const result = parseHumperdinkPayload(payloadText({ contacts, properties }));
+  assert.equal(result.payload.contacts.length, 20);
+  assert.equal(result.payload.properties.length, 40);
+});
+
+/* A grid that is present, loaded and genuinely empty is indistinguishable from
+   one that is still filling: Humperdink offers no "loaded, and there are none"
+   signal. So an empty grid is refused rather than imported as an absence — a
+   note that quietly lost its borrower is worse than one that didn't get made.
+   Every LOI is filed against a loan that has a borrower and a property. */
+test("a grid that stays empty is refused, not imported as a loan with nobody on it", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    grids: withGrids({ contactRows: [] }),
+    clockScale: 200
+  });
+  await settle();
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /contacts \(they hadn't finished loading\)/);
 });
