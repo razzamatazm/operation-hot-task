@@ -71,10 +71,14 @@
     `Complete` on that one cell and nowhere else; every other task type's
     claimed row is unchanged. The trigger is not called `Complete` because
     pressing it completes nothing.
-  - In the web UI the forward move out of corrections is the collapsed row's
-    quick action; the move back to `Claimed` is the hamburger's `Send back to
-    checker` entry — worded as the creator asking for a confirming second look,
-    not as an undo. Both, and the bot card's button, read `canTransitionStatus`
+  - In the web UI both of the creator's moves are the collapsed row's quick
+    action, as `Fixed ▾` — one control holding `Complete` and `Send back to
+    checker`, the same shape as the checker's `Checked ▾` and for the same
+    reason. The send-back used to be a hamburger entry while `Complete` sat on
+    the row, which made one of the creator's two moves easy and the other a
+    hunt; it still falls back to the menu for any seat the panel is not shown
+    to. It is worded as the creator asking for a confirming second look, not as
+    an undo. Both exits, and the bot card's button, read `canTransitionStatus`
     — the same question the server asks — so no surface can offer a move the
     server refuses.
   - Any task of another type found in `Needs corrections` at start-up is moved

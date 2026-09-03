@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -1874,6 +1874,14 @@ const TaskCard = memo(({
      that tells the truth about what pressing it does. Everywhere else the
      ladder is byte-for-byte what it was. */
   const showCheckedPanel = showActions && !mini && canUseCheckedPanel(task, user);
+  /* The creator's two exits from corrections, once they have made the fix — the
+     same control from the other side of the loop. `Complete` used to sit on the
+     row while `Send back to checker` was a hamburger entry, which made one of
+     their two moves easy and the other a hunt; that is the asymmetry #172 was
+     filed about, arriving on the creator's side. Same standing-down rule: when
+     this is set the Complete branch below leaves the slot to it. */
+  const showFixedPanel = showActions && !mini && canUseFixedPanel(task, user);
+  const twoExitPanel = showCheckedPanel || showFixedPanel;
   if (showActions) {
     // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
     // task sitting in the pool with no assignee at whatever status it was
@@ -1901,7 +1909,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if (!showCheckedPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -2138,7 +2146,7 @@ const TaskCard = memo(({
           It is deliberately NOT grouped with `Undo Merge Done` any more: that
           one really is an undo, and this one is a creator asking for a
           confirming second look. */}
-      {task.status === "NEEDS_REVIEW" && canTransitionStatus(task, "CLAIMED", user).ok && (
+      {task.status === "NEEDS_REVIEW" && !showFixedPanel && canTransitionStatus(task, "CLAIMED", user).ok && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
           {ACTION_LABELS.SEND_BACK_TO_CHECKER}
         </button>
@@ -2604,6 +2612,21 @@ const TaskCard = memo(({
                   },
                   run: (note) => { void onTransition(task.id, "NEEDS_REVIEW", note); }
                 }
+              ]}
+            />
+          ) : showFixedPanel ? (
+            /* The creator's side of the same loop. `Complete` leads: ADR-0007
+               rule 2 makes it the common case, since the correction is usually
+               a typo in their own text and needs no second opinion. The
+               send-back is the second exit, out of the hamburger where it used
+               to hide. */
+            <TwoExitPanel
+              triggerLabel={ACTION_LABELS.FIXED}
+              dialogLabel="You have made the corrections — what now?"
+              onBeforeAction={acknowledgeUnread}
+              exits={[
+                { label: ACTION_LABELS.COMPLETE, run: () => { void onTransition(task.id, "COMPLETED"); } },
+                { label: ACTION_LABELS.SEND_BACK_TO_CHECKER, ghost: true, run: () => { void onTransition(task.id, "CLAIMED"); } }
               ]}
             />
           ) : primaryAction ? (

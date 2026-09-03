@@ -311,15 +311,24 @@ by `canTransitionStatus`, the exact question the server asks on the click, so
 the row can't offer a move the server refuses; #236 is what happens when it
 reads a neighbouring predicate instead).
 
-One cell sits ahead of the whole ladder: a **claimed LOI held by its checker**
-renders `TwoExitPanel` as `Checked ▾` (#231) instead of a button, and the
-`CLAIMED` Complete branch stands down for it, so the two can never both appear.
-`Good to go` completes it; `Needs fixes` reveals a required note and then sends
-it to corrections. The condition is `canUseCheckedPanel` from `packages/shared`
-— it asks `canTransitionStatus` for both exits and answers once, so the panel is
-never drawn with a dead half and the view never re-derives who may do what. The
-trigger is not called `Complete`, because pressing it completes nothing. Every
-other task type's claimed row is byte-for-byte what it was.
+**Two cells sit ahead of the whole ladder**, both rendering `TwoExitPanel`
+instead of a button, and on both the `CLAIMED`/`NEEDS_REVIEW` Complete branch
+stands down so a panel and a button can never both appear:
+
+- A **claimed LOI held by its checker** gets `Checked ▾` (#231): `Good to go`
+  completes it, `Needs fixes` reveals a required note and then sends it to
+  corrections.
+- A **task in corrections, seen by its creator**, gets `Fixed ▾`: `Complete`
+  closes it, `Send back to checker` returns it for a confirming look. That
+  second move used to be a hamburger entry while `Complete` sat on the row,
+  which made one of the creator's two moves easy and the other a hunt.
+
+The conditions are `canUseCheckedPanel` and `canUseFixedPanel` from
+`packages/shared` — each asks `canTransitionStatus` for both of its exits and
+answers once, so a panel is never drawn with a dead half and the view never
+re-derives who may do what. Neither trigger is called `Complete`, because
+pressing it completes nothing. Every other task type's claimed row is
+byte-for-byte what it was.
 
 Why a panel and not two buttons: the slot is a fixed 116px, four variants were
 built and driven live on #172, and splitting the slot or swapping the outcomes

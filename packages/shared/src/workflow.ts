@@ -907,6 +907,28 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
 export const canUseCheckedPanel = (task: LoanTask, user: UserIdentity): boolean =>
   canTransitionStatus(task, "COMPLETED", user).ok && canTransitionStatus(task, "NEEDS_REVIEW", user).ok;
 
+/* The creator's two exits from corrections, once they have made the fix — the
+   same question as above, from the other side of the loop (ADR-0007 rule 2).
+   They either close the task (the common case: a typo needs no second opinion)
+   or send it back to the checker for a confirming look.
+
+   Same shape and same reasoning as `canUseCheckedPanel`: both moves are
+   `canTransitionStatus`, answered together, so the control cannot be drawn with
+   one exit that the server would refuse. The send-back used to live in the
+   hamburger while `Complete` sat on the row, which made one of the creator's
+   two moves the easy one and the other a hunt — the asymmetry #172 was filed
+   about, arriving on the creator's side.
+
+   The status IS restated here, unlike in the checker's predicate, and for a
+   reason: `CLAIMED` is a legal target from several statuses (it is how a
+   FRAUD checker reopens a hand-back, and how a Loan Docs merge is undone), so
+   the two moves alone do not pin down which control this is. The status says
+   which moment it belongs to; the permissions still come only from
+   `canTransitionStatus`. */
+export const canUseFixedPanel = (task: LoanTask, user: UserIdentity): boolean =>
+  task.status === "NEEDS_REVIEW" &&
+  canTransitionStatus(task, "COMPLETED", user).ok &&
+  canTransitionStatus(task, "CLAIMED", user).ok;
 
 /* Out of it: the creator, and only the creator. They either complete the task
    (the common case — a typo needs no second opinion) or send it back to the

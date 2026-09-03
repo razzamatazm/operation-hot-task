@@ -45,6 +45,15 @@ export const ACTION_LABELS = {
   CHECKED: "Checked",
   GOOD_TO_GO: "Good to go",
   NEEDS_FIXES: "Needs fixes",
+  /* The creator's side of the same moment, once they have made the
+     corrections. Two exits again — close it, or send it back for a confirming
+     look — behind one control, for the reason the checker's has one: the slot
+     holds a single button, and putting the second move in the hamburger made
+     it the hard path. `Fixed` reads as the state the creator is reporting, in
+     the same voice as `Checked`, and like `Checked` it is not called
+     `Complete` because pressing it completes nothing on its own. Rides the
+     116px slot; at five characters it has room to spare. */
+  FIXED: "Fixed",
   ARCHIVE: "Archive",
   MERGE_DONE: "Merge Done",
   APPROVE_MERGE: "Approve Merge",

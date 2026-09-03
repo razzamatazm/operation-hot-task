@@ -31,7 +31,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { SYSTEM_ACTOR, TASK_STATUSES, TASK_TYPES } from "../packages/shared/dist/types.js";
-import { canTransitionStatus, canUseCheckedPanel } from "../packages/shared/dist/workflow.js";
+import { canTransitionStatus, canUseCheckedPanel, canUseFixedPanel } from "../packages/shared/dist/workflow.js";
 import { ACTION_LABELS, NEEDS_FIXES_NOTE_REQUIRED, needsFixesNote } from "../packages/shared/dist/labels.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -135,7 +135,55 @@ await check("both halves are open together or the panel is not drawn at all", ()
   }
 });
 
+await check("the creator's Fixed panel is drawn on exactly one cell: the creator, in corrections", () => {
+  /* The other side of the loop, added when the user directed it live during
+     #231's visual pass. Same shape, same agreement requirement: both exits are
+     the server's own answer, so the panel is never drawn with a dead half. */
+  for (const cell of CELLS) {
+    const task = taskFor(cell);
+    const applies = cell.taskType === "LOI" && cell.status === "NEEDS_REVIEW";
+    assert.equal(canUseFixedPanel(task, CREATOR), applies, `${cellName(cell)}: the creator`);
+    assert.equal(canUseFixedPanel(task, ASSIGNEE), false, `${cellName(cell)}: never the assignee — they wait`);
+    assert.equal(canUseFixedPanel(task, OBSERVER), false, `${cellName(cell)}: never a bystander, admin or not`);
+  }
+});
+
+await check("every exit the Fixed panel draws is a move the server accepts", () => {
+  for (const cell of CELLS) {
+    const task = taskFor(cell);
+    for (const viewer of [...PEOPLE, SYSTEM]) {
+      if (!canUseFixedPanel(task, viewer)) {
+        continue;
+      }
+      for (const [exit, target] of [["Complete", "COMPLETED"], ["Send back to checker", "CLAIMED"]]) {
+        const verdict = canTransitionStatus(task, target, viewer);
+        assert.ok(
+          verdict.ok,
+          `${cellName(cell)}: ${viewer.displayName} is offered "${exit}" but the server says "${verdict.reason}"`
+        );
+      }
+    }
+  }
+});
+
+await check("the two panels never appear on the same row", () => {
+  /* One is the checker's on a claimed LOI, the other the creator's in
+     corrections, and they are different statuses — but they share a slot, so
+     the row would have to choose. It never has to. */
+  for (const cell of CELLS) {
+    const task = taskFor(cell);
+    for (const viewer of [...PEOPLE, SYSTEM]) {
+      assert.ok(
+        !(canUseCheckedPanel(task, viewer) && canUseFixedPanel(task, viewer)),
+        `${cellName(cell)}: ${viewer.displayName} is offered both panels`
+      );
+    }
+  }
+});
+
 await check("the labels come from the shared module, one string per action", () => {
+  assert.equal(ACTION_LABELS.FIXED, "Fixed");
+  assert.ok(ACTION_LABELS.FIXED.length <= ACTION_LABELS.APPROVE_MERGE.length, "the creator's trigger fits the slot too");
   assert.equal(ACTION_LABELS.CHECKED, "Checked");
   assert.equal(ACTION_LABELS.GOOD_TO_GO, "Good to go");
   assert.equal(ACTION_LABELS.NEEDS_FIXES, "Needs fixes");
