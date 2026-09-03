@@ -161,9 +161,10 @@ const avatarStyle = (id: string): CSSProperties => {
 
 /* Whose court is the ball in? Drives the grouped buckets. Mirrors the
    collapsed-row primary-action ladder so the section a task lands in and the
-   button it offers agree. Permission edge cases (e.g. a creator can't COMPLETE
-   a NEEDS_REVIEW task) are still gated by the action ladder itself — a "you"
-   card may carry no quick button and be acted on from the expanded body. */
+   button it offers agree. Permission edge cases (e.g. a LOAN_DOCS assignee
+   at CLAIMED whose next move is Merge Done, not Complete) are still gated by
+   the action ladder itself — a "you" card may carry no quick button and be
+   acted on from the expanded body. */
 type Court = "you" | "pool" | "them" | "done";
 const courtOf = (task: LoanTask, user: UserIdentity): Court => {
   if (CLOSED_STATUSES.includes(task.status)) return "done";

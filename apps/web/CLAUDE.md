@@ -281,7 +281,8 @@ rendering failure on your own tasks. In order:
    would otherwise render dead space. Whose move it is
    comes from `pendingPartyFor` in `packages/shared/src/workflow.ts` —
    `MERGE_DONE`→creator, `MERGE_APPROVED`→assignee, `AWAITING_ITEMS`→creator,
-   `PENDING_APPROVAL`→assignee — never re-derived in the view. Rendered as a
+   `PENDING_APPROVAL`→assignee, `NEEDS_REVIEW`→creator (ADR-0007) — never
+   re-derived in the view. Rendered as a
    passive muted-mono `<span>` (`.task-card-quick-action-waiting`), no
    handler, at the same `--quick-action-w`. The ball is legitimately in
    someone else's court, so the row says so instead of offering a

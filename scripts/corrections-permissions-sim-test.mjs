@@ -15,9 +15,15 @@
  * matters most: for EVERY task type, EVERY status and EVERY seat, any control a
  * surface offers is one `canTransitionStatus` — the predicate the server runs
  * on the request — would accept. The bot surfaces are asked directly. The web
- * ladder cannot be imported into a node script, so its gates are mirrored
- * here as a table of (status, target, predicate the row reads); when the web
- * changes what it reads, this table changes with it.
+ * ladder is React and cannot be imported into a node script, so it is covered
+ * one level down: every seat predicate a surface might gate a control on is
+ * checked, over the whole matrix, against the server's answer for the move it
+ * guards. That is the exact shape of the defect — `canMoveNeedsReview` said
+ * yes to the creator, the flow allowed the move, and the server still said
+ * no — so a surface that reads a seat predicate plus flow legality (as the web
+ * ladder did, and as its other branches still do) cannot be wrong-footed. The
+ * three controls this ticket owns now read `canTransitionStatus` itself in
+ * App.tsx, which this file cannot assert and says so here rather than pretend.
  *
  * The sections after it pin the rule itself (ADR-0007 rules 1–3), first as
  * pure predicates over the full matrix and then end to end through the real
@@ -34,8 +40,12 @@ import path from "node:path";
 import { SYSTEM_ACTOR, TASK_STATUSES, TASK_TYPES } from "../packages/shared/dist/types.js";
 import {
   botAdvanceFor,
+  canApproveMerge,
+  canCancelTask,
   canCompleteTask,
+  canMarkMergeDone,
   canMoveNeedsReview,
+  canMoveToNeedsReview,
   canTransitionStatus,
   nextFlowStatuses,
   pendingPartyFor
@@ -107,36 +117,44 @@ console.log("The corrections state belongs to the creator, and only the checker 
 // 1. No surface offers a control the server would refuse
 // ---------------------------------------------------------------------------
 
-/* What the web collapsed row and hamburger read to decide whether to render
-   each control that touches the corrections state. This is a mirror of
-   apps/web/src/App.tsx, kept deliberately narrow: the three controls the
-   defect chain runs through. If the web's gate for one of these changes, this
-   row changes in the same commit. */
-const WEB_CONTROLS = [
-  { status: "CLAIMED", target: "COMPLETED", label: "Complete", offered: (task, user) => canTransitionStatus(task, "COMPLETED", user).ok },
-  { status: "NEEDS_REVIEW", target: "COMPLETED", label: "Complete", offered: (task, user) => canTransitionStatus(task, "COMPLETED", user).ok },
-  { status: "NEEDS_REVIEW", target: "CLAIMED", label: "Undo Review", offered: (task, user) => canTransitionStatus(task, "CLAIMED", user).ok }
+/* Every seat predicate the shared module exports, paired with the move(s) it
+   guards. A surface that renders a control from "this predicate says yes and
+   the flow lists the move" — which is how the web ladder read NEEDS_REVIEW →
+   Complete when the defect shipped, and how several of its branches still
+   read — must never be shown a control the server refuses. */
+const SEAT_PREDICATES = [
+  { name: "canCompleteTask", holds: canCompleteTask, targets: () => ["COMPLETED"] },
+  { name: "canMoveNeedsReview", holds: canMoveNeedsReview, targets: () => ["CLAIMED", "COMPLETED"] },
+  { name: "canMoveToNeedsReview", holds: canMoveToNeedsReview, targets: () => ["NEEDS_REVIEW"] },
+  { name: "canMarkMergeDone", holds: canMarkMergeDone, targets: () => ["MERGE_DONE"] },
+  { name: "canApproveMerge", holds: canApproveMerge, targets: () => ["MERGE_APPROVED"] },
+  { name: "canCancelTask", holds: canCancelTask, targets: () => ["CANCELLED"] }
 ];
 
-await check("web: every Complete / Undo Review the row offers is a move the server accepts", () => {
+await check("web: a seat predicate that says yes to a flow-legal move is never contradicted by the server", () => {
   for (const cell of CELLS) {
     const task = taskFor(cell);
-    for (const control of WEB_CONTROLS) {
-      if (control.status !== cell.status) {
-        continue;
-      }
-      for (const viewer of PEOPLE) {
-        if (!control.offered(task, viewer)) {
+    const legal = nextFlowStatuses(task);
+    for (const viewer of PEOPLE) {
+      for (const predicate of SEAT_PREDICATES) {
+        if (!predicate.holds(task, viewer)) {
           continue;
         }
-        const verdict = canTransitionStatus(task, control.target, viewer);
-        assert.ok(
-          verdict.ok,
-          `${cellName(cell)}: ${viewer.displayName} is shown "${control.label}" but the server says "${verdict.reason}"`
-        );
+        for (const target of predicate.targets().filter((status) => legal.includes(status))) {
+          const verdict = canTransitionStatus(task, target, viewer);
+          assert.ok(
+            verdict.ok,
+            `${cellName(cell)}: ${predicate.name} says ${viewer.displayName} may go to ${target}, but the server says "${verdict.reason}"`
+          );
+        }
       }
     }
   }
+  // And the check has teeth: the original defect is exactly this shape, with
+  // the old creator-admitting out-of-review rule standing in for the predicate.
+  const inCorrections = makeTask({ status: "NEEDS_REVIEW" });
+  const oldRule = (task, user) => task.createdBy.id === user.id || task.assignee?.id === user.id;
+  assert.ok(oldRule(inCorrections, ASSIGNEE) && !canTransitionStatus(inCorrections, "COMPLETED", ASSIGNEE).ok, "the pre-#236 rule would fail this check today");
 });
 
 await check("bot cards: every advance button offered is a move the server accepts", () => {
@@ -375,6 +393,47 @@ await check("store: on start-up, stranded non-LOI tasks leave the corrections st
   const again = new TaskStore(file);
   await again.init();
   assert.equal((await again.allHistoryForTask("value-held")).length, 1, "not recorded twice");
+});
+
+await check("store: more than a handful, or a cluster on one type, is left alone and raised instead", async () => {
+  /* #236: "If there are more than a handful, or they cluster on one task type,
+     stop and raise it on this issue rather than migrating." */
+  const strandedSet = async (tasks) => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "corrections-cluster-"));
+    const file = path.join(dir, "tasks.json");
+    await fs.writeFile(file, JSON.stringify({ tasks, history: [] }, null, 2), "utf8");
+    const errors = [];
+    const original = console.error;
+    console.error = (line) => errors.push(String(line));
+    try {
+      const store = new TaskStore(file);
+      await store.init();
+      return { tasks: await store.allTasks(), errors };
+    } finally {
+      console.error = original;
+    }
+  };
+
+  // Three Value Checks: a cluster on one type, under the handful.
+  const cluster = await strandedSet([1, 2, 3].map((n) => makeTask({ id: `value-${n}`, taskType: "VALUE", status: "NEEDS_REVIEW" })));
+  assert.ok(cluster.tasks.every((task) => task.status === "NEEDS_REVIEW"), "a cluster is not migrated");
+  assert.equal(cluster.errors.length, 1, "and is shouted about once");
+  assert.match(cluster.errors[0], /NOT migrated/);
+  assert.match(cluster.errors[0], /"VALUE":3/, "naming the type and count");
+
+  // Six across types: more than a handful, no cluster.
+  const many = await strandedSet(
+    ["VALUE", "VALUE", "OOO", "OOO", "BUDDY_CHAT", "BUDDY_CHAT"].map((taskType, n) => makeTask({ id: `t-${n}`, taskType, status: "NEEDS_REVIEW" }))
+  );
+  assert.ok(many.tasks.every((task) => task.status === "NEEDS_REVIEW"), "more than a handful is not migrated");
+  assert.equal(many.errors.length, 1);
+
+  // Two here, two there: a handful, no cluster — migrated as normal.
+  const few = await strandedSet(
+    ["VALUE", "VALUE", "OOO", "OOO"].map((taskType, n) => makeTask({ id: `t-${n}`, taskType, status: "NEEDS_REVIEW" }))
+  );
+  assert.ok(few.tasks.every((task) => task.status === "CLAIMED"), "a handful spread across types is migrated");
+  assert.equal(few.errors.length, 0);
 });
 
 console.log(`\n${passed} checks passed`);

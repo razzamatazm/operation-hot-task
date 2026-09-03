@@ -35,6 +35,14 @@ export const FRAUD_FLOW: TaskStatus[] = [
 export const flowFor = (task: LoanTask): TaskStatus[] =>
   task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : task.taskType === "FRAUD" ? FRAUD_FLOW : STANDARD_FLOW;
 
+/* Which task types have a corrections state (NEEDS_REVIEW) at all: an LOI
+   Check, and nothing else (ADR-0007 rule 3). Fraud Check has its own two-phase
+   back-and-forth, Loan Docs passes the ball back through its merge phases, and
+   the other three have no review step to fail. The one place the answer lives,
+   so the ladder, the entrance gate, the refusal and the store's migration all
+   read it rather than each spelling "LOI". */
+export const hasCorrectionsState = (task: Pick<LoanTask, "taskType">): boolean => task.taskType === "LOI";
+
 /* NEEDS_REVIEW — the LOI corrections state (ADR-0007) — is listed here off
    CLAIMED but is an LOI-only side branch: `nextFlowStatuses` strips it for
    every other type, so no path offers or accepts it there. It has one entrance
@@ -488,10 +496,10 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
 
   const nextCandidate = index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
   const next = nextCandidate ? [nextCandidate] : [];
-  // The corrections state is the first status gated on task type (ADR-0007
-  // rule 3): universal in the ladder, LOI-only by rule, so the restriction is
-  // applied here where the moves are listed rather than implied by the flow.
-  const extra = (ALWAYS_ALLOWED[task.status] ?? []).filter((status) => status !== "NEEDS_REVIEW" || task.taskType === "LOI");
+  // The corrections state is the one ALWAYS_ALLOWED entry gated on task type
+  // (ADR-0007 rule 3): listed universally, LOI-only by rule, so the restriction
+  // is applied here where the moves are offered rather than implied by a flow.
+  const extra = (ALWAYS_ALLOWED[task.status] ?? []).filter((status) => status !== "NEEDS_REVIEW" || hasCorrectionsState(task));
   const restore = restoreTargetStatus(task);
   return Array.from(new Set([...next, ...extra, ...(restore ? [restore] : [])]));
 };
@@ -864,11 +872,11 @@ export const canCancelTask = (task: LoanTask, user: UserIdentity): boolean => {
    clause in this file: the rule is about people, and the scheduler is not a
    seat. */
 export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.taskType !== "LOI" || task.status !== "CLAIMED") {
+  if (!hasCorrectionsState(task) || task.status !== "CLAIMED") {
     return false;
   }
 
-  const isAssignee = task.assignee !== undefined && task.assignee.id === user.id;
+  const isAssignee = task.assignee?.id === user.id;
   return isSystem(user) || isAssignee;
 };
 
@@ -876,9 +884,16 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
    (the common case — a typo needs no second opinion) or send it back to the
    assignee for a confirming look. The assignee waits: they cannot complete from
    here and cannot pull the task back to themselves, an ability they used to
-   have and lose deliberately. They keep the notes thread. */
+   have and lose deliberately. They keep the notes thread.
+
+   Type-gated like the entrance: a task of another type found in this status is
+   stranded data, not a corrections loop, and nobody acts on it under this rule
+   (the store migrates it at start-up; the creator can still cancel). Without
+   the gate a Fraud Check creator would be told yes here and no by the
+   FILE_CHECKER clause in `canCompleteTask` — the very disagreement #236 exists
+   to remove, and the matrix test catches it. */
 export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.status !== "NEEDS_REVIEW") {
+  if (!hasCorrectionsState(task) || task.status !== "NEEDS_REVIEW") {
     return false;
   }
 
@@ -958,7 +973,7 @@ export const canRestoreTask = (task: LoanTask, user: UserIdentity): boolean => {
 export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: UserIdentity): { ok: boolean; reason?: string } => {
   // Ahead of the flow check so the refusal names the rule rather than the
   // nearest symptom: on any other type the state is not on offer at all.
-  if (next === "NEEDS_REVIEW" && task.taskType !== "LOI") {
+  if (next === "NEEDS_REVIEW" && !hasCorrectionsState(task)) {
     return { ok: false, reason: "Only an LOI Check can be marked needs review" };
   }
 
