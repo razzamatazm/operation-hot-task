@@ -49,11 +49,16 @@ export const ACTION_LABELS = {
      corrections. Two exits again — close it, or send it back for a confirming
      look — behind one control, for the reason the checker's has one: the slot
      holds a single button, and putting the second move in the hamburger made
-     it the hard path. `Fixed` reads as the state the creator is reporting, in
-     the same voice as `Checked`, and like `Checked` it is not called
-     `Complete` because pressing it completes nothing on its own. Rides the
-     116px slot; at five characters it has room to spare. */
-  FIXED: "Fixed",
+     it the hard path. It reads as the state the creator is reporting, in the
+     same voice as `Checked`, and like `Checked` it is not called `Complete`
+     because pressing it completes nothing on its own.
+
+     Names the task type where `Checked` does not, which is the user's wording
+     (#254): this control only ever appears on an LOI, and the creator seeing it
+     is looking at a list where most rows are something else. Rides the 116px
+     slot with room to spare — `Approve Merge` is still the longest label
+     here. */
+  FIXED: "LOI Fixed",
   ARCHIVE: "Archive",
   MERGE_DONE: "Merge Done",
   APPROVE_MERGE: "Approve Merge",

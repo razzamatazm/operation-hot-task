@@ -315,10 +315,10 @@ reads a neighbouring predicate instead).
 instead of a button, and on both the `CLAIMED`/`NEEDS_REVIEW` Complete branch
 stands down so a panel and a button can never both appear:
 
-- A **claimed LOI held by its checker** gets `Checked ▾` (#231): `Good to go`
+- A **claimed LOI held by its checker** gets `Checked` (#231): `Good to go`
   completes it, `Needs fixes` reveals a required note and then sends it to
   corrections.
-- A **task in corrections, seen by its creator**, gets `Fixed ▾`: `Complete`
+- A **task in corrections, seen by its creator**, gets `LOI Fixed`: `Complete`
   closes it, `Send back to checker` returns it for a confirming look. That
   second move used to be a hamburger entry while `Complete` sat on the row,
   which made one of the creator's two moves easy and the other a hunt.
@@ -333,6 +333,18 @@ byte-for-byte what it was.
 Why a panel and not two buttons: the slot is a fixed 116px, four variants were
 built and driven live on #172, and splitting the slot or swapping the outcomes
 into it in place both read worse. Settled; don't revisit.
+
+Neither trigger draws a disclosure caret. There was a `▾`; at the slot's size
+and weight it rendered as a small dot rather than a triangle, and it is gone by
+the user's ruling. The affordance is `aria-haspopup` and `aria-expanded`, which
+is what was carrying it for anyone who couldn't see the glyph anyway.
+
+**A note composer sends on Cmd/Ctrl+Enter, and plain Enter inserts a newline.**
+That is the opposite of the row's other composers, which submit on bare Enter —
+they are one-line replies, and this is a finding that may run to a paragraph.
+Taking Enter here would mean the box could never hold a second line. The empty
+check is the same one the button has, so the keyboard path cannot slip past a
+requirement the pointer path enforces.
 
 **A note-required exit puts the requirement in the composer's placeholder**, not
 in a sentence beside the button. A separate explanatory line was tried and read

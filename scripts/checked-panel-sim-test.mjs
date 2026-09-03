@@ -182,7 +182,7 @@ await check("the two panels never appear on the same row", () => {
 });
 
 await check("the labels come from the shared module, one string per action", () => {
-  assert.equal(ACTION_LABELS.FIXED, "Fixed");
+  assert.equal(ACTION_LABELS.FIXED, "LOI Fixed");
   assert.ok(ACTION_LABELS.FIXED.length <= ACTION_LABELS.APPROVE_MERGE.length, "the creator's trigger fits the slot too");
   assert.equal(ACTION_LABELS.CHECKED, "Checked");
   assert.equal(ACTION_LABELS.GOOD_TO_GO, "Good to go");

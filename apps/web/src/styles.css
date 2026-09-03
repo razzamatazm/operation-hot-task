@@ -1575,19 +1575,15 @@ button.btn-good:hover {
   display: block;
   justify-self: stretch;
 }
-/* Label and caret on one line, centred as a unit — the caret is an affordance
-   glyph riding with the word, not a right-aligned chevron, and shrinking it
-   keeps `Checked ▾` reading as one label. */
+/* Label centred in the slot, like every other quick action. There was a `▾`
+   riding beside the word; at this size and weight it rendered as a small dot
+   rather than a triangle, and it is gone by the user's ruling on #231 — the
+   panel opening is the affordance, and `aria-haspopup` carries it for anyone
+   who cannot see that. */
 .two-exit-panel-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-}
-.two-exit-panel-caret {
-  font-size: 0.7em;
-  line-height: 1;
-  opacity: 0.75;
 }
 .two-exit-panel-panel {
   position: fixed;

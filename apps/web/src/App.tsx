@@ -1082,14 +1082,19 @@ const TwoExitPanel = ({
         ref={triggerRef}
         type="button"
         className="btn-sm task-card-quick-action two-exit-panel-trigger"
+        /* The disclosure affordance is these two attributes and nothing else.
+           There was a `▾` next to the label; at this size and weight it
+           rendered as a small dot rather than a triangle, and the user's ruling
+           on the re-check was that it is neither visible nor necessary — the
+           panel opening says what the glyph was trying to. It was `aria-hidden`
+           anyway, so it was never carrying the meaning for anyone who could not
+           see it; `aria-haspopup` and `aria-expanded` always were, and they
+           stay. */
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpen((was) => !was); }}
       >
         {triggerLabel}
-        {/* A disclosure caret, not part of the label — the label module holds
-            one string per action and a glyph is not one of them. */}
-        <span className="two-exit-panel-caret" aria-hidden="true">▾</span>
       </button>
       {open && createPortal(
         <div
@@ -1129,6 +1134,15 @@ const TwoExitPanel = ({
                   noise beside a button that still looked pressable. The button
                   below is unmistakably disabled instead, and keeps the server's
                   own refusal on `aria-label` so the reason is still spoken. */}
+              {/* Cmd/Ctrl+Enter sends; plain Enter inserts a newline, because
+                  this is a multi-line note box and a finding can run to more
+                  than one line. The row's other composers submit on bare Enter,
+                  but they are one-line replies — taking Enter here would mean
+                  the box could never hold a second paragraph.
+
+                  The guard is the same one the button has: an empty box sends
+                  nothing by either route, so the keyboard path cannot slip past
+                  a requirement the pointer path enforces. */}
               <textarea
                 ref={noteRef}
                 className="two-exit-panel-note"
@@ -1138,6 +1152,13 @@ const TwoExitPanel = ({
                 aria-describedby={blockedId}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+                  e.preventDefault();
+                  const text = note.trim();
+                  if (!text) return;
+                  take(pending, text);
+                }}
               />
               <span className="sr-only" id={blockedId}>{pending.note!.blockedReason}</span>
               <div className="two-exit-panel-actions">

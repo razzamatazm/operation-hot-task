@@ -61,7 +61,7 @@
     complete from here and cannot pull the task back to themselves; they keep
     the notes thread. Admin confers nothing (ADR-0003); the system actor keeps
     its route in and out.
-  - A claimed LOI's quick action is `Checked ▾` rather than `Complete` (#231):
+  - A claimed LOI's quick action is `Checked` rather than `Complete` (#231):
     one control holding the checker's two exits, `Good to go` (which completes
     the task and writes nothing to the notes thread) and `Needs fixes` (which
     reveals the required note and then makes the move above). Only the second
@@ -72,8 +72,8 @@
     claimed row is unchanged. The trigger is not called `Complete` because
     pressing it completes nothing.
   - In the web UI both of the creator's moves are the collapsed row's quick
-    action, as `Fixed ▾` — one control holding `Complete` and `Send back to
-    checker`, the same shape as the checker's `Checked ▾` and for the same
+    action, as `LOI Fixed` — one control holding `Complete` and `Send back to
+    checker`, the same shape as the checker's `Checked` and for the same
     reason. The send-back used to be a hamburger entry while `Complete` sat on
     the row, which made one of the creator's two moves easy and the other a
     hunt; it still falls back to the menu for any seat the panel is not shown
