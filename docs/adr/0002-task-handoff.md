@@ -68,8 +68,14 @@ task when it was created.
 
 **A structured `target` / `previousAssignee` on `TaskHistoryEvent`.** Rejected
 for now. `TASK_ASSIGNED` records the same free-text `detail` string every other
-history event uses. Nothing reads the history API today, so there is no consumer
-to justify the schema change; revisit if one appears.
+history event uses. Nothing read the history API when this was written, so there
+was no consumer to justify the schema change.
+
+A consumer has since appeared: #166 made `apps/web` the first caller of
+`GET /tasks/:taskId/history`, to say when the current assignee took the task on.
+It did **not** revive the case for the schema change — it reads `action` and
+`at`, never `detail`, so the free-text string is still nobody's parser. The
+rejection stands on its own terms; the "no consumer" argument is simply spent.
 
 ## Consequences
 
