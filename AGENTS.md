@@ -5,7 +5,8 @@ staff create, claim, and complete short-lived tasks.
 
 npm monorepo: `apps/web` (React + Vite Teams tab), `apps/server` (Express
 API/scheduler/bot), `packages/shared` (workflow logic + types), `teams-app`
-(Teams manifest/icons).
+(Teams manifest/icons), `tools` (things that run outside the app — today the
+Humperdink userscript).
 
 ## Commands
 
@@ -48,3 +49,4 @@ for `apps/web`.
 | How to work in this repo (questions, decisions, doc upkeep) | [docs/agents/charter.md](docs/agents/charter.md) |
 | Issues / PRDs, triage labels, domain-doc upkeep | [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md), [docs/agents/triage-labels.md](docs/agents/triage-labels.md), [docs/agents/domain.md](docs/agents/domain.md) |
 | Azure deployment | [docs/AZURE_DEPLOYMENT.md](docs/AZURE_DEPLOYMENT.md) |
+| Humperdink → create form userscript | [tools/humperdink/README.md](tools/humperdink/README.md) |

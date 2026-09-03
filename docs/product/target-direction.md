@@ -6,11 +6,12 @@ Not yet implemented — do not present as current state. Everything else under
 - **Relational DB (expected Azure SQL)** for task state and audit history.
   Persistence today is JSON files under `apps/server/data/` — see
   [implementation-snapshot.md](implementation-snapshot.md).
-- **Inbound task creation from the in-house web app** via API/button click
-  (phase 2). v1 has no LOS/CRM integration. See
-  [#179](https://github.com/razzamatazm/operation-hot-task/issues/179) for the
-  cheapest form of this — a userscript that prefills the create form through a
-  deep link, with no inbound write endpoint.
+- **A real inbound task-creation API** for the in-house web app — a `POST` that
+  creates a task headlessly, needing a per-user credential on staff machines.
+  Only worth building if the volume ever justifies it. What exists today is the
+  clipboard hop described in
+  [integrations-hosting.md](integrations-hosting.md): a userscript copies the
+  loan, the human pastes it into the create form and presses Create.
 - **Amending a task after it is filed** — its notes and its urgency, by its
   creator, on an active task. Today a task's own fields are immutable once
   created and the only remedy is to cancel and refile. Decided in

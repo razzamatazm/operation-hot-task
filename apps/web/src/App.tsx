@@ -1,8 +1,9 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
+import { CreateFormInitialValues, CreateFormValues, applyImportedLoan, initialCreateForm } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { useToast } from "./toast";
 
@@ -3028,33 +3029,20 @@ interface CreateTaskFormProps {
      created; rejects only when the create itself fails (App has already shown
      the error toast) so the form stays open for a retry. */
   onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
+  /* Values the form opens with (#194). Omitted — the everyday case — opens it
+     blank, exactly as before. The defaults and the FRAUD seeder / recipient
+     picker / OOO date fields all live in `create-form-state.ts`; see there for
+     why only this subset is openable. */
+  initialValues?: CreateFormInitialValues;
 }
 
-const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: CreateTaskFormProps) => {
+const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate, initialValues }: CreateTaskFormProps) => {
   const { showToast } = useToast();
-  const [form, setForm] = useState({
-    folderName: "",
-    loanId: "",
-    taskType: "LOI" as TaskType,
-    urgency: "GREEN" as UrgencyLevel,
-    startDate: "",
-    returnDate: "",
-    notes: "",
-    humperdinkLink: "",
-    points: 0,
-    // FRAUD only (#69): outstanding items the creator seeds at creation. Enter-
-    // to-add list of item texts; mapped to the `initialItems` payload and
-    // persisted as creator-added draft checklist items server-side.
-    initialItems: [] as string[],
-    // One optional person at creation, and one of two things to do with them
-    // (issue #46 + ADR-0002): SHARE sends them the #41 heads-up DM and leaves
-    // the task in the pool; ASSIGN hands it straight to them, so the task is
-    // born CLAIMED. One picker, one note, one action — never both, because two
-    // DMs about the same brand-new task is exactly the noise we're avoiding.
-    pickerMode: "share" as "share" | "assign",
-    recipientUserId: "",
-    recipientNote: ""
-  });
+  /* Lazy initializer, so re-renders don't rebuild the state and a changing
+     `initialValues` identity can't reset a half-typed draft: the values seed
+     the form once, at open. Reopening the form remounts this component, which
+     is when new initial values take effect. */
+  const [form, setForm] = useState<CreateFormValues>(() => initialCreateForm(initialValues));
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. */
   const [seedDraft, setSeedDraft] = useState("");
@@ -3075,6 +3063,31 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
      pending state, which is half the fix: the reporter's read was "the button
      didn't register my click," and a disabled `Creating…` corrects that. */
   const [submitting, setSubmitting] = useState(false);
+  /* Humperdink import (#194). `importText` is the paste target — the human
+     presses paste, the app never reads the clipboard itself. `imported` is the
+     button's own confirmation, cleared the moment the text changes so the label
+     can't claim a paste it hasn't taken. */
+  const [importText, setImportText] = useState("");
+  const [imported, setImported] = useState(false);
+
+  /* Take a pasted Humperdink payload into the form, or say why it can't.
+     A failure leaves every field exactly as it was: the parser returns a reason
+     rather than a null so the filer, who has no console open, gets told. */
+  const importFromHumperdink = (): void => {
+    const result = parseHumperdinkPayload(importText);
+    if (!result.ok) {
+      setImported(false);
+      showToast(result.error, { variant: "error" });
+      return;
+    }
+    setForm((c) => applyImportedLoan(c, result.payload));
+    // Keep the typeahead in step with the name the import just wrote, and shut
+    // it — the loan is settled, so a suggestion list over it is only noise.
+    setLoanQuery(result.payload.loanName);
+    setLoanSuggestOpen(false);
+    setLoanHighlight(-1);
+    setImported(true);
+  };
 
   /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
      by a task the current user created (merged loans share one id, so they
@@ -3230,6 +3243,38 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate }: Cr
     >
       <div className="form-panel">
       <form className="task-form" onSubmit={handleSubmit}>
+        {/* Humperdink import (#194). Above Folder Name because it fills Folder
+            Name — the shortcut sits where the typing it saves would start.
+            Hidden for OOO: a vacation has no loan and no Humperdink link. */}
+        {form.taskType !== "OOO" && (
+          <div className="span-full task-form-import">
+            <label className="task-form-import-field">
+              Paste from Humperdink
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="Paste what Send to Hot Task copied"
+                value={importText}
+                onChange={(e) => {
+                  setImportText(e.target.value);
+                  setImported(false);
+                }}
+                onKeyDown={(e) => {
+                  // Enter in this field means "import", not "create the task" —
+                  // the form's implicit submit would file a half-filled task
+                  // out from under a paste.
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    importFromHumperdink();
+                  }
+                }}
+              />
+            </label>
+            <button type="button" className="btn-ghost btn-sm" onClick={importFromHumperdink}>
+              {imported ? "Imported" : "Import from Humperdink"}
+            </button>
+          </div>
+        )}
         <label>
           {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
           {form.taskType === "OOO" ? (

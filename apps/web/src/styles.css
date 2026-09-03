@@ -374,6 +374,27 @@ h1, h2, h3, h4 {
   border: 0;
 }
 
+/* Humperdink import row on the create form (#194): a paste target and the
+   button that takes it. A non-label wrapper because the row holds a labelled
+   field AND a button — a <label> around both would hand a click on the heading
+   to the button. The field takes the slack; the button never resizes, so
+   "Imported" lands where "Import from Humperdink" was. */
+.task-form-import {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.task-form-import-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-form-import button {
+  /* Sized to the long label so the row doesn't twitch sideways when it becomes
+     "Imported" — the confirmation shouldn't move the field beside it. */
+  flex: 0 0 auto;
+  min-width: 178px;
+}
+
 /* Inline "this won't work" notice on the create form (#142) — the sole-checker
    dead end. Warn-toned rather than error-toned on purpose: nothing is wrong
    with the form, and submit stays enabled; it is telling the filer to hand the

@@ -10,6 +10,14 @@
     - OOO: start date and return date in `YYYY-MM-DD`, PT (start ≤ return; both
       required) — see [ooo.md](ooo.md)
   - Notes
+- Non-OOO only, above Folder Name: **Import from Humperdink** and the paste
+  field beside it. Paste what the **Send to Hot Task** userscript copied off a
+  Humperdink loan page and press it; Folder Name and the Humperdink Link fill
+  in and the button reads `Imported`. A malformed or empty paste reports the
+  problem in a toast and leaves every field untouched — it never half-fills.
+  Nothing else on the form is touched, so anything already typed survives an
+  import. See [integrations-hosting.md](integrations-hosting.md) and
+  [tools/humperdink/](../../tools/humperdink/).
 - Optional fields:
   - Non-OOO only: Humperdink Link
   - All types: one person picker with a **Share / Assign** toggle, plus one
