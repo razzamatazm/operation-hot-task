@@ -3,9 +3,14 @@
 [`send-to-hot-task.user.js`](send-to-hot-task.user.js) adds a **Send to Hot
 Task** button to a Humperdink loan details page. Pressing it copies the loan —
 its name, the page's URL, its loan terms, its broker and borrower, and any
-property it is acquiring — to your clipboard as JSON. Over in Hot Task, the
-create form's **Import from Humperdink** button takes that paste and fills
-Folder Name, the Humperdink Link and the notes, and sets the task type to LOI.
+property it is acquiring — to your clipboard as JSON, and opens Hot Task in a
+new tab with the create form already showing. There, the create form's **Import
+from Humperdink** button takes that paste and fills Folder Name, the Humperdink
+Link and the notes, and sets the task type to LOI.
+
+Opening Hot Task is convenience, not capability. The link it opens carries no
+data — the loan travels on the clipboard — so everything still works if you
+ignore the new tab and navigate to Hot Task yourself.
 
 Humperdink has no API, so the clipboard is the whole integration. Hot Task never
 reads your clipboard on its own: you press paste. Clipboard-read permission
@@ -27,16 +32,34 @@ roll out. Updating means pasting the current file over the old one, which is why
 the payload carries a version number: an old script and a new Hot Task (or the
 reverse) tell you so instead of importing something half-right.
 
-`@match` is pinned to `https://humperdink.loneoakfund.com/Loans/Details/*`. If
-your Humperdink lives somewhere else, change that line and nothing else.
+## The two lines you may have to change
+
+Both are near the top of the file, and nothing else in it is configuration.
+
+- `@match` is pinned to `https://humperdink.loneoakfund.com/Loans/Details/*`.
+  If your Humperdink lives somewhere else, change that line.
+- `HOT_TASK_APP_ID` is your Teams app id for Hot Task, which is what lets the
+  button open the create form for you. It is the `id` at the top of the Teams
+  manifest (`teams-app/manifest.json` once it's built for your tenant) — the
+  same value the server runs as `TEAMS_APP_ID`. Ask whoever deployed Hot Task
+  if you don't have it.
+
+  Leaving it blank is fine: the button then copies and says so, and you go to
+  Hot Task yourself. The paste is what carries the loan, and it works from a
+  create form opened any way you like.
 
 ## Use it
 
 1. On the loan page, press **Send to Hot Task**. The button confirms with
-   `Copied — paste it into Hot Task`. If it reads `Loading…` instead, the
-   contacts and properties haven't come back from Humperdink yet — they load
-   after the page does. Give it a second.
-2. In Hot Task, open **New Task**, click into **Paste from Humperdink**, paste,
+   `Copied — opening Hot Task` and a new tab opens on the create form. If it
+   reads `Loading…` instead, the contacts and properties haven't come back from
+   Humperdink yet — they load after the page does. Give it a second.
+
+   Two other things it may say, both meaning the copy worked and only the
+   shortcut didn't: `Copied — paste it into Hot Task` (no `HOT_TASK_APP_ID` set)
+   and `Copied — couldn't open Hot Task. Go there and paste.` (your browser
+   blocked the new tab — allow popups for Humperdink, or just switch to Teams).
+2. In the Hot Task tab, click into **Paste from Humperdink**, paste,
    and press **Import from Humperdink**. Folder Name, the Humperdink Link and
    the terms fill in, the task type becomes LOI, and the button reads
    `Imported`. Anything you had already typed into Notes stays where it is —
