@@ -294,9 +294,15 @@ const runUserscript = ({
   /* Every tab the control asks the browser to open (#198). A blocked popup is
      recorded too — the control has to notice the refusal, not just the ask. */
   const opened = [];
+  const openedWindows = [];
   const open = (href, target, features) => {
     opened.push({ href, target, features });
-    return popups === "blocked" ? null : { href };
+    if (popups === "blocked") return null;
+    /* A real `window.open` handle carries an `opener` back to this page. The
+       control nulls it; the test watches that it does. */
+    const handle = { href, opener: { href: url.href } };
+    openedWindows.push(handle);
+    return handle;
   };
 
   const source = userscriptWithAppId(appId);
@@ -308,6 +314,7 @@ const runUserscript = ({
   return {
     copied,
     opened,
+    openedWindows,
     button: mountedButton,
     get buttonsMounted() {
       return buttonsMounted;
@@ -1274,6 +1281,17 @@ test("Hot Task opens in a new tab, leaving the loan page where it was", async ()
   const page = goodPage({ appId: HOT_TASK_APP_ID });
   await page.press();
   assert.equal(page.opened[0].target, "_blank");
+});
+
+/* `window.open(url, "_blank", "noopener")` returns null on SUCCESS, which is
+   exactly what a blocked popup returns — pass it and every successful open
+   reports itself as refused. The opener is severed on the handle instead. */
+test("the noopener feature is not passed, so a real open isn't read as a refusal", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID });
+  await page.press();
+  assert.equal(page.opened[0].features, undefined);
+  assert.equal(page.openedWindows[0].opener, null);
+  assert.match(page.button.textContent, /Copied — opening Hot Task/);
 });
 
 test("a second press opens a second time rather than going quiet", async () => {

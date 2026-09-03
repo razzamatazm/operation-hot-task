@@ -512,17 +512,38 @@
      `copyText` doesn't swallow a refused clipboard.
 
      Returns which of the three things happened, so the button's confirmation
-     says the true one. */
+     says the true one.
+
+     Note the missing `"noopener"` feature: with it, `window.open` returns null
+     on SUCCESS, which is the same thing a blocked popup returns, and every
+     successful open would report itself as refused. The opener is severed
+     afterwards instead.
+
+     This runs after the clipboard promise settles, so it is leaning on the
+     browser's transient user activation rather than on the press itself. That
+     is the right way round: opening first and copying second would land the
+     filer on an empty create form whenever the clipboard refused, and a
+     refusal here costs them one message and a tab switch. `writeText` settles
+     in a microtask, well inside the activation window — and if a browser
+     disagrees, "blocked" is what they see, which is true. */
   function openHotTask() {
     var url = hotTaskCreateFormLink();
     if (!url) return "off";
     var opened = null;
     try {
-      opened = window.open(url, "_blank", "noopener");
+      opened = window.open(url, "_blank");
     } catch (err) {
       opened = null;
     }
-    return opened ? "opened" : "blocked";
+    if (!opened) return "blocked";
+    try {
+      opened.opener = null;
+    } catch (err) {
+      /* Cross-origin, or a browser that won't have it written. Nothing here
+         depends on it — teams.microsoft.com is not a page we need protecting
+         from Humperdink. */
+    }
+    return "opened";
   }
 
   var COPIED_MESSAGE = {
