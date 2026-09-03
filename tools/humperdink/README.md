@@ -32,19 +32,31 @@ roll out. Updating means pasting the current file over the old one, which is why
 the payload carries a version number: an old script and a new Hot Task (or the
 reverse) tell you so instead of importing something half-right.
 
-## The two lines you may have to change
+## Configuration
 
-Both are near the top of the file, and nothing else in it is configuration.
+Both settings are near the top of the file, and nothing else in it is
+configuration. **Neither normally needs changing** — install the file as it is.
 
 - `@match` is pinned to `https://humperdink.loneoakfund.com/Loans/Details/*`.
   If your Humperdink lives somewhere else, change that line.
-- `HOT_TASK_APP_ID` is your Teams app id for Hot Task, which is what lets the
-  button open the create form for you. It is the `id` at the top of the Teams
-  manifest (`teams-app/manifest.json` once it's built for your tenant) — the
-  same value the server runs as `TEAMS_APP_ID`. Ask whoever deployed Hot Task
-  if you don't have it.
+- `HOT_TASK_APP_ID` is filled in with our Teams app id, which is what lets the
+  button open the create form for you.
 
-  Leaving it blank is fine: the button then copies and says so, and you go to
+  **It is not the `id` in `teams-app/manifest.json`.** Hot Task was published
+  into the org's app catalog through the Teams admin center, and publishing
+  assigns a fresh id; only that one resolves in a deep link. The two GUIDs look
+  equally plausible sitting next to each other, so if you are ever tempted to
+  "correct" this constant to match the manifest, don't — that is the bug, not
+  the fix.
+
+  Where to see the real one: open Hot Task's details dialog in Teams and read
+  the id out of the `.../l/app/<id>` URL it shows.
+
+  **If the button copies but the create form never opens**, this constant is the
+  first thing to suspect — most likely because Hot Task was republished and the
+  catalog issued a new id.
+
+  Blanking it is always safe: the button then copies and says so, and you go to
   Hot Task yourself. The paste is what carries the loan, and it works from a
   create form opened any way you like.
 
