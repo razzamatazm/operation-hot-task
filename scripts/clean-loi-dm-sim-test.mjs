@@ -2,13 +2,10 @@
 /*
  * Issue #232 — a clean LOI check tells the requester it was clean.
  *
- * The requester's completion DM used to be the bare `Done and dusted 🎉` for
- * every task type, which named nothing and said nothing about what the check
- * found — the message behind the "did you actually check it?" incident (#172).
- *
- * On a completed LOI it now reads `LOI Check - Good to go! (<folder>)`. Every
- * other type keeps `Done and dusted 🎉` verbatim, and the merge steps are
- * untouched.
+ * On a completed LOI the requester's DM reads `LOI Check - Good to go!
+ * (<folder>)`; every other type keeps `Done and dusted 🎉` verbatim and the
+ * merge steps are untouched. Why, in `completionDmMessage`
+ * (packages/shared/src/types.ts).
  *
  * Drives the real TaskService against a real (temp-file) TaskStore with a mock
  * notifier, so the assertions are on the events the server actually emits.
@@ -22,7 +19,7 @@ import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import { flowFor } from "../packages/shared/dist/workflow.js";
-import { TASK_TYPE_LABELS, completionDmMessage, formatLifecycleDmText } from "../packages/shared/dist/types.js";
+import { COMPLETION_DM_MESSAGE_DEFAULT, TASK_TYPE_LABELS, completionDmMessage, formatLifecycleDmText } from "../packages/shared/dist/types.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -102,7 +99,7 @@ const run = async () => {
     await completeTask(service, taskType);
     const dms = dmsFor(events, "COMPLETED");
     assert.equal(dms.length, 1, `one completion DM for ${taskType}`);
-    assert.equal(dms[0].message, "Done and dusted 🎉", `${taskType} completion DM unchanged`);
+    assert.equal(dms[0].message, COMPLETION_DM_MESSAGE_DEFAULT, `${taskType} completion DM unchanged`);
     assert.deepEqual(dms[0].recipientUserIds, [CREATOR.id], `${taskType} requester is the recipient`);
   }
 
@@ -125,11 +122,30 @@ const run = async () => {
     assert.deepEqual(shape(loi.events), shape(value.events), "same notification shape as any other type");
   }
 
-  // 5. The rule lives in shared, and it is per-type rather than per-string.
+  // 5. Closing an LOI out of corrections reads the same, for now. The creator
+  //     closes a task they've just fixed themselves (NEEDS_REVIEW → COMPLETED,
+  //     ADR-0007), and this DM can't yet tell that closure from the checker's.
+  //     Pinned rather than endorsed: #239 owns the corrections-loop
+  //     notifications and the record of who closed, and it is the ticket that
+  //     gets to split them.
+  {
+    const { service, events } = await setup();
+    const task = await service.createTask({ folderName: FOLDER, taskType: "LOI", notes: "n" }, CREATOR);
+    await service.claimTask(task.id, ASSIGNEE);
+    await service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE, "wrong contact on the term sheet");
+    await service.transitionStatus(task.id, "COMPLETED", CREATOR);
+    await service.settleBackgroundWork();
+    const dms = dmsFor(events, "COMPLETED");
+    assert.equal(dms.length, 1, "one completion DM out of corrections");
+    assert.equal(dms[0].message, "Good to go!");
+    assert.deepEqual(dms[0].recipientUserIds, [CREATOR.id], "still the requester");
+  }
+
+  // 6. The rule lives in shared, and it is per-type rather than per-string.
   {
     assert.equal(completionDmMessage("LOI"), "Good to go!");
     for (const taskType of ["VALUE", "BUDDY_CHAT", "FRAUD", "LOAN_DOCS", "OOO"]) {
-      assert.equal(completionDmMessage(taskType), "Done and dusted 🎉");
+      assert.equal(completionDmMessage(taskType), COMPLETION_DM_MESSAGE_DEFAULT);
     }
   }
 

@@ -187,10 +187,15 @@
   used to be the bare `Done and dusted 🎉` for every type, which told the
   requester the task closed but nothing about what the check found — the
   message behind the "did you actually check it?" incident (#172). A completed
-  LOI now reads `LOI Check - Good to go! (Smith-1042)`. A completed LOI is a
-  clean one by definition: a check that finds something goes to the corrections
-  loop rather than to completion ([ADR-0007](../adr/0007-loi-corrections-loop.md)).
-  Every other type keeps `Done and dusted 🎉` unchanged, and so does
+  LOI now reads `LOI Check - Good to go! (Smith-1042)`. A check that finds
+  something doesn't complete — it goes to the corrections loop
+  ([ADR-0007](../adr/0007-loi-corrections-loop.md)) — so the completion the
+  checker performs is the clean one. The one completion that isn't the
+  checker's is a creator closing a task out of corrections
+  (`NEEDS_REVIEW → COMPLETED`), who reads the same line about a fix they made;
+  telling the two closures apart belongs to #239, which owns the
+  corrections-loop notifications and the record of who closed. Every other type
+  keeps `Done and dusted 🎉` unchanged, and so does
   `Merge Done`. The wording lives in `completionDmMessage`
   (`packages/shared/src/types.ts`); the folder name is appended by
   `formatLifecycleDmText`, so it carries the deep link like every other
