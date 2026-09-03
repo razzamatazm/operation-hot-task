@@ -21,6 +21,7 @@ import {
   CLOSED_STATUSES,
   amendRefusal,
   commitChecklistItems,
+  completionDmMessage,
   canTransitionStatus,
   canUnclaimTask,
   assigneeRefusal,
@@ -1044,7 +1045,10 @@ export class TaskService {
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: next === "COMPLETED" ? `Done and dusted 🎉` : `Merge done — almost home`,
+        /* The completion wording is per task type (#232) — a completed LOI
+           tells the requester the check came back clean, everything else keeps
+           the historical message. The merge step is unchanged. */
+        message: next === "COMPLETED" ? completionDmMessage(updated.taskType) : `Merge done — almost home`,
         target: "DM",
         recipientUserIds: [updated.createdBy.id]
       });
