@@ -7,6 +7,10 @@ coverage
 .DS_Store
 apps/server/data/*.json
 apps/server/data/*.db
+# Pre-reset copies of the local store, written by scripts/reset-dev-data.mjs.
+# The glob above stops at the data dir itself, and these are the same local
+# task data one level down.
+apps/server/data/backups/
 npm-debug.log*
 yarn-error.log*
 pnpm-lock.yaml

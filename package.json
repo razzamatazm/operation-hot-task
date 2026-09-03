@@ -12,6 +12,7 @@
     "dev:shared": "npm run dev --workspace @loan-tasks/shared",
     "dev:server": "npm run dev --workspace @loan-tasks/server",
     "dev:web": "npm run dev --workspace @loan-tasks/web",
+    "dev:reset": "node scripts/reset-dev-data.mjs",
     "azure:provision": "./scripts/azure/provision-webapp.sh",
     "azure:identity": "./scripts/azure/create-identity-and-bot.sh",
     "azure:teams-package": "./scripts/azure/build-teams-package.sh",
