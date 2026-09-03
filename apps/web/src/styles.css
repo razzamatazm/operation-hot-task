@@ -1571,25 +1571,25 @@ button.btn-good:hover {
    standing when you clicked in here. z-index sits at the popover's 60 for the
    same reason it does there: nothing layers over it, and the form overlay's 50
    would. All colour is tokens, so the three themes come for free. */
-.checked-panel {
+.two-exit-panel {
   display: block;
   justify-self: stretch;
 }
 /* Label and caret on one line, centred as a unit — the caret is an affordance
    glyph riding with the word, not a right-aligned chevron, and shrinking it
    keeps `Checked ▾` reading as one label. */
-.checked-panel-trigger {
+.two-exit-panel-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
 }
-.checked-panel-caret {
+.two-exit-panel-caret {
   font-size: 0.7em;
   line-height: 1;
   opacity: 0.75;
 }
-.checked-panel-panel {
+.two-exit-panel-panel {
   position: fixed;
   z-index: 60;
   width: 232px;
@@ -1603,34 +1603,50 @@ button.btn-good:hover {
   background: var(--panel);
   box-shadow: var(--shadow-md), 0 12px 32px -14px rgba(0, 0, 0, 0.35);
   animation: slideUp 0.14s ease-out;
+  /* The hook sets an inline `max-height` from the viewport; this makes the
+     panel scroll inside it rather than spill past the bottom of the screen
+     when the contents are taller than the room available. The placement
+     promises the box fits — this is what makes the DOM keep that promise. */
+  overflow-y: auto;
 }
 /* Both exits full width and stacked: they are two answers to one question, and
    sitting them side by side would size each to its own label — the ragged
    result #116 spent a ticket removing from the row. */
-.checked-panel-exit {
+.two-exit-panel-exit {
   width: 100%;
 }
-.checked-panel-label {
+.two-exit-panel-label {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.checked-panel-note {
+.two-exit-panel-note {
   width: 100%;
   resize: vertical;
 }
-/* Why the held-back exit won't go, in words rather than a tooltip: a disabled
-   button raises no hover events, so a `title` on it would never render. Same
-   reasoning as `.task-card-quick-action-blocked` (#184), and the sentence is
-   the server's own refusal. */
-.checked-panel-blocked {
-  font-size: 0.72rem;
-  line-height: 1.35;
+/* The held-back send button has to LOOK unpressable, not merely be it. A
+   sentence underneath explaining why was tried first and read as noise beside
+   a button that still looked live, so the requirement moved into the
+   composer's placeholder — where the person is already looking — and the
+   button carries the state instead. The reason still reaches a screen reader
+   through the button's `aria-label` and the field's `aria-describedby`, so
+   nothing is lost by taking the sentence off the screen.
+
+   Held back rather than hidden, deliberately: the checker needs to see that
+   this IS the exit and that something is missing, not to wonder where it went.
+   The hover token is pinned to the resting fill so it claims nothing under the
+   cursor, the same opt-out `.task-card-quick-action:disabled` takes (#171). */
+.two-exit-panel-send:disabled {
+  --btn-bg: var(--bg-soft);
+  --btn-bg-hover: var(--bg-soft);
   color: var(--muted);
+  border-color: var(--line-soft);
+  opacity: 0.6;
+  cursor: not-allowed;
 }
-.checked-panel-actions {
+.two-exit-panel-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
@@ -2993,7 +3009,7 @@ button.btn-good:hover {
 .task-card-action-cell .task-card-quick-action-slot,
 .task-card-action-cell .task-card-quick-action-waiting,
 .task-card-action-cell .task-card-quick-action-empty,
-.task-card-action-cell .checked-panel { grid-column: 2; }
+.task-card-action-cell .two-exit-panel { grid-column: 2; }
 /* The primary action's slot: normally just the button, plus a one-line reason
    underneath when the move is blocked (#184). Stacked rather than beside, so a
    blocked row keeps the same column width as every other row. */

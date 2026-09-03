@@ -72,12 +72,11 @@
     claimed row is unchanged. The trigger is not called `Complete` because
     pressing it completes nothing.
   - In the web UI the forward move out of corrections is the collapsed row's
-    quick action; the
-    move back to `Claimed` is the hamburger's `Send back to checker` entry —
-    worded as the creator asking for a confirming second look, not as an undo.
-    Both, and the bot card's button, read `canTransitionStatus` — the same
-    question the server asks — so no surface can offer a move the server
-    refuses.
+    quick action; the move back to `Claimed` is the hamburger's `Send back to
+    checker` entry — worded as the creator asking for a confirming second look,
+    not as an undo. Both, and the bot card's button, read `canTransitionStatus`
+    — the same question the server asks — so no surface can offer a move the
+    server refuses.
   - Any task of another type found in `Needs corrections` at start-up is moved
     back to `Claimed` (if held) or `Open` (if not), with a system-attributed
     history row.

@@ -907,6 +907,7 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
 export const canUseCheckedPanel = (task: LoanTask, user: UserIdentity): boolean =>
   canTransitionStatus(task, "COMPLETED", user).ok && canTransitionStatus(task, "NEEDS_REVIEW", user).ok;
 
+
 /* Out of it: the creator, and only the creator. They either complete the task
    (the common case — a typo needs no second opinion) or send it back to the
    assignee for a confirming look. The assignee waits: they cannot complete from

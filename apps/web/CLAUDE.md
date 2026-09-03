@@ -243,16 +243,44 @@ hamburger sits left of the quick action); the share popover left-aligns.
 z-index: menu 55, share popover 60 — the popover opens out of the menu and
 layers over it.
 
-The Checked panel (`.checked-panel-panel`, #231) is the fourth, and the one
-that deliberately does **not** reuse `.share-pop-panel`. It is the menu's
-sibling in the action cell rather than something opening out of it, so wearing
-that class would buy it the menu's outside-click exemption and leave the menu
-standing when you clicked in here. Right-aligned like the menu (it lives in the
-quick-action slot, at the row's right edge), z-index 60, and it swallows Escape
-on the panel the way the share popover does — its note stage owns a textarea,
-and one keypress should close this panel and nothing else. Its `remeasureKey`
-is the stage: the note composer is much taller than the two-choice list, so a
-panel that flipped up has to re-anchor when it appears.
+The two-exit panel (`.two-exit-panel-panel`, `TwoExitPanel`, #231) is the
+fourth, and the one that deliberately does **not** reuse `.share-pop-panel`. It
+is the menu's sibling in the action cell rather than something opening out of
+it, so wearing that class would buy it the menu's outside-click exemption and
+leave the menu standing when you clicked in here. Right-aligned like the menu
+(it lives in the quick-action slot, at the row's right edge), z-index 60, and it
+swallows Escape on the panel the way the share popover does — a note stage owns
+a textarea, and one keypress should close this panel and nothing else.
+
+Two things it does that the older three don't, both from #231's visual pass:
+
+- **It stops every key at its wrapper**, not just Escape. The panel is portaled
+  out of the row in the DOM but React events still travel the *React* tree, so a
+  keypress inside it reaches `handleHeaderKey`, which reads Space and Enter as
+  "toggle this card" and calls `preventDefault`. A space typed into the note
+  composer collapsed the row instead of landing in the box. Any portaled panel
+  hosting a text field has this problem; stop keys at the wrapper.
+- **Placement follows the panel's own box**, via a `ResizeObserver` in
+  `useAnchoredPanel`, not only a `remeasureKey` a caller remembered to bump. A
+  panel that grows after placement grows *downward* from a top chosen for the
+  old height, which is how it ends up over the bottom edge.
+
+### Placement is a tested pure function
+
+The arithmetic lives in [src/panel-placement.ts](src/panel-placement.ts), not
+in `App.tsx`, so `scripts/panel-placement-sim-test.mjs` can drive it under
+node — same arrangement as `expand-state.ts` and `toast-store.ts`. The property
+it holds is not "does it flip up" but "is the returned box inside the viewport",
+asserted over a sweep of anchor positions, heights and both alignments.
+
+The bug that put it there: an **unmeasured panel reports a height of 0**, and a
+zero-height panel "fits" below any anchor with room below it. So placement
+committed to opening downward, then clamped against a height of nothing — which
+is to say not at all — and the panel drew off the bottom of the screen. With
+nothing measured the honest answer is whichever side has more room; the
+re-place that follows the measurement corrects it. A panel taller than the
+viewport is capped (`maxPanelHeight` plus the inline `max-height` the hook sets)
+and scrolls internally rather than overflowing.
 
 Things portaling makes easy to get wrong:
 
@@ -284,18 +312,27 @@ the row can't offer a move the server refuses; #236 is what happens when it
 reads a neighbouring predicate instead).
 
 One cell sits ahead of the whole ladder: a **claimed LOI held by its checker**
-renders the Checked panel (#231) instead of a button, and the `CLAIMED`
-Complete branch stands down for it, so the two can never both appear. The
-condition is `canUseCheckedPanel` from `packages/shared` — it asks
-`canTransitionStatus` for both exits and answers once, so the panel is never
-drawn with a dead half, and the view never re-derives who may do what.
-`Checked` replaces `Complete` there and nowhere else; every other task type's
-claimed row is byte-for-byte what it was. The trigger is not called `Complete`
-because pressing it completes nothing — it opens a panel offering `Good to go`
-and `Needs fixes`, and the second reveals a required note before it will move.
+renders `TwoExitPanel` as `Checked ▾` (#231) instead of a button, and the
+`CLAIMED` Complete branch stands down for it, so the two can never both appear.
+`Good to go` completes it; `Needs fixes` reveals a required note and then sends
+it to corrections. The condition is `canUseCheckedPanel` from `packages/shared`
+— it asks `canTransitionStatus` for both exits and answers once, so the panel is
+never drawn with a dead half and the view never re-derives who may do what. The
+trigger is not called `Complete`, because pressing it completes nothing. Every
+other task type's claimed row is byte-for-byte what it was.
+
 Why a panel and not two buttons: the slot is a fixed 116px, four variants were
 built and driven live on #172, and splitting the slot or swapping the outcomes
 into it in place both read worse. Settled; don't revisit.
+
+**A note-required exit puts the requirement in the composer's placeholder**, not
+in a sentence beside the button. A separate explanatory line was tried and read
+as noise next to a button that still looked pressable; the placeholder is where
+the person is already looking, and the button carries the state instead
+(`.two-exit-panel-send:disabled`). The reason still reaches a screen reader via
+the button's `aria-label` and the field's `aria-describedby` — taking a
+disabled control's explanation off the screen must not take it off the
+assistive path.
 
 When the ladder produces nothing, the slot is **not**
 blank by default — a bare hamburger with dead space beside it read as a
