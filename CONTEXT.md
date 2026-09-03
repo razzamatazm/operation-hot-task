@@ -96,8 +96,12 @@ per-item note carries the reason)
 
 **Amend**:
 Correcting the *ask* after filing — its notes, or its urgency (from which the
-due date is re-derived). Open to the task's creator alone, on an active task
-only, because the creator is the person whose request it is. Distinct from
+due date is re-derived). Open to the task's creator alone, because the request
+is theirs, and refused once the task is closed — completed, cancelled or
+archived — because a closed task is a record rather than an ask. Not "on an
+active task": a Fraud Check parked at `AWAITING_ITEMS` is waiting on its
+requester rather than finished, and is the case whose ask most often needs
+correcting. Distinct from
 _Resolve_, which records a fact about the world, and from a _Handoff_, which
 moves the seat: an amendment changes what was asked for, never what happened or
 who is doing it. A task's type, its linked _Loan_, and both its seats are not
