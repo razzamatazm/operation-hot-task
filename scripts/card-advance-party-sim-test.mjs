@@ -67,7 +67,8 @@ const MATRIX = [
   { taskType: "LOAN_DOCS", status: "CLAIMED", advance: { status: "MERGE_DONE", label: "Merge Done" }, party: "ASSIGNEE" },
   { taskType: "LOAN_DOCS", status: "MERGE_DONE", advance: { status: "MERGE_APPROVED", label: "Approve Merge" }, party: "CREATOR" },
   { taskType: "LOAN_DOCS", status: "MERGE_APPROVED", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
-  { taskType: "LOAN_DOCS", status: "NEEDS_REVIEW", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
+  // No NEEDS_REVIEW row: the corrections state is LOI-only since ADR-0007 and
+  // a Loan Docs task cannot reach it (the store migrates any left there).
   { taskType: "LOAN_DOCS", status: "COMPLETED", advance: undefined, party: NOBODY },
   { taskType: "LOAN_DOCS", status: "CANCELLED", advance: undefined, party: NOBODY },
   { taskType: "LOAN_DOCS", status: "ARCHIVED", advance: undefined, party: NOBODY },
@@ -75,7 +76,10 @@ const MATRIX = [
   // --- The standard flow: claim, then the assignee closes it out ------------
   { taskType: "LOI", status: "OPEN", unassigned: true, advance: undefined, party: NOBODY },
   { taskType: "LOI", status: "CLAIMED", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
-  { taskType: "LOI", status: "NEEDS_REVIEW", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
+  /* The LOI corrections state (ADR-0007): the checker has handed the ball back,
+     so the Complete out of it is the CREATOR's — the one completion in the app
+     that is not the assignee's. */
+  { taskType: "LOI", status: "NEEDS_REVIEW", advance: { status: "COMPLETED", label: "Complete" }, party: "CREATOR" },
   { taskType: "LOI", status: "COMPLETED", advance: undefined, party: NOBODY },
   { taskType: "VALUE", status: "CLAIMED", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
   { taskType: "OOO", status: "CLAIMED", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
@@ -89,11 +93,9 @@ const MATRIX = [
   // Released back to the pool mid-flow: the checker seat is empty, so the move
   // out of PENDING_APPROVAL belongs to nobody until somebody claims it.
   { taskType: "FRAUD", status: "PENDING_APPROVAL", unassigned: true, advance: { status: "COMPLETED", label: "Approve" }, party: NOBODY },
-  /* A fraud task can be sent to review from CLAIMED, and the two-phase labels
-     are keyed by the statuses of the fraud exchange, so this rung has no
-     forward step at all — for either seat. Pre-existing and stated here so the
-     audit has the cell rather than a silence. */
-  { taskType: "FRAUD", status: "NEEDS_REVIEW", advance: undefined, party: NOBODY },
+  /* No NEEDS_REVIEW row: a Fraud Check used to be sendable to review from
+     CLAIMED and then had no forward step for either seat (#240). ADR-0007 made
+     the corrections state LOI-only, so the cell no longer exists. */
   { taskType: "FRAUD", status: "COMPLETED", advance: undefined, party: NOBODY }
 ];
 

@@ -80,8 +80,10 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   claims leaderboard recomputes live from the current `assignee`.
 - `GET /api/users/directory` returns `roles` alongside `id`/`displayName` so the
   picker can filter to file checkers on a Fraud Check.
-- `Claimed -> Needs Review` can be done by assignee or creator
-- `Needs Review -> Claimed` and `Needs Review -> Completed` are creator/assignee
+- `Claimed -> Needs Review` is the **assignee's** move, on an LOI Check only
+  ([ADR-0007](../adr/0007-loi-corrections-loop.md)); a creator is refused
+- `Needs Review -> Claimed` and `Needs Review -> Completed` are the
+  **creator's** alone; the assignee waits (and keeps the notes thread)
 
 ## Admin Panel (Users & Roles)
 

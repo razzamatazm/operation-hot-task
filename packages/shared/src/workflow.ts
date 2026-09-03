@@ -35,11 +35,24 @@ export const FRAUD_FLOW: TaskStatus[] = [
 export const flowFor = (task: LoanTask): TaskStatus[] =>
   task.taskType === "LOAN_DOCS" ? LOAN_DOCS_FLOW : task.taskType === "FRAUD" ? FRAUD_FLOW : STANDARD_FLOW;
 
+/* Which task types have a corrections state (NEEDS_REVIEW) at all: an LOI
+   Check, and nothing else (ADR-0007 rule 3). Fraud Check has its own two-phase
+   back-and-forth, Loan Docs passes the ball back through its merge phases, and
+   the other three have no review step to fail. The one place the answer lives,
+   so the ladder, the entrance gate, the refusal and the store's migration all
+   read it rather than each spelling "LOI". */
+export const hasCorrectionsState = (task: Pick<LoanTask, "taskType">): boolean => task.taskType === "LOI";
+
+/* NEEDS_REVIEW — the LOI corrections state (ADR-0007) — is listed here off
+   CLAIMED but is an LOI-only side branch: `nextFlowStatuses` strips it for
+   every other type, so no path offers or accepts it there. It has one entrance
+   (the assignee, from the task they are holding) and no way in from COMPLETED:
+   a finished task is reopened, not corrected. */
 const ALWAYS_ALLOWED: Partial<Record<TaskStatus, TaskStatus[]>> = {
   OPEN: ["CANCELLED"],
   CLAIMED: ["NEEDS_REVIEW", "CANCELLED"],
   NEEDS_REVIEW: ["CLAIMED", "COMPLETED", "CANCELLED"],
-  COMPLETED: ["NEEDS_REVIEW", "OPEN"],
+  COMPLETED: ["OPEN"],
   ARCHIVED: ["OPEN"],
   MERGE_DONE: ["CLAIMED", "CANCELLED"],
   MERGE_APPROVED: ["CANCELLED"],
@@ -416,11 +429,14 @@ export type PendingParty = "CREATOR" | "ASSIGNEE";
      AWAITING_ITEMS   → CREATOR   (the FRAUD requester submits the items)
      PENDING_APPROVAL → ASSIGNEE  (the fraud checker approves)
 
+     NEEDS_REVIEW     → CREATOR   (the LOI corrections state: the checker has
+                                   handed the ball back — ADR-0007)
+
    Everything else is undefined on purpose. OPEN is waiting on nobody in
    particular (anyone may claim); CLAIMED means "someone is working on it",
-   which is a state, not a handoff; NEEDS_REVIEW is open to creator and assignee
-   alike (see canMoveNeedsReview — admin is back-end access, not a seat, since
-   #143), so no single person holds it.
+   which is a state, not a handoff. NEEDS_REVIEW used to be undefined here too,
+   back when it was open to creator and assignee alike and so held by no single
+   person; ADR-0007 gave it one meaning and one holder.
 
    The web collapsed row uses this for its passive `Waiting on <name>`
    indicator (#117) so the view never re-derives the flow.
@@ -450,6 +466,8 @@ export const pendingPartyFor = (task: LoanTask): PendingParty | undefined => {
       return "CREATOR";
     case "PENDING_APPROVAL":
       return "ASSIGNEE";
+    case "NEEDS_REVIEW":
+      return "CREATOR";
     default:
       return undefined;
   }
@@ -478,7 +496,10 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
 
   const nextCandidate = index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
   const next = nextCandidate ? [nextCandidate] : [];
-  const extra = ALWAYS_ALLOWED[task.status] ?? [];
+  // The corrections state is the one ALWAYS_ALLOWED entry gated on task type
+  // (ADR-0007 rule 3): listed universally, LOI-only by rule, so the restriction
+  // is applied here where the moves are offered rather than implied by a flow.
+  const extra = (ALWAYS_ALLOWED[task.status] ?? []).filter((status) => status !== "NEEDS_REVIEW" || hasCorrectionsState(task));
   const restore = restoreTargetStatus(task);
   return Array.from(new Set([...next, ...extra, ...(restore ? [restore] : [])]));
 };
@@ -836,24 +857,48 @@ export const canCancelTask = (task: LoanTask, user: UserIdentity): boolean => {
   return isSystem(user) || isCreator;
 };
 
+/* The LOI corrections loop (ADR-0007). NEEDS_REVIEW means one thing: the
+   checker has looked at the work, found something, and handed the ball back to
+   the creator. Everything about the state follows from that.
+
+   Into it: the assignee, and only the assignee among people, from the LOI task
+   they are holding. A creator never sends their own request to corrections —
+   handing the task over in the first place *is* the request. It used to admit
+   the creator too, from COMPLETED as well as CLAIMED, on every task type; the
+   state then meant "somebody wants somebody to look at something", which nobody
+   could act on without knowing how it got there.
+
+   The system actor keeps its route in and out, as it does through every actor
+   clause in this file: the rule is about people, and the scheduler is not a
+   seat. */
 export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.status !== "CLAIMED" && task.status !== "COMPLETED") {
+  if (!hasCorrectionsState(task) || task.status !== "CLAIMED") {
     return false;
   }
 
-  const isCreator = task.createdBy.id === user.id;
   const isAssignee = task.assignee?.id === user.id;
-  return isSystem(user) || isCreator || isAssignee;
+  return isSystem(user) || isAssignee;
 };
 
+/* Out of it: the creator, and only the creator. They either complete the task
+   (the common case — a typo needs no second opinion) or send it back to the
+   assignee for a confirming look. The assignee waits: they cannot complete from
+   here and cannot pull the task back to themselves, an ability they used to
+   have and lose deliberately. They keep the notes thread.
+
+   Type-gated like the entrance: a task of another type found in this status is
+   stranded data, not a corrections loop, and nobody acts on it under this rule
+   (the store migrates it at start-up; the creator can still cancel). Without
+   the gate a Fraud Check creator would be told yes here and no by the
+   FILE_CHECKER clause in `canCompleteTask` — the very disagreement #236 exists
+   to remove, and the matrix test catches it. */
 export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.status !== "NEEDS_REVIEW") {
+  if (!hasCorrectionsState(task) || task.status !== "NEEDS_REVIEW") {
     return false;
   }
 
   const isCreator = task.createdBy.id === user.id;
-  const isAssignee = task.assignee?.id === user.id;
-  return isSystem(user) || isCreator || isAssignee;
+  return isSystem(user) || isCreator;
 };
 
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
@@ -861,15 +906,19 @@ export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => 
     return false;
   }
 
+  // The one completion that is not the assignee's (ADR-0007 rule 2): from the
+  // corrections state the ball is with the creator, and closing the task is
+  // one of their two moves. `canMoveNeedsReview` is that rule; this reads it
+  // rather than restating it, so the two gates on this status cannot drift
+  // apart again — their disagreement was the original defect (#236).
+  if (task.status === "NEEDS_REVIEW") {
+    return canMoveNeedsReview(task, user);
+  }
+
   // PENDING_APPROVAL is the FRAUD final-approval state; approving it to COMPLETED
   // uses the same gate as any other completion (plus the FILE_CHECKER check
   // above).
-  if (
-    task.status === "CLAIMED" ||
-    task.status === "MERGE_APPROVED" ||
-    task.status === "NEEDS_REVIEW" ||
-    task.status === "PENDING_APPROVAL"
-  ) {
+  if (task.status === "CLAIMED" || task.status === "MERGE_APPROVED" || task.status === "PENDING_APPROVAL") {
     // Completion belongs to whoever did the work (the assignee). The creator
     // requested the task and can review / re-open / cancel, but doesn't close it
     // out — and neither does an admin, who is not a party to it.
@@ -922,6 +971,12 @@ export const canRestoreTask = (task: LoanTask, user: UserIdentity): boolean => {
 };
 
 export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: UserIdentity): { ok: boolean; reason?: string } => {
+  // Ahead of the flow check so the refusal names the rule rather than the
+  // nearest symptom: on any other type the state is not on offer at all.
+  if (next === "NEEDS_REVIEW" && !hasCorrectionsState(task)) {
+    return { ok: false, reason: "Only an LOI Check can be marked needs review" };
+  }
+
   if (!nextFlowStatuses(task).includes(next)) {
     return { ok: false, reason: `Cannot move from ${task.status} to ${next}` };
   }
@@ -940,11 +995,11 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   }
 
   if (next === "NEEDS_REVIEW" && !canMoveToNeedsReview(task, user)) {
-    return { ok: false, reason: "Only assignee or creator can mark as needs review" };
+    return { ok: false, reason: "Only the assignee can mark an LOI Check as needs review" };
   }
 
   if ((next === "CLAIMED" || next === "COMPLETED") && task.status === "NEEDS_REVIEW" && !canMoveNeedsReview(task, user)) {
-    return { ok: false, reason: "Only assignee or creator can move a needs review task" };
+    return { ok: false, reason: "Only the task creator can move a needs review task" };
   }
 
   if (next === "MERGE_DONE" && !canMarkMergeDone(task, user)) {

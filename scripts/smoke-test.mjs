@@ -486,12 +486,14 @@ const run = async () => {
     assert.ok(Array.isArray(details.json.allowedTransitions), "allowedTransitions must be returned");
     pushPass("task details returns allowed transitions");
 
+    // The corrections state is the assignee's to enter and the creator's to
+    // leave (ADR-0007).
     const needsReview = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/transition`, {
-      user: users.creator,
+      user: users.otherOfficer,
       body: { status: "NEEDS_REVIEW" }
     });
     expectStatus(needsReview.status, 200, "claimed->needs_review", needsReview.json);
-    pushPass("claimed to needs_review transition works for creator/assignee");
+    pushPass("claimed to needs_review transition works for the assignee");
 
     const backToClaimed = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/transition`, {
       user: users.creator,
@@ -683,12 +685,13 @@ const run = async () => {
       user: users.otherOfficer
     });
     expectStatus(creatorReviewClaim.status, 200, "creator review claim", creatorReviewClaim.json);
-    const creatorCanReview = await request(server.baseUrl, "POST", `/tasks/${creatorReviewId}/transition`, {
+    const creatorCannotReview = await request(server.baseUrl, "POST", `/tasks/${creatorReviewId}/transition`, {
       user: users.creator,
       body: { status: "NEEDS_REVIEW" }
     });
-    expectStatus(creatorCanReview.status, 200, "creator marks needs review while not assignee", creatorCanReview.json);
-    pushPass("creator can mark claimed task as needs_review even when not assignee");
+    expectStatus(creatorCannotReview.status, 400, "creator refused needs review on their own request", creatorCannotReview.json);
+    assert.match(creatorCannotReview.json.error ?? "", /only the assignee/i, "the refusal names the rule");
+    pushPass("a creator cannot send their own request to needs_review (ADR-0007)");
 
     const fraudTask = await request(server.baseUrl, "POST", "/tasks", {
       user: users.admin,

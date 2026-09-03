@@ -33,7 +33,7 @@ The user's role determines which tasks they may see actions on. Permission decis
 
 ### Review bounce-back
 
-At any point an assignee or creator may move a task to `NEEDS_REVIEW`, attaching a review note. This puts the task back in the other party's court and surfaces it visually. From `NEEDS_REVIEW` the task can return to `CLAIMED` (continue work) or proceed to `COMPLETED`.
+On an LOI Check, the assignee may move a `CLAIMED` task to `NEEDS_REVIEW`, attaching a review note: the checker has found something and hands the ball back to the creator (ADR-0007). From `NEEDS_REVIEW` the creator either completes the task or returns it to `CLAIMED` for a confirming look; the assignee waits and keeps the notes thread. No other task type has this state.
 
 ### Loan Docs extended path
 

@@ -123,13 +123,14 @@ await check("an OPEN task handed off becomes CLAIMED for the recipient", async (
 
 await check("an in-flight task swaps assignee with its status untouched", async () => {
   const ctx = await setup();
-  const task = await openTask(ctx.service);
+  // LOI, because NEEDS_REVIEW below is LOI-only since ADR-0007.
+  const task = await openTask(ctx.service, { taskType: "LOI" });
   await ctx.service.claimTask(task.id, OFFICER);
   const swapped = await ctx.service.assignTask({ taskId: task.id, target: BYSTANDER, actor: CREATOR });
   assert.equal(swapped.status, "CLAIMED", "CLAIMED stays CLAIMED");
   assert.equal(swapped.assignee.id, BYSTANDER.id, "assignee swapped in place");
 
-  // NEEDS_REVIEW is the other non-FRAUD in-flight status.
+  // NEEDS_REVIEW is the other non-FRAUD in-flight status; the holder sends it.
   await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", BYSTANDER);
   const inReview = await ctx.service.assignTask({ taskId: task.id, target: OFFICER, actor: CREATOR });
   assert.equal(inReview.status, "NEEDS_REVIEW", "NEEDS_REVIEW is preserved across a handoff");
@@ -283,7 +284,7 @@ await check("handing off a NEEDS_REVIEW task fires no activity-feed alert", asyn
   for (const user of [CREATOR, OFFICER, BYSTANDER]) {
     await ctx.service.registerUser(user);
   }
-  const task = await openTask(ctx.service);
+  const task = await openTask(ctx.service, { taskType: "LOI" });
   await ctx.service.claimTask(task.id, OFFICER);
   await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER);
 
@@ -518,9 +519,9 @@ await check("only the creator may put a task back in the pool", async () => {
 
 await check("the refusal says which rule refused, not the nearest one", async () => {
   const ctx = await setup();
-  const task = await openTask(ctx.service);
+  const task = await openTask(ctx.service, { taskType: "LOI" });
   await ctx.service.claimTask(task.id, OFFICER);
-  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", CREATOR);
+  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER);
 
   /* The creator IS the creator, so telling them they are not is a lie the
      shared refusal exists to prevent — the reason this move is unavailable here

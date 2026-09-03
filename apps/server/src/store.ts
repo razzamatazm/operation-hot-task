@@ -1,6 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { Loan, LoanTask, TaskHistoryEvent } from "@loan-tasks/shared";
+import { Loan, LoanTask, SYSTEM_ACTOR, TaskHistoryEvent, TaskStatus, hasCorrectionsState } from "@loan-tasks/shared";
+
+/* The limits past which the start-up migration below refuses to act (#236:
+   "more than a handful, or they cluster on one task type"). A handful is five;
+   a cluster is more than two of one type. */
+const STRANDED_HANDFUL = 5;
+const STRANDED_CLUSTER_LIMIT = 2;
 
 interface DataShape {
   tasks: LoanTask[];
@@ -29,6 +36,58 @@ export class TaskStore {
     } catch {
       await fs.writeFile(this.filePath, JSON.stringify(INITIAL, null, 2), "utf8");
     }
+
+    await this.migrateStrandedCorrections();
+  }
+
+  /* NEEDS_REVIEW became LOI-only (ADR-0007, #236). Any task of another type
+     still sitting in it at start-up would otherwise be stranded on a status its
+     type can no longer hold — no surface offers a way out and the server would
+     refuse one. Each is put back where the rule would have left it: with its
+     holder (CLAIMED) if someone still has it, otherwise in the pool (OPEN). One
+     history row per task, attributed to the system, so the move is on the
+     record. Runs once per start-up and finds nothing on the second pass.
+
+     Unless there are a lot of them. #236 says a population that is more than a
+     handful, or that clusters on one task type, means the state was in real
+     use somewhere the decision did not know about, and is a reason to stop
+     and re-open the question rather than migrate harder. So past either limit
+     nothing is touched: the tasks stay where they are, still visible, and the
+     start-up log says so loudly. Somebody then decides. */
+  private async migrateStrandedCorrections(): Promise<void> {
+    await this.enqueue(async () => {
+      const data = await this.read();
+      const stranded = data.tasks.filter((task) => task.status === "NEEDS_REVIEW" && !hasCorrectionsState(task));
+      if (stranded.length === 0) {
+        return;
+      }
+      const byType = stranded.reduce<Record<string, number>>((acc, task) => ({ ...acc, [task.taskType]: (acc[task.taskType] ?? 0) + 1 }), {});
+      const clustered = Object.values(byType).some((count) => count > STRANDED_CLUSTER_LIMIT);
+      if (stranded.length > STRANDED_HANDFUL || clustered) {
+        console.error(
+          `[store] ${stranded.length} non-LOI task(s) are in NEEDS_REVIEW (${JSON.stringify(byType)}). ` +
+            `That is more than a handful or clustered on one type, so they were NOT migrated — ` +
+            `raise it on #236 / ADR-0007 before deciding what to do with them.`
+        );
+        return;
+      }
+      const now = new Date().toISOString();
+      for (const task of stranded) {
+        const status: TaskStatus = task.assignee ? "CLAIMED" : "OPEN";
+        task.status = status;
+        task.updatedAt = now;
+        data.history.push({
+          id: randomUUID(),
+          taskId: task.id,
+          action: "TASK_STATUS_CHANGED",
+          at: now,
+          by: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+          detail: `Moved from NEEDS_REVIEW to ${status}: only an LOI Check can be in needs review (ADR-0007)`
+        });
+      }
+      await this.write(data);
+      console.warn(`[store] moved ${stranded.length} non-LOI task(s) out of NEEDS_REVIEW at start-up (ADR-0007): ${JSON.stringify(byType)}`);
+    });
   }
 
   private async read(): Promise<DataShape> {

@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -161,9 +161,10 @@ const avatarStyle = (id: string): CSSProperties => {
 
 /* Whose court is the ball in? Drives the grouped buckets. Mirrors the
    collapsed-row primary-action ladder so the section a task lands in and the
-   button it offers agree. Permission edge cases (e.g. a creator can't COMPLETE
-   a NEEDS_REVIEW task) are still gated by the action ladder itself — a "you"
-   card may carry no quick button and be acted on from the expanded body. */
+   button it offers agree. Permission edge cases (e.g. a LOAN_DOCS assignee
+   at CLAIMED whose next move is Merge Done, not Complete) are still gated by
+   the action ladder itself — a "you" card may carry no quick button and be
+   acted on from the expanded body. */
 type Court = "you" | "pool" | "them" | "done";
 const courtOf = (task: LoanTask, user: UserIdentity): Court => {
   if (CLOSED_STATUSES.includes(task.status)) return "done";
@@ -193,9 +194,9 @@ const courtOf = (task: LoanTask, user: UserIdentity): Court => {
   // ladder offers and the server's answer can't drift apart.
   if (task.status === "MERGE_DONE" && canApproveMerge(task, user)) return "you";
   if (task.status === "MERGE_APPROVED" && canCompleteTask(task, user)) return "you";
-  // Review is the creator's move (AGENTS.md: review transitions are done by the
-  // assignee or creator and "do not require admin"), so an admin who isn't a
-  // party to the task doesn't get every in-review task dumped in their court.
+  // The corrections state is the creator's court (ADR-0007): the checker has
+  // handed the ball back, and only the creator can move it on. An admin who
+  // isn't a party to the task doesn't get every in-review task dumped on them.
   if (task.status === "NEEDS_REVIEW" && isCreator) return "you";
   return "them";
 };
@@ -1713,16 +1714,18 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if (task.status === "CLAIMED" && isAssignee && transitions.includes("COMPLETED")) {
-      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
-    } else if (task.status === "NEEDS_REVIEW" && canMoveNeedsReview(task, user)) {
-      /* #118: NEEDS_REVIEW is a side branch (it's in no flow array), so it had
-         no ladder case at all and showed an empty slot to everyone — including
-         the reviewer. COMPLETED is its forward move; returning it to CLAIMED
-         stays in the hamburger. Gated by the shared predicate (creator /
-         assignee / admin) so the button and the server agree. Sits below the
-         CLAIMED cases and above MERGE_DONE: the statuses are mutually
-         exclusive, so it neither shadows nor is shadowed. */
+    } else if ((task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+      /* Complete, gated by the exact question the server asks on the click —
+         not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
+         corrections state) the row used to read `canMoveNeedsReview`, which
+         admitted the creator, while the server enforced completion, which did
+         not: the creator was shown a button that answered with an error toast
+         (#236). Since ADR-0007 the button is the creator's and the server
+         agrees, and reading `canTransitionStatus` here means the two cannot
+         disagree again whatever the rule becomes. Returning a corrections task
+         to the assignee stays in the hamburger. Sits below the CLAIMED cases
+         and above MERGE_DONE: the statuses are mutually exclusive, so it
+         neither shadows nor is shadowed. */
       primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (canApproveMerge(task, user)) {
       primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
@@ -1938,13 +1941,12 @@ const TaskCard = memo(({
         </button>
       )}
       {/* #125: the reverse move out of review. NEEDS_REVIEW's forward move
-          (Complete) rides the collapsed row (#118); putting the task back in
-          the assignee's hands is the rarer, backwards step, so it stays in
-          the menu — same shape and placement as `Undo Merge Done` below.
-          Gated by the shared canMoveNeedsReview, so whoever may complete it
-          may also hand it back: creator or assignee (retracting their own
-          submission), matching the server. */}
-      {task.status === "NEEDS_REVIEW" && canMoveNeedsReview(task, user) && (
+          (Complete) rides the collapsed row (#118); sending the task back to
+          the assignee for a confirming look is the rarer, backwards step, so
+          it stays in the menu — same shape and placement as `Undo Merge Done`
+          below. The creator's move (ADR-0007), gated by the same question the
+          server asks on the click. */}
+      {task.status === "NEEDS_REVIEW" && canTransitionStatus(task, "CLAIMED", user).ok && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
           {ACTION_LABELS.UNDO_REVIEW}
         </button>
