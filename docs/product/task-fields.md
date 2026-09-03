@@ -1,4 +1,53 @@
-# Create Task Fields
+# Task Fields
+
+## Amending a task after it is filed
+
+A task's **creator** may correct the ask while the task is **active** — its
+notes, and (on a non-OOO task) its urgency. Nobody else may, at any status:
+not the assignee, who has the notes thread for "this needs longer", and not an
+admin, whose back-end access confers nothing over other people's work. Closed
+tasks — `COMPLETED`, `CANCELLED`, `ARCHIVED` — are frozen; every other status is
+amendable, `AWAITING_ITEMS` included (a check parked on its requester is
+waiting, not finished). The rule is
+[ADR-0006](../adr/0006-amend-task-ask.md), and one shared predicate
+(`canAmendTask` / `amendRefusal`) answers it for the server and the web alike.
+
+| Field | Amendable | By whom | When |
+|---|---|---|---|
+| Notes | yes | creator | any non-closed status |
+| Urgency | yes, except on `OOO` | creator | any non-closed status |
+| Due date | **never directly** — derived from urgency | — | — |
+| Task type, linked loan, creator, assignee, OOO dates | no | — | — |
+
+Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
+`POST /api/tasks/:id/urgency`. Each refuses with the rule that refused it.
+
+- **Due date is derived, never set.** Changing the urgency re-derives `dueAt`
+  from the new band at the moment of the edit, through the same computation
+  creation uses (weekend roll and all) — see
+  [due-date-urgency.md](due-date-urgency.md). No route accepts a `dueAt`, and
+  the web surface renders no date input.
+- **`OOO` urgency is refused.** An OOO task's `dueAt` is the person's return
+  date and the maintenance pass auto-completes on it, so it is a scheduled
+  action rather than a deadline. Its notes are still amendable.
+- **A no-op is a no-op.** Setting a field to the value it already has writes no
+  history event and notifies nobody.
+- **What the other party sees.** Both edits re-render the task's existing DM
+  cards in place through the silent card-sync path, so no surface quotes a
+  stale value. On top of that an urgency change DMs the assignee when there is
+  one — their deadline moved. A notes change is silent. Neither posts to the
+  channel.
+- **The reminder cadence restarts.** Moving `dueAt` clears the task's
+  last-reminder stamp, so a task made newly overdue by the edit is eligible for
+  its next reminder immediately (see
+  [reminders-retention.md](reminders-retention.md)).
+- **Every applied edit is in the task's history**, with the field and both
+  values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED`).
+- **In the web app**, the creator of an active task gets an `Edit request`
+  button on the notes thread head; it edits the originating note in place and,
+  for non-OOO tasks, offers the same urgency control the create form uses.
+
+## Create Task Fields
 
 - Required fields:
   - Folder Name
