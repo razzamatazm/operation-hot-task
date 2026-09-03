@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentHolderSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -1006,6 +1006,19 @@ export interface AmendApi {
   setUrgency: (taskId: string, urgency: UrgencyLevel) => Promise<void>;
 }
 
+/* Reading a task's history (#166). One member, because the web app wants one
+   answer out of it: when the current holder took the task on. Fetched lazily
+   when a card's hamburger opens rather than with the task list — the list can
+   hold hundreds of rows and this is reference detail nobody reads on most of
+   them.
+
+   Unlike `AmendApi`, it swallows its failures and resolves to an empty list. A
+   timestamp behind a menu is not worth a toast, and the two lines above it must
+   keep rendering either way. */
+export interface TaskHistoryApi {
+  read: (taskId: string) => Promise<TaskHistoryEvent[]>;
+}
+
 export interface ChecklistApi {
   addItem: (taskId: string, text: string) => Promise<void>;
   editText: (taskId: string, itemId: string, text: string) => Promise<void>;
@@ -1293,6 +1306,7 @@ const TaskCard = memo(({
   onAddCompletedNote,
   onUpdatePoints,
   amend,
+  taskHistory,
   onFilterLoan,
   onShare,
   onAssign,
@@ -1321,6 +1335,9 @@ const TaskCard = memo(({
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   /* Amend the ask (ADR-0006) — offered to the creator of an active task only. */
   amend: AmendApi;
+  /* Reading this task's history, for the menu's "Claimed" line (#166). Called
+     on menu open, never on list load. */
+  taskHistory: TaskHistoryApi;
   /* FRAUD structured checklist ops (#44). */
   checklist: ChecklistApi;
   onFilterLoan?: (loanId: string) => void;
@@ -1375,6 +1392,17 @@ const TaskCard = memo(({
      in the collapsed row's action cell — open regardless of whether the
      row itself is expanded. */
   const [menuOpen, setMenuOpen] = useState(false);
+  /* When the current holder took the task (#166), for the third line of the
+     menu's timestamp block. Kept against the holder it was fetched for, so a
+     handoff while the card is mounted can't leave the previous holder's start
+     time sitting under the new holder's name — a stale answer here is a
+     misattribution, not a cosmetic lag.
+
+     Per-card, per-mount, and deliberately without an invalidation scheme:
+     ADR-0005 declined to persist this instant precisely because it is reference
+     detail behind a menu. */
+  const [holderSince, setHolderSince] = useState<{ holderId: string; at: string | undefined } | undefined>(undefined);
+  const holderSinceInFlight = useRef<string | undefined>(undefined);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -1384,6 +1412,36 @@ const TaskCard = memo(({
     return () => clearTimeout(id);
   }, [cancelStage]);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const holderId = task.assignee?.id;
+  /* Fetch the history when the menu opens and the task has a holder (#166).
+     Keyed on `menuOpen` rather than hung off the hamburger's onClick because
+     the collapsed row's cancel shortcut opens the panel too, and an onClick
+     handler would leave that door without the line.
+
+     One request per holder per mount: an answered holder short-circuits, and an
+     in-flight one is guarded by a ref so a quick close-and-reopen can't fire a
+     second. A failure records nothing, so the next open retries — the cost of a
+     retry is one GET, and the cost of not retrying is a line that stays missing
+     for as long as the card lives.
+
+     Nothing here awaits the render: the other two timestamp lines are already
+     on screen, and this one appears underneath them when the answer lands. */
+  useEffect(() => {
+    if (!menuOpen || !holderId) return;
+    if (holderSince?.holderId === holderId) return;
+    if (holderSinceInFlight.current === holderId) return;
+    holderSinceInFlight.current = holderId;
+    let live = true;
+    void taskHistory.read(task.id).then((history) => {
+      holderSinceInFlight.current = undefined;
+      if (live) setHolderSince({ holderId, at: currentHolderSince(history) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [menuOpen, holderId, task.id, taskHistory, holderSince]);
+  /* Only ever the answer for the holder on the card right now. */
+  const claimedAt = holderSince && holderSince.holderId === holderId ? holderSince.at : undefined;
   /* The panel is portaled to document.body and fixed-positioned from the
      hamburger's rect (#122) — as an absolutely-positioned descendant it was
      clipped away by `.task-card`'s `overflow: hidden`, which on a collapsed row
@@ -1391,9 +1449,10 @@ const TaskCard = memo(({
 
      Right-aligned: the hamburger sits to the LEFT of the primary action button,
      so a left-anchored panel would drift under it and off the card's right edge.
-     `cancelStage` is the remeasure key — the confirm row and the "Cancelled ✓"
-     flash swap the panel's contents and so its height, which moves where an
-     up-flipped panel has to sit. The share popover the menu hosts is portaled to
+     The remeasure key is the confirm row's stage and the claimed timestamp: the
+     confirm row and the "Cancelled ✓" flash swap the panel's contents, and the
+     "Claimed" line (#166) arrives after open — all three change the panel's
+     height, which moves where an up-flipped panel has to sit. The share popover the menu hosts is portaled to
      the body too, so it needs the outside-click exemption: without it, picking a
      person would close the menu and take the popover down with it. */
   const { triggerRef: menuTriggerRef, panelRef: menuPanelRef, style: menuPanelStyle } =
@@ -1402,7 +1461,7 @@ const TaskCard = memo(({
       align: "right",
       fallbackWidth: MENU_PANEL_WIDTH,
       onDismiss: closeMenu,
-      remeasureKey: cancelStage,
+      remeasureKey: `${cancelStage}:${claimedAt ?? ""}`,
       keepOpenWithin: ".share-pop-panel"
     });
   /* Escape closes the menu (#122 — it had no dismissal at all). Focus is
@@ -2001,7 +2060,8 @@ const TaskCard = memo(({
      one, so the span still covers it — the panel repeats stopBubble anyway,
      because relying on a DOM-detached ancestor for that is exactly the kind of
      thing a later refactor breaks silently. */
-  /* Created plus the task's other timestamp, at the foot of the panel below a
+  /* Created, the task's other timestamp, and — for a task someone is holding —
+     when that person took it on, at the foot of the panel below a
      hairline — the way a context menu carries "Last modified" (#166). Reference
      detail, not a move anyone makes, so it reads as plain text: no pointer, no
      tab stop, nothing to arrow onto between the actions and the end of the menu.
@@ -2017,6 +2077,7 @@ const TaskCard = memo(({
     <div className="task-card-menu-times" role="group" aria-label="Timestamps">
       <span><b>Created</b> <time dateTime={task.createdAt}>{formatDate(task.createdAt)}</time></span>
       {timeMeta && <span><b>{timeMeta.label}</b> <time dateTime={timeMeta.iso}>{timeMeta.value}</time></span>}
+      {claimedAt && <span><b>Claimed</b> <time dateTime={claimedAt}>{formatDate(claimedAt)}</time></span>}
     </div>
   );
 
@@ -2383,6 +2444,7 @@ const CardList = ({
   onAddCompletedNote,
   onUpdatePoints,
   amend,
+  taskHistory,
   onFilterLoan,
   onShare,
   onAssign,
@@ -2409,6 +2471,7 @@ const CardList = ({
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   amend: AmendApi;
+  taskHistory: TaskHistoryApi;
   onFilterLoan?: (loanId: string) => void;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
   onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
@@ -2447,6 +2510,7 @@ const CardList = ({
           onAddCompletedNote={onAddCompletedNote}
           onUpdatePoints={onUpdatePoints}
           amend={amend}
+          taskHistory={taskHistory}
           {...(onFilterLoan ? { onFilterLoan } : {})}
           onShare={onShare}
           onAssign={onAssign}
@@ -4299,6 +4363,25 @@ export const App = () => {
      Both rethrow after toasting, unlike `onUpdatePoints`: the edit panel holds a
      draft, so a refused save has to leave it open with the text still in it
      rather than swallow the rejection and close over the creator's typing. */
+  /* The web app's first caller of GET /tasks/:id/history (ADR-0002 noted it had
+     none). `useMemo`'d for the same reason `amendApi` is: a fresh literal every
+     render would defeat TaskCard's memo across the whole list.
+
+     It resolves to an empty list on failure instead of rethrowing — the only
+     consumer is a timestamp line that is allowed to be absent, and a toast for
+     a reference detail nobody asked for out loud would be worse than the
+     missing line. */
+  const taskHistoryApi = useMemo<TaskHistoryApi>(() => ({
+    read: async (taskId) => {
+      try {
+        const { history } = await apiRequest<{ history: TaskHistoryEvent[] }>(`/tasks/${taskId}/history`, { method: "GET" }, user);
+        return history;
+      } catch {
+        return [];
+      }
+    }
+  }), [user]);
+
   const amendApi = useMemo<AmendApi>(() => ({
     setNotes: async (taskId, notes) => {
       try {
@@ -4473,6 +4556,7 @@ export const App = () => {
       onAddCompletedNote,
       onUpdatePoints,
       amend: amendApi,
+      taskHistory: taskHistoryApi,
       onFilterLoan,
       onShare,
       onAssign,
