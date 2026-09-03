@@ -46,6 +46,8 @@
     "test:create-form-link": "node --test scripts/create-form-link-sim-test.mjs",
     "test:claimed-since": "node --test scripts/claimed-since-sim-test.mjs",
     "test:status-display-name": "node --test scripts/status-display-name-sim-test.mjs",
+    "pretest:status-display-surface": "node scripts/assert-dist-fresh.mjs",
+    "test:status-display-surface": "node --test scripts/status-display-surface-sim-test.mjs",
     "pretest:notify-background": "node scripts/assert-dist-fresh.mjs",
     "test:notify-background": "node scripts/notify-background-sim-test.mjs",
     "pretest:assign": "node scripts/assert-dist-fresh.mjs",
@@ -78,12 +80,15 @@
     "test:card-advance-party": "node scripts/card-advance-party-sim-test.mjs",
     "pretest:amend-task": "node scripts/assert-dist-fresh.mjs",
     "test:amend-task": "node scripts/amend-task-sim-test.mjs",
-    "test:all": "npm run test:scheduler && npm run test:smoke && npm run test:bot && npm run test:loan && npm run test:fraud-two-phase && npm run test:fraud-service && npm run test:fraud-cards && npm run test:fraud-checklist && npm run test:fraud-checklist-service && npm run test:completed-note && npm run test:notify-background && npm run test:assign && npm run test:admin-powers && npm run test:merge-seat && npm run test:dm-card-sync && npm run test:lifecycle-dm-link && npm run test:channel-terminal-card && npm run test:task-ordering && npm run test:unread-attention && npm run test:toast && npm run test:auth-token && npm run test:expand-state && npm run test:create-form-state && npm run test:humperdink-import && npm run test:create-form-link && npm run test:claimed-since && npm run test:status-display-name && npm run test:claim-deadline && npm run test:pool-nag && npm run test:amend-task && npm run test:channel-card-facts && npm run test:claim-and-open && npm run test:card-advance-party && npm run test:corrections-permissions",
+    "test:all": "npm run test:scheduler && npm run test:smoke && npm run test:bot && npm run test:loan && npm run test:fraud-two-phase && npm run test:fraud-service && npm run test:fraud-cards && npm run test:fraud-checklist && npm run test:fraud-checklist-service && npm run test:completed-note && npm run test:notify-background && npm run test:assign && npm run test:admin-powers && npm run test:merge-seat && npm run test:dm-card-sync && npm run test:lifecycle-dm-link && npm run test:channel-terminal-card && npm run test:task-ordering && npm run test:unread-attention && npm run test:toast && npm run test:auth-token && npm run test:expand-state && npm run test:create-form-state && npm run test:humperdink-import && npm run test:create-form-link && npm run test:claimed-since && npm run test:status-display-name && npm run test:status-display-surface && npm run test:claim-deadline && npm run test:pool-nag && npm run test:amend-task && npm run test:channel-card-facts && npm run test:claim-and-open && npm run test:card-advance-party && npm run test:corrections-permissions",
     "build": "npm run build --workspace @loan-tasks/shared && npm run build --workspace @loan-tasks/server && npm run build --workspace @loan-tasks/web",
     "start": "node apps/server/dist/index.js",
     "start:prod": "npm run build && npm run start",
     "lint": "npm run build --workspace @loan-tasks/shared && npm run lint --workspace @loan-tasks/server && npm run lint --workspace @loan-tasks/web && npm run lint --workspace @loan-tasks/shared",
     "format": "npm run format --workspace @loan-tasks/server && npm run format --workspace @loan-tasks/web && npm run format --workspace @loan-tasks/shared"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3"
   },
   "engines": {
     "node": ">=24.0.0"

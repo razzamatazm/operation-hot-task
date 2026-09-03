@@ -468,6 +468,11 @@ function statusPhrase(task: LoanTask): string {
   return STATUS_DISPLAY[task.status];
 }
 
+/* The finished confirm sentence. Exported because it is a surface: #247 asserts
+   what a person actually reads here, not what `statusDisplayName` returned on
+   the way. The card-tap path below is the only caller in the app. */
+export const confirmLine = (task: LoanTask): string => `${task.folderName} is now ${statusPhrase(task)}.`;
+
 /* Last few notes for a card thread, oldest → newest. Exported because every
    card-sending path in the notification layer needs the same window. */
 export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
@@ -1802,7 +1807,7 @@ export class TeamsBotClient {
     return {
       taskId: task.id,
       folder: task.folderName,
-      message: `${task.folderName} is now ${statusPhrase(task)}.`,
+      message: confirmLine(task),
       ...(advance ? { advance } : {})
     };
   }
