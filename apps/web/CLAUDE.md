@@ -266,8 +266,11 @@ Things portaling makes easy to get wrong:
 ### Empty action slot — three-way resolution (#117)
 
 The `primaryAction` ladder covers one status-and-role case per branch
-(including `NEEDS_REVIEW` → `Complete`, gated by the shared
-`canMoveNeedsReview`, #118). When it produces nothing, the slot is **not**
+(including `NEEDS_REVIEW` → `Complete`, #118 — the creator's button since
+ADR-0007, gated like the `CLAIMED` Complete and the hamburger's `Undo Review`
+by `canTransitionStatus`, the exact question the server asks on the click, so
+the row can't offer a move the server refuses; #236 is what happens when it
+reads a neighbouring predicate instead). When it produces nothing, the slot is **not**
 blank by default — a bare hamburger with dead space beside it read as a
 rendering failure on your own tasks. In order:
 
@@ -293,9 +296,9 @@ rendering failure on your own tasks. In order:
    reused verbatim — there is no second confirm component and no undo flow.
 3. **The reserved spacer** (`.task-card-quick-action-empty`) — anyone the two
    rules above didn't catch: statuses with no pending party (`OPEN`,
-   `CLAIMED`, `NEEDS_REVIEW`, the closed ones) where the viewer has no
-   action. Observers no longer land here on the four `pendingPartyFor`
-   statuses — they get rule 1. **This reverses #117**, whose acceptance
+   `CLAIMED`, the closed ones) where the viewer has no action. Observers no
+   longer land here on the five `pendingPartyFor` statuses (`NEEDS_REVIEW`
+   joined them with ADR-0007: it waits on the creator) — they get rule 1. **This reverses #117**, whose acceptance
    criteria listed "Observer — neither creator nor assignee → reserved
    spacer, unchanged"; the slot reading as a missing control was judged
    worse than telling an observer whose move it is.

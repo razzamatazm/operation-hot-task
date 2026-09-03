@@ -33,12 +33,13 @@ export const ACTION_LABELS = {
   SUBMIT: "Submit",
   APPROVE: "Approve",
   SEND_BACK: "Send Back",
-  /* Reverse move out of NEEDS_REVIEW back to CLAIMED (#125) — the way back
-     when the work isn't done, open to creator, assignee and admin alike
-     (canMoveNeedsReview). Named after the status it undoes, the same way the
-     hamburger's `Undo Merge Done` is; "Review" rather than "Needs Review"
-     because the status reads `IN REVIEW` everywhere it's shown to a user.
-     Both are steps backwards that live in the menu, never the collapsed row. */
+  /* Reverse move out of NEEDS_REVIEW back to CLAIMED (#125) — the creator
+     sending the task back to the assignee for a confirming look rather than
+     closing it themselves (canMoveNeedsReview, ADR-0007). Named after the
+     status it undoes, the same way the hamburger's `Undo Merge Done` is;
+     "Review" rather than "Needs Review" because the status reads `IN REVIEW`
+     everywhere it's shown to a user. Both are steps backwards that live in the
+     menu, never the collapsed row. The wording is #237's to change. */
   UNDO_REVIEW: "Undo Review",
   RELEASE: "Release for any fraud checker",
   /* The creator's move to take their own request off a holder who has stalled

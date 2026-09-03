@@ -12,12 +12,12 @@ Not yet implemented — do not present as current state. Everything else under
   clipboard hop described in
   [integrations-hosting.md](integrations-hosting.md): a userscript copies the
   loan, the human pastes it into the create form and presses Create.
-- **The LOI corrections loop.** `NEEDS_REVIEW` becomes an LOI-only state named
-  "Needs corrections", reachable only by the checker, actionable only by the
-  creator, with the checker's confirming close also archiving the task. See
-  [ADR-0007](../adr/0007-loi-corrections-loop.md) and tickets #236-#239. Today
-  the state is reachable on every task type from either party, and the web app
-  offers its creator a Complete button that the server refuses.
+- **The rest of the LOI corrections loop.** The permissions half shipped in
+  #236 (`NEEDS_REVIEW` is LOI-only, entered by the assignee, acted on by the
+  creator — see [status-model.md](status-model.md)). Still to come: the rename
+  to "Needs corrections" (#237), the checker's confirming close also archiving
+  the task (#238), and notifying whoever did not press the button and recording
+  who did (#239). See [ADR-0007](../adr/0007-loi-corrections-loop.md).
 
 Shipped, previously listed here: the Teams tab, the notification bot, Entra ID
 SSO, the Azure Web App deployment, all of

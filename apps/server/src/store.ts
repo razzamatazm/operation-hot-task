@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { Loan, LoanTask, TaskHistoryEvent } from "@loan-tasks/shared";
+import { Loan, LoanTask, SYSTEM_ACTOR, TaskHistoryEvent, TaskStatus } from "@loan-tasks/shared";
 
 interface DataShape {
   tasks: LoanTask[];
@@ -29,6 +30,42 @@ export class TaskStore {
     } catch {
       await fs.writeFile(this.filePath, JSON.stringify(INITIAL, null, 2), "utf8");
     }
+
+    await this.migrateStrandedCorrections();
+  }
+
+  /* NEEDS_REVIEW became LOI-only (ADR-0007, #236). Any task of another type
+     still sitting in it at start-up would otherwise be stranded on a status its
+     type can no longer hold — no surface offers a way out and the server would
+     refuse one. Each is put back where the rule would have left it: with its
+     holder (CLAIMED) if someone still has it, otherwise in the pool (OPEN). One
+     history row per task, attributed to the system, so the move is on the
+     record. Runs once per start-up and finds nothing on the second pass. */
+  private async migrateStrandedCorrections(): Promise<void> {
+    await this.enqueue(async () => {
+      const data = await this.read();
+      const stranded = data.tasks.filter((task) => task.status === "NEEDS_REVIEW" && task.taskType !== "LOI");
+      if (stranded.length === 0) {
+        return;
+      }
+      const now = new Date().toISOString();
+      for (const task of stranded) {
+        const status: TaskStatus = task.assignee ? "CLAIMED" : "OPEN";
+        task.status = status;
+        task.updatedAt = now;
+        data.history.push({
+          id: randomUUID(),
+          taskId: task.id,
+          action: "TASK_STATUS_CHANGED",
+          at: now,
+          by: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+          detail: `Moved from NEEDS_REVIEW to ${status}: only an LOI Check can be in needs review (ADR-0007)`
+        });
+      }
+      await this.write(data);
+      const byType = stranded.reduce<Record<string, number>>((acc, task) => ({ ...acc, [task.taskType]: (acc[task.taskType] ?? 0) + 1 }), {});
+      console.warn(`[store] moved ${stranded.length} non-LOI task(s) out of NEEDS_REVIEW at start-up (ADR-0007): ${JSON.stringify(byType)}`);
+    });
   }
 
   private async read(): Promise<DataShape> {

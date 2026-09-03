@@ -125,9 +125,10 @@ await check("an admin cannot complete somebody else's task", async () => {
 
 await check("an admin cannot move a needs-review task back out of it", async () => {
   const service = await setup();
-  const task = await claimedTask(service);
-  await service.transitionStatus(task.id, "NEEDS_REVIEW", CREATOR);
-  await refused(() => service.transitionStatus(task.id, "CLAIMED", ADMIN), /only assignee or creator/i);
+  // The corrections state is LOI-only and the assignee's to enter (ADR-0007).
+  const task = await claimedTask(service, { taskType: "LOI" });
+  await service.transitionStatus(task.id, "NEEDS_REVIEW", WORKER);
+  await refused(() => service.transitionStatus(task.id, "CLAIMED", ADMIN), /only the task creator/i);
   assert.equal((await service.getTask(task.id)).status, "NEEDS_REVIEW");
 });
 

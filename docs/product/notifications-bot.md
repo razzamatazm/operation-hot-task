@@ -314,7 +314,6 @@ Loan Docs (the merge chain hands the ball from one named person to the other):
 | `CLAIMED` | Merge Done | — | ✅ | — |
 | `MERGE_DONE` | Approve Merge | ✅ | — | — |
 | `MERGE_APPROVED` | Complete | — | ✅ | — |
-| `NEEDS_REVIEW` | Complete | — | ✅ | — |
 | `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — | — |
 
 Every other type (LOI, Value, Buddy Chat, OOO, …):
@@ -323,8 +322,14 @@ Every other type (LOI, Value, Buddy Chat, OOO, …):
 |---|---|---|---|---|
 | `OPEN` | — | — | — | — |
 | `CLAIMED` | Complete | — | ✅ | — |
-| `NEEDS_REVIEW` | Complete | — | ✅ | — |
+| `NEEDS_REVIEW` (LOI only) | Complete | ✅ | — | — |
 | `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — | — |
+
+`NEEDS_REVIEW` is the LOI corrections state ([ADR-0007](../adr/0007-loi-corrections-loop.md),
+#236): the checker has looked, found something, and handed the ball back to the
+creator. It is the one completion in the app that is not the assignee's, and it
+exists on no other task type — Loan Docs and Fraud Check cannot reach it, which
+is why neither of their tables has a row for it.
 
 Fraud Check renders `fraudCardActions` instead — a role-aware set keyed on the
 viewer's **seat**, which is a live `FILE_CHECKER` role plus the assignee slot for
@@ -336,22 +341,22 @@ the checker, and the creator for the requester (ADR-0003):
 | `CLAIMED` | — | Send Items (opens a note input) | — |
 | `AWAITING_ITEMS` | Submit — disabled with a reason until every checklist item is checked or noted (#184) | — | — |
 | `PENDING_APPROVAL` | Release for any fraud checker, while a checker still holds it | Approve, Send Back (note) | — |
-| `NEEDS_REVIEW` | — | — | — |
 | `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — |
 
-A Fraud Check sent to review is a real "nobody" cell, not an oversight of this
-audit: the two-phase labels are keyed by the statuses of the fraud exchange, so
-`NEEDS_REVIEW` has no forward step for either seat and the card carries none.
-Pre-existing, and left alone here.
+A Fraud Check used to be sendable to review from `CLAIMED` and then had no
+forward step for either seat (#240). The corrections state is LOI-only since
+ADR-0007, so the cell no longer exists rather than being a "nobody" cell.
 
 Two consequences worth stating outright:
 
-- **`NEEDS_REVIEW` is not a handoff, and its button is still the assignee's.**
-  The *status* is open to creator and assignee alike (`canMoveNeedsReview`), but
-  the only forward step out of it is Complete, and completion belongs to whoever
-  did the work. Admin buys nothing here either — admin is back-end access, not a
-  seat (#143 / ADR-0003). The way back to `CLAIMED` (`Undo Review`) is a web
-  hamburger action and has never been on a card.
+- **`NEEDS_REVIEW` is a handoff to the creator, and its button is the
+  creator's.** Only the assignee can send an LOI there, only from `CLAIMED`;
+  from there the creator either completes it or sends it back to `CLAIMED`
+  (`Undo Review`, a web hamburger action that has never been on a card). The
+  assignee cannot complete it and cannot pull it back; they keep the notes
+  thread. Admin buys nothing here either — admin is back-end access, not a seat
+  (#143 / ADR-0003). `pendingPartyFor` reports the creator, so the web row's
+  `Waiting on` and the card's button point at the same person.
 - **A vacant seat gets no button.** `pendingPartyFor` names a seat, not a
   person: a Fraud Check released back to the pool still reads as waiting on the
   checker, but nobody is sitting there, so the card offers nothing until someone
