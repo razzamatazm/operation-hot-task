@@ -1607,9 +1607,20 @@ button.btn-good:hover {
 }
 /* Both exits full width and stacked: they are two answers to one question, and
    sitting them side by side would size each to its own label — the ragged
-   result #116 spent a ticket removing from the row. */
+   result #116 spent a ticket removing from the row.
+
+   Stacking is also what lets these labels be sentences. The 116px quick-action
+   slot forces `Send Outstanding Items` down to `Send Items`; a panel row has
+   208px and may wrap, so `No Review Needed` and `Send Back For Review` can
+   say what they mean. Wrapping is spelled out rather than left to the default
+   so a longer label lands as centred lines instead of overflowing the panel,
+   and `overflow-wrap` covers the unbroken-string case. */
 .two-exit-panel-exit {
   width: 100%;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.3;
 }
 .two-exit-panel-label {
   font-family: "JetBrains Mono", monospace;

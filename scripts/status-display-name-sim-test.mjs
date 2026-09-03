@@ -64,6 +64,10 @@ test("no other status is renamed", () => {
 
 test("the move back to the checker is not labelled as an undo", () => {
   assert.equal("UNDO_REVIEW" in ACTION_LABELS, false, "the undo key is gone");
-  assert.equal(ACTION_LABELS.SEND_BACK_TO_CHECKER, "Send back to checker");
+  /* Reworded again by the user on #254, from `Send back to checker` to name
+     what the checker is being asked for rather than where the task goes. The
+     assertion that carries #237's point is the one below: whatever it is
+     called, it must not read as an undo. */
+  assert.equal(ACTION_LABELS.SEND_BACK_TO_CHECKER, "Send Back For Review");
   assert.ok(!/undo/i.test(ACTION_LABELS.SEND_BACK_TO_CHECKER));
 });

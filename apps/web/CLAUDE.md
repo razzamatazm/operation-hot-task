@@ -306,7 +306,7 @@ Things portaling makes easy to get wrong:
 
 The `primaryAction` ladder covers one status-and-role case per branch
 (including `NEEDS_REVIEW` → `Complete`, #118 — the creator's button since
-ADR-0007, gated like the `CLAIMED` Complete and the hamburger's `Send back to checker`
+ADR-0007, gated like the `CLAIMED` Complete and the hamburger's `Send Back For Review`
 by `canTransitionStatus`, the exact question the server asks on the click, so
 the row can't offer a move the server refuses; #236 is what happens when it
 reads a neighbouring predicate instead).
@@ -318,8 +318,9 @@ stands down so a panel and a button can never both appear:
 - A **claimed LOI held by its checker** gets `Checked` (#231): `Good to go`
   completes it, `Needs fixes` reveals a required note and then sends it to
   corrections.
-- A **task in corrections, seen by its creator**, gets `LOI Fixed`: `Complete`
-  closes it, `Send back to checker` returns it for a confirming look. That
+- A **task in corrections, seen by its creator**, gets `LOI Fixed`:
+  `No Review Needed`
+  closes it, `Send Back For Review` returns it for a confirming look. That
   second move used to be a hamburger entry while `Complete` sat on the row,
   which made one of the creator's two moves easy and the other a hunt.
 
@@ -339,12 +340,20 @@ and weight it rendered as a small dot rather than a triangle, and it is gone by
 the user's ruling. The affordance is `aria-haspopup` and `aria-expanded`, which
 is what was carrying it for anyone who couldn't see the glyph anyway.
 
-**A note composer sends on Cmd/Ctrl+Enter, and plain Enter inserts a newline.**
-That is the opposite of the row's other composers, which submit on bare Enter —
-they are one-line replies, and this is a finding that may run to a paragraph.
-Taking Enter here would mean the box could never hold a second line. The empty
-check is the same one the button has, so the keyboard path cannot slip past a
-requirement the pointer path enforces.
+**A note composer sends on Enter and takes a newline on Shift+Enter**, the same
+handler idiom as every other note composer in this file. It briefly did the
+reverse, on the argument that a finding can run to a paragraph; the ruling was
+consistency with the rest of the app, and Shift+Enter still gets the second
+line. The empty check is the same one the button has, so the keyboard path
+cannot send what the pointer path refuses — and `preventDefault` runs either
+way, so Enter on an empty box does not leave a stray newline behind.
+
+Worth knowing if this ever looks broken again: a portaled panel's wrapper
+`stopPropagation` does **not** stop the textarea's own handler. It is a
+bubble-phase handler on an ancestor, so the field's handler has already run;
+all it stops is the row underneath reading the same key. When plain Enter did
+nothing here, the cause was simply that the textarea had no keydown handler at
+all and Enter fell through to the browser default.
 
 **A note-required exit puts the requirement in the composer's placeholder**, not
 in a sentence beside the button. A separate explanatory line was tried and read

@@ -1134,15 +1134,15 @@ const TwoExitPanel = ({
                   noise beside a button that still looked pressable. The button
                   below is unmistakably disabled instead, and keeps the server's
                   own refusal on `aria-label` so the reason is still spoken. */}
-              {/* Cmd/Ctrl+Enter sends; plain Enter inserts a newline, because
-                  this is a multi-line note box and a finding can run to more
-                  than one line. The row's other composers submit on bare Enter,
-                  but they are one-line replies — taking Enter here would mean
-                  the box could never hold a second paragraph.
+              {/* Enter sends, Shift+Enter makes a newline — the same handler
+                  idiom as every other note composer in this file (the fraud
+                  note, the completed-task note, the thread reply). It briefly
+                  did the opposite, on the argument that a finding can run to a
+                  paragraph; the user's ruling is consistency with the rest of
+                  the app, and Shift+Enter still gets them the second line.
 
-                  The guard is the same one the button has: an empty box sends
-                  nothing by either route, so the keyboard path cannot slip past
-                  a requirement the pointer path enforces. */}
+                  `trimmed` is the same guard the button has, so the keyboard
+                  path cannot send the empty note the pointer path refuses. */}
               <textarea
                 ref={noteRef}
                 className="two-exit-panel-note"
@@ -1152,13 +1152,7 @@ const TwoExitPanel = ({
                 aria-describedby={blockedId}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
-                  e.preventDefault();
-                  const text = note.trim();
-                  if (!text) return;
-                  take(pending, text);
-                }}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (trimmed) take(pending, trimmed); } }}
               />
               <span className="sr-only" id={blockedId}>{pending.note!.blockedReason}</span>
               <div className="two-exit-panel-actions">
@@ -2646,7 +2640,7 @@ const TaskCard = memo(({
               dialogLabel="You have made the corrections — what now?"
               onBeforeAction={acknowledgeUnread}
               exits={[
-                { label: ACTION_LABELS.COMPLETE, run: () => { void onTransition(task.id, "COMPLETED"); } },
+                { label: ACTION_LABELS.NO_REVIEW_NEEDED, run: () => { void onTransition(task.id, "COMPLETED"); } },
                 { label: ACTION_LABELS.SEND_BACK_TO_CHECKER, ghost: true, run: () => { void onTransition(task.id, "CLAIMED"); } }
               ]}
             />

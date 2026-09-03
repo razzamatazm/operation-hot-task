@@ -67,14 +67,27 @@ export const ACTION_LABELS = {
   APPROVE: "Approve",
   SEND_BACK: "Send Back",
   /* The move out of NEEDS_REVIEW back to CLAIMED (#125, renamed in #237 per
-     ADR-0007) — the creator sending the task back to the assignee for a
-     confirming look rather than closing it themselves (canMoveNeedsReview,
-     ADR-0007). It used to read `Undo Review`, as though it corrected a
-     mistake; it is the creator deliberately sending the work back to the
-     checker for a confirming second look, so it says that. A step backwards
-     that lives in the menu, never the collapsed row, so the 116px ceiling
-     does not bind it. */
-  SEND_BACK_TO_CHECKER: "Send back to checker",
+     ADR-0007, worded again by the user on #254) — the creator sending the task
+     back to the assignee for a confirming look rather than closing it
+     themselves (canMoveNeedsReview, ADR-0007). It read `Undo Review`, as
+     though it corrected a mistake, then `Send back to checker`; it now says
+     what the checker is being asked for rather than where the task is going.
+     Lives in the `LOI Fixed` panel and, as a fallback, the menu — never the
+     collapsed row, so the 116px ceiling does not bind it. It does have to fit
+     a panel row: 208px, and this clears it. */
+  SEND_BACK_TO_CHECKER: "Send Back For Review",
+  /* The creator's OTHER exit from corrections, and deliberately not the plain
+     `COMPLETE` above (the user's wording, #254). It is the same transition, but
+     the sentence it makes is different: the creator is not reporting the work
+     finished, they are saying the fix they just made does not need a second
+     pair of eyes. That is the choice they are actually making against
+     `Send Back For Review` sitting beside it, and `Complete` obscured it.
+
+     A separate key rather than a new value for `COMPLETE`, because COMPLETE is
+     every other Complete button in the app — the row ladder, the bot's advance
+     cards — and none of those are this. One string per action still holds;
+     this is a different action's label, not a second name for that one. */
+  NO_REVIEW_NEEDED: "No Review Needed",
   RELEASE: "Release for any fraud checker",
   /* The creator's move to take their own request off a holder who has stalled
      on it and put it back where anyone can claim it (#208). Menu-only, and the

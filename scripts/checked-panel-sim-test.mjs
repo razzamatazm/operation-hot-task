@@ -155,7 +155,7 @@ await check("every exit the Fixed panel draws is a move the server accepts", () 
       if (!canUseFixedPanel(task, viewer)) {
         continue;
       }
-      for (const [exit, target] of [["Complete", "COMPLETED"], ["Send back to checker", "CLAIMED"]]) {
+      for (const [exit, target] of [[ACTION_LABELS.NO_REVIEW_NEEDED, "COMPLETED"], [ACTION_LABELS.SEND_BACK_TO_CHECKER, "CLAIMED"]]) {
         const verdict = canTransitionStatus(task, target, viewer);
         assert.ok(
           verdict.ok,
@@ -183,6 +183,12 @@ await check("the two panels never appear on the same row", () => {
 
 await check("the labels come from the shared module, one string per action", () => {
   assert.equal(ACTION_LABELS.FIXED, "LOI Fixed");
+  /* The creator's two exits, worded by the user (#254). `NO_REVIEW_NEEDED`
+     is deliberately its own key rather than a new value for COMPLETE, which
+     is every other Complete button in the app. */
+  assert.equal(ACTION_LABELS.NO_REVIEW_NEEDED, "No Review Needed");
+  assert.equal(ACTION_LABELS.SEND_BACK_TO_CHECKER, "Send Back For Review");
+  assert.equal(ACTION_LABELS.COMPLETE, "Complete", "the app-wide Complete is untouched by the creator's relabel");
   assert.ok(ACTION_LABELS.FIXED.length <= ACTION_LABELS.APPROVE_MERGE.length, "the creator's trigger fits the slot too");
   assert.equal(ACTION_LABELS.CHECKED, "Checked");
   assert.equal(ACTION_LABELS.GOOD_TO_GO, "Good to go");
