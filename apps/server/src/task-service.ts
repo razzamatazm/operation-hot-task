@@ -19,6 +19,7 @@ import {
   canEditChecklistItemText,
   checklistSeat,
   CLOSED_STATUSES,
+  amendRefusal,
   commitChecklistItems,
   canTransitionStatus,
   canUnclaimTask,
@@ -304,16 +305,25 @@ export class TaskService {
      are amendable and by whom" out into a validation list that nobody reads as
      a rule. Each of these names its field and refuses with the rule that
      refused it, exactly as updateTaskPoints above does.
+
+     The status gate is the shared CLOSED_STATUSES, not this file's local
+     ACTIVE_STATUSES. Those two are not complements — AWAITING_ITEMS is in
+     neither, because ACTIVE_STATUSES is a reminder-engine list (see its comment)
+     that the points rule reuses as a permission gate. The ADR's rule is
+     literally "refused on closed tasks — completed, cancelled, archived", and a
+     FRAUD task waiting on its requester is exactly the one whose ask most often
+     needs correcting. Gating on the local list would also have the web offer an
+     Edit button the server then refused as "closed" on a task plainly not closed.
      ------------------------------------------------------------------------ */
 
-  /* The guards both amendments share. `field` only ever names the field in the
-     refusal, so the message says which rule stopped you rather than "forbidden". */
+  /* The guards both amendments share, asked of the shared rule rather than
+     restated here — the web gates its edit affordance on the same predicate, and
+     the sentence a refusal shows is user-facing copy that belongs beside the
+     rule it explains. */
   private assertCanAmend(task: LoanTask, user: UserIdentity, field: string): void {
-    if (task.createdBy.id !== user.id) {
-      throw new Error(`Only the task creator can change its ${field}`);
-    }
-    if (!ACTIVE_STATUSES.includes(task.status)) {
-      throw new Error(`The ${field} cannot be changed on a closed task`);
+    const refusal = amendRefusal(task, user, field);
+    if (refusal) {
+      throw new Error(refusal);
     }
   }
 

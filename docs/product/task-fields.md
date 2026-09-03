@@ -6,13 +6,16 @@ A task's **creator** may correct the ask while the task is **active** — its
 notes, and (on a non-OOO task) its urgency. Nobody else may, at any status:
 not the assignee, who has the notes thread for "this needs longer", and not an
 admin, whose back-end access confers nothing over other people's work. Closed
-tasks — completed, cancelled, archived — are frozen. The rule is
-[ADR-0006](../adr/0006-amend-task-ask.md).
+tasks — `COMPLETED`, `CANCELLED`, `ARCHIVED` — are frozen; every other status is
+amendable, `AWAITING_ITEMS` included (a check parked on its requester is
+waiting, not finished). The rule is
+[ADR-0006](../adr/0006-amend-task-ask.md), and one shared predicate
+(`canAmendTask` / `amendRefusal`) answers it for the server and the web alike.
 
 | Field | Amendable | By whom | When |
 |---|---|---|---|
-| Notes | yes | creator | active statuses only |
-| Urgency | yes, except on `OOO` | creator | active statuses only |
+| Notes | yes | creator | any non-closed status |
+| Urgency | yes, except on `OOO` | creator | any non-closed status |
 | Due date | **never directly** — derived from urgency | — | — |
 | Task type, linked loan, creator, assignee, OOO dates | no | — | — |
 

@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -47,20 +47,25 @@ const URGENCY_LABELS: Record<UrgencyLevel, string> = {
 /* The one urgency control in the app. The create form and the creator's amend
    panel (ADR-0006) render this same select — a second way to express timing is
    how the two drift apart, and neither surface offers a date at all: `dueAt` is
-   derived from the band server-side (docs/product/due-date-urgency.md). Order is
-   least-to-most urgent, as the create form has always listed it. */
-const URGENCY_ORDER: UrgencyLevel[] = ["GREEN", "YELLOW", "ORANGE", "RED"];
-
+   derived from the band server-side (docs/product/due-date-urgency.md). The
+   order is the shared `URGENCY_LEVELS`, least-to-most urgent, which is also the
+   order the create form has always listed. */
 const UrgencySelect = ({
   value,
   onChange,
-  ...rest
+  ariaLabel
 }: {
   value: UrgencyLevel;
   onChange: (urgency: UrgencyLevel) => void;
-} & Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange">) => (
-  <select {...rest} value={value} onChange={(e) => onChange(e.target.value as UrgencyLevel)}>
-    {URGENCY_ORDER.map((level) => (
+  /* Only for a use outside a <label> — the create form has one wrapping it. */
+  ariaLabel?: string;
+}) => (
+  <select
+    {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
+    value={value}
+    onChange={(e) => onChange(e.target.value as UrgencyLevel)}
+  >
+    {URGENCY_LEVELS.map((level) => (
       <option key={level} value={level}>{URGENCY_LABELS[level]}</option>
     ))}
   </select>
@@ -2074,11 +2079,10 @@ const TaskCard = memo(({
 
   const checklistBlock = task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />;
 
-  /* Amend the ask (ADR-0006). The creator's, on an active task, and nobody
-     else's — the assignee has the notes thread for "this needs longer", and an
-     admin holds back-end access, not power over someone else's request. The
-     server refuses the same two ways, so this gate only decides what to draw. */
-  const canAmend = isCreator && !isClosed;
+  /* Amend the ask (ADR-0006). The shared predicate, not a local re-derivation:
+     the server's two operations refuse through the same `amendRefusal`, so the
+     button can't appear on a task the server would turn away. */
+  const canAmend = canAmendTask(task, user);
 
   const openAmend = (): void => {
     setAmendNotes(task.notes ?? "");
@@ -2089,8 +2093,9 @@ const TaskCard = memo(({
   /* One Save for both fields, two calls behind it — the operations stay focused
      server-side and each is a no-op when its field didn't move, so an untouched
      urgency writes no history and DMs nobody. Notes go first: if the urgency
-     call is refused, the correction the creator most likely came for is
-     already saved. */
+     call is refused, the correction the creator most likely came for is already
+     saved. A refusal rejects (the api layer toasts and rethrows) and the panel
+     stays open with the draft intact — closing it would take both. */
   const submitAmend = async (): Promise<void> => {
     const nextNotes = amendNotes.trim();
     if (!nextNotes) return;
@@ -2103,6 +2108,8 @@ const TaskCard = memo(({
         await amend.setUrgency(task.id, amendUrgency);
       }
       setAmendOpen(false);
+    } catch {
+      // Toasted at the api layer; nothing to add, and the panel holds its draft.
     } finally {
       setAmendBusy(false);
     }
@@ -2125,11 +2132,7 @@ const TaskCard = memo(({
       {task.taskType !== "OOO" && (
         <label>
           Urgency
-          <UrgencySelect
-            aria-label="Urgency"
-            value={amendUrgency}
-            onChange={setAmendUrgency}
-          />
+          <UrgencySelect value={amendUrgency} onChange={setAmendUrgency} />
         </label>
       )}
       <span>
@@ -4291,7 +4294,11 @@ export const App = () => {
   /* Amend the ask (ADR-0006). Two calls, mirroring the two server routes —
      nothing here can express a due date, because no route accepts one.
      `useMemo`'d as one object for the same reason `checklistApi` is: a fresh
-     literal on every render would defeat TaskCard's memo for the whole list. */
+     literal on every render would defeat TaskCard's memo for the whole list.
+
+     Both rethrow after toasting, unlike `onUpdatePoints`: the edit panel holds a
+     draft, so a refused save has to leave it open with the text still in it
+     rather than swallow the rejection and close over the creator's typing. */
   const amendApi = useMemo<AmendApi>(() => ({
     setNotes: async (taskId, notes) => {
       try {
@@ -4299,6 +4306,7 @@ export const App = () => {
         await refresh();
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Failed to update notes", { variant: "error" });
+        throw err;
       }
     },
     setUrgency: async (taskId, urgency) => {
@@ -4307,6 +4315,7 @@ export const App = () => {
         await refresh();
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Failed to update urgency", { variant: "error" });
+        throw err;
       }
     }
   }), [user, refresh, showToast]);

@@ -717,6 +717,38 @@ export const returnToPoolRefusal = (task: LoanTask, user: UserIdentity): string 
 export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean =>
   returnToPoolRefusal(task, user) === undefined;
 
+/* Amending the ask (ADR-0006): correcting a task's notes, or its urgency, after
+   it was filed. Two rules, and the refusal names whichever one refused, because
+   "you can't do that" tells the creator of a cancelled task nothing.
+
+   The creator's alone — the ask is theirs. The assignee is often the person who
+   *discovers* the urgency is wrong and they have the notes thread to say so;
+   ADMIN confers nothing, per ADR-0003. And a closed task is a record, not an
+   ask, so the freeze is the same one the checklist has. `field` only ever names
+   the field in the sentence.
+
+   Lives here rather than in the service because the web gates its edit
+   affordance on exactly this question, and two copies of a permission rule is
+   what shipped #116's family of bugs. */
+export const amendRefusal = (
+  task: Pick<LoanTask, "createdBy" | "status">,
+  user: Pick<UserIdentity, "id">,
+  field: string
+): string | undefined => {
+  if (task.createdBy.id !== user.id) {
+    return `Only the task creator can change its ${field}`;
+  }
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return `The ${field} cannot be changed on a closed task`;
+  }
+  return undefined;
+};
+
+export const canAmendTask = (
+  task: Pick<LoanTask, "createdBy" | "status">,
+  user: Pick<UserIdentity, "id">
+): boolean => amendRefusal(task, user, "notes") === undefined;
+
 /* Does this person already hold this task? Named rather than inlined at the one
    place that needed a new rule about it (#208). The same comparison is written
    out longhand in the seat and party predicates below; those are pre-existing

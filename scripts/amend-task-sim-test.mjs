@@ -29,7 +29,7 @@ import path from "node:path";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
-import { computeDueAtFromUrgency } from "../packages/shared/dist/workflow.js";
+import { computeDueAtFromUrgency, shouldSendReminder } from "../packages/shared/dist/workflow.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -252,6 +252,39 @@ await check("an urgency change clears the last-reminder stamp", async () => {
 
   const updated = await service.updateTaskUrgency(id, "RED", CREATOR);
   assert.equal(updated.lastReminderAt, undefined, "the cadence restarts against the new deadline");
+
+  /* And the clearing is what makes the newly-overdue task eligible *now*
+     rather than at the end of the cadence window. Judged at a fixed weekday
+     mid-morning against a deadline an hour past, so the assertion doesn't turn
+     on when the suite happens to run — the only difference between the two
+     calls is the stamp. */
+  const businessNow = new Date("2026-03-03T18:00:00.000Z"); // Tue 10:00 PT
+  const overdue = { ...updated, dueAt: new Date(businessNow.getTime() - 3600000).toISOString() };
+  assert.equal(shouldSendReminder(overdue, businessNow, config), true, "eligible immediately");
+  assert.equal(
+    shouldSendReminder({ ...overdue, lastReminderAt: new Date(businessNow.getTime() - 60000).toISOString() }, businessNow, config),
+    false,
+    "and would have been suppressed had the stamp survived"
+  );
+});
+
+await check("an AWAITING_ITEMS task is still amendable — it is waiting, not closed", async () => {
+  const { service } = await setup();
+  const task = await service.createTask(
+    { folderName: "Awaiting Amend Sim", taskType: "FRAUD", notes: "check this", urgency: "GREEN" },
+    CREATOR
+  );
+  await service.claimTask(task.id, CHECKER);
+  await service.transitionStatus(task.id, "AWAITING_ITEMS", CHECKER, "need the paystub");
+  await service.settleBackgroundWork();
+  assert.equal((await service.getTask(task.id)).status, "AWAITING_ITEMS");
+
+  // ADR-0006 freezes *closed* tasks — completed, cancelled, archived. A FRAUD
+  // check parked on its requester is the case whose ask most often needs
+  // correcting, and the web offers the button here, so the server must take it.
+  const updated = await service.updateTaskNotes(task.id, "check this, and the second file", CREATOR);
+  assert.equal(updated.notes, "check this, and the second file");
+  assert.equal((await service.updateTaskUrgency(task.id, "RED", CREATOR)).urgency, "RED");
 });
 
 await check("each applied edit lands in history with the field and both values", async () => {

@@ -67,11 +67,11 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`
   - `POST /api/tasks/:taskId/notes` — amend the task's notes. Body `{ notes }`.
-    Creator only, active statuses only (ADR-0006). Silent: no DM, no channel
+    Creator only, non-closed statuses only (ADR-0006). Silent: no DM, no channel
     post; the existing DM cards are re-rendered in place.
   - `POST /api/tasks/:taskId/urgency` — amend the task's urgency. Body
     `{ urgency }`; `dueAt` is re-derived server-side from the new band and the
-    last-reminder stamp is cleared. Creator only, active statuses only, and
+    last-reminder stamp is cleared. Creator only, non-closed statuses only, and
     rejected outright on an `OOO` task. DMs the assignee when there is one; no
     channel post. **There is no route that accepts a `dueAt`.**
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
