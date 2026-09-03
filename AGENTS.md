@@ -11,6 +11,11 @@ Humperdink userscript).
 ## Commands
 
 - `npm run dev` — all three workspaces
+- `npm run dev:reset` — replace the local task store with ~a dozen seeded tasks,
+  one per shape worth looking at (overdue, nagged, both merge rungs, the three
+  live fraud phases, OOO, review, closed). Backs the old store up under
+  `apps/server/data/backups/` first; leaves users, admin settings and bot
+  references alone. `-- --keep` re-seeds without clearing what's there.
 - `npm run build` — production-style build
 - `npm run lint` — typecheck (`tsc --noEmit`); there is no ESLint
 - `npm run test:all` — full sim/smoke suite (individual `test:*` scripts in
