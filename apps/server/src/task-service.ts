@@ -7,6 +7,8 @@ import {
   NotificationEvent,
   TaskHistoryEvent,
   TaskStatus,
+  UrgencyLevel,
+  URGENCY_TIMEFRAMES,
   UserIdentity,
   addChecklistItem,
   assignRefusalMessage,
@@ -288,6 +290,128 @@ export class TaskService {
       task: { ...current, points: next, updatedAt: new Date().toISOString() },
       event
     }));
+  }
+
+  /* ------------------------------------------------------------------------
+     Amending the ask (ADR-0006, #160). A task's creator may correct what they
+     asked for — its notes, and its urgency — while the task is still active.
+     Nobody amends the record: not the assignee (the notes thread is where they
+     say the deadline is wrong), not an admin (back-end access confers nothing
+     over other people's work, ADR-0003), and not on a closed task.
+
+     Two focused operations rather than one patch, deliberately: a generic
+     endpoint taking an arbitrary subset of the task would push "which fields
+     are amendable and by whom" out into a validation list that nobody reads as
+     a rule. Each of these names its field and refuses with the rule that
+     refused it, exactly as updateTaskPoints above does.
+     ------------------------------------------------------------------------ */
+
+  /* The guards both amendments share. `field` only ever names the field in the
+     refusal, so the message says which rule stopped you rather than "forbidden". */
+  private assertCanAmend(task: LoanTask, user: UserIdentity, field: string): void {
+    if (task.createdBy.id !== user.id) {
+      throw new Error(`Only the task creator can change its ${field}`);
+    }
+    if (!ACTIVE_STATUSES.includes(task.status)) {
+      throw new Error(`The ${field} cannot be changed on a closed task`);
+    }
+  }
+
+  /* Correct the free-text description of the request. Silent: a DM for every
+     wording fix is the noise that trains people to ignore the DMs that matter.
+     The existing cards are still re-rendered so no surface quotes a stale ask. */
+  async updateTaskNotes(taskId: string, notes: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertCanAmend(task, user, "notes");
+
+    const next = notes.trim();
+    if (next.length === 0) {
+      throw new Error("Notes cannot be emptied");
+    }
+    if (next === task.notes) {
+      return task;
+    }
+
+    const now = new Date();
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_NOTES_AMENDED",
+      `Notes changed from "${task.notes}" to "${next}"`,
+      now
+    );
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: { ...current, notes: next, updatedAt: now.toISOString() },
+      event
+    }));
+
+    this.background(
+      () => this.emitCardSync(updated, [], now),
+      { method: "updateTaskNotes", taskId: updated.id }
+    );
+
+    return updated;
+  }
+
+  /* Correct the timing. `dueAt` is DERIVED from the new urgency through the
+     same shared computation creation uses, evaluated now — it is never accepted
+     from a caller, because due date is backend-only and a raw date would let the
+     colour band and the deadline it describes disagree (ADR-0006).
+
+     OOO is refused outright: its `dueAt` is the person's return date and the
+     maintenance pass auto-completes on it, so it is a scheduled action rather
+     than a deadline and re-deriving it from an urgency band would end a vacation
+     on the wrong day. Editing those dates is its own issue.
+
+     The moved deadline drops the reminder stamp: the reminder engine gates on
+     overdue and then on time-since-last-reminder, so a shortened deadline would
+     otherwise leave a newly-overdue task silent for the rest of the cadence
+     window. And because somebody else's obligation just moved, the assignee is
+     told — being made late by a quietly re-rendered card is the failure here. */
+  async updateTaskUrgency(taskId: string, urgency: UrgencyLevel, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertCanAmend(task, user, "urgency");
+
+    if (task.taskType === "OOO") {
+      throw new Error("An OOO task's timing is its start and return dates, not an urgency");
+    }
+    if (urgency === task.urgency) {
+      return task;
+    }
+
+    const now = new Date();
+    const dueAt = computeDueAtFromUrgency(urgency, now, this.appConfig);
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_URGENCY_AMENDED",
+      `Urgency changed from ${URGENCY_TIMEFRAMES[task.urgency]} to ${URGENCY_TIMEFRAMES[urgency]}`,
+      now
+    );
+    const updated = await this.writeTask(task.id, (current) => {
+      const next: LoanTask = { ...current, urgency, dueAt, updatedAt: now.toISOString() };
+      delete next.lastReminderAt;
+      return { task: next, event };
+    });
+
+    this.background(async () => {
+      if (updated.assignee) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          message: `${firstName(user.displayName)} changed the urgency on ${updated.folderName} — now ${URGENCY_TIMEFRAMES[urgency]}`,
+          target: "DM",
+          recipientUserIds: [updated.assignee.id]
+        }, now);
+      }
+      // No channel post either way: the channel saw this task when it was
+      // created, and ADR-0002 already rejected channel announcements for
+      // two-party business.
+      await this.emitCardSync(updated, [], now);
+    }, { method: "updateTaskUrgency", taskId: updated.id });
+
+    return updated;
   }
 
   /* Everything that changes because the task has a new holder. The deadline

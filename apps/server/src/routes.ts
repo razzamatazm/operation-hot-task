@@ -11,6 +11,8 @@ import { ActivityFeedClient } from "./activity-feed.js";
 import { SettingsStore } from "./settings-store.js";
 import { LoanService } from "./loan-service.js";
 import {
+  amendNotesSchema,
+  amendUrgencySchema,
   assignSchema,
   checklistItemCheckedSchema,
   checklistItemNoteSchema,
@@ -531,6 +533,30 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to update points");
+    }
+  });
+
+  /* Amend the ask (ADR-0006, #160). Two routes, not one patch — the URL names
+     the field, so the rule that refuses is the rule the route is about. */
+  router.post("/tasks/:taskId/notes", async (req, res) => {
+    try {
+      const { notes } = amendNotesSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.updateTaskNotes(req.params.taskId, notes, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to update notes");
+    }
+  });
+
+  router.post("/tasks/:taskId/urgency", async (req, res) => {
+    try {
+      const { urgency } = amendUrgencySchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.updateTaskUrgency(req.params.taskId, urgency, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to update urgency");
     }
   });
 

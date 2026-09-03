@@ -137,6 +137,17 @@ export const updatePointsSchema = z.object({
   points: z.number().int().min(0).max(5)
 });
 
+/* Amending the ask (ADR-0006). Two focused schemas, one per operation, each
+   accepting exactly its own field — there is deliberately no `dueAt` anywhere:
+   the deadline is derived from urgency server-side and is never an input. */
+export const amendNotesSchema = z.object({
+  notes: z.string().min(1)
+});
+
+export const amendUrgencySchema = z.object({
+  urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"])
+});
+
 export const transitionSchema = z.object({
   status: z.enum(["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED", "CANCELLED", "ARCHIVED"]),
   reviewNotes: z.string().min(1).max(1000).optional()
