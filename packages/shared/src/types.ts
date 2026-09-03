@@ -124,6 +124,36 @@ export const formatChannelContextLine = (params: ChannelCardContext & { assignee
   return segments.join(" · ");
 };
 
+/* What the requester's completion DM says, by task type (#232).
+
+   `Done and dusted 🎉` is the historical message and stays the default: it
+   reads fine for work whose result the requester can see for themselves.
+
+   An LOI check is the exception. The requester asked somebody to look at a
+   file, and `Done and dusted` told them the task closed without telling them
+   what the look found — the message behind the "did you actually check it?"
+   incident (#172). A check that finds something doesn't complete — it goes to
+   the corrections loop (ADR-0007) — so the completion the checker performs is
+   the clean one, and it is exactly the moment to say so.
+
+   One completion isn't the checker's: the creator can close a task out of
+   corrections themselves (`NEEDS_REVIEW → COMPLETED`), and they'd read this
+   line about a fix they made. Telling the two closures apart is #239's, which
+   owns the corrections-loop notifications and the record of who closed; this
+   is deliberately keyed on task type alone until that lands.
+
+   The folder name isn't in the copy: `formatLifecycleDmText` appends it, so
+   the reader sees `LOI Check - Good to go! (Smith-1042)` with the folder
+   carrying the deep link back to the task. */
+export const COMPLETION_DM_MESSAGE_DEFAULT = "Done and dusted 🎉";
+
+const COMPLETION_DM_MESSAGES: Readonly<Partial<Record<TaskType, string>>> = {
+  LOI: "Good to go!"
+};
+
+export const completionDmMessage = (taskType: TaskType): string =>
+  COMPLETION_DM_MESSAGES[taskType] ?? COMPLETION_DM_MESSAGE_DEFAULT;
+
 /* Text of a plain lifecycle DM — the completion notice, the merge steps, the
    fraud round trip, handoff displacement, OOO auto-completion and the overdue
    reminder all read as `<friendly type> - <message>`, with the folder name

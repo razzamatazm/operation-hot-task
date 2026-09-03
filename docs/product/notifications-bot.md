@@ -183,6 +183,23 @@
   activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
   which this isn't. The recipient still gets the `DM_ASSIGN` card.
 - `Merge Done` and `Completed`: DM task creator
+- **A completed LOI says the check came back clean** (#232). The completion DM
+  used to be the bare `Done and dusted 🎉` for every type, which told the
+  requester the task closed but nothing about what the check found — the
+  message behind the "did you actually check it?" incident (#172). A completed
+  LOI now reads `LOI Check - Good to go! (Smith-1042)`. A check that finds
+  something doesn't complete — it goes to the corrections loop
+  ([ADR-0007](../adr/0007-loi-corrections-loop.md)) — so the completion the
+  checker performs is the clean one. The one completion that isn't the
+  checker's is a creator closing a task out of corrections
+  (`NEEDS_REVIEW → COMPLETED`), who reads the same line about a fix they made;
+  telling the two closures apart belongs to #239, which owns the
+  corrections-loop notifications and the record of who closed. Every other type
+  keeps `Done and dusted 🎉` unchanged, and so does
+  `Merge Done`. The wording lives in `completionDmMessage`
+  (`packages/shared/src/types.ts`); the folder name is appended by
+  `formatLifecycleDmText`, so it carries the deep link like every other
+  lifecycle notice. Recipients are unchanged — the requester, and nobody new.
 - `Merge Approved`: DM task assignee
 - Notes: DM counterpart user as an **interactive note card** — shows the
   recent conversation (last ~5 notes, oldest → newest) with an inline reply
@@ -196,7 +213,7 @@
 - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM
   goes to creator
 - **Plain lifecycle DMs carry the task link too** (#174). The one-line notices —
-  claim, `Merge done`, `Done and dusted`, `Got the green light`, the fraud round
+  claim, `Merge done`, the completion notice, `Got the green light`, the fraud round
   trip, handoff displacement, OOO auto-completion, the overdue nudge — read as
   `<friendly type> - <message>`, with the folder name appended in parentheses
   only when the message doesn't already name it. Whichever occurrence the reader
