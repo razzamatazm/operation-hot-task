@@ -88,7 +88,9 @@
     "format": "npm run format --workspace @loan-tasks/server && npm run format --workspace @loan-tasks/web && npm run format --workspace @loan-tasks/shared"
   },
   "devDependencies": {
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "engines": {
     "node": ">=24.0.0"

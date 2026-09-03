@@ -427,11 +427,11 @@ nested card chrome, in this order:
 
 1. **Status timeline** (`.timeline`) — horizontal rail of the task's
    lifecycle, one dot + label per step, with a `NOW` (or `NEEDS CORRECTIONS`)
-   tag on the current in-flight step. It is the one piece of the tab that
-   lives outside `App.tsx`, in [src/timeline.tsx](src/timeline.tsx), because
-   it is the web surface that puts a status into words: #247 renders it and
-   reads the words back, which `App.tsx` cannot be imported into a node script
-   to allow. Flow comes from the task type:
+   tag on the current in-flight step. It is the one card component lifted out
+   of `App.tsx`, into [src/timeline.tsx](src/timeline.tsx), because it is the
+   web surface that puts a status into words: #247 renders it and reads the
+   words back, and `App.tsx` cannot be imported into a node script to allow
+   that. Flow comes from the task type:
    LOAN_DOCS gets the merge steps, FRAUD gets the two-phase checklist
    steps, everything else is Opened → Claimed → Completed. `NEEDS_REVIEW`
    renders on the `CLAIMED` step; `ARCHIVED` reads as `COMPLETED`. Step

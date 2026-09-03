@@ -1,11 +1,11 @@
 import { CLOSED_STATUSES, LoanTask, TaskStatus, TaskType, statusDisplayName } from "@loan-tasks/shared";
 
 /* ── Status timeline (expanded body) ──────────────────────── */
-/* Its own module, and the only piece of the tab that is, because it is the web
-   surface that puts a status into words for a person. #247 renders it to
-   markup and reads the words back; App.tsx cannot be imported into a node
-   script, and a rule nothing can check is a rule that drifts. Everything else
-   it needs comes from the shared package, so it renders on its own.
+/* The one component lifted out of App.tsx, because it is the web surface that
+   puts a status into words for a person. #247 renders it to markup and reads
+   the words back; App.tsx cannot be imported into a node script, and a rule
+   nothing can check is a rule that drifts. Everything else the rail needs
+   comes from the shared package, so it renders on its own.
 
    Rail of the task's lifecycle. NEEDS_REVIEW sits on the CLAIMED step (and
    tags it); ARCHIVED reads as COMPLETED. The current in-flight step carries a
