@@ -2528,6 +2528,13 @@ button.btn-good:hover {
   gap: 6px;
   flex-wrap: wrap;
 }
+/* A role chip's only hover affordance is its border, so it opts out of the
+   fill through both tokens (#206). The resting fill has to move off a literal
+   `background` for that to work: `.admin-role` is (0,1,0) and `button:hover`
+   is (0,1,1), so a bare `background` opted out of the resting state only and
+   the brand fill came straight back under the cursor. That preview was also
+   the wrong colour — an off `.fc` chip previewed brand, then turned green on
+   click. */
 .admin-role {
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
@@ -2537,7 +2544,8 @@ button.btn-good:hover {
   border-radius: 20px;
   border: 1px solid var(--line);
   color: var(--ink-secondary);
-  background: var(--panel);
+  --btn-bg: var(--panel);
+  --btn-bg-hover: var(--btn-bg);
   cursor: pointer;
   transition: none;
 }
@@ -2557,7 +2565,12 @@ button.btn-good:hover {
 .admin-role.admin.on {
   background: var(--hot);
 }
+/* Redundant against the base rule today, and deliberately so: it pins the
+   opt-out to :disabled directly, so giving enabled chips a hover tint later
+   can't leak one onto a chip you can't toggle. (The border still responds —
+   `.admin-role:hover` is unconditional — but the fill does not.) */
 .admin-role:disabled {
+  --btn-bg-hover: var(--btn-bg);
   cursor: default;
   opacity: 0.6;
 }
@@ -2598,8 +2611,12 @@ button.btn-good:hover {
   gap: 10px;
   justify-content: flex-end;
 }
+/* Transparent at rest with the shared control tint under the cursor, so the
+   signal colours below (.warn / .bad / .good) keep their contrast instead of
+   sitting on the brand fill `button:hover` would otherwise paint (#206). */
 .admin-link {
-  background: none;
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
   border: none;
   font-family: "DM Sans", sans-serif;
   font-size: 12px;
@@ -2617,6 +2634,7 @@ button.btn-good:hover {
   color: var(--good);
 }
 .admin-link:disabled {
+  --btn-bg-hover: var(--btn-bg);
   color: var(--muted);
   opacity: 0.5;
   cursor: default;
