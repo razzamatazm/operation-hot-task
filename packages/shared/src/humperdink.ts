@@ -102,6 +102,29 @@ export interface HumperdinkTerms {
   partialReconveyance?: string;
 }
 
+/* One person off Humperdink's contact grid (issue #197).
+
+   `type` is the contact type text as the grid displays it — `"Broker"`,
+   `"Borrower"` — and it is what the scrape matched on. Humperdink's row ids are
+   positional (`row0ContactsGrid`), so anything that matched on those would
+   point at the wrong person the moment somebody adds a contact. */
+export interface HumperdinkContact {
+  type: string;
+  name: string;
+}
+
+/* One property the loan is acquiring (issue #197).
+
+   Street address only, and the purchase price that goes with it. There is no
+   loan-level purchase price in Humperdink — it exists per property — and the
+   rest of the property grid (parcel, property type, existing debt, final value)
+   is not what an LOI check needs. */
+export interface HumperdinkProperty {
+  address: string;
+  /** Absent when the desk hasn't filled one in. */
+  purchasePrice?: string;
+}
+
 export interface HumperdinkPayload {
   kind: typeof HUMPERDINK_PAYLOAD_KIND;
   version: number;
@@ -120,6 +143,17 @@ export interface HumperdinkPayload {
    * still fill the name and the link.
    */
   terms?: HumperdinkTerms;
+  /**
+   * The loan's broker and borrower (#197), in that order. Only those two
+   * contact types travel; the rest of Humperdink's contact grid stays there.
+   */
+  contacts?: HumperdinkContact[];
+  /**
+   * The properties this loan is ACQUIRING (#197). A property being refinanced
+   * contributes nothing, so an all-refinance loan carries an empty list and
+   * gets no property block in its note.
+   */
+  properties?: HumperdinkProperty[];
 }
 
 export type HumperdinkParseResult =
@@ -269,6 +303,39 @@ const readTerms = (value: unknown): HumperdinkTerms | undefined => {
   return Object.keys(terms).length > 0 ? terms : undefined;
 };
 
+/* ── People and properties: reading them off the wire (#197) ── */
+
+/** A loan's contact grid is a handful of people, not a mailing list. */
+const MAX_CONTACTS = 20;
+/** A loan can carry a lot of parcels; a note that carries all of them can't. */
+const MAX_PROPERTIES = 40;
+
+const readContacts = (value: unknown): HumperdinkContact[] => {
+  if (!Array.isArray(value)) return [];
+  const contacts: HumperdinkContact[] = [];
+  for (const entry of value.slice(0, MAX_CONTACTS)) {
+    if (!isRecord(entry)) continue;
+    const type = termValue(entry.type);
+    const name = termValue(entry.name);
+    // A contact with no name is a row somebody started and abandoned.
+    if (type && name) contacts.push({ type, name });
+  }
+  return contacts;
+};
+
+const readProperties = (value: unknown): HumperdinkProperty[] => {
+  if (!Array.isArray(value)) return [];
+  const properties: HumperdinkProperty[] = [];
+  for (const entry of value.slice(0, MAX_PROPERTIES)) {
+    if (!isRecord(entry)) continue;
+    const address = termValue(entry.address);
+    if (!address) continue;
+    const purchasePrice = termValue(entry.purchasePrice);
+    properties.push(purchasePrice ? { address, purchasePrice } : { address });
+  }
+  return properties;
+};
+
 /* Parse clipboard text into a payload, or explain why it isn't one.
 
    Never throws and never returns a half-payload: a caller that gets `ok: false`
@@ -328,9 +395,19 @@ export const parseHumperdinkPayload = (text: string | null | undefined): Humperd
   // newer additive payload are dropped here, which is what makes "additive
   // changes keep the version" safe.
   const terms = readTerms(decoded.terms);
+  const contacts = readContacts(decoded.contacts);
+  const properties = readProperties(decoded.properties);
   return {
     ok: true,
-    payload: { kind: HUMPERDINK_PAYLOAD_KIND, version, loanName, loanUrl, ...(terms ? { terms } : {}) }
+    payload: {
+      kind: HUMPERDINK_PAYLOAD_KIND,
+      version,
+      loanName,
+      loanUrl,
+      ...(terms ? { terms } : {}),
+      ...(contacts.length > 0 ? { contacts } : {}),
+      ...(properties.length > 0 ? { properties } : {})
+    }
   };
 };
 
@@ -341,6 +418,10 @@ export interface HumperdinkNoteSection {
   heading: string;
   lines: string[];
 }
+
+/** The two blocks #197 adds after the terms. */
+const CONTACTS_HEADING = "Contacts";
+const PROPERTIES_HEADING = "Properties Acquired";
 
 /** One rate tier as a line: `Months 1–12 at 7.90%`. */
 const rateTierLine = (tier: HumperdinkRateTier): string => {
@@ -358,9 +439,6 @@ const rateTierLine = (tier: HumperdinkRateTier): string => {
    Exported so #197 can append its own sections and so tests can assert the
    order without pattern-matching a wall of text. */
 export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNoteSection[] => {
-  const terms = payload.terms;
-  if (!terms) return [];
-
   const sections: HumperdinkNoteSection[] = [];
   const push = (heading: string, text: string): void => {
     const open = sections[sections.length - 1];
@@ -368,15 +446,27 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
     else sections.push({ heading, lines: [text] });
   };
 
-  for (const spec of TERM_FIELDS) {
-    const value = terms[spec.field];
-    /* Prose gets its own bare block rather than a `Label: …` line: it is what
-       the desk typed and it carries its own newlines. */
-    if (value) push(spec.heading, spec.prose ? value : `${spec.label}: ${value}${spec.unit ? ` ${spec.unit}` : ""}`);
-    if (spec.field === RATE_TIER_AFTER) {
-      for (const tier of terms.rateTiers ?? []) push(spec.heading, `${RATE_TIER_LABEL}: ${rateTierLine(tier)}`);
+  const terms = payload.terms;
+  if (terms) {
+    for (const spec of TERM_FIELDS) {
+      const value = terms[spec.field];
+      /* Prose gets its own bare block rather than a `Label: …` line: it is what
+         the desk typed and it carries its own newlines. */
+      if (value) push(spec.heading, spec.prose ? value : `${spec.label}: ${value}${spec.unit ? ` ${spec.unit}` : ""}`);
+      if (spec.field === RATE_TIER_AFTER) {
+        for (const tier of terms.rateTiers ?? []) push(spec.heading, `${RATE_TIER_LABEL}: ${rateTierLine(tier)}`);
+      }
     }
   }
+
+  /* The people and the properties come after the terms, always in that order —
+     the LOI's notes field is called "Loan Terms and Contacts", and a note whose
+     blocks moved around between two loans would be unreadable side by side. */
+  for (const contact of payload.contacts ?? []) push(CONTACTS_HEADING, `${contact.type}: ${contact.name}`);
+  for (const property of payload.properties ?? []) {
+    push(PROPERTIES_HEADING, property.purchasePrice ? `${property.address} — ${property.purchasePrice}` : property.address);
+  }
+
   return sections;
 };
 

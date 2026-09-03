@@ -2,10 +2,10 @@
 
 [`send-to-hot-task.user.js`](send-to-hot-task.user.js) adds a **Send to Hot
 Task** button to a Humperdink loan details page. Pressing it copies the loan —
-its name, the page's URL and its loan terms — to your clipboard as JSON. Over in
-Hot Task, the create form's **Import from Humperdink** button takes that paste
-and fills Folder Name, the Humperdink Link and the notes, and sets the task type
-to LOI.
+its name, the page's URL, its loan terms, its broker and borrower, and any
+property it is acquiring — to your clipboard as JSON. Over in Hot Task, the
+create form's **Import from Humperdink** button takes that paste and fills
+Folder Name, the Humperdink Link and the notes, and sets the task type to LOI.
 
 Humperdink has no API, so the clipboard is the whole integration. Hot Task never
 reads your clipboard on its own: you press paste. Clipboard-read permission
@@ -33,7 +33,9 @@ your Humperdink lives somewhere else, change that line and nothing else.
 ## Use it
 
 1. On the loan page, press **Send to Hot Task**. The button confirms with
-   `Copied — paste it into Hot Task`.
+   `Copied — paste it into Hot Task`. If it reads `Loading…` instead, the
+   contacts and properties haven't come back from Humperdink yet — they load
+   after the page does. Give it a second.
 2. In Hot Task, open **New Task**, click into **Paste from Humperdink**, paste,
    and press **Import from Humperdink**. Folder Name, the Humperdink Link and
    the terms fill in, the task type becomes LOI, and the button reads
@@ -72,8 +74,34 @@ visible rather than silent:
   its unused panels with `0.00%` and `$0.00`, and a note full of zeroed labels
   is worse than no note.
 
+The contacts and properties
+([#197](https://github.com/razzamatazm/operation-hot-task/issues/197)) are not
+in the page's HTML at all — Humperdink fetches them after render and paints them
+into jqxGrids — so the control waits for them and reads `Loading…` in the
+meantime. Each grid is found by its container id (`contenttableContactsGrid`,
+`contenttablePropertiesGrid`), and then **everything inside it is matched on
+text**: the columns by their header (`Type`, `Name`, `Address`, `Transaction`,
+`Purchase Price`) and the people by their contact type (`Broker`, `Borrower`).
+Nothing counts rows or columns from a fixed position — Humperdink's row ids are
+literally positional (`row0ContactsGrid`), so a scrape built on them would point
+at the wrong person the first time somebody adds a contact.
+
+Only properties whose transaction reads as an acquisition contribute, and only
+their street address and purchase price. The loan-level scenario type is
+deliberately never consulted: one loan can buy some properties and refinance
+others, so the per-property signal is the authoritative one.
+
+A grid that is still empty when the control gives up waiting is **refused**, not
+imported as an absence. Humperdink offers no "loaded, and there are none"
+signal, so an empty grid and a slow one look identical from a userscript — and
+an LOI note that quietly lost its borrower is worse than one that didn't get
+made. In practice every loan an LOI is filed against has a borrower and a
+property; if that ever stops being true, this is the rule to revisit.
+
 `scripts/humperdink-import-sim-test.mjs` carries the full id list as
-`TERMS_FIELDS`, taken off a real page, so a rename shows up as a red test.
+`TERMS_FIELDS` and both grids' headers as `CONTACT_HEADERS` /
+`PROPERTY_HEADERS`, all taken off a real page, so a rename shows up as a red
+test.
 
 For maintenance work, use a saved copy of a real loan details page as the
 selector reference. The page is ~1.3 MB of HTML plus a few hundred asset files

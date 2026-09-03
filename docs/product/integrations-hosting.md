@@ -10,14 +10,21 @@
   credentials.
 - **Humperdink → create form, via the clipboard.** A self-installed userscript
   ([tools/humperdink/](../../tools/humperdink/)) puts a **Send to Hot Task**
-  button on a loan details page; it copies the loan's name, page URL and loan
-  terms as a versioned JSON payload. The create form's **Import from
+  button on a loan details page; it copies the loan's name, page URL, loan
+  terms, its broker and borrower, and any property it is acquiring, as a
+  versioned JSON payload. The create form's **Import from
   Humperdink** button takes that paste and fills Folder Name, the Humperdink
   Link and the notes, and sets the task type to LOI. The terms are read by
   element id off Humperdink's Loan Terms panel; a **core** field whose element
   has gone is reported and nothing is copied, while a field that is merely empty
   is simply left out, so an unremarkable loan doesn't produce a note full of
-  empty labels. Because the link is the canonical key for a loan
+  empty labels. The contacts and properties are not in the page's HTML —
+  Humperdink fetches them after render — so the button reads `Loading…` until
+  they arrive, and matches them on header and contact-type *text* rather than on
+  row position. Only properties whose transaction reads as an acquisition
+  contribute, and only their street address and purchase price; the loan-level
+  scenario type is never consulted, because one loan can buy some properties and
+  refinance others. Because the link is the canonical key for a loan
   ([ADR-0001](../adr/0001-loan-entity.md)), the created task joins the loan
   that URL already names rather than minting a duplicate.
 

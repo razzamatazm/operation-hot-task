@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.1.0
+// @version      1.2.0
 // @description  Copy a Humperdink loan to the clipboard so Hot Task's create form can take it.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
@@ -24,7 +24,14 @@
    (#196) are read by element id, which is the part that needs maintaining
    against the real page — a missing id is reported rather than skipped, so a
    Humperdink release that renames one shows up as a refused copy and not as a
-   note with a hole in it. */
+   note with a hole in it.
+
+   The contacts and properties (#197) are not in the page's HTML at all —
+   Humperdink fetches them after render — so the control waits for them and
+   reads `Loading…` until they arrive. They are matched on header and contact
+   type TEXT rather than on row or column position, because Humperdink's row ids
+   are positional and would point at the wrong person the first time somebody
+   adds a contact. */
 
 (function () {
   "use strict";
@@ -37,7 +44,13 @@
 
   var BUTTON_ID = "hot-task-send-control";
   var IDLE_LABEL = "Send to Hot Task";
+  var LOADING_LABEL = "Loading…";
   var MESSAGE_MS = 6000;
+  /* How often to check whether Humperdink's background grids have painted, and
+     how long to keep checking before giving up and letting the press report it
+     (#197). */
+  var POLL_MS = 250;
+  var LOAD_CEILING_MS = 20000;
 
   /* Humperdink titles the page `<LoanName> - Details`. The name is written into
      the page by its own JavaScript after load and has no stable element of its
@@ -145,12 +158,15 @@
      points is an ordinary loan with no broker, and `Broker Fee: 0 points` is
      the note saying so; dropping the line would leave the reader unable to tell
      that from a field this script failed to read. */
-  function optionalFieldValue(el) {
-    var raw = fieldValue(el);
+  function optionalValue(raw) {
     if (!raw) return "";
     var asNumber = Number(raw.replace(/[$,%\s]/g, ""));
     if (!isNaN(asNumber) && asNumber === 0) return "";
     return raw;
+  }
+
+  function optionalFieldValue(el) {
+    return optionalValue(fieldValue(el));
   }
 
   /* Read a conditional group by id, keeping only the ones holding a value. */
@@ -235,6 +251,160 @@
     return { ok: true, terms: terms };
   }
 
+  /* ── The contact and property grids (#197) ────────────────
+
+     Unlike the terms, these two are not in the server HTML at all: Humperdink
+     fetches them after the page renders and paints them into jqxGrids. So the
+     control cannot simply read them on click — it waits for them (see
+     `watchForGrids` below) and only then offers to copy.
+
+     Each grid is two aligned tables: a header row of `[role=columnheader]`
+     cells and a body of `[role=row]`s whose `[role=gridcell]`s sit in the same
+     column order. Everything below is found by matching the HEADER TEXT and
+     then reading the cell at that index. Nothing here counts rows or columns
+     from a fixed position: Humperdink's row ids are literally positional
+     (`row0ContactsGrid`), so a scrape built on them points at the wrong person
+     the first time somebody adds a contact. */
+
+  var CONTACTS_GRID = {
+    what: "the loan's contacts",
+    columnsId: "columntableContactsGrid",
+    rowsId: "contenttableContactsGrid"
+  };
+  var PROPERTIES_GRID = {
+    what: "the loan's properties",
+    columnsId: "columntablePropertiesGrid",
+    rowsId: "contenttablePropertiesGrid"
+  };
+
+  /* The contact types an LOI check needs, in the order they read in the note.
+     Matched whole, case-insensitively, against the Type cell's text — a loan's
+     other contacts (Escrow, Title) stay in Humperdink. */
+  var CONTACT_TYPES = ["Broker", "Borrower"];
+
+  /* Humperdink's transaction types read `Acquisition`, `Acquisition with Refi
+     Cross`, `Refinance-Standard` and so on. Anything that calls itself an
+     acquisition or a purchase counts, which is what "an acquisition of any
+     kind" means. Note the loan-level scenario type (`comboLoanScenarioType`) is
+     deliberately never consulted: one loan can buy some properties and
+     refinance others, and #197 makes the per-property signal authoritative. */
+  var ACQUISITION = /acquisition|purchase/i;
+
+  function normalise(text) {
+    return String(text == null ? "" : text).replace(/\s+/g, " ").trim();
+  }
+
+  function elementText(el) {
+    return el ? normalise(el.textContent) : "";
+  }
+
+  /* Humperdink packs a property's whole address into one cell, `<br/>`-split
+     into street / city-state-zip / county. #197 wants the street line only. */
+  function streetAddress(cell) {
+    if (!cell) return "";
+    var markup = cell.innerHTML == null ? "" : String(cell.innerHTML);
+    var head = markup ? markup.split(/<br\s*\/?>/i)[0].replace(/<[^>]*>/g, "") : elementText(cell);
+    return normalise(head).replace(/,+$/, "");
+  }
+
+  function gridRows(doc, grid) {
+    var body = doc.getElementById(grid.rowsId);
+    if (!body) return null;
+    return body.querySelectorAll('[role="row"]');
+  }
+
+  /* The index of the column with this header, or -1. */
+  function columnIndex(doc, grid, header) {
+    var head = doc.getElementById(grid.columnsId);
+    if (!head) return -1;
+    var columns = head.querySelectorAll('[role="columnheader"]');
+    var wanted = normalise(header).toLowerCase();
+    for (var i = 0; i < columns.length; i += 1) {
+      if (elementText(columns[i]).toLowerCase() === wanted) return i;
+    }
+    return -1;
+  }
+
+  /* Both grids have painted at least one row.
+
+     An empty grid and a missing one are both "not here yet" while the control
+     is waiting, because from in here they look the same: Humperdink builds
+     these widgets and fills them as its background requests land, and there is
+     no positive "loaded, and there are none" signal to read. The wait has a
+     ceiling (`LOAD_CEILING_MS`), and past it the press reports whichever of the
+     two it actually is — see `readGrid`. */
+  function gridsSettled(doc) {
+    var contacts = gridRows(doc, CONTACTS_GRID);
+    var properties = gridRows(doc, PROPERTIES_GRID);
+    return !!(contacts && contacts.length > 0 && properties && properties.length > 0);
+  }
+
+  /* Read a grid, or say what about it couldn't be read.
+
+     Three separate failures, all reported rather than skipped: the grid's
+     element is gone, the grid never loaded, or a column this scrape needs isn't
+     in its header row. All three mean the note would have a hole in it. */
+  function readGrid(doc, grid, headers) {
+    var rows = gridRows(doc, grid);
+    if (!rows) return { ok: false, error: grid.what + " (this page has no " + grid.rowsId + ")" };
+    if (rows.length === 0) return { ok: false, error: grid.what + " (they hadn't finished loading)" };
+    var indexes = {};
+    var missingColumns = [];
+    for (var key in headers) {
+      if (!Object.prototype.hasOwnProperty.call(headers, key)) continue;
+      var at = columnIndex(doc, grid, headers[key]);
+      if (at < 0) missingColumns.push(headers[key]);
+      else indexes[key] = at;
+    }
+    if (missingColumns.length > 0) {
+      return { ok: false, error: grid.what + " (no " + missingColumns.join(" or ") + " column)" };
+    }
+    var read = [];
+    for (var i = 0; i < rows.length; i += 1) {
+      read.push(rows[i].querySelectorAll('[role="gridcell"]'));
+    }
+    return { ok: true, rows: read, at: indexes };
+  }
+
+  /* Broker and borrower, matched on the contact type text. */
+  function collectContacts(doc) {
+    var grid = readGrid(doc, CONTACTS_GRID, { type: "Type", name: "Name" });
+    if (!grid.ok) return grid;
+    var contacts = [];
+    for (var t = 0; t < CONTACT_TYPES.length; t += 1) {
+      var wanted = CONTACT_TYPES[t].toLowerCase();
+      for (var i = 0; i < grid.rows.length; i += 1) {
+        var cells = grid.rows[i];
+        if (elementText(cells[grid.at.type]).toLowerCase() !== wanted) continue;
+        var name = elementText(cells[grid.at.name]);
+        if (name) contacts.push({ type: CONTACT_TYPES[t], name: name });
+      }
+    }
+    return { ok: true, contacts: contacts };
+  }
+
+  /* The properties being acquired, street address and purchase price only. A
+     property being refinanced contributes nothing. */
+  function collectProperties(doc) {
+    var grid = readGrid(doc, PROPERTIES_GRID, {
+      address: "Address",
+      transaction: "Transaction",
+      price: "Purchase Price"
+    });
+    if (!grid.ok) return grid;
+    var properties = [];
+    for (var i = 0; i < grid.rows.length; i += 1) {
+      var cells = grid.rows[i];
+      if (!ACQUISITION.test(elementText(cells[grid.at.transaction]))) continue;
+      var address = streetAddress(cells[grid.at.address]);
+      if (!address) continue;
+      // A $0 purchase price is one nobody has filled in yet, not a free house.
+      var price = optionalValue(elementText(cells[grid.at.price]));
+      properties.push(price ? { address: address, purchasePrice: price } : { address: address });
+    }
+    return { ok: true, properties: properties };
+  }
+
   /* Build the payload, or say what's missing. Never returns a partial payload:
      a half-filled create form is worse than no import, because the filer has no
      way to tell which half is wrong. */
@@ -248,6 +418,10 @@
     if (!terms.ok) {
       missing.push("the loan terms (this page has no " + terms.missingIds.join(", ") + " field)");
     }
+    var contacts = collectContacts(doc);
+    if (!contacts.ok) missing.push(contacts.error);
+    var properties = collectProperties(doc);
+    if (!properties.ok) missing.push(properties.error);
     if (missing.length > 0) {
       return { ok: false, error: "Couldn't read " + missing.join(" or ") + "." };
     }
@@ -258,7 +432,9 @@
         version: PAYLOAD_VERSION,
         loanName: loanName,
         loanUrl: loanUrl,
-        terms: terms.terms
+        terms: terms.terms,
+        contacts: contacts.contacts,
+        properties: properties.properties
       }
     };
   }
@@ -317,17 +493,56 @@
       "box-shadow:0 2px 8px rgba(0,0,0,0.25)"
     ].join(";");
 
+    /* The contacts and properties arrive by background request after the page
+       renders (#197), so the control has a waiting state. It watches rather
+       than fetching on click for a practical reason as well as an honest one: a
+       clipboard write has to happen inside the press that asked for it, and a
+       press that first waited several seconds for a grid has lost that. */
+    var loading = !gridsSettled(document);
+
+    function idleLabel() {
+      return loading ? LOADING_LABEL : IDLE_LABEL;
+    }
+
+    button.textContent = idleLabel();
+
     var resetTimer = 0;
     function say(message) {
       button.textContent = message;
       if (resetTimer) clearTimeout(resetTimer);
       resetTimer = setTimeout(function () {
-        button.textContent = IDLE_LABEL;
+        button.textContent = idleLabel();
         resetTimer = 0;
       }, MESSAGE_MS);
     }
 
+    /* Poll until both grids have painted, then let the button offer the copy.
+
+       Polling rather than a MutationObserver because the grids are redrawn
+       wholesale and the thing being waited for is "rows exist", which is one
+       cheap read. The ceiling exists so a grid that never arrives leaves a
+       pressable button: pressing it then reports what didn't load, which is
+       #197's "reported, not silently omitted". */
+    function watchForGrids() {
+      if (!loading) return;
+      var waitedMs = 0;
+      setTimeout(function tick() {
+        waitedMs += POLL_MS;
+        if (gridsSettled(document) || waitedMs >= LOAD_CEILING_MS) {
+          loading = false;
+          // Don't stamp over a message the filer is mid-read of.
+          if (button.textContent === LOADING_LABEL) button.textContent = IDLE_LABEL;
+          return;
+        }
+        setTimeout(tick, POLL_MS);
+      }, POLL_MS);
+    }
+
     button.addEventListener("click", function () {
+      if (loading) {
+        say("Still loading this loan's contacts and properties — try again in a moment.");
+        return;
+      }
       var result = collect(document, location);
       if (!result.ok) {
         say(result.error);
@@ -345,6 +560,7 @@
     });
 
     document.body.appendChild(button);
+    watchForGrids();
   }
 
   mount();
