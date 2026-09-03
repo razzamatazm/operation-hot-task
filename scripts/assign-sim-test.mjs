@@ -560,6 +560,11 @@ await check("the creator cannot claim what they just freed (ADR-0003 still holds
 await check("no task type is exempt, including OOO and FRAUD", async () => {
   const ctx = await setup();
 
+  /* Relative, not literal: creating an OOO task is rejected unless its return
+     date lands in the future, so a hardcoded date arms the suite to fail on the
+     day it passes. */
+  const isoDay = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+
   // OOO: the creator is the person going out, the assignee is the person
   // covering, and you cannot cover for yourself.
   const ooo = await ctx.service.createTask(
@@ -567,8 +572,8 @@ await check("no task type is exempt, including OOO and FRAUD", async () => {
       folderName: "Beach Week",
       taskType: "OOO",
       notes: "out",
-      startDate: "2026-09-01",
-      returnDate: "2026-09-08"
+      startDate: isoDay(1),
+      returnDate: isoDay(8)
     },
     CREATOR
   );
