@@ -12,11 +12,14 @@
   - Notes
 - Non-OOO only, above Folder Name: **Import from Humperdink** and the paste
   field beside it. Paste what the **Send to Hot Task** userscript copied off a
-  Humperdink loan page and press it; Folder Name and the Humperdink Link fill
-  in and the button reads `Imported`. A malformed or empty paste reports the
-  problem in a toast and leaves every field untouched — it never half-fills.
-  Nothing else on the form is touched, so anything already typed survives an
-  import. See [integrations-hosting.md](integrations-hosting.md) and
+  Humperdink loan page and press it; Folder Name, the Humperdink Link and the
+  loan's terms fill in, the task type becomes LOI, and the button reads
+  `Imported`. A malformed or empty paste reports the problem in a toast and
+  leaves every field untouched — it never half-fills. The terms land *below*
+  anything already typed in Notes rather than over it, and a second import
+  replaces the block the first one wrote instead of stacking another copy.
+  Nothing else on the form is touched. See
+  [integrations-hosting.md](integrations-hosting.md) and
   [tools/humperdink/](../../tools/humperdink/).
 - Optional fields:
   - Non-OOO only: Humperdink Link

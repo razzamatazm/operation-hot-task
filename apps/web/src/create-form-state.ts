@@ -75,19 +75,65 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
   return { ...BLANK_CREATE_FORM, initialItems: [...BLANK_CREATE_FORM.initialItems], ...supplied };
 };
 
+/* The note text an import writes, and the one the last import wrote.
+
+   Passed in rather than computed here: rendering the note is
+   `humperdinkNoteText` over in `@loan-tasks/shared`, and importing that as a
+   *value* would tie this module to shared's compiled `dist`. Everything here is
+   type-only precisely so its test runs with no build. */
+export interface ImportedNotes {
+  /** What this import wants in the notes field. "" means it carries none. */
+  noteText?: string;
+  /** What the previous import of this form put there, so a re-import replaces
+      it instead of stacking a second copy under the first. */
+  previousNoteText?: string;
+}
+
+/* Remove one block of imported note text from what the filer currently has,
+   leaving their own typing behind. Matched literally: the block is a string
+   this module wrote, not something a human retyped, so an edited block is left
+   alone on purpose — a filer who reworded the terms means it.
+
+   Only the seam the block left behind is tidied. Running a blank-line collapse
+   over the whole field would quietly reformat the filer's own paragraphs. */
+const withoutBlock = (notes: string, block: string): string => {
+  if (!block) return notes;
+  const at = notes.indexOf(block);
+  if (at < 0) return notes;
+  const before = notes.slice(0, at).replace(/\n+$/, "");
+  const after = notes.slice(at + block.length).replace(/^\n+/, "");
+  if (!before) return after;
+  if (!after) return before;
+  return `${before}\n\n${after}`;
+};
+
 /* Fold an imported Humperdink loan into a form that is already open.
 
-   Only the two fields the payload speaks for are touched — whatever the filer
-   has already typed elsewhere survives the import. `loanId` is cleared because
-   the link is the canonical key for a Loan (ADR-0001): a leftover id from an
-   earlier typeahead pick would win over resolving the imported URL and file the
-   task against the wrong loan. */
+   Fills the loan's name and link (#194) and its terms (#196). Whatever the
+   filer has already typed elsewhere survives the import: the terms are appended
+   below their notes rather than replacing them, and every other field is left
+   as it was.
+
+   The task type becomes LOI because the terms note is an LOI's note — the LOI
+   field is literally labelled "Loan Terms and Contacts", and this import is
+   LOI-only for now (#196).
+
+   `loanId` is cleared because the link is the canonical key for a Loan
+   (ADR-0001): a leftover id from an earlier typeahead pick would win over
+   resolving the imported URL and file the task against the wrong loan. */
 export const applyImportedLoan = (
   current: CreateFormValues,
-  payload: HumperdinkPayload
-): CreateFormValues => ({
-  ...current,
-  folderName: payload.loanName,
-  humperdinkLink: payload.loanUrl,
-  loanId: ""
-});
+  payload: HumperdinkPayload,
+  notes: ImportedNotes = {}
+): CreateFormValues => {
+  const noteText = notes.noteText ?? "";
+  const kept = withoutBlock(current.notes, notes.previousNoteText ?? "");
+  return {
+    ...current,
+    folderName: payload.loanName,
+    humperdinkLink: payload.loanUrl,
+    loanId: "",
+    taskType: "LOI",
+    notes: noteText && kept ? `${kept.trimEnd()}\n\n${noteText}` : noteText || kept
+  };
+};
