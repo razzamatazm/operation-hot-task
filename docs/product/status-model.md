@@ -3,7 +3,9 @@
 - General statuses:
   - `Open`
   - `Claimed`
-  - `Needs Review` (LOI only — the corrections state, ADR-0007)
+  - `Needs corrections` (LOI only — the corrections state, ADR-0007; stored as
+    `NEEDS_REVIEW`, and the identifier was kept because persisted tasks carry
+    it, so the two deliberately differ — #237)
   - `Cancelled`
   - `Completed`
   - `Archived`
@@ -31,17 +33,21 @@
     ), and `Merge Done` / `Merge Approved` can both be `Cancelled`
     (creator only)
 - Non-Loan-Docs, non-Fraud task types (LOI, Buddy Chat, Value, OOO) use the
-  standard flow: `Open -> Claimed -> Completed -> Archived`. `Needs Review` is
-  a side-branch off `Claimed` (not part of the forward flow) that exists on
+  standard flow: `Open -> Claimed -> Completed -> Archived`. `Needs corrections`
+  is a side-branch off `Claimed` (not part of the forward flow) that exists on
   **LOI only** ([ADR-0007](../adr/0007-loi-corrections-loop.md)); no other task
   type can reach it by any path, and the server names that rule when refused.
-- `Needs Review` is the LOI corrections state: the checker has looked at the
-  work, found something, and handed the ball back to the creator.
-  - `Claimed -> Needs Review` — the **assignee**, and only the assignee
+- A claimed LOI displays as `In review`, and only an LOI: the checker holding
+  it is reviewing it, whereas someone claiming an Out of Office cover is
+  reviewing nothing. Every other type's claimed task reads `Claimed`. The rule
+  lives in the shared `statusDisplayName` (#237, ADR-0007 rule 4).
+- `Needs corrections` is the LOI corrections state: the checker has looked at
+  the work, found something, and handed the ball back to the creator.
+  - `Claimed -> Needs corrections` — the **assignee**, and only the assignee
     (`canMoveToNeedsReview`). A creator never sends their own request there:
     handing the task over *is* the request. There is no way in from `Completed`;
     finished work is reopened, not corrected.
-  - `Needs Review -> Completed` and `Needs Review -> Claimed` — the
+  - `Needs corrections -> Completed` and `Needs corrections -> Claimed` — the
     **creator**, and only the creator (`canMoveNeedsReview`). Completing is the
     common case (a typo needs no second opinion) and is the one completion in
     the app that is not the assignee's; sending it back to `Claimed` is for
@@ -50,12 +56,14 @@
     the notes thread. Admin confers nothing (ADR-0003); the system actor keeps
     its route in and out.
   - In the web UI the forward move is the collapsed row's quick action; the
-    move back to `Claimed` is the hamburger's `Undo Review` entry. Both, and the
-    bot card's button, read `canTransitionStatus` — the same question the server
-    asks — so no surface can offer a move the server refuses.
-  - Any task of another type found in `Needs Review` at start-up is moved back
-    to `Claimed` (if held) or `Open` (if not), with a system-attributed history
-    row.
+    move back to `Claimed` is the hamburger's `Send back to checker` entry —
+    worded as the creator asking for a confirming second look, not as an undo.
+    Both, and the bot card's button, read `canTransitionStatus` — the same
+    question the server asks — so no surface can offer a move the server
+    refuses.
+  - Any task of another type found in `Needs corrections` at start-up is moved
+    back to `Claimed` (if held) or `Open` (if not), with a system-attributed
+    history row.
 
 ## Reopen / Restore
 

@@ -267,7 +267,7 @@ Things portaling makes easy to get wrong:
 
 The `primaryAction` ladder covers one status-and-role case per branch
 (including `NEEDS_REVIEW` → `Complete`, #118 — the creator's button since
-ADR-0007, gated like the `CLAIMED` Complete and the hamburger's `Undo Review`
+ADR-0007, gated like the `CLAIMED` Complete and the hamburger's `Send back to checker`
 by `canTransitionStatus`, the exact question the server asks on the click, so
 the row can't offer a move the server refuses; #236 is what happens when it
 reads a neighbouring predicate instead). When it produces nothing, the slot is **not**
@@ -426,11 +426,15 @@ One stacked column (#106), sections separated by a hairline rather than
 nested card chrome, in this order:
 
 1. **Status timeline** (`.timeline`) — horizontal rail of the task's
-   lifecycle, one dot + label per step, with a `NOW` (or `NEEDS REVIEW`)
+   lifecycle, one dot + label per step, with a `NOW` (or `NEEDS CORRECTIONS`)
    tag on the current in-flight step. Flow comes from the task type:
    LOAN_DOCS gets the merge steps, FRAUD gets the two-phase checklist
    steps, everything else is Opened → Claimed → Completed. `NEEDS_REVIEW`
-   renders on the `CLAIMED` step; `ARCHIVED` reads as `COMPLETED`.
+   renders on the `CLAIMED` step; `ARCHIVED` reads as `COMPLETED`. Step
+   names are the rail's own except the two the shared `statusDisplayName`
+   fixes (#237): an LOI's claimed step reads `In review`, and the
+   corrections chip reads `Needs corrections` — never a literal in
+   `App.tsx`, so the bot's wording cannot drift from the web's.
    Horizontal at every width — the old vertical dot-list pushed the notes
    thread far down the card (#92) — and wraps to a second line rather than
    scrolling. It's the first child so the sibling-hairline rule skips it.

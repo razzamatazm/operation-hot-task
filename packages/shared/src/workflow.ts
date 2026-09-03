@@ -974,7 +974,7 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   // Ahead of the flow check so the refusal names the rule rather than the
   // nearest symptom: on any other type the state is not on offer at all.
   if (next === "NEEDS_REVIEW" && !hasCorrectionsState(task)) {
-    return { ok: false, reason: "Only an LOI Check can be marked needs review" };
+    return { ok: false, reason: "Only an LOI Check can be marked needs corrections" };
   }
 
   if (!nextFlowStatuses(task).includes(next)) {
@@ -995,11 +995,11 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
   }
 
   if (next === "NEEDS_REVIEW" && !canMoveToNeedsReview(task, user)) {
-    return { ok: false, reason: "Only the assignee can mark an LOI Check as needs review" };
+    return { ok: false, reason: "Only the assignee can mark an LOI Check as needs corrections" };
   }
 
   if ((next === "CLAIMED" || next === "COMPLETED") && task.status === "NEEDS_REVIEW" && !canMoveNeedsReview(task, user)) {
-    return { ok: false, reason: "Only the task creator can move a needs review task" };
+    return { ok: false, reason: "Only the task creator can move a task in corrections" };
   }
 
   if (next === "MERGE_DONE" && !canMarkMergeDone(task, user)) {
