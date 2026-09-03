@@ -43,8 +43,6 @@ import {
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
-  GOOD_TO_GO_NOTE,
-  hasCorrectionsState,
   needsFixesNote,
   NEEDS_FIXES_NOTE_REQUIRED,
   isWithinBusinessHours,
@@ -896,11 +894,17 @@ export class TaskService {
         // wrote it.
         threadLines.push(needsFixesNote(fixesNote));
       }
-      if (next === "COMPLETED" && current.status === "CLAIMED" && hasCorrectionsState(current)) {
-        // #231: the clean exit from an LOI check. Nothing to type, so the
-        // thread says so on the checker's behalf.
-        threadLines.push(GOOD_TO_GO_NOTE);
-      }
+      /* The clean exit writes NOTHING to the thread, by the user's ruling on
+         #231 — which overrode that ticket's own acceptance criterion. It used
+         to write a `Good to go!` line. The line said nothing the completion did
+         not already say, and it reached the creator twice: once as the task
+         landing as done, and again as a note on the thread. So the clean exit
+         records the completion and stops there.
+
+         Removed at the source rather than gated on which surface asked, so a
+         Teams card's Complete and the web panel's `Good to go` stay the same
+         act. `Needs fixes` still writes, because its note carries a finding
+         nobody has anywhere else. */
       if (threadLines.length > 0) {
         moved.reviewNotes = [
           ...(current.reviewNotes ?? []),

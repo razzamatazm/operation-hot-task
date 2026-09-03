@@ -18,9 +18,10 @@
  * agreement ADR-0007 exists to keep, and it is the half a screenshot cannot
  * check.
  *
- * Everything below the predicate — the required note, the two thread entries,
- * and the fact that neither reaches any other task type — runs end to end
- * through the real TaskService against a temp-file TaskStore.
+ * Everything below the predicate — the required note, the one thread entry it
+ * writes, the clean exit's silence, and the fact that neither reaches any other
+ * task type — runs end to end through the real TaskService against a temp-file
+ * TaskStore.
  *
  * Runs against the compiled dist.
  */
@@ -31,7 +32,7 @@ import path from "node:path";
 
 import { SYSTEM_ACTOR, TASK_STATUSES, TASK_TYPES } from "../packages/shared/dist/types.js";
 import { canTransitionStatus, canUseCheckedPanel } from "../packages/shared/dist/workflow.js";
-import { ACTION_LABELS, GOOD_TO_GO_NOTE, NEEDS_FIXES_NOTE_REQUIRED, needsFixesNote } from "../packages/shared/dist/labels.js";
+import { ACTION_LABELS, NEEDS_FIXES_NOTE_REQUIRED, needsFixesNote } from "../packages/shared/dist/labels.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
@@ -175,13 +176,17 @@ const claimedTask = async (service, taskType = "LOI") => {
 
 const threadTexts = (task) => (task.reviewNotes ?? []).map((note) => note.text);
 
-await check("Good to go completes the task and writes `Good to go!` to the thread", async () => {
+await check("Good to go completes the task and writes nothing to the thread", async () => {
+  /* The user's ruling on #231, which overrode that ticket's own acceptance
+     criterion ("writes `Good to go!` to the notes thread"). The line said
+     nothing the completion did not already say and reached the creator twice —
+     as the task landing as done, and again as a note. The clean exit records
+     the completion and stops. */
   const { service } = await setup();
   const task = await claimedTask(service);
   const done = await service.transitionStatus(task.id, "COMPLETED", ASSIGNEE);
   assert.equal(done.status, "COMPLETED");
-  assert.deepEqual(threadTexts(done), [GOOD_TO_GO_NOTE]);
-  assert.equal(done.reviewNotes[0].by.id, ASSIGNEE.id, "attributed to the checker who signed off");
+  assert.deepEqual(threadTexts(done), [], "the clean exit is silent on the thread");
 });
 
 await check("Needs fixes will not proceed until a note is written", async () => {
@@ -217,9 +222,8 @@ await check("a second trip round the loop appends rather than erasing the first 
   assert.equal(back.status, "CLAIMED");
   assert.deepEqual(threadTexts(done), [
     "Needs fixes: borrower name is misspelt",
-    "Needs fixes: still misspelt",
-    GOOD_TO_GO_NOTE
-  ], "append-only, in order, both exits on one thread");
+    "Needs fixes: still misspelt"
+  ], "append-only and in order — and the clean exit that ended it added nothing");
 });
 
 await check("the creator's completion out of corrections is a different move and writes nothing", async () => {

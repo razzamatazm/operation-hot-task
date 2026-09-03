@@ -63,8 +63,11 @@
     its route in and out.
   - A claimed LOI's quick action is `Checked ▾` rather than `Complete` (#231):
     one control holding the checker's two exits, `Good to go` (which completes
-    the task and writes `Good to go!` to the thread) and `Needs fixes` (which
-    reveals the required note and then makes the move above). It replaces
+    the task and writes nothing to the notes thread) and `Needs fixes` (which
+    reveals the required note and then makes the move above). Only the second
+    exit writes: its note carries a finding nobody has anywhere else, whereas a
+    line confirming a clean check says nothing the completion does not already
+    say and reaches the creator a second time. It replaces
     `Complete` on that one cell and nowhere else; every other task type's
     claimed row is unchanged. The trigger is not called `Complete` because
     pressing it completes nothing.

@@ -84,18 +84,21 @@ export const ACTION_LABELS = {
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;
 
-/* What each of the checker's two exits writes into the notes thread (#231).
-   The server writes both — it is the one place that knows the move actually
-   landed, and putting the words here rather than on the surface that asked
-   keeps the web row, a bot card and any later caller writing the same sentence
-   for the same act.
+/* What `Needs fixes` writes into the notes thread (#231): what the checker
+   typed, under a prefix, so the thread reads as the corrections loop's own
+   record rather than as a stray note. Append-only — a second trip round the
+   loop adds a second line rather than replacing the first.
 
-   A clean check writes a bare `Good to go!`. A check that found something
-   writes what the checker typed under a prefix, so the thread reads as the
-   loop's own record and not as a stray note; the note is required, and this is
-   how it becomes legible weeks later. Append-only in both directions: a second
-   trip round the loop adds a second line rather than replacing the first. */
-export const GOOD_TO_GO_NOTE = "Good to go!";
+   The server writes it, not the surface that asked, so the web panel, a bot
+   card and any later caller record the same act in the same words and none of
+   them can send different text for it.
+
+   Only this exit writes. The clean one used to add a `Good to go!` line and no
+   longer does (the user's ruling on #231, overriding that ticket's own
+   acceptance criterion): it said nothing the completion did not already say,
+   and it reached the creator twice — once as the task landing as done, and
+   again as a note. This note is different in kind. It carries a finding nobody
+   has anywhere else, which is why it is required rather than merely allowed. */
 export const needsFixesNote = (text: string): string => `${ACTION_LABELS.NEEDS_FIXES}: ${text}`;
 
 /* Why `Needs fixes` won't go without a note. The server refuses the transition
