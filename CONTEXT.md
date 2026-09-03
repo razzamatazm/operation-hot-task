@@ -103,19 +103,35 @@ _Completion chain_, which only hand-offs advance.
 _Avoid_: "waive"/"N-A" as separate states (one checked state covers both; the
 per-item note carries the reason)
 
+**Terms**:
+The standing description of the loan an LOI Check is checking — amount, rate,
+fees, broker, borrower. A *fact about the loan* rather than something anybody
+said, which is why it is corrected rather than replied to, and why both _Parties_
+may correct it: the checker is the one reading it closely enough to catch a
+transposed digit. Free text in its own section, above and outside the notes
+thread, and never echoed into it. LOI only — the other five types have no field
+a second person verifies. Labelled `Loan Terms and Contacts` at the point of
+use. See [ADR-0008](docs/adr/0008-loi-terms-are-a-field-not-a-message.md).
+_Avoid_: "the first note", "the terms message" (the split exists precisely
+because it is not one)
+
 **Amend**:
-Correcting the *ask* after filing — its notes, or its urgency (from which the
-due date is re-derived). Open to the task's creator alone, because the request
-is theirs, and refused once the task is closed — completed, cancelled or
-archived — because a closed task is a record rather than an ask. Not "on an
-active task": a Fraud Check parked at `AWAITING_ITEMS` is waiting on its
-requester rather than finished, and is the case whose ask most often needs
-correcting. Distinct from
-_Resolve_, which records a fact about the world, and from a _Handoff_, which
-moves the seat: an amendment changes what was asked for, never what happened or
-who is doing it. A task's type, its linked _Loan_, and both its seats are not
-amendable. See [ADR-0006](docs/adr/0006-amend-task-ask.md).
-_Avoid_: "edit the task" (too broad — most of a task is a record, not an ask)
+Correcting a task after filing — its _Terms_ or notes, its urgency, its poop
+points, its folder name and Humperdink link, and an OOO task's dates. Open to
+both _Parties_, with one exception: **urgency belongs to the creator alone**,
+because it sets the deadline and the assignee is the person under it. Refused
+once the task is closed — completed, cancelled or archived — because a closed
+task is a record. Not "on an active task": a Fraud Check parked at
+`AWAITING_ITEMS` is waiting on its requester rather than finished, and is the
+case whose ask most often needs correcting. Distinct from _Resolve_, which
+records a fact about the world, and from a _Handoff_, which moves the seat: an
+amendment changes what the task says, never what happened or who is doing it. A
+task's type and both its seats are not amendable, and posted messages are never
+editable. Reached through `Edit Task` in the task's menu, and nowhere else. See
+[ADR-0008](docs/adr/0008-loi-terms-are-a-field-not-a-message.md), which
+supersedes [ADR-0006](docs/adr/0006-amend-task-ask.md).
+_Avoid_: "editing the notes" for an LOI (that is _Terms_, and it has its own
+rules)
 
 **Back-end access**:
 The whole of what _admin_ means. Managing users and roles, system config, and
