@@ -251,10 +251,11 @@ place, so a card's buttons always show the step that is actually next.
   picks `addCompletedNote` for a COMPLETED task and `addReviewNote` otherwise;
   wiring Reply straight to `addReviewNote` would make the surviving reply box a
   button that always errors ("Notes cannot be added to closed tasks").
-- Per-viewer button rules match `DM_NOTE` exactly: `Complete` is the assignee's
-  action, and a FRAUD task carries its role-aware two-phase set instead of the
-  generic advance. The claim-detail card never carries a fraud button (that move
-  is note-required and lives on the chat card).
+- Per-viewer button rules match `DM_NOTE` exactly: the advance goes to the party
+  whose move it is, and a FRAUD task carries its role-aware two-phase set instead
+  of the generic advance. The claim-detail card never carries a fraud button
+  (that move is note-required and lives on the chat card). Full matrix in
+  [Who Gets Which Button](#who-gets-which-button).
 - Runs **above** the `enableDmNotifications` gate, since it sends nothing —
   turning DMs off is no reason to strand a live button on a finished task.
 - **Self-heal.** Sync is best-effort and never retried (see Delivery Timing), so
@@ -280,13 +281,98 @@ place, so a card's buttons always show the step that is actually next.
   the next forward step (Merge Done → Approve Merge → Complete for Loan
   Docs; Complete otherwise), then transition via the task service and refresh to
   a confirmation card that offers the *next* step — so a user can step a task all
-  the way through from one card. Permission is enforced at transition time
-  (toast on failure); the button is status-driven, not role-filtered. A failed
-  tap also kicks off a card re-sync — see [DM Card Sync](#dm-card-sync).
+  the way through from one card. The button reaches only the party whose move it
+  is: see [Who Gets Which Button](#who-gets-which-button). Permission is still
+  enforced at transition time (toast on failure), because a card in somebody's
+  chat is a copy that can go stale. A failed tap also kicks off a card re-sync —
+  see [DM Card Sync](#dm-card-sync).
 - **Fraud two-phase buttons** are the exception — see
   [fraud-workflow.md](fraud-workflow.md#fraud-card-buttons).
 - Copy is intentionally personable/casual (e.g. "tossed a new file check on the
   pile", "grabbed this one — on it now"), low on emoji.
+
+## Who Gets Which Button
+
+Every advance button on every bot surface is gated by `botAdvanceFor`
+(`packages/shared/src/workflow.ts`): the flow's next step (`botPrimaryAdvance`)
+filtered through `canTransitionStatus`, the same predicate the server runs on the
+tap. One rule, so no surface can offer a move its owner would be refused (#182).
+
+It used to gate on whether the advance target happened to be `COMPLETED` and
+restrict only that one to the assignee, which meant a Loan Docs assignee was
+offered **Approve Merge** — the creator's move — and the creator was offered
+**Merge Done**, which is the assignee's.
+
+**The advance button, by flow, status and party.** ✅ means the button is
+rendered; — means it isn't.
+
+Loan Docs (the merge chain hands the ball from one named person to the other):
+
+| Status | Forward step | Creator | Assignee | Anyone else |
+|---|---|---|---|---|
+| `OPEN` | — | — | — | — |
+| `CLAIMED` | Merge Done | — | ✅ | — |
+| `MERGE_DONE` | Approve Merge | ✅ | — | — |
+| `MERGE_APPROVED` | Complete | — | ✅ | — |
+| `NEEDS_REVIEW` | Complete | — | ✅ | — |
+| `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — | — |
+
+Every other type (LOI, Value, Buddy Chat, OOO, …):
+
+| Status | Forward step | Creator | Assignee | Anyone else |
+|---|---|---|---|---|
+| `OPEN` | — | — | — | — |
+| `CLAIMED` | Complete | — | ✅ | — |
+| `NEEDS_REVIEW` | Complete | — | ✅ | — |
+| `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — | — |
+
+Fraud Check renders `fraudCardActions` instead — a role-aware set keyed on the
+viewer's **seat**, which is a live `FILE_CHECKER` role plus the assignee slot for
+the checker, and the creator for the requester (ADR-0003):
+
+| Status | Requester (creator) | Checker (assignee) | Anyone else |
+|---|---|---|---|
+| `OPEN` | — | — | — |
+| `CLAIMED` | — | Send Items (opens a note input) | — |
+| `AWAITING_ITEMS` | Submit — disabled with a reason until every checklist item is checked or noted (#184) | — | — |
+| `PENDING_APPROVAL` | Release for any fraud checker, while a checker still holds it | Approve, Send Back (note) | — |
+| `NEEDS_REVIEW` | — | — | — |
+| `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — |
+
+A Fraud Check sent to review is a real "nobody" cell, not an oversight of this
+audit: the two-phase labels are keyed by the statuses of the fraud exchange, so
+`NEEDS_REVIEW` has no forward step for either seat and the card carries none.
+Pre-existing, and left alone here.
+
+Two consequences worth stating outright:
+
+- **`NEEDS_REVIEW` is not a handoff, and its button is still the assignee's.**
+  The *status* is open to creator and assignee alike (`canMoveNeedsReview`), but
+  the only forward step out of it is Complete, and completion belongs to whoever
+  did the work. Admin buys nothing here either — admin is back-end access, not a
+  seat (#143 / ADR-0003). The way back to `CLAIMED` (`Undo Review`) is a web
+  hamburger action and has never been on a card.
+- **A vacant seat gets no button.** `pendingPartyFor` names a seat, not a
+  person: a Fraud Check released back to the pool still reads as waiting on the
+  checker, but nobody is sitting there, so the card offers nothing until someone
+  claims it.
+
+**Which surfaces carry an action at all.** Party gating only matters where a card
+has a forward move to offer:
+
+| Surface | Actions | Party-gated? |
+|---|---|---|
+| Channel root card, claimable | Claim & Open, Open in Hot Task, plus an invisible **Refresh** action listing the creator's MRI | No — addressed to the room. Refresh is Teams' user-specific-view mechanism rather than a button anyone taps: it makes the creator's copy re-fetch, and their copy swaps Claim & Open for **Cancel Task** (`canCancelTask`). The claim itself is re-checked on arrival (`claimRefusalMessage`) |
+| Channel root card, claimed / terminal | Open in Hot Task | n/a — no move on it |
+| DM claim / assign detail card | advance, Open in Hot Task | Yes, per recipient. Never carries a fraud move: that one is note-required and lives on the chat card |
+| DM share card | Open in Hot Task | n/a — a share informs, it never offers a move |
+| DM note / chat card | Reply, advance *or* the fraud set | Advance yes; **Reply no** — the card goes to the task's two parties and a note is a conversation between them (`canAddNoteToTask`). It survives `COMPLETED` (#45) and is dropped at `CANCELLED` / `ARCHIVED`, which is a status rule, not a party one |
+| Transition confirm card | the *next* advance | Yes — the tapper is offered the next rung only when it is theirs, so marking a merge done doesn't hand you the creator's approval |
+
+`scripts/card-advance-party-sim-test.mjs` mirrors these tables as a single
+matrix and replays it across every surface above, so a new rung or a new surface
+is a row there rather than a hand-written case per card. The tables here are a
+hand-kept copy of that matrix — change one, change the other.
 
 ## Delivery Timing
 

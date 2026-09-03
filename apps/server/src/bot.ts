@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -451,28 +451,13 @@ const STATUS_DISPLAY: Record<TaskStatus, string> = {
 export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
   (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
 
-/* The forward button a card offers this viewer, or undefined when the flow has
-   no next step or this viewer isn't the one who takes it. `botPrimaryAdvance`
-   answers the first half (status only, deliberately); `canTransitionStatus`
-   answers the second, so a card never renders a button the server would refuse.
-
-   One definition for every card surface that shows the affordance (#173). The
-   note card asked the permission question; the confirm card asked it for FRAUD
-   only, on the reasoning that a fraud hand-off passes the task to the other
-   party. Every merge rung is a hand-off too, so once the merge seats were
-   guarded that exception handed the assignee who had just tapped Merge Done an
-   Approve Merge button belonging to the creator.
-
-   A viewer is optional and its absence is a real answer, not an unknown one:
-   the channel card is addressed to no one in particular and has nobody to gate
-   against, so it keeps the flow's next step. */
-export const advanceFor = (task: LoanTask, viewer?: UserIdentity): { status: TaskStatus; label: string } | undefined => {
-  const advance = botPrimaryAdvance(task);
-  if (!advance) {
-    return undefined;
-  }
-  return !viewer || canTransitionStatus(task, advance.status, viewer).ok ? advance : undefined;
-};
+/* The forward button a card offers this viewer. Introduced here by #173 for the
+   cards the bot builds itself; moved into `packages/shared` by #182 once
+   `taskCardRecipients` — the rule for the cards the bot builds for a LIST of
+   viewers — needed the same answer and was giving a different one. Kept as an
+   alias rather than deleted because it is part of this module's surface: the DM
+   card sync sim imports `advanceFor` from here to assert the card layer. */
+export const advanceFor = botAdvanceFor;
 
 /* Build note-card data from a task (used to refresh after a reply). The
    advance/Complete button is only offered to a viewer allowed to perform it
@@ -1901,9 +1886,9 @@ export class TeamsBotClient {
      added from the web app — or by the participant themselves — refreshes the
      card instead of stacking a new one); a participant with no card yet gets a
      fresh one only when `createIfMissing` is set (we don't self-ping the author
-     of the note). `showAdvance` gates the Complete/advance button per recipient
-     (it's the assignee's action, not the creator's). One read-modify-write of
-     the store covers all recipients to avoid races. */
+     of the note). `showAdvance` gates the advance button per recipient — it
+     reaches the party whose move it is and nobody else (#182). One
+     read-modify-write of the store covers all recipients to avoid races. */
   async syncNoteCards(opts: {
     taskId: string;
     folder: string;
