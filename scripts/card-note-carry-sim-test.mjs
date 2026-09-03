@@ -45,7 +45,10 @@ const check = async (label, fn) => {
 const CREATOR = { id: "aad-creator", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 const ASSIGNEE = { id: "aad-assignee", displayName: "Sam Officer", roles: ["LOAN_OFFICER", "FILE_CHECKER"] };
 
+/* The two shapes an invoke response comes back in: a refreshed card, and the
+   plain toast a refusal returns. */
 const confirmText = (response) => response.body?.value?.body?.[0]?.text;
+const toastText = (response) => response.body?.value;
 /* What the conversation reads, one line per note: who said it and what. */
 const conversation = (task) => task.reviewNotes.map((note) => `${note.by.displayName}: ${note.text}`);
 
@@ -74,7 +77,8 @@ const world = (over = {}) => {
     /* Set to a message to make the note path refuse, the way the service
        refuses a note on a task that is closed to notes. */
     refuseNote: undefined,
-    reviewNotesSeen: []
+    reviewNotesSeen: [],
+    resynced: []
   };
 
   const resolveUser = async (aadObjectId) => users.get(aadObjectId);
@@ -124,7 +128,9 @@ const botSetup = async (over) => {
   client.setNoteReplyHandler(resolveUser, addNote);
   client.setTransitionHandler(resolveUser, transition);
   client.setReleaseHandler(resolveUser, release);
-  client.setCardResync(async () => {});
+  client.setCardResync(async (taskId) => {
+    state.resynced.push(taskId);
+  });
 
   const tap = (verb, data, user) =>
     client.bot.onInvokeActivity({
@@ -265,11 +271,21 @@ await check("a refused note refuses the step and leaves the status alone", async
 
   assert.equal(state.task.status, "MERGE_DONE", "the task did not move");
   assert.deepEqual(state.history, [], "and nothing was recorded");
-  assert.match(
-    response.body?.value?.body?.[0]?.text ?? JSON.stringify(response.body),
-    /closed to notes/,
-    "the tap returns the note's own error sentence"
-  );
+  assert.match(toastText(response), /closed to notes/, "the tap returns the note's own error sentence");
+});
+
+await check("a refused note repairs the card, like any other refused tap", async () => {
+  const { state, tap } = await botSetup();
+  // Notes are closed only on statuses whose card carries neither a box nor a
+  // step button, so this tap can only have come from a card that never got its
+  // in-place edit. Self-repair is exactly what the stale-card path is for.
+  state.refuseNote = "This task is closed to notes.";
+
+  const response = await tap("transitionTask", { targetStatus: "MERGE_APPROVED", replyText: "conditions attached" }, CREATOR);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(state.resynced, ["task-1"], "the stale card is re-synced");
+  assert.match(toastText(response), /Refreshing this card\./);
 });
 
 await check("a refused note refuses a release too", async () => {
@@ -288,6 +304,17 @@ await check("the Reply button is unchanged — one note, no double post", async 
 
   assert.deepEqual(state.task.reviewNotes.map((note) => note.text), ["just a note"]);
   assert.deepEqual(state.history.map((entry) => entry.kind), ["NOTE"]);
+});
+
+await check("a refused Reply is unchanged — its own sentence, no card repair", async () => {
+  const { state, tap } = await botSetup();
+  state.refuseNote = "This task is closed to notes.";
+
+  const response = await tap("replyNote", { replyText: "just a note" }, CREATOR);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(toastText(response), "This task is closed to notes.");
+  assert.deepEqual(state.resynced, [], "Reply's refusal path is left alone");
 });
 
 await check("a Teams card refresh posts nothing", async () => {

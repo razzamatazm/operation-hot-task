@@ -327,7 +327,10 @@ place, so a card's buttons always show the step that is actually next.
   rule is uniform rather than per-button, so a step button added to a card later
   inherits it. Order is note-then-step, so the caveat reaches the counterpart
   ahead of the notice it qualifies. A note that can't be posted aborts the step
-  and the tap returns the note's own error sentence. The confirmation card gains
+  and the tap returns the note's own error sentence, plus a card re-sync — notes
+  are closed only on statuses whose card carries neither a box nor a step button,
+  so a carried note refused is a stale card by definition (a refused **Reply** is
+  unchanged and gets no re-sync). The confirmation card gains
   a sentence ("Note posted. Smith-1042 is now merge approved.") and nothing else;
   it carries no box, so there is nothing to double-post. Whitespace-only counts
   as empty, and an empty box behaves exactly as it always did. The note-required
