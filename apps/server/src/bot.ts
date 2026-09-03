@@ -944,6 +944,41 @@ class LoanTasksBot extends ActivityHandler {
     const taskId = typeof data.taskId === "string" ? data.taskId : undefined;
     const from = context.activity.from;
 
+    /* Whatever is in the card's conversation box travels with the button (#250).
+       The rule is deliberately uniform rather than per-button: any tap arriving
+       with non-empty text posts it as a note through the same path the Reply
+       button uses, *before* the button's own action runs, so a step button added
+       to a card later inherits this without a second change.
+
+       Order matters twice over. The caveat has to reach the counterpart ahead of
+       the notice it qualifies, or a conditional approval reads as an
+       unconditional one with an afterthought; and notes are closed on a
+       cancelled or archived task, so posting first means the note lands while
+       the status still accepts it.
+
+       Two verbs are excluded. `replyNote` *is* the note path and posts the text
+       itself. `refreshTaskCard` is Teams fetching a user-specific view, not a
+       person tapping a step. */
+    const carriedNote = verb === "replyNote" || verb === "refreshTaskCard" || typeof data.replyText !== "string" ? "" : data.replyText.trim();
+    /* A note-required fraud move's own box is a separate sentence and both are
+       honoured — unless the tapper typed the same thing twice, in which case one
+       note is the honest result. */
+    const duplicatesFraudNote = typeof data.fraudNote === "string" && data.fraudNote.trim() === carriedNote;
+    let notePosted = false;
+    if (carriedNote && taskId && !duplicatesFraudNote) {
+      const noteOutcome = await this.onNoteReply(taskId, carriedNote, from?.aadObjectId);
+      if (!noteOutcome.ok) {
+        // A note that can't be posted aborts the step. Taking the step and
+        // dropping the words would be the reported bug with an extra message.
+        return cardMessageResponse(noteOutcome.message);
+      }
+      notePosted = true;
+    }
+    /* The confirmation gains a sentence, not a layout, so the tapper can see the
+       text landed instead of having to trust the other person's chat. */
+    const confirmWithNote = (confirm: ConfirmData): ConfirmData =>
+      notePosted ? { ...confirm, message: `Note posted. ${confirm.message}` } : confirm;
+
     if (verb === "claimTask") {
       if (!taskId) {
         return cardMessageResponse("Sorry, I couldn't tell which task that was.");
@@ -985,7 +1020,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "transitionWithNote") {
@@ -1004,7 +1039,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "releaseTask") {
@@ -1015,7 +1050,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "cancelTask") {
@@ -1027,7 +1062,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "refreshTaskCard") {
