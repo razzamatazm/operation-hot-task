@@ -5,6 +5,9 @@ import {
   CreateTaskInput,
   LoanTask,
   NotificationEvent,
+  TASK_ARCHIVED_ACTION,
+  TASK_COMPLETED_ACTION,
+  closureActionFor,
   TaskHistoryEvent,
   TaskStatus,
   UrgencyLevel,
@@ -970,7 +973,12 @@ export class TaskService {
       const detail = reviewNotes
         ? `${current.status} -> ${next} | Review: ${reviewNotes}`
         : `${current.status} -> ${next}`;
-      return { task: moved, event: this.makeHistory(task.id, user, "TASK_STATUS_CHANGED", detail) };
+      /* The two closing moves are named, so the closure is findable in the
+         history without parsing `detail` (#239). `moved.status` rather than
+         `next`: a restore asks for OPEN and lands on CLAIMED, and the row
+         should say where the task actually went. */
+      const action = closureActionFor(moved.status) ?? "TASK_STATUS_CHANGED";
+      return { task: moved, event: this.makeHistory(task.id, user, action, detail) };
     });
 
     this.background(
@@ -1040,21 +1048,66 @@ export class TaskService {
       }
     }
 
-    if (next === "MERGE_DONE" || next === "COMPLETED") {
+    if (next === "MERGE_DONE") {
       await this.notify({
         type: "TASK_STATUS_CHANGED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        /* The completion wording is per task type (#232) — a completed LOI
-           tells the requester the check came back clean, everything else keeps
-           the historical message. The merge step is unchanged. */
-        message: next === "COMPLETED" ? completionDmMessage(updated.taskType) : `Merge done — almost home`,
+        message: `Merge done — almost home`,
         target: "DM",
         recipientUserIds: [updated.createdBy.id]
       });
     }
 
+    /* A closure is told to whoever did not press the button — the creator when
+       the assignee finished it, the assignee when the creator closed it out of
+       corrections (ADR-0007 rule 6). Symmetric on purpose: a one-directional
+       rule needs a reason for its direction and there isn't one, since both
+       closes end the task for somebody who wasn't the one closing it.
+
+       Two calls rather than one, because the two sides are hearing different
+       news. The creator hears their request landed, which is the message this
+       path has always sent them. The assignee hears that somebody else ended a
+       task they were holding, which is only worth sending because they could
+       not have known — so it names the person who did it.
+
+       Nobody hears about their own action; the actor is filtered out of both.
+       Nothing here touches the channel (ADR-0002) — the CHANNEL_COMPLETED card
+       edit below is the existing silent terminal state, not a post. */
     if (next === "COMPLETED") {
+      /* A close out of corrections is different news and says so. "Done and
+         dusted" is the sound of work finishing on the ordinary path; the tail
+         of the corrections loop is a fix being accepted, and the reader wants
+         to know which of the two happened without opening the task. Read off
+         the status the task is coming FROM — the actor alone can't tell them
+         apart, since a creator's close and an assignee's confirm are both
+         possible on either side of the loop. */
+      const afterCorrections = task.status === "NEEDS_REVIEW";
+      const closedLine = `${user.displayName} closed ${updated.folderName}${afterCorrections ? " after corrections" : ""}`;
+      if (updated.createdBy.id !== user.id) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          /* Off the corrections path the wording is per task type (#232) — a
+             completed LOI tells the requester the check came back clean,
+             everything else keeps the historical message. */
+          message: afterCorrections ? closedLine : completionDmMessage(updated.taskType),
+          target: "DM",
+          recipientUserIds: [updated.createdBy.id]
+        });
+      }
+      if (updated.assignee && updated.assignee.id !== user.id) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          message: `${closedLine} — nothing more needed from you`,
+          target: "DM",
+          recipientUserIds: [updated.assignee.id]
+        });
+      }
+
       // Silently edit the channel card to its terminal completed state.
       await this.notify({
         type: "TASK_STATUS_CHANGED",
@@ -1693,7 +1746,7 @@ export class TaskService {
           completedAt: nowIso,
           updatedAt: nowIso
         };
-        historyEvents.push(this.makeHistory(task.id, SYSTEM_ACTOR, "TASK_STATUS_CHANGED", "AUTO_COMPLETED_RETURN_DATE", now));
+        historyEvents.push(this.makeHistory(task.id, SYSTEM_ACTOR, TASK_COMPLETED_ACTION, "AUTO_COMPLETED_RETURN_DATE", now));
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: next,
@@ -1719,6 +1772,7 @@ export class TaskService {
         const reference = next.completedAt ?? next.cancelledAt ?? next.updatedAt;
         const ageMs = now.getTime() - new Date(reference).getTime();
         if (ageMs > 14 * 24 * 60 * 60 * 1000) {
+          const from = next.status;
           next = {
             ...next,
             status: "ARCHIVED",
@@ -1726,6 +1780,12 @@ export class TaskService {
             updatedAt: nowIso
           };
           autoArchived += 1;
+          /* The sweep archives as the system, and says so (#239). Without a row
+             here the only archival anyone could name would be a hand-pressed
+             one, and the retention sweep is how most tasks actually leave. */
+          historyEvents.push(
+            this.makeHistory(task.id, SYSTEM_ACTOR, TASK_ARCHIVED_ACTION, `${from} -> ARCHIVED (retention)`, now)
+          );
           // Archiving retires the reply box the COMPLETED banner still allowed.
           await this.emitCardSync(next, [], now);
         }

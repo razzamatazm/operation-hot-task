@@ -85,6 +85,27 @@
     back to `Claimed` (if held) or `Open` (if not), with a system-attributed
     history row.
 
+## Who closed it
+
+- Closing is no longer a synonym for "the assignee did it", so the record says
+  who (ADR-0007 rule 6). Reaching `Completed` writes a `TASK_COMPLETED` history
+  row and reaching `Archived` writes a `TASK_ARCHIVED` one, each carrying the
+  person who made the move — including the nightly retention sweep, which
+  archives as the system and says so. Read them back with `completedBy` /
+  `archivedBy` (`packages/shared/src/history.ts`); the hamburger's timestamp
+  block is the surface that shows them.
+- Reopening wipes the answer: a task restored straight back to `Archived`
+  without a fresh completion names an archiver and no completer, because the
+  person who completed it before the reopen did not sign off on what is there
+  now.
+- Closures made before this shipped are plain status-change rows and answer
+  "nobody". That is deliberate: the actor is not recoverable from them, and
+  reading the assignee instead would be right on most and confidently wrong on
+  exactly the ones anyone asks about. Surfaces show no line rather than a guess.
+- The notification is symmetric — whoever did not press the button is told, and
+  nobody hears about their own action. See
+  [notifications-bot.md](notifications-bot.md).
+
 ## Reopen / Restore
 
 - Reopening a closed task (`Completed` or `Archived` -> `Open`, which lands

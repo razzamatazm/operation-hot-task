@@ -574,8 +574,9 @@ its Esc handler exempts text fields.
 ### Timestamps in the hamburger (#166)
 
 The panel ends with a non-interactive block (`.task-card-menu-times`):
-`Created`, the task's one other timestamp, and — when someone is holding the
-task — `Claimed`. Plain text below a hairline,
+`Created`, the task's one other timestamp, — when someone is holding the
+task — `Claimed`, and on a closed task `Completed by` (plus `Archived by` once
+it is archived). Plain text below a hairline,
 the way a context menu carries "Last modified" — no hover, no tab stop, and
 `role="group" aria-label="Timestamps"` rather than `menuitem`: `group` is an
 owned role of `menu`, so the block is announced as a labelled part of the panel
@@ -601,15 +602,21 @@ Two consequences worth keeping straight:
   `Due` otherwise. Its `inTooltip` flag carries the one deliberate divergence: OOO
   shows in the block but not the tooltip, where the row's own cell already
   spells out the return date. Change the labels there, not at either call site.
-- **The third line is fetched, not stored.** ADR-0005 refused to persist a claim
-  timestamp on `LoanTask`, so `Claimed` is read out of
-  `GET /tasks/:id/history` — the web app's first and only caller of it — and
-  reduced by `currentAssigneeSince` in `packages/shared`. The request fires when
-  the menu opens, never with the task list, and is held per card per mount
-  against the assignee it answered for: a handoff while the card is mounted must
-  not leave the previous assignee's start time under the new one's name. A
-  failed or empty response shows no line and no error. The line is absent for an
-  unassigned task, so an `OPEN` row's block still has two lines.
+- **The lines after the second are fetched, not stored.** ADR-0005 refused to
+  persist a claim timestamp on `LoanTask`, so `Claimed` is read out of
+  `GET /tasks/:id/history` — the web app's only caller of it — and reduced by
+  `currentAssigneeSince` in `packages/shared`. `Completed by` / `Archived by`
+  ride the same request, reduced by `completedBy` / `archivedBy` (#239): since
+  ADR-0007 a creator may close a task assigned to somebody else, so the closer
+  cannot be read off the assignee field. The request fires when the menu opens,
+  never with the task list, and is held per card per mount against a key naming
+  the assignee and the closed status it answered for: a handoff or a close while
+  the card is mounted must not leave the previous answer under the new name. A
+  failed or empty response shows no line and no error, and so does a task closed
+  before #239 — those history rows never named an actor, and a blank is the
+  honest answer where the assignee would be a plausible guess. The `Claimed`
+  line is absent for an unassigned task, so an `OPEN` row's block still has two
+  lines.
 
 ### Card variants (subtle, not loud)
 
