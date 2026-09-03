@@ -490,7 +490,9 @@ const run = async () => {
     // leave (ADR-0007).
     const needsReview = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/transition`, {
       user: users.otherOfficer,
-      body: { status: "NEEDS_REVIEW" }
+      // A note is required to enter corrections (#231): the state means the
+      // checker found something, so the finding has to be written down.
+      body: { status: "NEEDS_REVIEW", reviewNotes: "borrower name is misspelt" }
     });
     expectStatus(needsReview.status, 200, "claimed->needs_review", needsReview.json);
     pushPass("claimed to needs_review transition works for the assignee");

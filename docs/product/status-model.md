@@ -47,6 +47,12 @@
     (`canMoveToNeedsReview`). A creator never sends their own request there:
     handing the task over *is* the request. There is no way in from `Completed`;
     finished work is reopened, not corrected.
+    **A note is required to make this move** (#231): the state means the checker
+    found something, and a finding nobody had to write down is a state change
+    with no content. The server refuses the transition without one, and the note
+    lands in the notes thread as `Needs fixes: <what they wrote>`. The system
+    actor is exempt — the rule is about people, and nothing the app does on its
+    own behalf has a finding to type.
   - `Needs corrections -> Completed` and `Needs corrections -> Claimed` — the
     **creator**, and only the creator (`canMoveNeedsReview`). Completing is the
     common case (a typo needs no second opinion) and is the one completion in
@@ -55,12 +61,26 @@
     complete from here and cannot pull the task back to themselves; they keep
     the notes thread. Admin confers nothing (ADR-0003); the system actor keeps
     its route in and out.
-  - In the web UI the forward move is the collapsed row's quick action; the
-    move back to `Claimed` is the hamburger's `Send back to checker` entry —
-    worded as the creator asking for a confirming second look, not as an undo.
-    Both, and the bot card's button, read `canTransitionStatus` — the same
-    question the server asks — so no surface can offer a move the server
-    refuses.
+  - A claimed LOI's quick action is `Checked` rather than `Complete` (#231):
+    one control holding the checker's two exits, `Good to go` (which completes
+    the task and writes nothing to the notes thread) and `Needs fixes` (which
+    reveals the required note and then makes the move above). Only the second
+    exit writes: its note carries a finding nobody has anywhere else, whereas a
+    line confirming a clean check says nothing the completion does not already
+    say and reaches the creator a second time. It replaces
+    `Complete` on that one cell and nowhere else; every other task type's
+    claimed row is unchanged. The trigger is not called `Complete` because
+    pressing it completes nothing.
+  - In the web UI both of the creator's moves are the collapsed row's quick
+    action, as `LOI Fixed` — one control holding `Complete` and `Send back to
+    checker`, the same shape as the checker's `Checked` and for the same
+    reason. The send-back used to be a hamburger entry while `Complete` sat on
+    the row, which made one of the creator's two moves easy and the other a
+    hunt; it still falls back to the menu for any seat the panel is not shown
+    to. It is worded as the creator asking for a confirming second look, not as
+    an undo. Both exits, and the bot card's button, read `canTransitionStatus`
+    — the same question the server asks — so no surface can offer a move the
+    server refuses.
   - Any task of another type found in `Needs corrections` at start-up is moved
     back to `Claimed` (if held) or `Open` (if not), with a system-attributed
     history row.

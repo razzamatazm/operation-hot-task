@@ -880,6 +880,56 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
   return isSystem(user) || isAssignee;
 };
 
+/* The checker's two exits, as one answer (#231). A checker holding an LOI can
+   finish it two ways — the check was clean, or the check found something — and
+   the collapsed row offers them behind a single `Checked` control rather than
+   putting the clean path one tap away and the other path somewhere else
+   entirely. That asymmetry is what #172 was filed about: a check that found
+   problems tended to end as a silent completion with a note nobody had to
+   write.
+
+   One answer, because the control is one control. A surface asking "do I draw
+   the panel" is really asking whether BOTH exits are open to this viewer, and
+   leaving it to read two predicates and combine them itself is how a panel ends
+   up drawn with one dead half. Both halves are `canTransitionStatus` — the
+   exact question the server runs on the click — so the panel cannot offer a
+   move the server then refuses, which is the fault ADR-0007 exists to close.
+
+   The two calls are the whole rule, with no type or status guard in front of
+   them: `NEEDS_REVIEW` is refused for every type but LOI and from every status
+   but CLAIMED, and `COMPLETED` from CLAIMED is the assignee's alone. Restating
+   either here would be a second copy of a rule that already lives one function
+   away — the drift ADR-0007 was written to end.
+
+   `false` means this viewer gets no panel, and the caller falls through to
+   whatever its ladder offered before: on every other task type that is the
+   plain `Complete` this control replaces on a claimed LOI and nowhere else. */
+export const canUseCheckedPanel = (task: LoanTask, user: UserIdentity): boolean =>
+  canTransitionStatus(task, "COMPLETED", user).ok && canTransitionStatus(task, "NEEDS_REVIEW", user).ok;
+
+/* The creator's two exits from corrections, once they have made the fix — the
+   same question as above, from the other side of the loop (ADR-0007 rule 2).
+   They either close the task (the common case: a typo needs no second opinion)
+   or send it back to the checker for a confirming look.
+
+   Same shape and same reasoning as `canUseCheckedPanel`: both moves are
+   `canTransitionStatus`, answered together, so the control cannot be drawn with
+   one exit that the server would refuse. The send-back used to live in the
+   hamburger while `Complete` sat on the row, which made one of the creator's
+   two moves the easy one and the other a hunt — the asymmetry #172 was filed
+   about, arriving on the creator's side.
+
+   The status IS restated here, unlike in the checker's predicate, and for a
+   reason: `CLAIMED` is a legal target from several statuses (it is how a
+   FRAUD checker reopens a hand-back, and how a Loan Docs merge is undone), so
+   the two moves alone do not pin down which control this is. The status says
+   which moment it belongs to; the permissions still come only from
+   `canTransitionStatus`. */
+export const canUseFixedPanel = (task: LoanTask, user: UserIdentity): boolean =>
+  task.status === "NEEDS_REVIEW" &&
+  canTransitionStatus(task, "COMPLETED", user).ok &&
+  canTransitionStatus(task, "CLAIMED", user).ok;
+
 /* Out of it: the creator, and only the creator. They either complete the task
    (the common case — a typo needs no second opinion) or send it back to the
    assignee for a confirming look. The assignee waits: they cannot complete from

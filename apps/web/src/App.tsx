@@ -1,6 +1,7 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
+import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
 import { CreateFormInitialValues, CreateFormValues, applyImportedLoan, initialCreateForm } from "./create-form-state";
@@ -508,38 +509,13 @@ const FilterIcon = () => (
   </svg>
 );
 
-/* Portaled-panel geometry (#113, #122). GAP is the breathing room between a
-   trigger and the panel it anchors; MARGIN the minimum distance the panel keeps
-   from any viewport edge. The widths mirror the panels' own CSS and are only
-   fallbacks for the first frame, before the panel has been measured. */
-const PANEL_GAP = 6;
-const PANEL_MARGIN = 8;
+/* Portaled-panel geometry (#113, #122). The arithmetic — prefer downward, flip
+   up when below can't hold it, clamp both axes into the viewport — lives in
+   `panel-placement.ts` so a node test can drive it without a browser (#231).
+   The widths here mirror the panels' own CSS and are only fallbacks for the
+   first frame, before the panel has been measured. */
 const SHARE_PANEL_WIDTH = 260;
 const MENU_PANEL_WIDTH = 180;
-
-/* Place a fixed-position panel against a trigger's viewport rect. Prefers
-   opening downward and flips above only when below can't fit it and above can.
-   Both axes are clamped to the viewport, which is what a row near the top or
-   the bottom of the list would otherwise blow past. `align` picks which edge of
-   the panel lines up with the matching edge of the trigger. */
-const placePanel = (
-  anchor: DOMRect,
-  width: number,
-  height: number,
-  align: "left" | "right"
-): { top: number; left: number } => {
-  const roomBelow = window.innerHeight - anchor.bottom - PANEL_GAP - PANEL_MARGIN;
-  const roomAbove = anchor.top - PANEL_GAP - PANEL_MARGIN;
-  const openDown = roomBelow >= height || roomBelow >= roomAbove;
-  const rawTop = openDown ? anchor.bottom + PANEL_GAP : anchor.top - PANEL_GAP - height;
-  const rawLeft = align === "right" ? anchor.right - width : anchor.left;
-  const maxTop = Math.max(PANEL_MARGIN, window.innerHeight - height - PANEL_MARGIN);
-  const maxLeft = Math.max(PANEL_MARGIN, window.innerWidth - width - PANEL_MARGIN);
-  return {
-    top: Math.min(Math.max(rawTop, PANEL_MARGIN), maxTop),
-    left: Math.min(Math.max(rawLeft, PANEL_MARGIN), maxLeft)
-  };
-};
 
 /* Everything a panel needs to live outside the card that owns it (#113, #122):
    the trigger/panel ref pair (they're no longer ancestor/descendant once
@@ -573,6 +549,10 @@ const useAnchoredPanel = <T extends HTMLElement>({
   const triggerRef = useRef<T | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  /* The tallest the panel may draw before it scrolls internally. The placement
+     promises the box fits on screen; this is what makes the DOM keep that
+     promise when the contents would otherwise be taller than the viewport. */
+  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
   /* Held in a ref so a caller's inline `close` doesn't re-subscribe the
      document listener on every render. */
   const dismissRef = useRef(onDismiss);
@@ -582,12 +562,20 @@ const useAnchoredPanel = <T extends HTMLElement>({
     const trigger = triggerRef.current;
     if (!trigger) return;
     const panel = panelRef.current;
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    /* `getBoundingClientRect().height` rather than `offsetHeight`: the latter
+       rounds to whole pixels and reads 0 while the panel is mid-layout, and a
+       height of 0 is what let a panel on one of the bottom rows decide it had
+       room below and run off the screen (#231). */
+    const measured = panel?.getBoundingClientRect().height ?? 0;
     setPos(placePanel(
       trigger.getBoundingClientRect(),
       panel?.offsetWidth || fallbackWidth,
-      panel?.offsetHeight ?? 0,
-      align
+      measured,
+      align,
+      viewport
     ));
+    setMaxHeight(maxPanelHeight(viewport));
   }, [align, fallbackWidth]);
 
   /* Layout effect, not effect: the panel renders hidden for one commit while
@@ -608,6 +596,21 @@ const useAnchoredPanel = <T extends HTMLElement>({
     };
   }, [open, remeasureKey, place]);
 
+  /* Re-place whenever the panel's own box changes size, not only when a caller
+     remembers to bump `remeasureKey`. A panel that grows after it was placed —
+     a second stage revealed, a validation line appearing, a font landing late —
+     grows DOWNWARD from a top that was chosen for the old height, which is how
+     it ends up over the bottom edge. Watching the element closes that whole
+     family rather than the one case someone thought to key. */
+  useLayoutEffect(() => {
+    if (!open || typeof ResizeObserver === "undefined") return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const observer = new ResizeObserver(() => place());
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [open, place]);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: globalThis.MouseEvent) => {
@@ -625,7 +628,12 @@ const useAnchoredPanel = <T extends HTMLElement>({
     triggerRef,
     panelRef,
     /* Hidden — but still laid out, so it can be measured — until `place` runs. */
-    style: { top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? undefined : "hidden" } as CSSProperties
+    style: {
+      top: pos?.top ?? 0,
+      left: pos?.left ?? 0,
+      visibility: pos ? undefined : "hidden",
+      ...(maxHeight !== undefined ? { maxHeight } : {})
+    } as CSSProperties
   };
 };
 
@@ -929,6 +937,244 @@ const AssignPopover = ({
         document.body
       )}
     </div>
+  );
+};
+
+/* ── The two-exit panel (#231, from #172; the creator's side added later) ─────
+   Two people on an LOI reach a point where they have exactly two ways to
+   finish, and the row's quick-action slot is a fixed 116px that cannot hold two
+   buttons. So both get one control that opens a small anchored panel with both
+   exits in it, rather than one button on the row and the other move buried
+   somewhere else.
+
+   That asymmetry is what #172 was filed about. When the clean path is one tap
+   and the other path is a hunt through a menu, the clean path is what gets
+   pressed — a check that found problems tended to end as a silent Complete
+   with a note nobody was required to write.
+
+   Two callers today:
+
+   - **`Checked`**, the checker's, on a claimed LOI (#231). `Good to go`
+     completes it; `Needs fixes` sends it to corrections and REQUIRES a note.
+     The trigger is deliberately not called `Complete`: it completes nothing on
+     its own, so that label would lie about what pressing it does.
+   - **`Fixed`**, the creator's, on a task in corrections. `Complete` closes it;
+     `Send back to checker` returns it for a confirming look. Same shape,
+     because it is the same moment from the other side — and the send-back used
+     to be a hamburger entry, which made it the hard path for exactly the reason
+     above.
+
+   Why a panel and not two buttons: settled on #172 by building four variants
+   and driving them live. Splitting the 116px slot and swapping the outcomes
+   into it in place both read worse. Don't revisit.
+
+   An exit may require a note, and when it does the panel takes a second stage
+   rather than firing from the choice. The requirement is the server's — it
+   refuses the move without one — so the composer exists to make the rule
+   answerable, not to be the rule.
+
+   Portaled and anchored like the hamburger menu and the share popover (#113,
+   #122): `.task-card` keeps `overflow: hidden` for its rounded corners and
+   inset stripe, so anything taller than a collapsed row has to leave the card.
+   Escape is handled on the panel with `stopPropagation`, the SharePopover way
+   rather than the menu's document listener — a note stage owns a textarea, and
+   one keypress should close this panel and nothing else around it. */
+const TWO_EXIT_PANEL_WIDTH = 232;
+
+type PanelExit = {
+  label: string;
+  /* Ghost styling for the secondary exit. Which one is secondary is the
+     caller's call: for the checker it is `Needs fixes`, for the creator it is
+     the send-back. */
+  ghost?: boolean;
+  /* Present when this exit cannot be taken without a note. `prompt` heads the
+     composer, `placeholder` carries the requirement (so the empty box itself
+     says what is missing), and `blockedReason` is the sentence the server would
+     refuse with, for the screen-reader path. */
+  note?: { prompt: string; placeholder: string; blockedReason: string };
+  run: (note?: string) => void;
+};
+
+const TwoExitPanel = ({
+  triggerLabel,
+  dialogLabel,
+  exits,
+  onBeforeAction
+}: {
+  triggerLabel: string;
+  dialogLabel: string;
+  exits: [PanelExit, PanelExit];
+  /* The row's `acknowledgeUnread`, run on either exit — pressing a control on a
+     row is reading it, the same as every other quick action. */
+  onBeforeAction: () => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  /* `null` is the two-choice stage; an index is the note composer for that
+     exit. Holding the exit rather than a boolean means the panel never has to
+     work out which of the two it is collecting for. */
+  const [noteFor, setNoteFor] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const blockedId = useId();
+
+  /* One place that puts the panel back to its opening state, so closing it and
+     backing out of the note stage can't drift into leaving a stale draft
+     behind. */
+  const toChoice = useCallback(() => {
+    setNoteFor(null);
+    setNote("");
+  }, []);
+
+  /* The note stage is a good deal taller than the choice stage, so a panel that
+     flipped up has to re-anchor when the composer appears. An outside click
+     dismisses without taking focus: the click has already put focus where the
+     person aimed it, and yanking it back to this row would undo that. */
+  const { triggerRef, panelRef, style: panelStyle } = useAnchoredPanel<HTMLButtonElement>({
+    open,
+    align: "right",
+    fallbackWidth: TWO_EXIT_PANEL_WIDTH,
+    onDismiss: () => close(false),
+    remeasureKey: noteFor
+  });
+
+  /* Closing by keyboard or by taking an exit hands focus back to the trigger.
+     The panel is portaled to the body, so without this a keyboard user who
+     opens it, presses Escape and carries on tabbing resumes from
+     `document.body` — the top of the page, nowhere near the row they were
+     working. */
+  const close = useCallback((focusTrigger = true) => {
+    setOpen(false);
+    toChoice();
+    if (focusTrigger) {
+      triggerRef.current?.focus();
+    }
+  }, [toChoice, triggerRef]);
+
+  useEffect(() => {
+    if (open && noteFor !== null) {
+      noteRef.current?.focus();
+    }
+  }, [open, noteFor]);
+
+  const take = (exit: PanelExit, text?: string) => {
+    onBeforeAction();
+    close();
+    exit.run(text);
+  };
+
+  const pending = noteFor === null ? undefined : exits[noteFor];
+  const trimmed = note.trim();
+
+  return (
+    <span
+      className="two-exit-panel"
+      onClick={(e) => e.stopPropagation()}
+      /* The panel is portaled out of the row in the DOM, but React events still
+         travel the React tree — so a keypress inside it reaches the row's own
+         handler, which treats Space and Enter as "toggle this card". That is
+         how a space typed into the note composer collapsed the row instead of
+         landing in the box (#231's visual pass). Keys raised anywhere in this
+         control are this control's business; the panel handles its own Escape
+         and the textarea its own text. */
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        className="btn-sm task-card-quick-action two-exit-panel-trigger"
+        /* The disclosure affordance is these two attributes and nothing else.
+           There was a `▾` next to the label; at this size and weight it
+           rendered as a small dot rather than a triangle, and the user's ruling
+           on the re-check was that it is neither visible nor necessary — the
+           panel opening says what the glyph was trying to. It was `aria-hidden`
+           anyway, so it was never carrying the meaning for anyone who could not
+           see it; `aria-haspopup` and `aria-expanded` always were, and they
+           stay. */
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((was) => !was); }}
+      >
+        {triggerLabel}
+      </button>
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="two-exit-panel-panel"
+          role="dialog"
+          aria-label={dialogLabel}
+          style={panelStyle}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            /* Swallowed: this panel can sit inside a scrolled list with other
+               Escape handlers above it, and a note stage's draft is this
+               panel's business alone. */
+            e.stopPropagation();
+            close();
+          }}
+        >
+          {pending === undefined ? (
+            exits.map((exit, index) => (
+              <button
+                key={exit.label}
+                type="button"
+                className={`btn-sm two-exit-panel-exit${exit.ghost ? " btn-ghost" : ""}`}
+                autoFocus={index === 0}
+                onClick={() => (exit.note ? setNoteFor(index) : take(exit))}
+              >
+                {exit.label}
+              </button>
+            ))
+          ) : (
+            <>
+              <span className="two-exit-panel-label">{pending.note!.prompt}</span>
+              {/* The placeholder carries the requirement, so the empty box says
+                  what is missing at the point the person is looking. There is
+                  no separate explanatory sentence: one was tried and read as
+                  noise beside a button that still looked pressable. The button
+                  below is unmistakably disabled instead, and keeps the server's
+                  own refusal on `aria-label` so the reason is still spoken. */}
+              {/* Enter sends, Shift+Enter makes a newline — the same handler
+                  idiom as every other note composer in this file (the fraud
+                  note, the completed-task note, the thread reply). It briefly
+                  did the opposite, on the argument that a finding can run to a
+                  paragraph; the user's ruling is consistency with the rest of
+                  the app, and Shift+Enter still gets them the second line.
+
+                  `trimmed` is the same guard the button has, so the keyboard
+                  path cannot send the empty note the pointer path refuses. */}
+              <textarea
+                ref={noteRef}
+                className="two-exit-panel-note"
+                rows={3}
+                placeholder={pending.note!.placeholder}
+                aria-label={pending.note!.prompt}
+                aria-describedby={blockedId}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (trimmed) take(pending, trimmed); } }}
+              />
+              <span className="sr-only" id={blockedId}>{pending.note!.blockedReason}</span>
+              <div className="two-exit-panel-actions">
+                <button type="button" className="btn-sm btn-ghost" onClick={toChoice}>
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="btn-sm two-exit-panel-send"
+                  disabled={!trimmed}
+                  aria-label={trimmed ? undefined : `${pending.label} — ${pending.note!.blockedReason}`}
+                  onClick={() => take(pending, trimmed)}
+                >
+                  {pending.label}
+                </button>
+              </div>
+            </>
+          )}
+        </div>,
+        document.body
+      )}
+    </span>
   );
 };
 
@@ -1634,6 +1880,23 @@ const TaskCard = memo(({
      refusal would carry, so the button doesn't teach a different rule. */
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; blockedCount?: number };
   let primaryAction: QuickAction | null = null;
+  /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
+     checker holding it, and only when the server would accept BOTH moves —
+     `canUseCheckedPanel` asks `canTransitionStatus` for both and answers once,
+     so the panel can never be drawn with a dead half. When it is set the slot
+     hosts the panel instead of a button, and the Complete branch below stands
+     down: on this one cell `Checked` IS the Complete branch, wearing the name
+     that tells the truth about what pressing it does. Everywhere else the
+     ladder is byte-for-byte what it was. */
+  const showCheckedPanel = showActions && !mini && canUseCheckedPanel(task, user);
+  /* The creator's two exits from corrections, once they have made the fix — the
+     same control from the other side of the loop. `Complete` used to sit on the
+     row while `Send back to checker` was a hamburger entry, which made one of
+     their two moves easy and the other a hunt; that is the asymmetry #172 was
+     filed about, arriving on the creator's side. Same standing-down rule: when
+     this is set the Complete branch below leaves the slot to it. */
+  const showFixedPanel = showActions && !mini && canUseFixedPanel(task, user);
+  const twoExitPanel = showCheckedPanel || showFixedPanel;
   if (showActions) {
     // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
     // task sitting in the pool with no assignee at whatever status it was
@@ -1661,7 +1924,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if ((task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -1887,14 +2150,18 @@ const TaskCard = memo(({
           Cancel
         </button>
       )}
-      {/* #125: the move back out of corrections. NEEDS_REVIEW's forward move
-          (Complete) rides the collapsed row (#118); sending the work back to
-          the checker for a confirming look is the rarer, backwards step, so it
-          stays in the menu — same shape and placement as `Undo Merge Done`
-          below, though it is not an undo and is not named as one (#237).
-          The creator's move (ADR-0007), gated by the same question the server
-          asks on the click. */}
-      {task.status === "NEEDS_REVIEW" && canTransitionStatus(task, "CLAIMED", user).ok && (
+      {/* `Send back to checker` used to live here (#125, renamed #237). It has
+          moved to the row, as the second exit of the creator's `Fixed` panel —
+          it is one of their two moves out of corrections, not a rare backwards
+          step, and leaving it in the menu while `Complete` sat on the row made
+          one easy and the other a hunt. That asymmetry is the thing #172 was
+          filed about; the fallback below still renders it here whenever the
+          panel is not shown, so no seat loses the move.
+
+          It is deliberately NOT grouped with `Undo Merge Done` any more: that
+          one really is an undo, and this one is a creator asking for a
+          confirming second look. */}
+      {task.status === "NEEDS_REVIEW" && !showFixedPanel && canTransitionStatus(task, "CLAIMED", user).ok && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
           {ACTION_LABELS.SEND_BACK_TO_CHECKER}
         </button>
@@ -2336,7 +2603,48 @@ const TaskCard = memo(({
           {/* Mini (closed) rows never have a primary action — skip the
               spacer entirely instead of reserving its 116px, which used to
               strand empty space between the outcome stamp and the menu. */}
-          {!mini && (primaryAction ? (
+          {!mini && (showCheckedPanel ? (
+            /* #231: the LOI checker's two exits, in the slot the plain
+               Complete used to hold. First in the chain because on this cell it
+               IS the ladder's Complete branch — that branch stands down for it
+               above, so the two can never both render. */
+            <TwoExitPanel
+              triggerLabel={ACTION_LABELS.CHECKED}
+              dialogLabel="How did the check go?"
+              onBeforeAction={acknowledgeUnread}
+              exits={[
+                { label: ACTION_LABELS.GOOD_TO_GO, run: () => { void onTransition(task.id, "COMPLETED"); } },
+                {
+                  label: ACTION_LABELS.NEEDS_FIXES,
+                  ghost: true,
+                  note: {
+                    prompt: "What needs fixed?",
+                    /* The placeholder carries the requirement: the empty box is
+                       where the person is looking, so that is where it has to
+                       say a note is not optional. */
+                    placeholder: "A note is required",
+                    blockedReason: NEEDS_FIXES_NOTE_REQUIRED
+                  },
+                  run: (note) => { void onTransition(task.id, "NEEDS_REVIEW", note); }
+                }
+              ]}
+            />
+          ) : showFixedPanel ? (
+            /* The creator's side of the same loop. `Complete` leads: ADR-0007
+               rule 2 makes it the common case, since the correction is usually
+               a typo in their own text and needs no second opinion. The
+               send-back is the second exit, out of the hamburger where it used
+               to hide. */
+            <TwoExitPanel
+              triggerLabel={ACTION_LABELS.FIXED}
+              dialogLabel="You have made the corrections — what now?"
+              onBeforeAction={acknowledgeUnread}
+              exits={[
+                { label: ACTION_LABELS.NO_REVIEW_NEEDED, run: () => { void onTransition(task.id, "COMPLETED"); } },
+                { label: ACTION_LABELS.SEND_BACK_TO_CHECKER, ghost: true, run: () => { void onTransition(task.id, "CLAIMED"); } }
+              ]}
+            />
+          ) : primaryAction ? (
             /* A blocked action keeps its slot rather than vanishing: the
                requester needs to see that Submit is the next step and why it
                won't go. The title rides the wrapper because a disabled button

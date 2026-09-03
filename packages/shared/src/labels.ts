@@ -31,6 +31,34 @@ export const ACTION_LABELS = {
      this on. */
   CLAIM_AND_OPEN: "Claim & Open",
   COMPLETE: "Complete",
+  /* The LOI checker's two exits, and the one control that holds them (#231,
+     ADR-0007 rule 1). `CHECKED` replaces `Complete` in the collapsed row's slot
+     on a claimed LOI, and it is deliberately not called Complete: pressing it
+     completes nothing, it opens a panel asking which way the check went. The
+     disclosure caret the panel's trigger draws is an affordance glyph, not part
+     of the label, so it is not in this string.
+
+     `GOOD_TO_GO` and `NEEDS_FIXES` are the exits themselves. Both live only
+     inside that panel, never in the 116px slot, so neither is bound by the
+     ceiling `Approve Merge` sets — but `CHECKED` is, and at ~62px it has room
+     to spare. */
+  CHECKED: "Checked",
+  GOOD_TO_GO: "Good to go",
+  NEEDS_FIXES: "Needs fixes",
+  /* The creator's side of the same moment, once they have made the
+     corrections. Two exits again — close it, or send it back for a confirming
+     look — behind one control, for the reason the checker's has one: the slot
+     holds a single button, and putting the second move in the hamburger made
+     it the hard path. It reads as the state the creator is reporting, in the
+     same voice as `Checked`, and like `Checked` it is not called `Complete`
+     because pressing it completes nothing on its own.
+
+     Names the task type where `Checked` does not, which is the user's wording
+     (#254): this control only ever appears on an LOI, and the creator seeing it
+     is looking at a list where most rows are something else. Rides the 116px
+     slot with room to spare — `Approve Merge` is still the longest label
+     here. */
+  FIXED: "LOI Fixed",
   ARCHIVE: "Archive",
   MERGE_DONE: "Merge Done",
   APPROVE_MERGE: "Approve Merge",
@@ -39,14 +67,27 @@ export const ACTION_LABELS = {
   APPROVE: "Approve",
   SEND_BACK: "Send Back",
   /* The move out of NEEDS_REVIEW back to CLAIMED (#125, renamed in #237 per
-     ADR-0007) — the creator sending the task back to the assignee for a
-     confirming look rather than closing it themselves (canMoveNeedsReview,
-     ADR-0007). It used to read `Undo Review`, as though it corrected a
-     mistake; it is the creator deliberately sending the work back to the
-     checker for a confirming second look, so it says that. A step backwards
-     that lives in the menu, never the collapsed row, so the 116px ceiling
-     does not bind it. */
-  SEND_BACK_TO_CHECKER: "Send back to checker",
+     ADR-0007, worded again by the user on #254) — the creator sending the task
+     back to the assignee for a confirming look rather than closing it
+     themselves (canMoveNeedsReview, ADR-0007). It read `Undo Review`, as
+     though it corrected a mistake, then `Send back to checker`; it now says
+     what the checker is being asked for rather than where the task is going.
+     Lives in the `LOI Fixed` panel and, as a fallback, the menu — never the
+     collapsed row, so the 116px ceiling does not bind it. It does have to fit
+     a panel row: 208px, and this clears it. */
+  SEND_BACK_TO_CHECKER: "Send Back For Review",
+  /* The creator's OTHER exit from corrections, and deliberately not the plain
+     `COMPLETE` above (the user's wording, #254). It is the same transition, but
+     the sentence it makes is different: the creator is not reporting the work
+     finished, they are saying the fix they just made does not need a second
+     pair of eyes. That is the choice they are actually making against
+     `Send Back For Review` sitting beside it, and `Complete` obscured it.
+
+     A separate key rather than a new value for `COMPLETE`, because COMPLETE is
+     every other Complete button in the app — the row ladder, the bot's advance
+     cards — and none of those are this. One string per action still holds;
+     this is a different action's label, not a second name for that one. */
+  NO_REVIEW_NEEDED: "No Review Needed",
   RELEASE: "Release for any fraud checker",
   /* The creator's move to take their own request off a holder who has stalled
      on it and put it back where anyone can claim it (#208). Menu-only, and the
@@ -69,6 +110,30 @@ export const ACTION_LABELS = {
 } as const;
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;
+
+/* What `Needs fixes` writes into the notes thread (#231): what the checker
+   typed, under a prefix, so the thread reads as the corrections loop's own
+   record rather than as a stray note. Append-only — a second trip round the
+   loop adds a second line rather than replacing the first.
+
+   The server writes it, not the surface that asked, so the web panel, a bot
+   card and any later caller record the same act in the same words and none of
+   them can send different text for it.
+
+   Only this exit writes. The clean one used to add a `Good to go!` line and no
+   longer does (the user's ruling on #231, overriding that ticket's own
+   acceptance criterion): it said nothing the completion did not already say,
+   and it reached the creator twice — once as the task landing as done, and
+   again as a note. This note is different in kind. It carries a finding nobody
+   has anywhere else, which is why it is required rather than merely allowed. */
+export const needsFixesNote = (text: string): string => `${ACTION_LABELS.NEEDS_FIXES}: ${text}`;
+
+/* Why `Needs fixes` won't go without a note. The server refuses the transition
+   with this sentence and the panel's held-back button carries the same one, so
+   the control never teaches a different rule from the one that stops it — the
+   discipline #184's blocked Submit already follows, and the drift this module
+   exists to prevent. */
+export const NEEDS_FIXES_NOTE_REQUIRED = "Sending a task for corrections requires a note saying what needs fixed";
 
 /* The two statuses whose stored identifier and displayed name deliberately
    differ (#237, ADR-0007 rule 4). Every surface that turns a status into words
