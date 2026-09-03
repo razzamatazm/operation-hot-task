@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, channelCardContext, recentNoteThread } from "./bot.js";
@@ -136,23 +136,32 @@ export class TeamsNotificationProvider implements NotificationProvider {
     if (event.note?.trim()) {
       lines.unshift(`"${event.note.trim()}"`, "");
     }
-    /* FRAUD's forward move is note-required (Send Outstanding Items) and lives
-       on the two-phase chat card (DM_CHAT_SEED), so the plain detail card omits
-       it — a buttonless advance here would post a blank note the server
-       rejects. */
-    const advance =
-      options.withAdvance && event.task.taskType !== "FRAUD" ? botPrimaryAdvance(event.task) : undefined;
     const openUrl = taskDeepLink(event.task.id, event.task.folderName);
     if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
       const card = {
         taskId: event.task.id,
         title: options.title,
         detail: lines.join("\n"),
-        ...(openUrl ? { openUrl } : {}),
-        ...(advance ? { advance } : {})
+        ...(openUrl ? { openUrl } : {})
       };
       if (options.withAdvance) {
-        await this.botClient.sendTrackedDetailCard(event.recipientUserIds, card);
+        /* FRAUD's forward move is note-required (Send Outstanding Items) and
+           lives on the two-phase chat card (DM_CHAT_SEED), so the plain detail
+           card omits it — a buttonless advance here would post a blank note the
+           server rejects.
+
+           The advance is resolved per recipient, not once for the list (#182).
+           Usually the list is one person and that person is the new holder, so
+           the two agree; but a handoff can point a task at somebody mid-flow,
+           and a task handed on at MERGE_DONE would otherwise greet its new
+           assignee with the creator's Approve Merge button. `botAdvanceFor`
+           returns undefined for a recipient whose move it isn't, and the card
+           then carries the details and the deep link with no button — the same
+           shape DM_SHARE already sends. */
+        for (const viewer of await this.cardViewers(event.recipientUserIds)) {
+          const advance = event.task.taskType === "FRAUD" ? undefined : botAdvanceFor(event.task, viewer);
+          await this.botClient.sendTrackedDetailCard([viewer.id], { ...card, ...(advance ? { advance } : {}) });
+        }
       } else {
         await this.botClient.sendDetailCardToUsers(event.recipientUserIds, card);
       }

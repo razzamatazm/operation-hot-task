@@ -374,6 +374,36 @@ export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: 
   return label ? { status: target, label } : undefined;
 };
 
+/* The forward button a card offers THIS viewer, or undefined when the flow has
+   no next step or this viewer isn't the one who takes it (#182).
+   `botPrimaryAdvance` answers the first half — status only, deliberately, since
+   several surfaces need the flow's next step with nobody in particular in mind.
+   `canTransitionStatus` answers the second, so no surface renders a button the
+   server would refuse.
+
+   This is the whole of "whose button is it" for every bot surface. It lived in
+   `apps/server/src/bot.ts` when #173 guarded the merge rungs, which covered the
+   cards the bot builds itself but not `taskCardRecipients` below — that one asked
+   whether the advance target happened to be COMPLETED, so on a Loan Docs task the
+   assignee was handed the creator's Approve Merge and the creator the assignee's
+   Merge Done. Deriving from the permission predicate rather than from the target's
+   identity removes the shape of that bug: a rung guarded later is gated here for
+   free, and the card and the server can't disagree because they read one rule.
+
+   `botPrimaryAdvance` keeps its status-only signature rather than growing a
+   viewer, because two callers genuinely have no viewer — the channel card is
+   addressed to the room, and the DM sync computes the label once for a set of
+   recipients and gates each one separately. A viewer is optional here for the
+   same reason, and its absence is a real answer ("nobody in particular"), not an
+   unknown one. */
+export const botAdvanceFor = (task: LoanTask, viewer?: UserIdentity): { status: TaskStatus; label: string } | undefined => {
+  const advance = botPrimaryAdvance(task);
+  if (!advance) {
+    return undefined;
+  }
+  return !viewer || canTransitionStatus(task, advance.status, viewer).ok ? advance : undefined;
+};
+
 /* The two parties to a task: whoever asked for it and whoever is doing it. */
 export type PendingParty = "CREATOR" | "ASSIGNEE";
 
@@ -388,14 +418,28 @@ export type PendingParty = "CREATOR" | "ASSIGNEE";
 
    Everything else is undefined on purpose. OPEN is waiting on nobody in
    particular (anyone may claim); CLAIMED means "someone is working on it",
-   which is a state, not a handoff; NEEDS_REVIEW is open to creator, assignee
-   and admin alike (see canMoveNeedsReview), so no single person holds it.
+   which is a state, not a handoff; NEEDS_REVIEW is open to creator and assignee
+   alike (see canMoveNeedsReview — admin is back-end access, not a seat, since
+   #143), so no single person holds it.
 
    The web collapsed row uses this for its passive `Waiting on <name>`
-   indicator (#117) so the view never re-derives the flow. Status-only — it
-   says who the flow is waiting on, not who is permitted to act, though on the
-   merge rungs the two coincide by design: `canApproveMerge` gives MERGE_DONE's
-   next move to the same CREATOR this reports. */
+   indicator (#117) so the view never re-derives the flow.
+
+   Still status-only, and still not a permission: a handoff status names the
+   party the flow is waiting on, and says nothing about who may act in the
+   statuses it leaves undefined. But where it IS defined the two coincide by
+   design and are now checked against each other — the party a handoff status
+   waits on is the party `canTransitionStatus` lets make the move out of it
+   (`canApproveMerge` gives MERGE_DONE's next move to the same CREATOR this
+   reports, `canCompleteTask` gives MERGE_APPROVED's to the same ASSIGNEE), and
+   a sim test asserts the agreement so the two can't drift.
+
+   That agreement is load-bearing but is not the gate. Card buttons ask
+   `botAdvanceFor`, i.e. the permission predicate, because this mapping alone
+   cannot answer them: CLAIMED is undefined here — it is a state, not a handoff
+   — and yet Merge Done out of it is the assignee's alone. Reading a permission
+   off "who is the flow waiting on" would have handed that button to everyone
+   (#182). */
 export const pendingPartyFor = (task: LoanTask): PendingParty | undefined => {
   switch (task.status) {
     case "MERGE_DONE":
