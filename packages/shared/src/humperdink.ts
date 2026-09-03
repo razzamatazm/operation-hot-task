@@ -46,6 +46,62 @@ export const LOAN_DETAILS_PATH = /^\/Loans\/Details\/[^/]+\/?$/i;
 /** Humperdink titles its loan details page `<LoanName> - Details`. */
 export const LOAN_TITLE_SUFFIX = " - Details";
 
+/** One row of Humperdink's interest rate table: a month range at a rate.
+    Every loan has at least one; a stepped loan has several. */
+export interface HumperdinkRateTier {
+  startMonth: string;
+  endMonth: string;
+  rate: string;
+}
+
+/* The loan's terms, exactly as Humperdink displays them (issue #196).
+
+   Every field is a **display string**, not a number — `"$1,300,000"`,
+   `"39.87%"`, `"2.0000"`. Humperdink has already formatted these for the desk
+   that reads them, and the note is for a human, so parsing them into numbers
+   here would only mean formatting them back again, differently.
+
+   Every field is optional, and an absent field means "this loan doesn't have
+   one", not "the scrape failed". The scrape reports a field whose *element* is
+   missing from the page (see the userscript's `collect`); a field whose element
+   is there and empty simply doesn't travel, which is what keeps a plain loan
+   from producing a note full of empty labels.
+
+   The excluded set from #196 is enforced by this type having no home for it:
+   loan-amount-requested, term-requested, reason for loan, exit strategy,
+   borrower real estate experience, red flags, lender, status and closing date
+   are deliberately absent. */
+export interface HumperdinkTerms {
+  /* Core: the terms panel's headline figures. */
+  loanAmount?: string;
+  totalValue?: string;
+  ltv?: string;
+  termMonths?: string;
+  rateTiers?: HumperdinkRateTier[];
+  originationFeePoints?: string;
+  brokerFeePoints?: string;
+  evaluationFee?: string;
+  loanTermNotes?: string;
+
+  /* Conditional: panels Humperdink keeps collapsed until a loan uses them. */
+  juniorFinancingAmount?: string;
+  juniorFinancingRate?: string;
+  juniorFinancingPoints?: string;
+  juniorFinancingFee?: string;
+  /** Humperdink renders total loan and CLTV into one field, e.g. `"$1.3M / 0"`. */
+  combinedLoanAndCltv?: string;
+  blendedRate?: string;
+  blendedPoints?: string;
+  blendedFee?: string;
+  sellerFinancingAmount?: string;
+  initialAdvance?: string;
+  drawMinimum?: string;
+  drawIncrement?: string;
+  interestReserveAmount?: string;
+  interestReserveMonths?: string;
+  partialReconveyance?: string;
+}
+
 export interface HumperdinkPayload {
   kind: typeof HUMPERDINK_PAYLOAD_KIND;
   version: number;
@@ -58,6 +114,12 @@ export interface HumperdinkPayload {
    * a duplicate.
    */
   loanUrl: string;
+  /**
+   * The loan's terms (#196), rendered into the notes field. Optional because a
+   * payload from a pre-#196 userscript has none, and an import from one must
+   * still fill the name and the link.
+   */
+  terms?: HumperdinkTerms;
 }
 
 export type HumperdinkParseResult =
@@ -106,6 +168,106 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const nonEmptyString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+/* ── Terms: reading them off the wire ───────────────────── */
+
+/** A single term's display string. Longer than this is not a loan term, it is
+    someone's essay pasted into the wrong box, and the note has to stay
+    readable. Free-text fields get `FREE_TEXT_CAP` instead. */
+const TERM_VALUE_CAP = 300;
+/** Humperdink's own `maxlength` on its two term textareas. */
+const FREE_TEXT_CAP = 1000;
+/** Humperdink's rate table has an Add button and no ceiling. This one does. */
+const MAX_RATE_TIERS = 12;
+
+const termValue = (value: unknown, cap = TERM_VALUE_CAP): string =>
+  nonEmptyString(value).slice(0, cap);
+
+/* Every term, in the order it reads in the note.
+
+   One table, two readers: `readTerms` rebuilds the payload from it and
+   `humperdinkNoteSections` renders from it. Written once because the two
+   drifting apart is silent — a field added to `HumperdinkTerms` and to the
+   userscript but forgotten in the renderer would cross the wire and never
+   appear, and `tsc` has nothing to say about it.
+
+   `heading` groups consecutive entries into a block, so the order here IS the
+   note's order. #197 adds its contacts and properties as further blocks after
+   these rather than among them. */
+interface TermFieldSpec {
+  field: Exclude<keyof HumperdinkTerms, "rateTiers">;
+  heading: string;
+  label: string;
+  /** Appended after the value, e.g. `Term: 24 months`. */
+  unit?: string;
+  /** Prose the desk typed: its own block, and it keeps its own newlines. */
+  prose?: true;
+}
+
+const TERM_FIELDS: readonly TermFieldSpec[] = [
+  { field: "loanAmount", heading: "Loan Terms", label: "Loan Amount" },
+  { field: "totalValue", heading: "Loan Terms", label: "Total Value" },
+  { field: "ltv", heading: "Loan Terms", label: "LTV" },
+  { field: "termMonths", heading: "Loan Terms", label: "Term", unit: "months" },
+  /* The rate tiers render here, between Term and the fees — see
+     `RATE_TIER_AFTER` and the renderer below. */
+  { field: "originationFeePoints", heading: "Loan Terms", label: "Origination Fee", unit: "points" },
+  { field: "brokerFeePoints", heading: "Loan Terms", label: "Broker Fee", unit: "points" },
+  { field: "evaluationFee", heading: "Loan Terms", label: "Evaluation Fee" },
+  { field: "loanTermNotes", heading: "Loan Term Notes", label: "Loan Term Notes", prose: true },
+  { field: "juniorFinancingAmount", heading: "Junior Financing", label: "Amount" },
+  { field: "juniorFinancingRate", heading: "Junior Financing", label: "Rate" },
+  { field: "juniorFinancingPoints", heading: "Junior Financing", label: "Points" },
+  { field: "juniorFinancingFee", heading: "Junior Financing", label: "Fee" },
+  { field: "combinedLoanAndCltv", heading: "Blended Totals", label: "Total Loan / CLTV" },
+  { field: "blendedRate", heading: "Blended Totals", label: "Blended Rate" },
+  { field: "blendedPoints", heading: "Blended Totals", label: "Blended Points" },
+  { field: "blendedFee", heading: "Blended Totals", label: "Blended Fee" },
+  { field: "sellerFinancingAmount", heading: "Seller Financing", label: "Amount" },
+  { field: "initialAdvance", heading: "Disbursement Options", label: "Initial Advance" },
+  { field: "drawMinimum", heading: "Disbursement Options", label: "Draw Minimum" },
+  { field: "drawIncrement", heading: "Disbursement Options", label: "Increment" },
+  { field: "interestReserveAmount", heading: "Interest Reserve", label: "Amount" },
+  { field: "interestReserveMonths", heading: "Interest Reserve", label: "Months" },
+  { field: "partialReconveyance", heading: "Partial Reconveyance", label: "Partial Reconveyance", prose: true }
+];
+
+/** The rate tiers render straight after this field, as `Interest Rate` lines. */
+const RATE_TIER_AFTER: TermFieldSpec["field"] = "termMonths";
+const RATE_TIER_LABEL = "Interest Rate";
+
+const readRateTiers = (value: unknown): HumperdinkRateTier[] => {
+  if (!Array.isArray(value)) return [];
+  const tiers: HumperdinkRateTier[] = [];
+  for (const entry of value.slice(0, MAX_RATE_TIERS)) {
+    if (!isRecord(entry)) continue;
+    const tier = {
+      startMonth: termValue(entry.startMonth),
+      endMonth: termValue(entry.endMonth),
+      rate: termValue(entry.rate)
+    };
+    // A row with nothing in it is a row Humperdink drew and nobody filled.
+    if (tier.startMonth || tier.endMonth || tier.rate) tiers.push(tier);
+  }
+  return tiers;
+};
+
+/* Read the terms out of a decoded payload, dropping anything empty.
+
+   Never fails: terms are additive (#196), so a payload with no terms, junk
+   terms, or terms from a newer script all leave the import working on the name
+   and the link that #194 established. */
+const readTerms = (value: unknown): HumperdinkTerms | undefined => {
+  if (!isRecord(value)) return undefined;
+  const terms: HumperdinkTerms = {};
+  for (const spec of TERM_FIELDS) {
+    const text = termValue(value[spec.field], spec.prose ? FREE_TEXT_CAP : TERM_VALUE_CAP);
+    if (text) terms[spec.field] = text;
+  }
+  const rateTiers = readRateTiers(value.rateTiers);
+  if (rateTiers.length > 0) terms.rateTiers = rateTiers;
+  return Object.keys(terms).length > 0 ? terms : undefined;
+};
 
 /* Parse clipboard text into a payload, or explain why it isn't one.
 
@@ -165,5 +327,69 @@ export const parseHumperdinkPayload = (text: string | null | undefined): Humperd
   // Rebuilt field by field rather than passed through: unknown keys from a
   // newer additive payload are dropped here, which is what makes "additive
   // changes keep the version" safe.
-  return { ok: true, payload: { kind: HUMPERDINK_PAYLOAD_KIND, version, loanName, loanUrl } };
+  const terms = readTerms(decoded.terms);
+  return {
+    ok: true,
+    payload: { kind: HUMPERDINK_PAYLOAD_KIND, version, loanName, loanUrl, ...(terms ? { terms } : {}) }
+  };
 };
+
+/* ── Terms: rendering them into the note ────────────────── */
+
+/** One block of the imported note: a heading and the lines under it. */
+export interface HumperdinkNoteSection {
+  heading: string;
+  lines: string[];
+}
+
+/** One rate tier as a line: `Months 1–12 at 7.90%`. */
+const rateTierLine = (tier: HumperdinkRateTier): string => {
+  const span = tier.startMonth && tier.endMonth ? `Months ${tier.startMonth}–${tier.endMonth}` : "Months";
+  return tier.rate ? `${span} at ${tier.rate}` : span;
+};
+
+/* Split the imported note into its blocks, in reading order.
+
+   Walks `TERM_FIELDS` once, gathering consecutive entries that share a heading.
+   A block that gathered no lines is dropped whole — that is all there is to "a
+   loan with none of these produces no empty sections", because a term the loan
+   doesn't have never reached the payload in the first place.
+
+   Exported so #197 can append its own sections and so tests can assert the
+   order without pattern-matching a wall of text. */
+export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNoteSection[] => {
+  const terms = payload.terms;
+  if (!terms) return [];
+
+  const sections: HumperdinkNoteSection[] = [];
+  const push = (heading: string, text: string): void => {
+    const open = sections[sections.length - 1];
+    if (open && open.heading === heading) open.lines.push(text);
+    else sections.push({ heading, lines: [text] });
+  };
+
+  for (const spec of TERM_FIELDS) {
+    const value = terms[spec.field];
+    /* Prose gets its own bare block rather than a `Label: …` line: it is what
+       the desk typed and it carries its own newlines. */
+    if (value) push(spec.heading, spec.prose ? value : `${spec.label}: ${value}${spec.unit ? ` ${spec.unit}` : ""}`);
+    if (spec.field === RATE_TIER_AFTER) {
+      for (const tier of terms.rateTiers ?? []) push(spec.heading, `${RATE_TIER_LABEL}: ${rateTierLine(tier)}`);
+    }
+  }
+  return sections;
+};
+
+/* Render note sections as plain text.
+
+   Plain on purpose: the notes field renders as a text node with whitespace
+   preserved and no markdown parsing, so newlines survive and `**bold**` would
+   come out as four literal asterisks. Headings are bare lines and blocks are
+   separated by a blank line — that is the whole formatting vocabulary
+   available, and it is enough. */
+const renderNoteSections = (sections: HumperdinkNoteSection[]): string =>
+  sections.map((entry) => [entry.heading, ...entry.lines].join("\n")).join("\n\n");
+
+/** The note text an imported loan writes, or "" when it carries no terms. */
+export const humperdinkNoteText = (payload: HumperdinkPayload): string =>
+  renderNoteSections(humperdinkNoteSections(payload));

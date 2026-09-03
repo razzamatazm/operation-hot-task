@@ -111,3 +111,84 @@ test("applyImportedLoan does not mutate the form it was given", () => {
   assert.equal(before.folderName, "");
   assert.equal(before.humperdinkLink, "");
 });
+
+/* ── The terms an import writes into the notes (#196) ───── */
+
+const TERMS_NOTE = ["Loan Terms", "Loan Amount: $1,300,000", "LTV: 39.87%"].join("\n");
+
+test("an import writes the terms into the notes field", () => {
+  const next = applyImportedLoan(initialCreateForm(), payload, { noteText: TERMS_NOTE });
+  assert.equal(next.notes, TERMS_NOTE);
+});
+
+/* The notes field for an LOI is already labelled "Loan Terms and Contacts",
+   and this import is LOI-only for now. */
+test("an import sets the task type to LOI", () => {
+  const typed = { ...initialCreateForm(), taskType: "VALUE" };
+  assert.equal(applyImportedLoan(typed, payload, { noteText: TERMS_NOTE }).taskType, "LOI");
+  assert.equal(applyImportedLoan(initialCreateForm(), payload).taskType, "LOI");
+});
+
+test("terms land under whatever the filer had already typed, not over it", () => {
+  const typed = { ...initialCreateForm(), notes: "Ask about the second TD" };
+  const next = applyImportedLoan(typed, payload, { noteText: TERMS_NOTE });
+  assert.equal(next.notes, `Ask about the second TD\n\n${TERMS_NOTE}`);
+});
+
+/* Pasting the wrong loan and re-importing is the ordinary correction, so the
+   second import replaces the first one's block rather than stacking a copy of
+   the terms under it. */
+test("re-importing replaces the last import's block and keeps the filer's own text", () => {
+  const first = applyImportedLoan(
+    { ...initialCreateForm(), notes: "Ask about the second TD" },
+    payload,
+    { noteText: TERMS_NOTE }
+  );
+  const second = applyImportedLoan(first, payload, {
+    noteText: "Loan Terms\nLoan Amount: $900,000",
+    previousNoteText: TERMS_NOTE
+  });
+  assert.equal(second.notes, "Ask about the second TD\n\nLoan Terms\nLoan Amount: $900,000");
+});
+
+test("importing the same loan twice does not double the terms", () => {
+  const once = applyImportedLoan(initialCreateForm(), payload, { noteText: TERMS_NOTE });
+  const twice = applyImportedLoan(once, payload, { noteText: TERMS_NOTE, previousNoteText: TERMS_NOTE });
+  assert.equal(twice.notes, TERMS_NOTE);
+});
+
+/* A block the filer has since reworded is theirs. Matching literally means an
+   edited block is left alone rather than half-removed. */
+test("a previous block the filer has edited is left where it is", () => {
+  const edited = { ...initialCreateForm(), notes: "Loan Terms\nLoan Amount: $1,300,000 (confirmed)" };
+  const next = applyImportedLoan(edited, payload, { noteText: TERMS_NOTE, previousNoteText: TERMS_NOTE });
+  assert.equal(next.notes, `Loan Terms\nLoan Amount: $1,300,000 (confirmed)\n\n${TERMS_NOTE}`);
+});
+
+test("a payload with no terms leaves the notes exactly as they were", () => {
+  const typed = { ...initialCreateForm(), notes: "half-written note" };
+  assert.equal(applyImportedLoan(typed, payload).notes, "half-written note");
+  assert.equal(applyImportedLoan(typed, payload, {}).notes, "half-written note");
+});
+
+test("an import still touches nothing else the filer typed", () => {
+  const typed = { ...initialCreateForm(), urgency: "RED", points: 2, startDate: "2026-01-05" };
+  const next = applyImportedLoan(typed, payload, { noteText: TERMS_NOTE });
+  assert.equal(next.urgency, "RED");
+  assert.equal(next.points, 2);
+  assert.equal(next.startDate, "2026-01-05");
+});
+
+test("applying terms does not mutate the form it was given", () => {
+  const before = { ...initialCreateForm(), notes: "mine" };
+  applyImportedLoan(before, payload, { noteText: TERMS_NOTE });
+  assert.equal(before.notes, "mine");
+  assert.equal(before.taskType, "LOI");
+});
+
+test("a re-import tidies only the seam it left, not the filer's own paragraphs", () => {
+  const typed = "Ask about the second TD\n\n\nAnd the appraisal date";
+  const first = applyImportedLoan({ ...initialCreateForm(), notes: typed }, payload, { noteText: TERMS_NOTE });
+  const second = applyImportedLoan(first, payload, { noteText: TERMS_NOTE, previousNoteText: TERMS_NOTE });
+  assert.equal(second.notes, `${typed}\n\n${TERMS_NOTE}`);
+});

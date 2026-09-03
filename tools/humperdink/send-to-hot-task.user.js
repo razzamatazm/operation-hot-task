@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.0.0
+// @version      1.1.0
 // @description  Copy a Humperdink loan to the clipboard so Hot Task's create form can take it.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
@@ -19,10 +19,12 @@
    `scripts/humperdink-import-sim-test.mjs` runs THIS FILE against that parser,
    so the copy can't drift without a test going red.
 
-   Nothing here is scraped by CSS selector. The loan name comes off the page
-   title and the link off the address bar, both of which survive Humperdink
-   reshuffling its markup. Later tickets (#196, #197) add id-based scraping and
-   will need this file maintained against the real page. */
+   The loan name comes off the page title and the link off the address bar,
+   both of which survive Humperdink reshuffling its markup. The loan terms
+   (#196) are read by element id, which is the part that needs maintaining
+   against the real page — a missing id is reported rather than skipped, so a
+   Humperdink release that renames one shows up as a refused copy and not as a
+   note with a hole in it. */
 
 (function () {
   "use strict";
@@ -63,6 +65,176 @@
     }
   }
 
+  /* ── The loan terms panel (#196) ──────────────────────────
+
+     Where the id-based scraping starts. Every field below is a server-rendered
+     `<input>` or `<textarea>` in Humperdink's Loan Terms panel and its
+     neighbouring toggle panels, read by id. Ids are Humperdink's own and are
+     the most stable handle the page offers — far steadier than the nested
+     tables and jqxWidget wrappers around them — but they are still Humperdink's
+     to change, which is why a missing one is reported rather than skipped.
+
+     Deliberately NOT read, per #196: loan-amount-requested, term-requested,
+     reason for loan, exit strategy, borrower real estate experience, red flags,
+     lender, status, closing date. */
+
+  /* Core terms. Their elements must exist; their values may be empty. */
+  var CORE_TERM_IDS = {
+    loanAmount: "loanAmount",
+    totalValue: "totalLoanValue",
+    ltv: "LTV",
+    termMonths: "LoanTerm",
+    originationFeePoints: "OriginationFeePoints",
+    brokerFeePoints: "BrokerFeePoints",
+    evaluationFee: "txtEvaluation",
+    loanTermNotes: "txtLoanTermsNotes"
+  };
+
+  /* The first interest rate row is core too; further rows are however many the
+     loan has, so they are read until they run out. */
+  var RATE_TIER_IDS = ["RateMonthStart", "RateMonthEnd", "InterestRate"];
+  var MAX_RATE_TIERS = 12;
+
+  /* Conditional terms: panels Humperdink keeps collapsed until a loan uses
+     them. Their elements exist on every page, filled or not — which is why the
+     test for including them is the VALUE, not the element. */
+  var JUNIOR_TERM_IDS = {
+    juniorFinancingAmount: "JuniorFinancingAmount",
+    juniorFinancingRate: "SecondTDRate",
+    juniorFinancingPoints: "SecondTDFeePoints",
+    juniorFinancingFee: "SecondTDFeeAmount"
+  };
+
+  /* Combined and blended figures are computed from the junior loan, so
+     Humperdink fills them on every page whether or not there is one — on a loan
+     with no junior financing they just restate the core terms. They travel only
+     alongside a junior loan that actually exists; otherwise the note would
+     carry the same numbers twice under a heading that means nothing. */
+  var BLENDED_TERM_IDS = {
+    combinedLoanAndCltv: "CombinedLoanAmount_LTV",
+    blendedRate: "BlendedRate",
+    blendedPoints: "BlendedFeePoints",
+    blendedFee: "BlendedFeeAmount"
+  };
+
+  var OTHER_CONDITIONAL_TERM_IDS = {
+    sellerFinancingAmount: "SellerFinancingAmount",
+    initialAdvance: "InitialDisbursed",
+    drawMinimum: "DrawMinimumAmount",
+    drawIncrement: "DrawIncrementAmount",
+    interestReserveAmount: "interestReserveAmount",
+    interestReserveMonths: "interestReserveMonths",
+    partialReconveyance: "txtpartialReconveyance"
+  };
+
+  /* A field's displayed text, trimmed. */
+  function fieldValue(el) {
+    if (!el) return "";
+    return String(el.value == null ? "" : el.value).trim();
+  }
+
+  /* The same, but with zero counting as nothing — for the conditional panels
+     only.
+
+     Humperdink pre-fills the panels a loan isn't using with `0.00%` and `$0.00`
+     rather than leaving them blank, so a plain "is it empty" test would put
+     `Junior Financing / Rate: 0.00%` in the note of every loan that has no
+     junior financing — exactly the wall of empty labels #196 rules out.
+
+     The core terms deliberately do NOT get this treatment. A Broker Fee of 0
+     points is an ordinary loan with no broker, and `Broker Fee: 0 points` is
+     the note saying so; dropping the line would leave the reader unable to tell
+     that from a field this script failed to read. */
+  function optionalFieldValue(el) {
+    var raw = fieldValue(el);
+    if (!raw) return "";
+    var asNumber = Number(raw.replace(/[$,%\s]/g, ""));
+    if (!isNaN(asNumber) && asNumber === 0) return "";
+    return raw;
+  }
+
+  /* Read a conditional group by id, keeping only the ones holding a value. */
+  function readGroup(doc, ids) {
+    var out = {};
+    for (var key in ids) {
+      if (!Object.prototype.hasOwnProperty.call(ids, key)) continue;
+      var value = optionalFieldValue(doc.getElementById(ids[key]));
+      if (value) out[key] = value;
+    }
+    return out;
+  }
+
+  function assign(target, source) {
+    for (var key in source) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
+    }
+    return target;
+  }
+
+  function hasAny(group) {
+    for (var key in group) {
+      if (Object.prototype.hasOwnProperty.call(group, key)) return true;
+    }
+    return false;
+  }
+
+  /* Rows of the interest rate table, read until the ids run out. Humperdink's
+     table has an Add button and no fixed size, so a stepped loan can have any
+     number of them; row 1 is the one every loan has. */
+  function readRateTiers(doc) {
+    var tiers = [];
+    for (var row = 1; row <= MAX_RATE_TIERS; row += 1) {
+      var start = doc.getElementById(RATE_TIER_IDS[0] + row);
+      var end = doc.getElementById(RATE_TIER_IDS[1] + row);
+      var rate = doc.getElementById(RATE_TIER_IDS[2] + row);
+      if (!start && !end && !rate) break;
+      var tier = {
+        startMonth: fieldValue(start),
+        endMonth: fieldValue(end),
+        rate: fieldValue(rate)
+      };
+      if (tier.startMonth || tier.endMonth || tier.rate) tiers.push(tier);
+    }
+    return tiers;
+  }
+
+  /* Scrape the terms, or list the ids the page didn't have.
+
+     The two halves are different failures on purpose. A core field whose
+     ELEMENT is gone means Humperdink moved something and this script needs
+     maintaining — reported, so nobody imports a note with a silent hole in it.
+     A field whose element is there and empty is just a loan that doesn't use
+     it, and is dropped without comment. */
+  function collectTerms(doc) {
+    var missingIds = [];
+    var terms = {};
+    for (var key in CORE_TERM_IDS) {
+      if (!Object.prototype.hasOwnProperty.call(CORE_TERM_IDS, key)) continue;
+      var id = CORE_TERM_IDS[key];
+      var el = doc.getElementById(id);
+      if (!el) {
+        missingIds.push(id);
+        continue;
+      }
+      var value = fieldValue(el);
+      if (value) terms[key] = value;
+    }
+
+    for (var i = 0; i < RATE_TIER_IDS.length; i += 1) {
+      if (!doc.getElementById(RATE_TIER_IDS[i] + "1")) missingIds.push(RATE_TIER_IDS[i] + "1");
+    }
+    var tiers = readRateTiers(doc);
+    if (tiers.length > 0) terms.rateTiers = tiers;
+
+    var junior = readGroup(doc, JUNIOR_TERM_IDS);
+    assign(terms, junior);
+    if (hasAny(junior)) assign(terms, readGroup(doc, BLENDED_TERM_IDS));
+    assign(terms, readGroup(doc, OTHER_CONDITIONAL_TERM_IDS));
+
+    if (missingIds.length > 0) return { ok: false, missingIds: missingIds };
+    return { ok: true, terms: terms };
+  }
+
   /* Build the payload, or say what's missing. Never returns a partial payload:
      a half-filled create form is worse than no import, because the filer has no
      way to tell which half is wrong. */
@@ -72,12 +244,22 @@
     if (!loanName) missing.push('the loan name (the page title should read "<loan> - Details")');
     var loanUrl = loanUrlFrom(location);
     if (!loanUrl) missing.push("the loan details URL");
+    var terms = collectTerms(doc);
+    if (!terms.ok) {
+      missing.push("the loan terms (this page has no " + terms.missingIds.join(", ") + " field)");
+    }
     if (missing.length > 0) {
       return { ok: false, error: "Couldn't read " + missing.join(" or ") + "." };
     }
     return {
       ok: true,
-      payload: { kind: PAYLOAD_KIND, version: PAYLOAD_VERSION, loanName: loanName, loanUrl: loanUrl }
+      payload: {
+        kind: PAYLOAD_KIND,
+        version: PAYLOAD_VERSION,
+        loanName: loanName,
+        loanUrl: loanUrl,
+        terms: terms.terms
+      }
     };
   }
 

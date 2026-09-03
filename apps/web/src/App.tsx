@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -3069,6 +3069,10 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate, init
      can't claim a paste it hasn't taken. */
   const [importText, setImportText] = useState("");
   const [imported, setImported] = useState(false);
+  /* The note text the last import wrote (#196), so a second import replaces its
+     own block rather than stacking a second copy of the terms under the first.
+     Whatever the filer typed around it is theirs and survives either way. */
+  const [importedNote, setImportedNote] = useState("");
 
   /* Take a pasted Humperdink payload into the form, or say why it can't.
      A failure leaves every field exactly as it was: the parser returns a reason
@@ -3080,7 +3084,9 @@ const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate, init
       showToast(result.error, { variant: "error" });
       return;
     }
-    setForm((c) => applyImportedLoan(c, result.payload));
+    const noteText = humperdinkNoteText(result.payload);
+    setForm((c) => applyImportedLoan(c, result.payload, { noteText, previousNoteText: importedNote }));
+    setImportedNote(noteText);
     // Keep the typeahead in step with the name the import just wrote, and shut
     // it — the loan is settled, so a suggestion list over it is only noise.
     setLoanQuery(result.payload.loanName);

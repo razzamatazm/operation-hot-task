@@ -24,6 +24,8 @@ import {
   HUMPERDINK_PAYLOAD_KIND,
   HUMPERDINK_PAYLOAD_VERSION,
   SUPPORTED_HUMPERDINK_PAYLOAD_VERSION,
+  humperdinkNoteSections,
+  humperdinkNoteText,
   isLoanDetailsUrl,
   loanNameFromPageTitle,
   parseHumperdinkPayload
@@ -33,13 +35,63 @@ const USERSCRIPT = readFileSync(new URL("../tools/humperdink/send-to-hot-task.us
 
 const LOAN_URL = "https://humperdink.loneoakfund.com/Loans/Details/335203";
 
+/* ── The loan terms panel, as Humperdink renders it ──────
+
+   Ids and values copied from a saved copy of a real loan details page (see
+   tools/humperdink/README.md — the page itself is customer data and isn't
+   committed). Every one of these is an `<input>` or `<textarea>` the scrape
+   reads by id, so this map IS the selector contract: rename a key here and the
+   userscript has to change with it.
+
+   The conditional panels are included at the values Humperdink gives a loan
+   that doesn't use them — pre-filled zeroes, not blanks, which is the case the
+   scrape has to get right. */
+const TERMS_FIELDS = {
+  loanAmount: "$1,300,000",
+  totalLoanValue: "$3,260,267",
+  LTV: "39.87%",
+  LoanTerm: "24",
+  RateMonthStart1: "1",
+  RateMonthEnd1: "12",
+  InterestRate1: "7.90%",
+  RateMonthStart2: "13",
+  RateMonthEnd2: "24",
+  InterestRate2: "8.40%",
+  OriginationFeePoints: "2.0000",
+  BrokerFeePoints: "2.0000",
+  txtEvaluation: "$1,750.00",
+  txtLoanTermsNotes: "",
+  JuniorFinancingAmount: "",
+  SecondTDRate: "0.00%",
+  SecondTDFeePoints: "",
+  SecondTDFeeAmount: "",
+  CombinedLoanAmount_LTV: "$1,300,000.00  /  0",
+  BlendedRate: "7.90%",
+  BlendedFeePoints: "2.0000",
+  BlendedFeeAmount: "$26,000.00",
+  SellerFinancingAmount: "",
+  InitialDisbursed: "",
+  DrawMinimumAmount: "",
+  DrawIncrementAmount: "",
+  interestReserveAmount: "",
+  interestReserveMonths: "",
+  txtpartialReconveyance: ""
+};
+
+/** The same page with some fields overridden; `null` removes the element. */
+const withFields = (over = {}) => {
+  const fields = { ...TERMS_FIELDS, ...over };
+  for (const [id, value] of Object.entries(fields)) if (value === null) delete fields[id];
+  return fields;
+};
+
 /* ── A DOM small enough to read, big enough for the script ──
 
    The userscript touches exactly this much of the page: the title, the address
    bar, one button it creates and appends, and the clipboard. Anything it starts
    reaching for beyond this (a selector into Humperdink's markup, say) fails
    here loudly, which is the point. */
-const runUserscript = ({ title, href, clipboard = "ok" }) => {
+const runUserscript = ({ title, href, clipboard = "ok", fields = TERMS_FIELDS }) => {
   const url = new URL(href);
   const copied = [];
   const created = [];
@@ -75,7 +127,12 @@ const runUserscript = ({ title, href, clipboard = "ok" }) => {
   const document = {
     title,
     createElement,
-    getElementById: (id) => created.find((el) => el.mounted && el.id === id) ?? null,
+    /* The script's own control first, then the page's terms fields. An id the
+       page doesn't carry returns null, which is what a Humperdink release that
+       renamed a field looks like from in here. */
+    getElementById: (id) =>
+      created.find((el) => el.mounted && el.id === id) ??
+      (Object.prototype.hasOwnProperty.call(fields, id) ? { id, value: fields[id] } : null),
     body: {
       appendChild(el) {
         el.mounted = true;
@@ -404,8 +461,329 @@ test("no message about our own payload tells the filer to go and re-press the bu
    so an older app must read the parts it knows and drop the rest rather than
    choking on them. */
 test("unknown fields at a supported version are ignored, not fatal", () => {
-  const result = parseHumperdinkPayload(payloadText({ terms: { loanAmount: "500000" }, contacts: [] }));
+  const result = parseHumperdinkPayload(payloadText({ contacts: [], underwriter: "someone" }));
   assert.equal(result.ok, true);
   assert.equal(result.payload.loanName, "Adams - Harbor");
-  assert.equal("terms" in result.payload, false, "the parser hands back only what it declares");
+  assert.equal("contacts" in result.payload, false, "the parser hands back only what it declares");
+  assert.equal("underwriter" in result.payload, false);
+});
+
+/* ── The loan terms (#196) ──────────────────────────────────
+
+   The terms are the first thing scraped by element id, so these tests run the
+   real userscript against the ids the real page carries. A Humperdink release
+   that renames one of them turns up here as a red test, not as a note with a
+   quiet hole in it. */
+
+const scrapeTerms = async (fields) => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields });
+  await page.press();
+  assert.equal(page.copied.length, 1, page.button.textContent);
+  const result = parseHumperdinkPayload(page.copied[0]);
+  assert.equal(result.ok, true, result.error);
+  return result.payload.terms ?? {};
+};
+
+const scrapeNote = async (fields) => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields });
+  await page.press();
+  const result = parseHumperdinkPayload(page.copied[0]);
+  assert.equal(result.ok, true, result.error);
+  return humperdinkNoteText(result.payload);
+};
+
+test("the core terms travel, read by element id", async () => {
+  const terms = await scrapeTerms(TERMS_FIELDS);
+  assert.equal(terms.loanAmount, "$1,300,000");
+  assert.equal(terms.totalValue, "$3,260,267");
+  assert.equal(terms.ltv, "39.87%");
+  assert.equal(terms.termMonths, "24");
+  assert.equal(terms.originationFeePoints, "2.0000");
+  assert.equal(terms.brokerFeePoints, "2.0000");
+  assert.equal(terms.evaluationFee, "$1,750.00");
+});
+
+test("both interest rate tiers travel, in order", async () => {
+  const terms = await scrapeTerms(TERMS_FIELDS);
+  assert.deepEqual(terms.rateTiers, [
+    { startMonth: "1", endMonth: "12", rate: "7.90%" },
+    { startMonth: "13", endMonth: "24", rate: "8.40%" }
+  ]);
+});
+
+test("a loan with one rate tier carries one, not an empty second", async () => {
+  const terms = await scrapeTerms(withFields({ RateMonthStart2: null, RateMonthEnd2: null, InterestRate2: null }));
+  assert.deepEqual(terms.rateTiers, [{ startMonth: "1", endMonth: "12", rate: "7.90%" }]);
+});
+
+test("a stepped loan carries every tier the table holds", async () => {
+  const terms = await scrapeTerms(
+    withFields({ RateMonthStart3: "25", RateMonthEnd3: "36", InterestRate3: "9.10%" })
+  );
+  assert.equal(terms.rateTiers.length, 3);
+  assert.deepEqual(terms.rateTiers[2], { startMonth: "25", endMonth: "36", rate: "9.10%" });
+});
+
+test("Loan Term Notes travel when the desk has typed some", async () => {
+  const terms = await scrapeTerms(withFields({ txtLoanTermsNotes: "Rate locked 14 days.\nExtension at 1 point." }));
+  assert.equal(terms.loanTermNotes, "Rate locked 14 days.\nExtension at 1 point.");
+});
+
+/* AC: "Conditional terms appear only when they hold a value; a loan with none
+   produces no empty sections." The saved page IS such a loan — its junior,
+   seller, disbursement, reserve and reconveyance panels all sit unused. */
+test("a loan using none of the conditional panels carries none of them", async () => {
+  const terms = await scrapeTerms(TERMS_FIELDS);
+  for (const absent of [
+    "juniorFinancingAmount",
+    "juniorFinancingRate",
+    "juniorFinancingPoints",
+    "juniorFinancingFee",
+    "combinedLoanAndCltv",
+    "blendedRate",
+    "blendedPoints",
+    "blendedFee",
+    "sellerFinancingAmount",
+    "initialAdvance",
+    "drawMinimum",
+    "drawIncrement",
+    "interestReserveAmount",
+    "interestReserveMonths",
+    "partialReconveyance"
+  ]) {
+    assert.equal(absent in terms, false, `${absent} should not travel on a loan that doesn't use it`);
+  }
+});
+
+test("its note is the core terms and nothing else", async () => {
+  const note = await scrapeNote(TERMS_FIELDS);
+  assert.equal(
+    note,
+    [
+      "Loan Terms",
+      "Loan Amount: $1,300,000",
+      "Total Value: $3,260,267",
+      "LTV: 39.87%",
+      "Term: 24 months",
+      "Interest Rate: Months 1–12 at 7.90%",
+      "Interest Rate: Months 13–24 at 8.40%",
+      "Origination Fee: 2.0000 points",
+      "Broker Fee: 2.0000 points",
+      "Evaluation Fee: $1,750.00"
+    ].join("\n")
+  );
+});
+
+/* Humperdink pre-fills its unused CONDITIONAL panels with zeroes rather than
+   blanks, so "is it empty" is not the test there — `Rate: 0.00%` under a Junior
+   Financing heading is exactly the empty label #196 rules out. */
+test("a zero in an unused panel is not a value", async () => {
+  const terms = await scrapeTerms(
+    withFields({ SecondTDRate: "0.00%", SellerFinancingAmount: "$0.00", interestReserveMonths: "0" })
+  );
+  assert.equal("juniorFinancingRate" in terms, false);
+  assert.equal("sellerFinancingAmount" in terms, false);
+  assert.equal("interestReserveMonths" in terms, false);
+});
+
+test("junior financing travels when the loan has some, and brings the blended figures", async () => {
+  const terms = await scrapeTerms(
+    withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%", SecondTDFeePoints: "1.0000" })
+  );
+  assert.equal(terms.juniorFinancingAmount, "$200,000.00");
+  assert.equal(terms.juniorFinancingRate, "10.00%");
+  assert.equal(terms.juniorFinancingPoints, "1.0000");
+  assert.equal(terms.combinedLoanAndCltv, "$1,300,000.00  /  0");
+  assert.equal(terms.blendedRate, "7.90%");
+  assert.equal(terms.blendedPoints, "2.0000");
+  assert.equal(terms.blendedFee, "$26,000.00");
+});
+
+/* The blended figures are computed and are filled on every page, so without
+   this gate every note would restate the core terms under a second heading. */
+test("the blended figures stay behind when there is no junior loan", async () => {
+  const note = await scrapeNote(TERMS_FIELDS);
+  assert.doesNotMatch(note, /Blended/);
+  assert.doesNotMatch(note, /Junior Financing/);
+});
+
+test("the other conditional panels travel when they hold values", async () => {
+  const terms = await scrapeTerms(
+    withFields({
+      SellerFinancingAmount: "$50,000.00",
+      InitialDisbursed: "$900,000.00",
+      DrawMinimumAmount: "$25,000.00",
+      DrawIncrementAmount: "$5,000.00",
+      interestReserveAmount: "$40,000.00",
+      interestReserveMonths: "6",
+      txtpartialReconveyance: "Release lot 4 at $300k paydown."
+    })
+  );
+  assert.equal(terms.sellerFinancingAmount, "$50,000.00");
+  assert.equal(terms.initialAdvance, "$900,000.00");
+  assert.equal(terms.drawMinimum, "$25,000.00");
+  assert.equal(terms.drawIncrement, "$5,000.00");
+  assert.equal(terms.interestReserveAmount, "$40,000.00");
+  assert.equal(terms.interestReserveMonths, "6");
+  assert.equal(terms.partialReconveyance, "Release lot 4 at $300k paydown.");
+});
+
+/* AC: "Terms render into the notes field as readable plain text, no markdown
+   syntax." The notes field is a text node with whitespace preserved and no
+   markdown parsing, so a `**` or a `|` would come out literal. */
+test("a fully-loaded loan renders every section in a stable order", async () => {
+  const note = await scrapeNote(
+    withFields({
+      txtLoanTermsNotes: "Rate locked 14 days.",
+      JuniorFinancingAmount: "$200,000.00",
+      SecondTDRate: "10.00%",
+      SellerFinancingAmount: "$50,000.00",
+      InitialDisbursed: "$900,000.00",
+      interestReserveAmount: "$40,000.00",
+      interestReserveMonths: "6",
+      txtpartialReconveyance: "Release lot 4 at $300k paydown."
+    })
+  );
+  assert.deepEqual(
+    note.split("\n\n").map((block) => block.split("\n")[0]),
+    [
+      "Loan Terms",
+      "Loan Term Notes",
+      "Junior Financing",
+      "Blended Totals",
+      "Seller Financing",
+      "Disbursement Options",
+      "Interest Reserve",
+      "Partial Reconveyance"
+    ]
+  );
+  assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
+});
+
+test("the note is empty when the payload carries no terms at all", () => {
+  const result = parseHumperdinkPayload(payloadText());
+  assert.equal(humperdinkNoteText(result.payload), "");
+  assert.deepEqual(humperdinkNoteSections(result.payload), []);
+});
+
+/* AC: "A loan page missing an expected terms field reports it rather than
+   importing a silent gap." A missing ELEMENT means Humperdink moved something;
+   an empty one just means this loan doesn't use it. */
+test("a page missing a core terms element reports it and copies nothing", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    fields: withFields({ LTV: null, txtEvaluation: null })
+  });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /loan terms/);
+  assert.match(page.button.textContent, /LTV/);
+  assert.match(page.button.textContent, /txtEvaluation/);
+});
+
+test("a page missing the first interest rate row reports it too", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    fields: withFields({ InterestRate1: null })
+  });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.button.textContent, /InterestRate1/);
+});
+
+test("a core field that is merely empty is not reported, it just doesn't travel", async () => {
+  // The saved page's Loan Term Notes box is empty, and that is an ordinary loan.
+  const terms = await scrapeTerms(withFields({ txtLoanTermsNotes: "" }));
+  assert.equal("loanTermNotes" in terms, false);
+});
+
+/* AC: "Excluded fields listed above do not appear in the note." The payload
+   type has no home for them, so this is really a test that nobody added one. */
+test("the excluded fields never reach the note", async () => {
+  const note = await scrapeNote(
+    withFields({
+      LoanAmountRequested: "$1,500,000",
+      TermRequested: "36",
+      txtReasonForLoan: "Refinance",
+      txtExitStrategy: "Sale",
+      txtBorrowerExperience: "12 deals",
+      txtRedFlags: "None",
+      comboLender: "Lone Oak",
+      comboStatus: "Approved",
+      comboClosingDate: "2026-01-15"
+    })
+  );
+  for (const excluded of ["$1,500,000", "Refinance", "Sale", "12 deals", "Lone Oak", "Approved", "2026-01-15"]) {
+    assert.doesNotMatch(note, new RegExp(excluded.replace(/[$.*+?^{}()|[\]\\]/g, "\\$&")), `${excluded} is excluded`);
+  }
+});
+
+/* AC: "Ticket #194's name-and-link behaviour still works unchanged." */
+test("the name and the link still cross with the terms alongside them", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
+  await page.press();
+  const result = parseHumperdinkPayload(page.copied[0]);
+  assert.equal(result.payload.loanName, "Adams - Harbor");
+  assert.equal(result.payload.loanUrl, LOAN_URL);
+});
+
+/* ── What the parser will accept as terms ───────────────── */
+
+const withTerms = (terms) => parseHumperdinkPayload(payloadText({ terms }));
+
+test("junk in the terms field costs the import nothing", () => {
+  for (const junk of ["a string", 42, null, [], {}]) {
+    const result = withTerms(junk);
+    assert.equal(result.ok, true, `terms ${JSON.stringify(junk)}`);
+    assert.equal(result.payload.loanName, "Adams - Harbor");
+    assert.equal("terms" in result.payload, false);
+  }
+});
+
+test("non-string and empty term values are dropped, not stringified", () => {
+  const result = withTerms({ loanAmount: 500000, ltv: "  ", totalValue: "$1", termMonths: null });
+  assert.deepEqual(result.payload.terms, { totalValue: "$1" });
+});
+
+test("a term long enough to swamp the note is capped", () => {
+  const result = withTerms({ loanAmount: "$".repeat(5000), loanTermNotes: "n".repeat(5000) });
+  assert.equal(result.payload.terms.loanAmount.length, 300);
+  assert.equal(result.payload.terms.loanTermNotes.length, 1000, "the prose fields get Humperdink's own maxlength");
+});
+
+test("rate tiers are rebuilt row by row, and a runaway table is capped", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ startMonth: String(i + 1), endMonth: "x", rate: "1%" }));
+  const result = withTerms({ rateTiers: [...rows, "not a row", null] });
+  assert.equal(result.payload.terms.rateTiers.length, 12);
+  assert.deepEqual(result.payload.terms.rateTiers[0], { startMonth: "1", endMonth: "x", rate: "1%" });
+});
+
+test("an all-empty rate row is dropped rather than rendered as a bare heading", () => {
+  const result = withTerms({ loanAmount: "$1", rateTiers: [{ startMonth: "", endMonth: "", rate: "" }] });
+  assert.equal("rateTiers" in result.payload.terms, false);
+});
+
+test("a rate row with no rate still says which months it covers", () => {
+  const result = withTerms({ rateTiers: [{ startMonth: "1", endMonth: "12", rate: "" }] });
+  assert.equal(humperdinkNoteText(result.payload), "Loan Terms\nInterest Rate: Months 1–12");
+});
+
+/* A zero in the CORE set is a loan term, not an unused panel. A loan with no
+   broker really does have a broker fee of zero, and the note has to say so —
+   dropping the line leaves the reader unable to tell it from a field the script
+   failed to read. */
+test("a zero in the core terms is a real term and says so", async () => {
+  const note = await scrapeNote(withFields({ BrokerFeePoints: "0.0000", txtEvaluation: "$0.00" }));
+  assert.match(note, /Broker Fee: 0\.0000 points/);
+  assert.match(note, /Evaluation Fee: \$0\.00/);
+});
+
+/* #196 lists the combined/blended figures as their own conditional group, and
+   they only mean anything next to a junior loan. */
+test("the blended figures read as their own block under the junior loan", async () => {
+  const note = await scrapeNote(withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%" }));
+  const headings = note.split("\n\n").map((block) => block.split("\n")[0]);
+  assert.deepEqual(headings, ["Loan Terms", "Junior Financing", "Blended Totals"]);
 });
