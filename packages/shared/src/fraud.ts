@@ -1,9 +1,10 @@
 import { submitBlockReason, unresolvedForSubmit } from "./checklist.js";
 import { ACTION_LABELS } from "./labels.js";
+import { fraudSeat } from "./fraud-seat.js";
 import { LoanTask, TaskStatus, UserIdentity } from "./types.js";
 import { botAdvanceFor } from "./workflow.js";
 
-/* A single role-aware fraud button (#39). `transition` is a plain one-tap move
+/* A single seat-aware fraud button (#39). `transition` is a plain one-tap move
    (Submit / Approve); `transitionWithNote` reveals an inline note
    the server requires as reviewNotes (Send Outstanding Items / Send Back);
    `release` hands a PENDING_APPROVAL task back to the checker pool. Consumed by
@@ -26,63 +27,26 @@ export interface FraudCardAction {
   blockedCount?: number;
 }
 
-/* Which side of a Fraud Check's exchange a person occupies *on this task*.
-   `null` is a real answer: most people hold no seat on most tasks. */
-export type FraudSeat = "checker" | "requester" | null;
-
-/* The one definition of who holds which seat on a Fraud Check (ADR-0003).
-
-   There used to be two, and they disagreed. The card actions decided purely by
-   id — no role requirement, no admin case — while the checklist required
-   FILE_CHECKER and counted an ADMIN as *both* seats at once. So an admin was
-   both seats in one file and neither in the other, and someone who had lost
-   FILE_CHECKER was still "the checker" to the buttons but not to the checklist.
-
-   Three rules, and they are the whole of it:
-
-     - The checker seat needs the assignee AND a live FILE_CHECKER role. A role
-       gates entry to a seat; it is not a seat, and it stays a live requirement
-       — lose the role and you vacate the seat you were holding.
-     - The requester seat is the task's creator. No role gates it: anybody can
-       ask for a file to be checked.
-     - ADMIN grants no seat. Back-end access is not a second identity.
-
-   Seat is derived from **identity, never from status** — that is what keeps
-   `addedBy` honest when a seat acts off-turn. At most one seat per person: the
-   creator is never the assignee, so the two can't collide. */
-export const fraudSeat = (task: LoanTask, user: Pick<UserIdentity, "id" | "roles">): FraudSeat => {
-  if (task.taskType !== "FRAUD") {
-    return null;
-  }
-  if (task.assignee?.id === user.id) {
-    return user.roles.includes("FILE_CHECKER") ? "checker" : null;
-  }
-  if (task.createdBy.id === user.id) {
-    return "requester";
-  }
-  return null;
-};
-
-/* Role-aware fraud buttons by (status, role) (#39). Empty for non-FRAUD tasks
-   and for any (state, role) with no action:
+/* Seat-aware fraud buttons by (status, seat) (#39). Empty for non-FRAUD tasks
+   and for any (state, seat) with no action:
      - CLAIMED           → checker: Send Outstanding Items (note)
      - AWAITING_ITEMS    → creator: Submit
      - PENDING_APPROVAL  → checker: Approve + Send Back (note)
                            creator: Release for any fraud checker (while assigned)
    `botPrimaryAdvance` gives the single forward step; this adds the extra
-   role-specific buttons (Send Back, Release) the primary advance can't express. */
+   seat-specific buttons (Send Back, Release) the primary advance can't express. */
 export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id" | "roles">): FraudCardAction[] => {
   if (task.taskType !== "FRAUD" || !viewer) {
     return [];
   }
-  const role = fraudSeat(task, viewer);
+  const seat = fraudSeat(task, viewer);
   if (task.status === "CLAIMED") {
-    return role === "checker"
+    return seat === "checker"
       ? [{ kind: "transitionWithNote", label: ACTION_LABELS.SEND_OUTSTANDING_ITEMS, targetStatus: "AWAITING_ITEMS" }]
       : [];
   }
   if (task.status === "AWAITING_ITEMS") {
-    if (role !== "requester") {
+    if (seat !== "requester") {
       return [];
     }
     // Submit hands the ball back, so it waits until the requester has resolved
@@ -99,13 +63,13 @@ export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id
     ];
   }
   if (task.status === "PENDING_APPROVAL") {
-    if (role === "checker") {
+    if (seat === "checker") {
       return [
         { kind: "transition", label: ACTION_LABELS.APPROVE, targetStatus: "COMPLETED" },
         { kind: "transitionWithNote", label: ACTION_LABELS.SEND_BACK, targetStatus: "AWAITING_ITEMS" }
       ];
     }
-    if (role === "requester") {
+    if (seat === "requester") {
       // Only meaningful while the original checker still holds it; once released
       // (unassigned) there's nothing more for the creator to do here.
       return task.assignee ? [{ kind: "release", label: ACTION_LABELS.RELEASE }] : [];
@@ -129,7 +93,7 @@ export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id
    status-driven — so a Loan Docs assignee was offered Approve Merge, which is
    the creator's move, and the creator was offered Merge Done, which is the
    assignee's. Complete staying assignee-only now falls out of the rule instead
-   of sitting beside it. A FRAUD task carries its role-aware two-phase set
+   of sitting beside it. A FRAUD task carries its seat-aware two-phase set
    instead, which is why `fraudActions` is present-but-possibly-empty for fraud
    and absent otherwise — that presence is what tells the card which button set
    to render. */

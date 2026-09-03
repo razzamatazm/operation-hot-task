@@ -16,7 +16,8 @@
  */
 import assert from "node:assert/strict";
 
-import { fraudCardActions, fraudSeat } from "../packages/shared/dist/fraud.js";
+import { fraudCardActions } from "../packages/shared/dist/fraud.js";
+import { fraudSeat } from "../packages/shared/dist/fraud-seat.js";
 import { botPrimaryAdvance } from "../packages/shared/dist/workflow.js";
 
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };

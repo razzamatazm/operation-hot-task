@@ -1,4 +1,4 @@
-import { fraudSeat } from "./fraud.js";
+import { fraudSeat } from "./fraud-seat.js";
 import { CLOSED_STATUSES, LoanTask, UserIdentity } from "./types.js";
 
 /* Structured outstanding-items checklist for FRAUD checks (#44). Replaces the
