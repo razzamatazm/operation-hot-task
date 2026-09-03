@@ -27,7 +27,7 @@
       excludes you. Rides the create payload
       (`assigneeUserId`, `assigneeNote`) so the task is born `Claimed` in ONE
       call; create-then-assign would post a claimable channel card and then edit
-      the Claim button away. The picker narrows to people eligible to work the
+      its claim affordance away. The picker narrows to people eligible to work the
       task, so a Fraud Check only offers file checkers. If you are the only
       eligible file checker, the form says so up front — nobody will be able to
       claim it, and someone else needs to file it.

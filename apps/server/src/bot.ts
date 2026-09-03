@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -652,12 +652,27 @@ const refreshBlock = (taskId: string, creatorUserIds: string[]): Record<string, 
     ? { action: { type: "Action.Execute", title: "Refresh", verb: "refreshTaskCard", data: { taskId } }, userIds: creatorUserIds }
     : undefined;
 
-/* Adaptive Card shown on a freshly created task: headline + detail + a
-   single one-tap Claim button (universal Action.Execute, handled by
-   onInvokeActivity). `creatorUserIds` (Teams MRIs) opt the creator into a
-   user-specific Cancel view via the refresh block. */
+/* Adaptive Card shown on a freshly created task: headline + detail + the two
+   claimable actions. `creatorUserIds` (Teams MRIs) opt the creator into a
+   user-specific Cancel view via the refresh block.
+
+   **Claim & Open** replaces the bare Claim (#180). Taking a task and then going
+   to work it was the common path and it cost two taps in two places, with a
+   card refresh in between. An Adaptive Card action can't do both — Action.Execute
+   runs server-side and can't navigate, Action.OpenUrl navigates and hits no
+   API — so the combined button is a deep link carrying a claim intent, and the
+   web app performs the claim on arrival as the signed-in user. Claiming without
+   opening is the rarer path and no longer has a button of its own.
+
+   With no deep link there is nothing to hang that on. `teamsTaskDeepLink`
+   returns undefined whenever the app id is unset, which is every local and test
+   environment, and a card with no actions at all would be a card nobody can
+   claim from — so the linkless rendering keeps the original one-tap
+   Action.Execute Claim. The invoke handler stays wired for it, and for every
+   card posted before this change. */
 const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds?: string[] }): Record<string, unknown> => {
   const refresh = refreshBlock(opts.taskId, opts.creatorUserIds ?? []);
+  const claimUrl = withClaimIntent(opts.openUrl);
   return {
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     type: "AdaptiveCard",
@@ -668,7 +683,9 @@ const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string;
       { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true }
     ],
     actions: [
-      { type: "Action.Execute", title: "Claim", verb: "claimTask", data: { taskId: opts.taskId } },
+      claimUrl
+        ? { type: "Action.OpenUrl", title: ACTION_LABELS.CLAIM_AND_OPEN, url: claimUrl }
+        : { type: "Action.Execute", title: ACTION_LABELS.CLAIM, verb: "claimTask", data: { taskId: opts.taskId } },
       ...(opts.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: opts.openUrl }] : [])
     ]
   };
@@ -2132,14 +2149,13 @@ export class TeamsBotClient {
       };
       return outcome;
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "";
-      // canClaimTask fails for two reasons (already claimed, or fraud needs a
-      // file checker); both surface as this one error. Show a single friendly
-      // toast, and pass through anything unexpected so real bugs aren't masked.
-      if (reason === "Task cannot be claimed by this user") {
-        return { ok: false, message: "Can't claim this one — it's already taken or needs a file checker." };
-      }
-      return { ok: false, message: reason || "Couldn't claim that task." };
+      /* The refusal already reads as a rule rather than a bug: claimTask throws
+         `claimRefusalMessage`, which names the real reason — already held, the
+         creator's own task (ADR-0003), a Fraud Check that needs a file checker.
+         A catch-all used to sit here mapping one older error string to "already
+         taken or needs a file checker"; it masked the specific answer and the
+         string it matched no longer exists (#180). */
+      return { ok: false, message: error instanceof Error && error.message ? error.message : "Couldn't claim that task." };
     }
   }
 
@@ -2499,7 +2515,49 @@ export class TeamsBotClient {
       .filter((entry) => entry.scope === "DM" && entry.userAadObjectId === creatorAadObjectId)
       .map((entry) => entry.userId)
       .filter((id): id is string => Boolean(id));
-    return Array.from(new Set(ids));
+    if (ids.length > 0) {
+      return Array.from(new Set(ids));
+    }
+    /* Nothing stored means the creator has never messaged the bot. That used to
+       end here, and the card fell back to the claim-for-all view — which the
+       creator would then be offered a claim they are barred from making
+       (ADR-0003). It matters more now that the claim affordance is a deep link
+       the server can't gate per viewer at tap time (#180), so ask the channel
+       roster: the creator is a member of the team the card is going to. */
+    return this.rosterUserIds(creatorAadObjectId);
+  }
+
+  /* Teams MRIs for one AAD object id, from the roster of every channel the bot
+     is in. Best-effort in both directions: a connector that won't answer, and a
+     person who isn't in any of these channels, both come back empty, and the
+     card degrades exactly as it did before. */
+  private async rosterUserIds(aadObjectId: string): Promise<string[]> {
+    if (!this.adapter) {
+      return [];
+    }
+    const ids = new Set<string>();
+    for (const entry of await this.targetChannelReferences()) {
+      const serviceUrl = entry.reference.serviceUrl;
+      const conversationId = entry.reference.conversation?.id;
+      if (!serviceUrl || !conversationId) {
+        continue;
+      }
+      try {
+        const client = this.adapter.createConnectorClient(serviceUrl);
+        const members = (await client.conversations.getConversationMembers(conversationId)) as Array<{
+          id?: string;
+          aadObjectId?: string;
+        }>;
+        for (const member of members ?? []) {
+          if (member.aadObjectId === aadObjectId && member.id) {
+            ids.add(member.id);
+          }
+        }
+      } catch (error) {
+        console.error("bot_roster_lookup_failed", error);
+      }
+    }
+    return [...ids];
   }
 
   /* Post a freshly created task as an Adaptive Card with a one-tap Claim

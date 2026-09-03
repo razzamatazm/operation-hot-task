@@ -18,6 +18,13 @@
    full phrase — the slot never resizes to its label. */
 export const ACTION_LABELS = {
   CLAIM: "Claim",
+  /* Claim and land on the task in one tap (#180) — the channel card's claim
+     affordance, which replaced the bare Claim there. Card-only: it is a deep
+     link, and the web app is already the place it would take you, so it never
+     enters the collapsed row's slot. The plain CLAIM above is still what the
+     row renders, and what the card falls back to when there is no link to hang
+     this on. */
+  CLAIM_AND_OPEN: "Claim & Open",
   COMPLETE: "Complete",
   ARCHIVE: "Archive",
   MERGE_DONE: "Merge Done",

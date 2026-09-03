@@ -95,7 +95,7 @@ console.log("Channel terminal card sim");
 await check("a completed task's card keeps the deep link and drops Claim", async () => {
   const { client, posted, updated } = await botSetup();
   await postOpenTask(client, OPEN_URL);
-  assert.deepEqual(actionTitles(cardOf(posted[0])), ["Claim", "Open in Hot Task"]);
+  assert.deepEqual(actionTitles(cardOf(posted[0])), ["Claim & Open", "Open in Hot Task"]);
 
   await client.markTaskCompleted("task-1", CONTEXT);
 
