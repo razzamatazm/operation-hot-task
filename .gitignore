@@ -28,3 +28,8 @@ scripts/debug/
 # reference for tools/humperdink/. ~1.3 MB of markup plus a few hundred asset
 # files, and it is customer data — save your own, keep it out of history.
 humperdinkscrape/
+
+# Session working notes. Dispatch logs, triage scratch, half-formed plans —
+# they record queue state that is wrong the moment it lands, so they are read
+# once and thrown away. Same reasoning as scripts/debug/ above.
+.scratch/
