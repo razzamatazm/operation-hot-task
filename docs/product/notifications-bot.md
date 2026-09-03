@@ -151,7 +151,12 @@
 - On claim, the claimer also gets a **full-details DM card** (`DM_CLAIM`):
   type, How Bad, urgency time-frame, **due date**, notes, Humperdink link, an
   **Open in Hot Task** deep link, and a contextual **advance/complete**
-  button. This is the one surface where due date is shown in user-facing UI —
+  button. **An LOI Check card omits the notes line**: on an LOI that field
+  holds the loan's terms, and a card of figures is one people scroll past
+  rather than read, so it leans on the deep link instead
+  ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 9). The
+  same body — and the same omission — is used by the share and handoff detail
+  cards. This is the one surface where due date is shown in user-facing UI —
   see [due-date-urgency.md](due-date-urgency.md). Where it lands is recorded so
   it stays editable — see [DM Card Sync](#dm-card-sync).
 - **Handoff** (`POST /tasks/:id/assign`, see
