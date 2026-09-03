@@ -1247,16 +1247,21 @@ const HOT_TASK_APP_ID = "6a1b2c3d-0000-4444-8888-abcdefabcdef";
 
 const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
 
-/* The id the file ships with, which is our real Teams app id — the same value
-   in teams-app/operation-hot-task-teams/manifest.json. It used to ship blank for
-   each installer to fill in; that was reversed once it turned out the repo
-   already committed the id in two other places, so making eleven people look it
-   up bought nothing. Read out of the file rather than restated, so the two
-   assertions below can say "as shipped" and mean it. */
+/* The id the file ships with. It used to ship blank for each installer to fill
+   in; that was reversed because everyone installs this by hand and the lookup
+   bought nothing. Read out of the file rather than restated, so the assertions
+   below can say "as shipped" and mean it.
+
+   This is the ORG CATALOG's id for Hot Task, not the `id` in teams-app/manifest.json
+   (`bca6db0b-…`). Publishing through the Teams admin center assigns a new one,
+   and only the catalog's resolves in a deep link. Pinned here as a literal on
+   purpose: the trap this guards is somebody "fixing" the userscript to agree
+   with the manifest, which reads like a typo repair and would silently stop the
+   button opening anything. */
 const SHIPPED_APP_ID = USERSCRIPT.match(APP_ID_LINE_VALUE)?.[1];
 
-test("the file ships with our app id, so a fresh install opens Hot Task", async () => {
-  assert.equal(SHIPPED_APP_ID, "bca6db0b-b2b7-423f-8c22-f4348f3a0340");
+test("the file ships with the catalog's app id, so a fresh install opens Hot Task", async () => {
+  assert.equal(SHIPPED_APP_ID, "f80d9b67-a393-4383-990f-2406ae2f4987");
   const page = goodPage({ appId: SHIPPED_APP_ID });
   await page.press();
   assert.equal(page.copied.length, 1);

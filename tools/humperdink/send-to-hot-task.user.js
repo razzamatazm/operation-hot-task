@@ -45,16 +45,19 @@
   /* ── Where Hot Task lives (#198) ──────────────────────────
 
      Our Teams app id for Hot Task, so the control can land you on the create
-     form after it copies. This is the `id` at the top of the Teams manifest,
-     and it is already committed — `teams-app/operation-hot-task-teams/manifest.json`
-     carries the same value, as does the packaged .zip beside it. Filled in
-     here rather than left for each installer, because a value the repo already
-     states in two places is not one worth making eleven people go and look up.
+     form after it copies. Filled in rather than left blank for each installer,
+     because everyone installs this by hand and the lookup bought nothing.
 
-     Not a secret. A Teams app id is a public identifier, like the Entra client
-     id fifteen lines below it in that manifest — which is a different id and
-     not the one this needs. No tenant id and no credential is involved either
-     way.
+     This is the id the ORG CATALOG assigned when Hot Task was published through
+     the Teams admin center — NOT the `id` at the top of teams-app/manifest.json
+     (`bca6db0b-…`), which is what a sideloaded app would use. For an app in the
+     catalog the two differ, and only this one resolves. If you go looking for
+     this value, the place it is visible is the app's details dialog in Teams:
+     the `l/app/<id>` URL it shows carries exactly this id.
+
+     Not a secret. A Teams app id is a public identifier, and so is the Entra
+     client id in that manifest's `webApplicationInfo` — a third id again, the
+     SSO audience, not this. No tenant id and no credential is involved.
 
      Blank it and the control behaves as it did before — it copies, says so,
      and you go to Hot Task yourself. This is convenience, not capability: the
@@ -62,7 +65,7 @@
      any route. That mirrors `teamsTaskDeepLink` in packages/shared, which
      returns no link at all when it has no app id rather than emitting a broken
      one. */
-  var HOT_TASK_APP_ID = "bca6db0b-b2b7-423f-8c22-f4348f3a0340";
+  var HOT_TASK_APP_ID = "f80d9b67-a393-4383-990f-2406ae2f4987";
 
   /* Keep in sync with packages/shared/src/deep-link.ts. The link carries no
      data — the loan is on the clipboard — so all it says is "open the create
