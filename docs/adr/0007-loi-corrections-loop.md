@@ -5,7 +5,10 @@ Status: Accepted, not yet implemented. Tickets
 [#237](https://github.com/razzamatazm/operation-hot-task/issues/237) (naming),
 [#238](https://github.com/razzamatazm/operation-hot-task/issues/238) (confirm and archive),
 [#239](https://github.com/razzamatazm/operation-hot-task/issues/239) (notification and actor).
-Decided on [#228](https://github.com/razzamatazm/operation-hot-task/issues/228).
+Decided on [#228](https://github.com/razzamatazm/operation-hot-task/issues/228),
+which also turned up
+[#240](https://github.com/razzamatazm/operation-hot-task/issues/240) and closed
+it as superseded here.
 
 ## Context
 
@@ -24,11 +27,13 @@ is why [#182](https://github.com/razzamatazm/operation-hot-task/issues/182)
 tightened the bot cards without noticing the web app had the same fault in the
 opposite direction.
 
-#182 recorded the mismatch as a documentation gap, on the reasoning that the
-creator "was never offered a control that did it". That was wrong about the web
-app, and the error mattered: it turned a live defect into a docs ticket. The
-status quo was not "creators cannot do this", it was "creators are invited to do
-this and then refused".
+#182 did not settle this. It raised the three-way opening of the corrections
+state as an open question and deferred it here. The docs-gap framing came later,
+in #228's own opening: that the creator "was never offered a control that did
+it", so nothing needed fixing but the written rule. That was wrong about the web
+app, and the error mattered: it would have turned a live defect into a docs
+ticket. The status quo was not "creators cannot do this", it was "creators are
+invited to do this and then refused".
 
 So the question was never only which of the two predicates to keep. It was what
 the status is *for*, and the answer turned out to be narrower than the status.
@@ -41,11 +46,16 @@ are different steps and they get different names.**
 **1. The corrections state means the ball is with the creator, and it has one
 entrance.**
 
-Only the assignee may send a task there, and only from their own review. A
-creator never moves a task into corrections, because handing over the task in
-the first place *is* the request; a creator who wants another look is asking for
-the work to be redone, not flagging a fix. The creator's current route in is
-removed.
+Only the assignee may send a task there, and only from the task they are
+holding — the corrections state is the exit from their own review. A creator
+never moves a task into corrections, because handing over the task in the first
+place *is* the request; a creator who wants another look is asking for the work
+to be redone, not flagging a fix. The creator's current route in is removed.
+
+The rule is about people, so the automatic route in survives it. Alongside the
+two parties, the current rule admits the system actor, which is how anything the
+app does on its own behalf moves a task. That is not a seat and nothing here
+takes it away; "only the assignee" means only the assignee among people.
 
 That gives the state a single meaning. Previously it was reachable from both
 directions and so meant "somebody wants somebody to look at something", which is
@@ -72,16 +82,28 @@ ADMIN confers nothing, per [ADR-0003](0003-creator-is-never-assignee.md).
 
 **3. Corrections are LOI-only.**
 
-An LOI is the only task type sent back for corrections. FRAUD already has a
-two-phase back-and-forth of its own (outstanding items, submit, approve) and
-does not need a second one wearing a different name. The remaining types have no
-review step to fail: a Buddy Chat, a Value request, or an Out of Office cover is
-done or it is not.
+An LOI Check is the only task type sent back for corrections. The state is
+reachable on all six today, because it sits outside every type's own flow and is
+gated by nothing.
 
-This is a removal on four task types. Any live task of another type sitting in
-the state at ship time is migrated rather than stranded, and a large or
-clustered population is a signal to stop and re-open the question rather than to
-migrate harder.
+Fraud Check already has a two-phase back-and-forth of its own (outstanding
+items, submit, approve) and does not need a second one wearing a different name.
+Loan Docs already passes the ball back to its creator through its merge phases,
+which is the same shape by another route. The last three have no review step to
+fail: a Buddy Chat, a Value Check, or an Out of Office cover is done or it is
+not.
+
+So this is a removal on five task types, not four — Fraud Check and Loan Docs
+included, even though neither loses anything it was using. Any live task of
+another type sitting in the state at ship time is migrated rather than stranded,
+and a large or clustered population is a signal to stop and re-open the question
+rather than to migrate harder.
+
+Fraud Check's own use of the state is being retired rather than repaired. #240
+found that a fraud checker sitting in it is permitted to complete and is simply
+offered no button — a missing label, not a permission fault. Locking the state
+to LOI removes the surface that label would have gone on, which is why #240 is
+closed as superseded rather than built.
 
 **4. The names were backwards.**
 
@@ -153,11 +175,13 @@ mislabel four of the six.
 land as done is worth a step on the normal path; rule 5 is scoped to the one
 case where the closer is not the owner.
 
-**Notifying only the assignee when a creator closes.** This was the first
-instinct on #228 and was widened during the same conversation. A one-directional
-rule needs a reason for its direction, and there isn't one here.
+**Notifying only the assignee when a creator closes.** The obvious reading of
+rule 2 is that the creator's close is the newsworthy event, because it is the
+new ability. Rejected: a one-directional rule needs a reason for its direction,
+and there isn't one here. Both closes end the task for somebody who did not
+press the button.
 
-**Fixing this as a documentation change,** which is what #182 concluded.
+**Fixing this as a documentation change,** which is how #228 was opened.
 Rejected once the web button was found to be live and erroring. The docs were
 wrong *and* the code was.
 
@@ -176,8 +200,20 @@ enforced where the move is made rather than implied by the flow.
 The test suite gains the assertion that was missing: for every combination of
 status, seat and task type, a control a surface offers is a control the server
 accepts. That is the actual root cause here, and it is worth more than any
-single rule above. Both #182 and this decision were reached by a human noticing
-a mismatch by eye.
+single rule above. #182 tightened the bot cards against exactly this fault and
+the web app kept it in the opposite direction, which is what an assertion would
+have caught and a second audit did not.
+
+Rule 5 leaves the creator's window to amend the ask alone. That window already
+ends at completion rather than at archival ([ADR-0006](0006-amend-task-ask.md)),
+so collapsing the two steps into one takes away nothing that was reachable.
+
+The glossary owes two entries. CONTEXT.md defines a *seat* as the checker or
+requester of a Fraud Check, and gives the assignee-to-creator-and-back
+*completion chain* to Loan Docs alone. Rule 2 gives an LOI the same chain shape
+and rule 4 puts a checker on it, so both entries are narrower than the app will
+be. They are correct until this ships; #237 carries the rename and should carry
+the glossary with it.
 
 An assignee loses the ability to complete a task from the corrections state.
 This is the only user-visible removal in the decision, and it will be the one
