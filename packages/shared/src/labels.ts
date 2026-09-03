@@ -59,6 +59,14 @@ export const ACTION_LABELS = {
      slot with room to spare — `Approve Merge` is still the longest label
      here. */
   FIXED: "LOI Fixed",
+  /* The same transition as COMPLETE, on the one task where it also archives
+     (#238, ADR-0007 rule 5): the checker confirming the creator's fix at the
+     tail of the corrections loop. It reads as the confirming look ending
+     rather than as work finishing, which is what the press actually is — and a
+     button reading "Complete" over a move that also files the task away tells
+     the reader half of what it does. Rides the collapsed row's 116px slot, so
+     one word: the sentence explaining it belongs in the docs, not the button. */
+  CONFIRM: "Confirm",
   ARCHIVE: "Archive",
   MERGE_DONE: "Merge Done",
   APPROVE_MERGE: "Approve Merge",

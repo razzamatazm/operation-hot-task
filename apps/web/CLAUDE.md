@@ -117,9 +117,16 @@ Each slot has one job. When adding info, replace something — don't append:
   absolute timestamp shows as `title` tooltip. Red + bold
   (`.task-card-grouped-due-overdue`) when overdue. The rest — including why
   it must ask the shared `isOverdue` — is under *Grouped collapsed row*.
-- **Action** — single contextual button (`Claim` / `Complete` /
+- **Action** — single contextual button (`Claim` / `Complete` / `Confirm` /
   `Merge Done` / `Approve Merge` / `Send Items` / `Submit` / `Approve` /
   `Archive`). Picked by the `primaryAction` ladder in `TaskCard`.
+  `Confirm` is `Complete` on the one task where completing also archives —
+  an LOI the creator sent back for a confirming look (#238, ADR-0007 rule 5).
+  Same transition, same single request; the word changes because the press
+  does more, and it comes from the shared `isConfirmingLook` so the bot card
+  cannot word it differently. Never fire `ARCHIVED` after it from here: the
+  server does both in one write, and a second call is what could leave a task
+  completed and not archived.
   `Send Items` is the one entry that can't complete from the row: it is
   note-required, so with an empty checklist it expands the card and opens
   the composer in the body instead of firing. It is worded short (not
@@ -456,7 +463,11 @@ assignee), not assignee-gated like Complete.
    `LOAN_DOCS` + `MERGE_DONE`). Pinned to the very top with a green
    pulse for ~3s after the transition (`task-card-celebrating` class,
    driven by `pulsingIds` state in `App.tsx`). Stays in this bucket
-   until the creator archives it.
+   until the creator archives it. A confirm at the tail of the corrections
+   loop skips this bucket entirely — it lands the task on `ARCHIVED` in one
+   action, so it goes straight to Done (#238). That is the point of rule 5:
+   the creator hears about it in a DM and finds it in Done, rather than
+   getting a finished task to dismiss.
 2. `OPEN` — always undimmed (anyone may claim).
 3. In-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED`).
 4. Closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`) — render as mini rows.

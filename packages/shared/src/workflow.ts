@@ -383,7 +383,12 @@ export const botPrimaryAdvance = (task: LoanTask): { status: TaskStatus; label: 
   if (!target) {
     return undefined;
   }
-  const label = ADVANCE_LABELS[target];
+  /* The confirm at the tail of the corrections loop is the same move to the
+     same target, so it keeps this rung — but it also archives, and the card
+     should say which of the two presses this is (#238). One rule, read from
+     `isConfirmingLook`, so the card and the web row cannot word it
+     differently. */
+  const label = target === "COMPLETED" && isConfirmingLook(task) ? ACTION_LABELS.CONFIRM : ADVANCE_LABELS[target];
   return label ? { status: target, label } : undefined;
 };
 
@@ -489,6 +494,36 @@ export const restoreTargetStatus = (task: LoanTask): TaskStatus | undefined => {
   }
   return from;
 };
+
+/* Where completing this task actually lands it (#238, ADR-0007 rule 5).
+
+   `COMPLETED` for everything, with one exception: a task the creator sent back
+   to its assignee for a confirming look at the tail of the corrections loop
+   goes straight to `ARCHIVED`. The press is one action either way — the caller
+   asks for `COMPLETED` and this says where that ends up, rather than any
+   surface firing two requests and risking a task left completed but not
+   archived.
+
+   Why that case and no other: completion and archival are two steps everywhere
+   else on purpose, because the creator wants to watch their own task land as
+   done before it goes away. Here the person pressing the button is confirming
+   somebody else's fix on a task that was never theirs, and leaving them to
+   complete it and then tidy it away is housekeeping for someone else's request.
+
+   The breadcrumb alone is not the answer — the status is read too. A task that
+   has moved on since (unclaimed, cancelled, already closed) carries a stale
+   breadcrumb until something clears it, and a stale one must be inert, the same
+   guard `restoreTargetStatus` above keeps. */
+export const completionTargetStatus = (
+  task: Pick<LoanTask, "status" | "awaitingConfirmationFrom">
+): TaskStatus => (task.status === "CLAIMED" && task.awaitingConfirmationFrom === "NEEDS_REVIEW" ? "ARCHIVED" : "COMPLETED");
+
+/* Whether this task's completion is the confirm at the tail of the corrections
+   loop — the question a surface asks to word its button, where the one above
+   answers where the move goes. Same rule, read twice, so neither caller has to
+   compare against a status name to find out. */
+export const isConfirmingLook = (task: Pick<LoanTask, "status" | "awaitingConfirmationFrom">): boolean =>
+  completionTargetStatus(task) === "ARCHIVED";
 
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
   const flow = flowFor(task);

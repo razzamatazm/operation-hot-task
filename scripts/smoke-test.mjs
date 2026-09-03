@@ -503,17 +503,20 @@ const run = async () => {
     });
     expectStatus(backToClaimed.status, 200, "needs_review->claimed", backToClaimed.json);
 
+    /* This task came back to its assignee by way of corrections, so their
+       confirm closes AND archives it, over the wire, in this one request
+       (#238, ADR-0007 rule 5) — nobody is left tidying away somebody else's
+       request. The archival that used to follow here is gone with it; every
+       other path still takes two steps, which the "only the assignee can
+       complete" task below goes on to prove. */
     const completed = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/transition`, {
       user: users.otherOfficer,
       body: { status: "COMPLETED" }
     });
     expectStatus(completed.status, 200, "claimed->completed", completed.json);
-
-    const archived = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/transition`, {
-      user: users.creator,
-      body: { status: "ARCHIVED" }
-    });
-    expectStatus(archived.status, 200, "completed->archived", archived.json);
+    assert.equal(completed.json.task.status, "ARCHIVED", "a confirm after corrections archives in the same action");
+    assert.ok(completed.json.task.completedAt, "and still records that the task was completed");
+    assert.ok(completed.json.task.archivedAt, "and archived");
     pushPass("core LOI lifecycle works to archived");
 
     const updatePointsArchived = await request(server.baseUrl, "POST", `/tasks/${loiTask.id}/points`, {

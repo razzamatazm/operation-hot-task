@@ -84,6 +84,35 @@
   - Any task of another type found in `Needs corrections` at start-up is moved
     back to `Claimed` (if held) or `Open` (if not), with a system-attributed
     history row.
+  - A task sent back to `Claimed` this way remembers it, on the task as
+    `awaitingConfirmationFrom` — the same breadcrumb shape as `reopenedFrom`
+    below. It is what tells that task apart from one that never entered
+    corrections, and it is cleared by any other move and by a new holder
+    arriving.
+
+## Confirming a correction closes and archives
+
+- Completion and archival are two steps everywhere else, deliberately: the
+  creator wants to watch their own task land as done before it goes away. The
+  tail of the corrections loop is the one exception (ADR-0007 rule 5). There
+  the checker is confirming somebody else's fix on a task that was never
+  theirs, and leaving them to complete it and then tidy it away is
+  housekeeping for someone else's request.
+- So a task the creator sent back for a confirming look goes straight to
+  `Archived` when its assignee completes it. One press, one request, one write:
+  the surface still asks for `Completed`, and the shared
+  `completionTargetStatus` says where that lands. Nothing fires two calls, so
+  nothing can leave a task completed but not archived.
+- The web row and the bot card word that press `Confirm` rather than
+  `Complete`, from the shared `isConfirmingLook`, because it does more than
+  complete.
+- The history keeps both steps: one `TASK_COMPLETED` row and one
+  `TASK_ARCHIVED` row, same actor, same instant, written together. The record
+  does not lose a step because the button merged one.
+- Every other completion is unchanged — including the creator's own close out
+  of corrections, which is not somebody being handed housekeeping. Those still
+  reach `Completed` and wait for the creator's `Archive` or the retention
+  sweep. This is the only case where an assignee archives anything.
 
 ## Who closed it
 

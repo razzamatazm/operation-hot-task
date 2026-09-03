@@ -135,10 +135,18 @@ export class TaskStore {
 
      Returns the written task, or `undefined` when `apply` declines — the task
      was deleted while we queued, or the operation turned out to be a no-op.
-     Throwing from `apply` writes nothing and rejects only that caller. */
+     Throwing from `apply` writes nothing and rejects only that caller.
+
+     `event` takes a list as well as a single row, for the one move that writes
+     more than one: the confirm at the tail of the corrections loop both
+     completes and archives, and the history is not allowed to lose a step
+     because the user only pressed once (#238). Passing them here rather than
+     following the write with `appendHistory` is the point — the task and every
+     row it earned land in the same `write`, so nothing can leave the task
+     archived with only half its record, or the reverse. */
   async updateTask(
     taskId: string,
-    apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent } | undefined
+    apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent | TaskHistoryEvent[] } | undefined
   ): Promise<LoanTask | undefined> {
     return this.enqueue(async () => {
       const data = await this.read();
@@ -152,7 +160,7 @@ export class TaskStore {
       }
       data.tasks[index] = result.task;
       if (result.event) {
-        data.history.push(result.event);
+        data.history.push(...(Array.isArray(result.event) ? result.event : [result.event]));
       }
       await this.write(data);
       return result.task;

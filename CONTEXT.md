@@ -24,6 +24,10 @@ types pass the ball assignee → creator → assignee: a Loan Docs task through 
 merge phases, and an LOI through its corrections loop, where the checker sends
 the request back to its creator as _Needs corrections_ and the creator returns
 it for a confirming look ([ADR-0007](docs/adr/0007-loi-corrections-loop.md)).
+The LOI chain has the app's one ending that skips a section: the checker's
+confirm at the tail of it completes *and* archives the task in one action,
+because they are signing off somebody else's fix and are not left tidying it
+away afterwards.
 
 **Section**:
 One leg of the completion chain — the part of the work a single party must

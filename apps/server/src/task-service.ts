@@ -8,6 +8,8 @@ import {
   TASK_ARCHIVED_ACTION,
   TASK_COMPLETED_ACTION,
   closureActionFor,
+  completionTargetStatus,
+  isConfirmingLook,
   TaskHistoryEvent,
   TaskStatus,
   UrgencyLevel,
@@ -447,6 +449,13 @@ export class TaskService {
     delete next.pooledSince;
     delete next.lastPoolNagAt;
     delete next.poolNagCount;
+    /* A new holder ends any confirming look that was pending (#238). The
+       creator asked a particular checker to look again; a task that has since
+       been to the pool and back, or been handed to somebody else, is that
+       person's own work now, and their Complete is an ordinary completion.
+       Falling back to today's two-step behaviour is the safe direction — the
+       one it must not do is quietly archive on a stranger's press. */
+    delete next.awaitingConfirmationFrom;
     if (isDeadlineRecomputeExempt(current)) {
       return next;
     }
@@ -928,6 +937,19 @@ export class TaskService {
       }
       if (next === "COMPLETED") {
         moved.completedAt = now;
+        /* The confirm at the tail of the corrections loop closes AND archives,
+           in this one write (#238, ADR-0007 rule 5). The caller asked for
+           COMPLETED; where that lands is the shared rule's answer, read off
+           `current` like every other decision in this closure.
+
+           Doing it here rather than by firing a second transition afterwards is
+           the requirement, not a shortcut: two writes can be interrupted
+           between them, and the task left completed-but-not-archived is exactly
+           the tidying-up the rule exists to remove. */
+        if (completionTargetStatus(current) === "ARCHIVED") {
+          moved.status = "ARCHIVED";
+          moved.archivedAt = now;
+        }
       }
       if (next === "CANCELLED") {
         moved.cancelledAt = now;
@@ -964,6 +986,19 @@ export class TaskService {
           moved.lastPoolNagAt = now;
         }
       }
+      /* The corrections breadcrumb: set on the one edge that puts a task in
+         front of its assignee for a confirming look — the creator sending it
+         back out of corrections — and cleared by every other move, since any of
+         them ends the look (#238). Written off `current.status` rather than a
+         bare flag, so it reads as where the task has been, like `reopenedFrom`
+         above. Moving the task on and then completing it later is an ordinary
+         completion again, which is why the clear is unconditional rather than
+         tied to a list of statuses somebody has to keep current. */
+      if (next === "CLAIMED" && current.status === "NEEDS_REVIEW") {
+        moved.awaitingConfirmationFrom = current.status;
+      } else {
+        delete moved.awaitingConfirmationFrom;
+      }
       // Once a task is closed again (restored, completed, cancelled, or archived)
       // it's no longer "reopened" — drop the restore breadcrumb.
       if (moved.status === "COMPLETED" || moved.status === "CANCELLED" || moved.status === "ARCHIVED") {
@@ -978,6 +1013,28 @@ export class TaskService {
          `next`: a restore asks for OPEN and lands on CLAIMED, and the row
          should say where the task actually went. */
       const action = closureActionFor(moved.status) ?? "TASK_STATUS_CHANGED";
+      /* One press, two things that happened, two rows (#238). The history is
+         not allowed to lose a step because a surface merged one: weeks later
+         "who archived this" is a real question, and a task that shows only an
+         archival looks like it was filed away without anyone completing it.
+         Both rows carry the same actor and the same instant, because both are
+         true of the same press — the completion is listed first, in the order
+         they occurred. They ride the same `updateTask` call as the task, so the
+         record cannot land half-written.
+
+         Asks the shared rule the same way the landing above did, rather than
+         inferring the case back out of where the task ended up: one question,
+         one answer, and the two halves of this move cannot come to disagree
+         about which press it was. */
+      if (next === "COMPLETED" && isConfirmingLook(current)) {
+        return {
+          task: moved,
+          event: [
+            this.makeHistory(task.id, user, TASK_COMPLETED_ACTION, detail, new Date(now)),
+            this.makeHistory(task.id, user, TASK_ARCHIVED_ACTION, "COMPLETED -> ARCHIVED (confirmed after corrections)", new Date(now))
+          ]
+        };
+      }
       return { task: moved, event: this.makeHistory(task.id, user, action, detail) };
     });
 
@@ -1013,11 +1070,18 @@ export class TaskService {
     outstandingNote: string | undefined;
     now: string;
   }): Promise<void> {
+    /* Where the task ACTUALLY went, not what was asked for. The two differ on
+       two moves: a restore asks for OPEN and lands on CLAIMED when an assignee
+       is retained, and a confirm after corrections asks for COMPLETED and lands
+       on ARCHIVED (#238). Naming the request would have this line announce a
+       status the task never rests in, which is the same reason the history row
+       below reads `moved.status`. */
+    const landed = updated.status;
     await this.notify({
-      type: next === "ARCHIVED" ? "TASK_ARCHIVED" : "TASK_STATUS_CHANGED",
+      type: landed === "ARCHIVED" ? "TASK_ARCHIVED" : "TASK_STATUS_CHANGED",
       task: updated,
       actor: { id: user.id, displayName: user.displayName },
-      message: `${user.displayName} moved ${updated.folderName} to ${next}`,
+      message: `${user.displayName} moved ${updated.folderName} to ${landed}`,
       target: "IN_APP"
     });
 
@@ -2132,7 +2196,7 @@ export class TaskService {
      "task not found" the guards would have raised a moment earlier. */
   private async writeTask(
     taskId: string,
-    apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent }
+    apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent | TaskHistoryEvent[] }
   ): Promise<LoanTask> {
     const updated = await this.store.updateTask(taskId, apply);
     if (!updated) {
