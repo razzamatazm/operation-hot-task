@@ -444,9 +444,9 @@ await check("a FRAUD checklist write syncs the cards, so the Submit gate can't d
 
 await check("the scheduler's OOO auto-complete retires the cards", async () => {
   const { service, events, store } = await serviceSetup();
-  // createTask rejects an OOO whose return date has already passed, and
-  // runMaintenance reads the real clock — so create a valid future one, then
-  // wind its due date back in the store to put it in the scheduler's sights.
+  // createTask rejects an OOO whose return date has already passed, so the
+  // holiday is booked for real and the scheduler is then run on the day the
+  // person gets back (#204).
   const day = (offsetDays) => new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const task = await service.createTask(
     {
@@ -461,10 +461,10 @@ await check("the scheduler's OOO auto-complete retires the cards", async () => {
     CREATOR
   );
   await settle();
-  await store.upsertTask({ ...(await store.findTask(task.id)), dueAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() });
+  const returned = new Date(new Date(task.dueAt).getTime() + 60 * 60 * 1000);
   events.length = 0;
 
-  await service.runMaintenance();
+  await service.runMaintenance(returned);
   await settle();
 
   const syncs = syncTargets(events);
@@ -474,17 +474,15 @@ await check("the scheduler's OOO auto-complete retires the cards", async () => {
 });
 
 await check("auto-archiving retires the reply box the COMPLETED banner allowed", async () => {
-  const { service, events, store } = await serviceSetup();
+  const { service, events } = await serviceSetup();
   const task = await service.createTask({ folderName: "Old-1", taskType: "LOI", urgency: "GREEN", points: 1, notes: "" }, CREATOR);
   await service.claimTask(task.id, CHECKER);
   await service.transitionStatus(task.id, "COMPLETED", CHECKER);
   await settle();
-  // Older than the 14-day auto-archive window.
-  const aged = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
-  await store.upsertTask({ ...(await store.findTask(task.id)), completedAt: aged });
   events.length = 0;
 
-  await service.runMaintenance();
+  // Twenty days on, past the 14-day auto-archive window.
+  await service.runMaintenance(new Date(Date.now() + 20 * 24 * 60 * 60 * 1000));
   await settle();
 
   const syncs = syncTargets(events);
