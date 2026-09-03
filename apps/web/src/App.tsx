@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -3863,6 +3863,26 @@ export const App = () => {
           if (readClaimIntent(context)) {
             setClaimOnArrivalId(deepLinkTaskId);
           }
+        }
+
+        /* Deep link from the Humperdink userscript → open the create form, so
+           the loan it just put on the clipboard has somewhere to be pasted
+           (#198). An opt-in field of its own beside subEntityId: every other
+           link this app builds or the bot sends carries no such field and lands
+           on the normal board.
+
+           Cold tab and warm tab are the same path on purpose. Hot Task doesn't
+           opt into Teams tab caching — no `supportsCaching` in the manifest, no
+           `app.notifySuccess` — so Teams loads the tab's content frame fresh
+           for every deep link tap, and the context arrives here whether or not
+           the tab was already open. That is the same assumption the task-focus
+           link above has always run on.
+
+           No `initialValues`: the link deliberately carries no data. The
+           payload is on the clipboard and the filer presses paste — Hot Task
+           never reads the clipboard itself (#194). */
+        if (readCreateFormIntent(context)) {
+          setFormOpen(true);
         }
 
         /* Teams host present → resolve the real identity via SSO. */

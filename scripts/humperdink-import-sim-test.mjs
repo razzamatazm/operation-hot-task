@@ -30,10 +30,26 @@ import {
   loanNameFromPageTitle,
   parseHumperdinkPayload
 } from "../packages/shared/src/humperdink.ts";
+import { readCreateFormIntent, teamsTaskDeepLink } from "../packages/shared/src/deep-link.ts";
 
 const USERSCRIPT = readFileSync(new URL("../tools/humperdink/send-to-hot-task.user.js", import.meta.url), "utf8");
 
 const LOAN_URL = "https://humperdink.loneoakfund.com/Loans/Details/335203";
+
+/* ── The one line an installer fills in (#198) ────────────
+
+   The control opens Hot Task's create form after it copies, which needs the
+   Teams app id. A userscript has no config store, so the id is a constant at
+   the top of the file — and the tests here have to be able to set it, so they
+   rewrite that one line before running the script. The assertion is the point:
+   rename or reshape the constant and this goes red rather than silently
+   testing a script with no link in it. */
+const APP_ID_LINE = /^(\s*var HOT_TASK_APP_ID = )"[^"]*";$/m;
+
+const userscriptWithAppId = (appId) => {
+  assert.match(USERSCRIPT, APP_ID_LINE);
+  return USERSCRIPT.replace(APP_ID_LINE, `$1${JSON.stringify(appId)};`);
+};
 
 /* ── The loan terms panel, as Humperdink renders it ──────
 
@@ -142,6 +158,11 @@ const runUserscript = ({
   clipboard = "ok",
   fields = TERMS_FIELDS,
   grids = withGrids(),
+  /* Blank is what the file ships with — nobody has told it where Hot Task is,
+     so it copies and says so, exactly as it did before #198. */
+  appId = "",
+  /* "blocked" makes window.open return null, the way a popup blocker does. */
+  popups = "ok",
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -270,20 +291,30 @@ const runUserscript = ({
     return handle;
   };
 
-  const sandbox = { document, location: url, navigator, setTimeout: unrefed, clearTimeout, console, URL };
+  /* Every tab the control asks the browser to open (#198). A blocked popup is
+     recorded too — the control has to notice the refusal, not just the ask. */
+  const opened = [];
+  const open = (href, target, features) => {
+    opened.push({ href, target, features });
+    return popups === "blocked" ? null : { href };
+  };
+
+  const source = userscriptWithAppId(appId);
+  const sandbox = { document, location: url, navigator, open, setTimeout: unrefed, clearTimeout, console, URL };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(USERSCRIPT, sandbox);
+  vm.runInContext(source, sandbox);
 
   return {
     copied,
+    opened,
     button: mountedButton,
     get buttonsMounted() {
       return buttonsMounted;
     },
     /* Tampermonkey can run the script again on a soft navigation. */
     remount() {
-      vm.runInContext(USERSCRIPT, sandbox);
+      vm.runInContext(source, sandbox);
     },
     /* Humperdink's background fetch landing, after the script already mounted. */
     loadGrids(next) {
@@ -1187,4 +1218,113 @@ test("a grid that stays empty is refused, not imported as a loan with nobody on 
   await page.press();
   assert.deepEqual(page.copied, []);
   assert.match(page.button.textContent, /contacts \(they hadn't finished loading\)/);
+});
+
+/* ── Landing where you can paste (#198) ──────────────────
+
+   Copying was only half the trip: the filer still had to switch to Teams, find
+   Hot Task and open New Task before the payload had anywhere to go. The control
+   now does both — copy, then open Hot Task on the create form.
+
+   The link carries no data. It says "open the create form" and nothing else,
+   because the loan is already on the clipboard, and the URL it builds has to be
+   the one `teamsTaskDeepLink` builds — the userscript can't import from this
+   workspace, so this is what stops the two drifting. */
+
+const HOT_TASK_APP_ID = "6a1b2c3d-0000-4444-8888-abcdefabcdef";
+
+const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
+
+test("the file ships with no app id, so a fresh install copies and says so", async () => {
+  assert.match(USERSCRIPT, /^\s*var HOT_TASK_APP_ID = "";$/m);
+  const page = goodPage();
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.deepEqual(page.opened, []);
+  assert.match(page.button.textContent, /Copied — paste it into Hot Task/);
+});
+
+test("with an app id, one press copies the loan AND opens Hot Task", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID });
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(JSON.parse(page.copied[0]).loanName, "Adams - Harbor");
+  assert.equal(page.opened.length, 1);
+  assert.match(page.button.textContent, /Copied — opening Hot Task/);
+});
+
+test("the url it opens is the one the shared builder builds", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID });
+  await page.press();
+  assert.equal(page.opened[0].href, teamsTaskDeepLink(HOT_TASK_APP_ID, undefined, { createForm: true }));
+});
+
+test("the link names no task and carries no loan data — the clipboard has it", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID });
+  await page.press();
+  const context = JSON.parse(new URL(page.opened[0].href).searchParams.get("context"));
+  assert.deepEqual(context, { openCreateForm: true });
+  assert.equal(readCreateFormIntent({ page: context }), true);
+  assert.doesNotMatch(page.opened[0].href, /Adams|335203/);
+});
+
+/* Humperdink's loan page is the thing the filer is reading; sending them off it
+   to file a task about it would cost more than the two clicks this saves. */
+test("Hot Task opens in a new tab, leaving the loan page where it was", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID });
+  await page.press();
+  assert.equal(page.opened[0].target, "_blank");
+});
+
+test("a second press opens a second time rather than going quiet", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID });
+  await page.press();
+  await page.press();
+  assert.equal(page.copied.length, 2);
+  assert.equal(page.opened.length, 2);
+});
+
+/* ── Nothing on the clipboard, nowhere to go ─────────────
+
+   The copy is the capability and the link is the convenience, so the link never
+   runs ahead of it. Landing on an empty create form with nothing to paste is
+   worse than staying put. */
+
+test("a page it couldn't read copies nothing and opens nothing", async () => {
+  const page = runUserscript({ title: "Humperdink", href: LOAN_URL, appId: HOT_TASK_APP_ID });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.deepEqual(page.opened, []);
+});
+
+test("a refused clipboard does not open Hot Task", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID, clipboard: "dead" });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.deepEqual(page.opened, []);
+  assert.match(page.button.textContent, /Couldn't reach the clipboard/);
+});
+
+test("a press while the grids are still loading opens nothing", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    appId: HOT_TASK_APP_ID,
+    grids: withGrids({ contactRows: [], propertyRows: [] })
+  });
+  assert.equal(page.button.textContent, "Loading…");
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.deepEqual(page.opened, []);
+  assert.match(page.button.textContent, /Still loading/);
+});
+
+/* A control that silently did nothing would look identical to one that worked,
+   which is why `copyText` reports a refused clipboard. Same rule here. */
+test("a blocked popup is reported, and the copy still stands", async () => {
+  const page = goodPage({ appId: HOT_TASK_APP_ID, popups: "blocked" });
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(page.opened.length, 1);
+  assert.match(page.button.textContent, /Copied — couldn't open Hot Task/);
 });

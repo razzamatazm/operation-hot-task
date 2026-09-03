@@ -23,6 +23,21 @@ export const HOT_TASK_ENTITY_ID = "loan-tasks-home";
    always did. */
 export const CLAIM_INTENT_FIELD = "claimOnOpen";
 
+/* The field that carries "open the create form on arrival" inside the link's
+   `context` JSON, beside `subEntityId` (#198).
+
+   The Humperdink userscript copies a loan to the clipboard and then wants to
+   land you where you can paste it. The payload travels on the clipboard, so the
+   link itself carries no data at all — it only has to say which of Hot Task's
+   two arrivals this is.
+
+   Its own opt-in field rather than a sentinel in `subEntityId`, because every
+   surface shares this builder — including the web app's "Copy link" — and a
+   scheme that overloaded the task id would turn a link pasted into a chat into
+   one that opens a create form for whoever clicks it. A caller that doesn't ask
+   for it emits the byte-identical URL it always did. */
+export const CREATE_FORM_INTENT_FIELD = "openCreateForm";
+
 export interface TeamsTaskDeepLinkOptions {
   /* Human-readable name for the link — Teams shows it instead of the bare URL
      when the link is pasted into a chat. In practice the task's folder name. */
@@ -35,6 +50,11 @@ export interface TeamsTaskDeepLinkOptions {
      "Claim & Open" button. Ignored without a `taskId` — there is nothing to
      claim. */
   claim?: boolean;
+  /* Opt in to the create-form intent above. Off everywhere but the Humperdink
+     userscript's "Send to Hot Task" control (#198). Independent of `taskId`:
+     nothing builds both today, but the two are separate fields and the builder
+     honours whichever it was asked for. */
+  createForm?: boolean;
 }
 
 /* Build the deep link, or return undefined when we have no app id.
@@ -57,12 +77,19 @@ export const teamsTaskDeepLink = (
   }
 
   const params: string[] = [];
+  /* `subEntityId` first and alone unless an intent was asked for, so every
+     existing caller's URL is byte-for-byte what it was. */
+  const context: Record<string, unknown> = {};
   if (taskId) {
-    /* `subEntityId` first and alone unless the claim intent was asked for, so
-       every existing caller's URL is byte-for-byte what it was. */
-    const context = options.claim
-      ? { subEntityId: taskId, [CLAIM_INTENT_FIELD]: true }
-      : { subEntityId: taskId };
+    context.subEntityId = taskId;
+    if (options.claim) {
+      context[CLAIM_INTENT_FIELD] = true;
+    }
+  }
+  if (options.createForm) {
+    context[CREATE_FORM_INTENT_FIELD] = true;
+  }
+  if (Object.keys(context).length > 0) {
     params.push(`context=${encodeURIComponent(JSON.stringify(context))}`);
   }
   if (options.label?.trim()) {
@@ -135,4 +162,24 @@ export const readClaimIntent = (context: unknown): boolean => {
   }
   const shape = context as { page?: Record<string, unknown> } & Record<string, unknown>;
   return shape[CLAIM_INTENT_FIELD] === true || shape.page?.[CLAIM_INTENT_FIELD] === true;
+};
+
+/* Read the create-form intent back off whatever the host handed the tab (#198).
+
+   teams-js v2 surfaces the link's `subEntityId` as `page.subPageId` and the v1
+   shape put it at the top level; hosts differ on where the rest of the context
+   JSON lands, so this looks in both rather than trusting one shape. Anything it
+   can't find reads as no intent, which is the safe default — arriving by any
+   other route, or by a link that fails to announce itself, lands on the normal
+   board.
+
+   Strictly `=== true`: only the boolean the builder writes counts, so a host
+   that stringifies context values, or a URL somebody hand-edited, doesn't open
+   a form nobody asked for. */
+export const readCreateFormIntent = (context: unknown): boolean => {
+  if (!context || typeof context !== "object") {
+    return false;
+  }
+  const shape = context as { page?: Record<string, unknown> } & Record<string, unknown>;
+  return shape[CREATE_FORM_INTENT_FIELD] === true || shape.page?.[CREATE_FORM_INTENT_FIELD] === true;
 };
