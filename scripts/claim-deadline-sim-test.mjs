@@ -188,9 +188,16 @@ await check("claiming a task that sat in the pool restarts its hour", async () =
      mid-morning is due one hour later" above, which can state its instant
      outright because it calls the clamp directly. Asserting a literal hour here
      would only be asserting what time this suite happened to run: claimed on a
-     Saturday, the same correct clamp hands back Monday morning. */
+     Saturday, the same correct clamp hands back Monday morning.
+
+     Nor may anything here be ORDERED against a deadline. `stale` is wall-clock
+     `now + 15min`, and a claim in the last fifteen minutes of the day correctly
+     clamps to the 17:30 close, which is earlier — so "further out than what the
+     pool left" is a claim the clamp is entitled to break, and did, at 17:23.
+     Ordering against `updatedAt` instead is no better: at exactly 17:30 the
+     ORANGE clamp returns the close itself, so even "later than the claim" is
+     false for one instant a day. The equality below is the whole assertion. */
   assert.notEqual(claimed.dueAt, stale, "the deadline the pool burned down does not survive the claim");
-  assert.ok(new Date(claimed.dueAt) > new Date(stale), "and it is further out than what the pool left");
   assert.equal(
     claimed.dueAt,
     computeClaimAnchoredDueAt("ORANGE", new Date(claimed.updatedAt), config),
@@ -254,12 +261,13 @@ await check("a handoff re-anchors the deadline to the new holder", async () => {
 
   const handed = await service.assignTask({ taskId: task.id, target: OTHER, actor: CHECKER });
   assert.notEqual(handed.dueAt, nearlySpent, "the recipient does not inherit what is left of somebody else's hour");
+  // Equality only, for the reason the pool-claim check above records: an ORANGE
+  // deadline cannot be ordered against anything without the clamp's own instant.
   assert.equal(
     handed.dueAt,
     computeClaimAnchoredDueAt("ORANGE", new Date(handed.updatedAt), config),
     "the handoff re-anchors from its own instant, the same as a claim"
   );
-  assert.ok(new Date(handed.dueAt) > new Date(handed.updatedAt), "and not into a deadline already gone");
 });
 
 await check("unclaiming and releasing leave the deadline alone", async () => {
@@ -303,6 +311,11 @@ await check("a born-assigned RED task is not overdue the instant it exists", asy
     CHECKER
   );
   assert.equal(task.status, "CLAIMED");
+  /* RED is the one urgency this can be said about without stating an instant:
+     its fifteen minutes are never shaved, so the clamp is strictly later than
+     the claim at every instant of the week, close included. ORANGE and YELLOW
+     both return the close itself at 17:30, so do not copy this line to them —
+     see the pool-claim check above. */
   assert.ok(new Date(task.dueAt) > new Date(task.createdAt), "urgent still cannot mean already late");
   /* The fifteen minutes themselves are pinned by "RED gets a real fifteen-minute
      window" above. What is only provable here is that creation-with-an-assignee
