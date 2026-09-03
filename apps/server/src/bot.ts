@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -431,10 +431,17 @@ interface TransitionOutcome {
   confirm?: ConfirmData;
 }
 
-const STATUS_DISPLAY: Record<TaskStatus, string> = {
+/* Finishes the DM confirm line "<folder> is now <label>." The two statuses
+   whose displayed name is fixed across surfaces (a claimed LOI, the
+   corrections state) come from the shared `statusDisplayName` (#237) via
+   `statusPhrase` below; this map is the bot's own wording for the rest. */
+const STATUS_DISPLAY: Record<Exclude<TaskStatus, "NEEDS_REVIEW">, string> = {
   OPEN: "open",
   CLAIMED: "claimed",
-  NEEDS_REVIEW: "in review",
+  // NEEDS_REVIEW is deliberately absent, and the type refuses to let it back
+  // in: the shared `statusDisplayName` always answers for that status, so a
+  // row here would be a second copy of a name this module is not allowed to
+  // own (#237). Still exhaustive over every other status.
   MERGE_DONE: "merge done",
   MERGE_APPROVED: "merge approved",
   // FRAUD two-phase completion (#39). Reads naturally in the DM confirm line
@@ -445,6 +452,21 @@ const STATUS_DISPLAY: Record<TaskStatus, string> = {
   CANCELLED: "cancelled",
   ARCHIVED: "archived"
 };
+
+/* "<folder> is now <label>." — the shared display name where there is one,
+   lowercased to sit mid-sentence, else the bot's own wording above. Both
+   shared names are ordinary sentences ("needs corrections", "in review"), so
+   lowercasing is safe; a future one carrying a proper noun would need its own
+   mid-sentence form rather than this. */
+function statusPhrase(task: LoanTask): string {
+  const shared = statusDisplayName(task.status, task.taskType);
+  if (shared) return shared.toLowerCase();
+  // Unreachable: `statusDisplayName` always answers for the corrections state.
+  // The check is what narrows the status so the map lookup below is exhaustive
+  // rather than possibly-undefined.
+  if (task.status === "NEEDS_REVIEW") return task.status;
+  return STATUS_DISPLAY[task.status];
+}
 
 /* Last few notes for a card thread, oldest → newest. Exported because every
    card-sending path in the notification layer needs the same window. */
@@ -1780,7 +1802,7 @@ export class TeamsBotClient {
     return {
       taskId: task.id,
       folder: task.folderName,
-      message: `${task.folderName} is now ${STATUS_DISPLAY[task.status] ?? task.status}.`,
+      message: `${task.folderName} is now ${statusPhrase(task)}.`,
       ...(advance ? { advance } : {})
     };
   }

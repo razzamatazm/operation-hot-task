@@ -1,6 +1,6 @@
 # 0007. The LOI corrections loop: review is the checker's, corrections are the creator's
 
-Status: Accepted. Rules 1–3 implemented (#236); rules 4–6 not yet. Tickets
+Status: Accepted. Rules 1–4 implemented (#236, #237); rules 5–6 not yet. Tickets
 [#236](https://github.com/razzamatazm/operation-hot-task/issues/236) (permissions),
 [#237](https://github.com/razzamatazm/operation-hot-task/issues/237) (naming),
 [#238](https://github.com/razzamatazm/operation-hot-task/issues/238) (confirm and archive),

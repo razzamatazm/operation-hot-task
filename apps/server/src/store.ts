@@ -82,7 +82,7 @@ export class TaskStore {
           action: "TASK_STATUS_CHANGED",
           at: now,
           by: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-          detail: `Moved from NEEDS_REVIEW to ${status}: only an LOI Check can be in needs review (ADR-0007)`
+          detail: `Moved from NEEDS_REVIEW to ${status}: only an LOI Check can be in needs corrections (ADR-0007)`
         });
       }
       await this.write(data);

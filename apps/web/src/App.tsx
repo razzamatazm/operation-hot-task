@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, statusDisplayName, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -467,10 +467,23 @@ const ExpandAvatar = ({ name }: { name?: string }) => (
 /* ── Status timeline (expanded body) ──────────────────────── */
 /* Rail of the task's lifecycle. NEEDS_REVIEW sits on the CLAIMED step (and
    tags it); ARCHIVED reads as COMPLETED. The current in-flight step carries a
-   "NOW" (or "NEEDS REVIEW") chip. Removed in #106 alongside the two-column
+   "NOW" (or "NEEDS CORRECTIONS") chip. Removed in #106 alongside the two-column
    expanded body, restored here — the expanded body is a single stacked column
    now, so it renders as a compact horizontal rail at every width rather than
-   the old tall vertical dot-list. */
+   the old tall vertical dot-list.
+
+   Step names are the rail's own ("Opened", not "Open") except where the shared
+   `statusDisplayName` has a say (#237): the claimed step on an LOI reads
+   "In review", and the chip on the corrections state reads "Needs corrections"
+   — never a literal here, so the bot and the web cannot drift apart on it.
+
+   The one place those two rules would collide: an LOI sitting in corrections
+   is drawn on the claimed step, so asking for the claimed name would put
+   "In review" beside a "NEEDS CORRECTIONS" chip — the exact pairing ADR-0007
+   rule 4 exists to stop, since by then the review has happened and the checker
+   has found something. While the task is in corrections the step falls back to
+   the rail's own "Claimed", which is still true of it, and the chip carries
+   the news. */
 const TIMELINE_LABELS: Record<string, string> = {
   OPEN: "Opened",
   CLAIMED: "Claimed",
@@ -480,9 +493,10 @@ const TIMELINE_LABELS: Record<string, string> = {
   // requester submits them back for the checker's final approval.
   AWAITING_ITEMS: "Outstanding items",
   PENDING_APPROVAL: "Final approval",
-  COMPLETED: "Completed",
-  NEEDS_REVIEW: "Needs review"
+  COMPLETED: "Completed"
 };
+const timelineLabel = (status: TaskStatus, taskType: TaskType): string =>
+  statusDisplayName(status, taskType) ?? TIMELINE_LABELS[status] ?? status;
 const Timeline = ({ task }: { task: LoanTask }) => {
   const flow: TaskStatus[] =
     task.taskType === "LOAN_DOCS"
@@ -507,8 +521,14 @@ const Timeline = ({ task }: { task: LoanTask }) => {
           <div key={s} className="tl-item">
             <span className="tl-dot" style={{ background: dotColor }} />
             <div className="tl-body">
-              <b style={{ color: done ? "var(--ink)" : "var(--muted)" }}>{TIMELINE_LABELS[s]}</b>
-              {current && task.status === "NEEDS_REVIEW" && <span className="tag tag-warn">NEEDS REVIEW</span>}
+              <b style={{ color: done ? "var(--ink)" : "var(--muted)" }}>
+                {s === "CLAIMED" && task.status === "NEEDS_REVIEW"
+                  ? TIMELINE_LABELS.CLAIMED
+                  : timelineLabel(s, task.taskType)}
+              </b>
+              {current && task.status === "NEEDS_REVIEW" && (
+                <span className="tag tag-warn">{timelineLabel(task.status, task.taskType).toUpperCase()}</span>
+              )}
               {current && task.status !== "NEEDS_REVIEW" && <span className="tag tag-brand">NOW</span>}
             </div>
           </div>
@@ -1873,7 +1893,7 @@ const TaskCard = memo(({
 
   /* The alternatives to the phase's forward move (#39) — `Send Back`'s
      bounce and `Release`'s hand-off to the checker pool. Both are steps
-     sideways or backwards, so they live in the menu next to `Undo Review`
+     sideways or backwards, so they live in the menu next to `Send back to checker`
      and `Undo Merge Done` rather than in the body. Rendered inside the
      hamburger; the note box opens in place, which the panel already
      supports (its Esc handler exempts text fields). Same set the bot DM
@@ -1940,15 +1960,16 @@ const TaskCard = memo(({
           Cancel
         </button>
       )}
-      {/* #125: the reverse move out of review. NEEDS_REVIEW's forward move
-          (Complete) rides the collapsed row (#118); sending the task back to
-          the assignee for a confirming look is the rarer, backwards step, so
-          it stays in the menu — same shape and placement as `Undo Merge Done`
-          below. The creator's move (ADR-0007), gated by the same question the
-          server asks on the click. */}
+      {/* #125: the move back out of corrections. NEEDS_REVIEW's forward move
+          (Complete) rides the collapsed row (#118); sending the work back to
+          the checker for a confirming look is the rarer, backwards step, so it
+          stays in the menu — same shape and placement as `Undo Merge Done`
+          below, though it is not an undo and is not named as one (#237).
+          The creator's move (ADR-0007), gated by the same question the server
+          asks on the click. */}
       {task.status === "NEEDS_REVIEW" && canTransitionStatus(task, "CLAIMED", user).ok && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onTransition(task.id, "CLAIMED"); }}>
-          {ACTION_LABELS.UNDO_REVIEW}
+          {ACTION_LABELS.SEND_BACK_TO_CHECKER}
         </button>
       )}
       {task.status === "MERGE_DONE" && isAssignee && (
@@ -2058,7 +2079,7 @@ const TaskCard = memo(({
   /* Actions menu: hamburger next to the row's primary action (see the
      collapsed row below), holding Share plus the secondary ladder
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
-     Done, Undo Review, and FRAUD's Send Back / Release), and closing on the
+     Done, Send back to checker, and FRAUD's Send Back / Release), and closing on the
      card's timestamps as a non-interactive footnote (#166). Cancel's
      confirm/done UI renders inside the same
      panel so it stays visible once triggered, matching the in-place-swap

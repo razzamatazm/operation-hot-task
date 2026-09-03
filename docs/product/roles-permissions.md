@@ -60,7 +60,7 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   it **back in the pool** for the room. That is why no admin override is needed
   for it.
 - Status: `Open` → `Claimed`; a task already in flight (`Claimed`,
-  `Needs Review`, Fraud's `Awaiting Items` / `Pending Approval`) swaps assignee
+  `Needs corrections`, Fraud's `Awaiting Items` / `Pending Approval`) swaps assignee
   in place with its status untouched. Closed tasks (`Completed` / `Archived` /
   `Cancelled`) cannot be handed off. Handing a task to whoever already holds it
   is refused (#208), as is handing a task to **yourself**, by anyone. The picker
@@ -80,9 +80,9 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   claims leaderboard recomputes live from the current `assignee`.
 - `GET /api/users/directory` returns `roles` alongside `id`/`displayName` so the
   picker can filter to file checkers on a Fraud Check.
-- `Claimed -> Needs Review` is the **assignee's** move, on an LOI Check only
+- `Claimed -> Needs corrections` is the **assignee's** move, on an LOI Check only
   ([ADR-0007](../adr/0007-loi-corrections-loop.md)); a creator is refused
-- `Needs Review -> Claimed` and `Needs Review -> Completed` are the
+- `Needs corrections -> Claimed` and `Needs corrections -> Completed` are the
   **creator's** alone; the assignee waits (and keeps the notes thread)
 
 ## Admin Panel (Users & Roles)

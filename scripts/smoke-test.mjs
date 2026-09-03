@@ -689,7 +689,7 @@ const run = async () => {
       user: users.creator,
       body: { status: "NEEDS_REVIEW" }
     });
-    expectStatus(creatorCannotReview.status, 400, "creator refused needs review on their own request", creatorCannotReview.json);
+    expectStatus(creatorCannotReview.status, 400, "creator refused needs corrections on their own request", creatorCannotReview.json);
     assert.match(creatorCannotReview.json.error ?? "", /only the assignee/i, "the refusal names the rule");
     pushPass("a creator cannot send their own request to needs_review (ADR-0007)");
 

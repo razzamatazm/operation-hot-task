@@ -14,10 +14,12 @@ Not yet implemented — do not present as current state. Everything else under
   loan, the human pastes it into the create form and presses Create.
 - **The rest of the LOI corrections loop.** The permissions half shipped in
   #236 (`NEEDS_REVIEW` is LOI-only, entered by the assignee, acted on by the
-  creator — see [status-model.md](status-model.md)). Still to come: the rename
-  to "Needs corrections" (#237), the checker's confirming close also archiving
-  the task (#238), and notifying whoever did not press the button and recording
-  who did (#239). See [ADR-0007](../adr/0007-loi-corrections-loop.md).
+  creator — see [status-model.md](status-model.md)), and the names are in place
+  with it (#237): the state displays as "Needs corrections", a claimed LOI as
+  "In review", and the way back is `Send back to checker`. Still to come: the
+  checker's confirming close also archiving the task (#238), and notifying
+  whoever did not press the button and recording who did (#239). See
+  [ADR-0007](../adr/0007-loi-corrections-loop.md).
 
 Shipped, previously listed here: the Teams tab, the notification bot, Entra ID
 SSO, the Azure Web App deployment, all of

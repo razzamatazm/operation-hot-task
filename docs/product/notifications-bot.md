@@ -352,11 +352,11 @@ Two consequences worth stating outright:
 - **`NEEDS_REVIEW` is a handoff to the creator, and its button is the
   creator's.** Only the assignee can send an LOI there, only from `CLAIMED`;
   from there the creator either completes it or sends it back to `CLAIMED`
-  (`Undo Review`, a web hamburger action that has never been on a card). The
-  assignee cannot complete it and cannot pull it back; they keep the notes
-  thread. Admin buys nothing here either — admin is back-end access, not a seat
-  (#143 / ADR-0003). `pendingPartyFor` reports the creator, so the web row's
-  `Waiting on` and the card's button point at the same person.
+  (`Send back to checker`, a web hamburger action that has never been on a
+  card). The assignee cannot complete it and cannot pull it back; they keep the
+  notes thread. Admin buys nothing here either — admin is back-end access, not a
+  seat (#143 / ADR-0003). `pendingPartyFor` reports the creator, so the web
+  row's `Waiting on` and the card's button point at the same person.
 - **A vacant seat gets no button.** `pendingPartyFor` names a seat, not a
   person: a Fraud Check released back to the pool still reads as waiting on the
   checker, but nobody is sitting there, so the card offers nothing until someone
@@ -438,6 +438,6 @@ What this means in practice:
 - Activity feed alerts trigger on:
   - State change
   - Hourly reminder cadence during business hours
-- Bounce-back condition is `Needs Review`
+- Bounce-back condition is `Needs corrections` (stored as `NEEDS_REVIEW`)
 - Pickup scope is tasks claimable by the user
 - Due condition is overdue-only

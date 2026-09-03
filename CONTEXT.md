@@ -19,9 +19,11 @@ bucket a task lands in and the button it offers never disagree).
 
 **Completion chain**:
 The ordered sequence of *sections* a task passes through before it is complete.
-A standard task is a single section (assignee works it to `COMPLETED`); a Loan
-Docs task has several, passing the ball assignee → creator → assignee through
-its merge phases.
+A standard task is a single section (assignee works it to `COMPLETED`). Two
+types pass the ball assignee → creator → assignee: a Loan Docs task through its
+merge phases, and an LOI through its corrections loop, where the checker sends
+the request back to its creator as _Needs corrections_ and the creator returns
+it for a confirming look ([ADR-0007](docs/adr/0007-loi-corrections-loop.md)).
 
 **Section**:
 One leg of the completion chain — the part of the work a single party must
@@ -75,9 +77,12 @@ every task type. See [ADR-0003](docs/adr/0003-creator-is-never-assignee.md).
 
 **Seat**:
 Which side of a task's exchange a person occupies *on that task* — the checker
-or the requester of a Fraud Check. A fact about the task, distinct from _Role_
-(what you are allowed to do anywhere) and from _Party_ (creator-or-assignee,
-which is type-agnostic and takes no side).
+or the requester. Two types have seats: a Fraud Check, and an LOI, whose
+assignee is the checker (a claimed LOI displays as _In review_ because that is
+what they are doing to it) and whose creator is the requester who takes the
+corrections. A fact about the task, distinct from _Role_ (what you are allowed
+to do anywhere) and from _Party_ (creator-or-assignee, which is type-agnostic
+and takes no side).
 _Avoid_: using "role" for this — a role gates entry to a seat, it is not one
 
 **Role**:
