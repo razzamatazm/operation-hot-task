@@ -13,7 +13,7 @@
  * The panel itself is React and cannot be imported into a node script. It is
  * covered the way `corrections-permissions-sim-test.mjs` covers the ladder: one
  * level down, at the shared predicate the panel renders from
- * (`checkedPanelExits`), asserted over the whole task-type x status x seat
+ * (`canUseCheckedPanel`), asserted over the whole task-type x status x seat
  * matrix against the answer the server gives on the click. That is the
  * agreement ADR-0007 exists to keep, and it is the half a screenshot cannot
  * check.
@@ -30,8 +30,8 @@ import os from "node:os";
 import path from "node:path";
 
 import { SYSTEM_ACTOR, TASK_STATUSES, TASK_TYPES } from "../packages/shared/dist/types.js";
-import { canTransitionStatus, checkedPanelExits } from "../packages/shared/dist/workflow.js";
-import { ACTION_LABELS, GOOD_TO_GO_NOTE, needsFixesNote } from "../packages/shared/dist/labels.js";
+import { canTransitionStatus, canUseCheckedPanel } from "../packages/shared/dist/workflow.js";
+import { ACTION_LABELS, GOOD_TO_GO_NOTE, NEEDS_FIXES_NOTE_REQUIRED, needsFixesNote } from "../packages/shared/dist/labels.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
@@ -96,8 +96,7 @@ await check("every exit the panel draws is a move the server accepts", () => {
   for (const cell of CELLS) {
     const task = taskFor(cell);
     for (const viewer of [...PEOPLE, SYSTEM]) {
-      const exits = checkedPanelExits(task, viewer);
-      if (!exits) {
+      if (!canUseCheckedPanel(task, viewer)) {
         continue;
       }
       for (const [exit, target] of [["Good to go", "COMPLETED"], ["Needs fixes", "NEEDS_REVIEW"]]) {
@@ -115,22 +114,22 @@ await check("the panel is drawn on exactly one cell: the checker holding a claim
   for (const cell of CELLS) {
     const task = taskFor(cell);
     const applies = cell.taskType === "LOI" && cell.status === "CLAIMED" && !cell.unassigned;
-    assert.equal(Boolean(checkedPanelExits(task, ASSIGNEE)), applies, `${cellName(cell)}: the assignee`);
-    assert.equal(checkedPanelExits(task, CREATOR), undefined, `${cellName(cell)}: never the creator — a creator never enters corrections`);
-    assert.equal(checkedPanelExits(task, OBSERVER), undefined, `${cellName(cell)}: never a bystander, admin or not`);
+    assert.equal(canUseCheckedPanel(task, ASSIGNEE), applies, `${cellName(cell)}: the assignee`);
+    assert.equal(canUseCheckedPanel(task, CREATOR), false, `${cellName(cell)}: never the creator — a creator never enters corrections`);
+    assert.equal(canUseCheckedPanel(task, OBSERVER), false, `${cellName(cell)}: never a bystander, admin or not`);
   }
 });
 
 await check("both halves are open together or the panel is not drawn at all", () => {
   /* A panel with one dead half is worse than no panel: the checker taps the
-     control that promises two exits and finds one of them refuses. So the
-     answer is a pair, and it is only ever a pair of yeses. */
+     control that promises two exits and finds one of them refuses. So the one
+     answer is only ever yes when both moves are. */
   for (const cell of CELLS) {
     for (const viewer of [...PEOPLE, SYSTEM]) {
-      const exits = checkedPanelExits(taskFor(cell), viewer);
-      if (exits) {
-        assert.deepEqual(exits, { complete: true, needsFixes: true }, `${cellName(cell)}: ${viewer.displayName}`);
-      }
+      const task = taskFor(cell);
+      const complete = canTransitionStatus(task, "COMPLETED", viewer).ok;
+      const needsFixes = canTransitionStatus(task, "NEEDS_REVIEW", viewer).ok;
+      assert.equal(canUseCheckedPanel(task, viewer), complete && needsFixes, `${cellName(cell)}: ${viewer.displayName}`);
     }
   }
 });
@@ -142,6 +141,8 @@ await check("the labels come from the shared module, one string per action", () 
   // The trigger rides the 116px slot; `Approve Merge` sets that ceiling.
   assert.ok(ACTION_LABELS.CHECKED.length <= ACTION_LABELS.APPROVE_MERGE.length, "the trigger fits the slot");
   assert.equal(needsFixesNote("the borrower name"), "Needs fixes: the borrower name");
+  // The held-back button and the server's refusal say the same sentence.
+  assert.match(NEEDS_FIXES_NOTE_REQUIRED, /requires a note/i);
   assert.ok(needsFixesNote("x").startsWith(ACTION_LABELS.NEEDS_FIXES), "the thread prefix is the label, not a second string");
 });
 
@@ -187,7 +188,10 @@ await check("Needs fixes will not proceed until a note is written", async () => 
   const { service } = await setup();
   const task = await claimedTask(service);
 
-  await refused(() => service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE), /requires a note/i, "no note at all");
+  /* Asserted against the shared constant, not a paraphrase: the panel's
+     held-back button shows this exact sentence, so the control cannot teach a
+     different rule from the one that stops it. */
+  await refused(() => service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE), new RegExp(NEEDS_FIXES_NOTE_REQUIRED), "no note at all");
   await refused(() => service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE, "   "), /requires a note/i, "and whitespace is not a finding");
   assert.equal((await service.getTask(task.id)).status, "CLAIMED", "the task has not moved");
   assert.deepEqual(threadTexts(await service.getTask(task.id)), [], "and nothing was written");

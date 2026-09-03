@@ -286,9 +286,9 @@ reads a neighbouring predicate instead).
 One cell sits ahead of the whole ladder: a **claimed LOI held by its checker**
 renders the Checked panel (#231) instead of a button, and the `CLAIMED`
 Complete branch stands down for it, so the two can never both appear. The
-condition is `checkedPanelExits` from `packages/shared` — it asks
-`canTransitionStatus` for both exits and answers as a pair, so the panel is
-never drawn with a dead half, and the view never re-derives who may do what.
+condition is `canUseCheckedPanel` from `packages/shared` — it asks
+`canTransitionStatus` for both exits and answers once, so the panel is never
+drawn with a dead half, and the view never re-derives who may do what.
 `Checked` replaces `Complete` there and nowhere else; every other task type's
 claimed row is byte-for-byte what it was. The trigger is not called `Complete`
 because pressing it completes nothing — it opens a panel offering `Good to go`

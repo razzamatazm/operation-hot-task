@@ -46,6 +46,7 @@ import {
   GOOD_TO_GO_NOTE,
   hasCorrectionsState,
   needsFixesNote,
+  NEEDS_FIXES_NOTE_REQUIRED,
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
@@ -818,7 +819,7 @@ export class TaskService {
        different move from a different status and writes nothing here. */
     const fixesNote = next === "NEEDS_REVIEW" ? reviewNotes?.trim() : undefined;
     if (next === "NEEDS_REVIEW" && !fixesNote && !isSystemActor(user)) {
-      throw new Error("Sending a task for corrections requires a note saying what needs fixed");
+      throw new Error(NEEDS_FIXES_NOTE_REQUIRED);
     }
 
     const now = new Date().toISOString();

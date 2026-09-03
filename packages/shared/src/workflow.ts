@@ -888,28 +888,24 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
    problems tended to end as a silent completion with a note nobody had to
    write.
 
-   Returned as a pair because the control is a pair. A surface asking "do I draw
+   One answer, because the control is one control. A surface asking "do I draw
    the panel" is really asking whether BOTH exits are open to this viewer, and
-   answering that from two separate calls is how a panel ends up drawn with one
-   dead half. Both halves are `canTransitionStatus` — the exact question the
-   server runs on the click — so the panel cannot offer a move the server then
-   refuses, which is the fault ADR-0007 exists to close.
+   leaving it to read two predicates and combine them itself is how a panel ends
+   up drawn with one dead half. Both halves are `canTransitionStatus` — the
+   exact question the server runs on the click — so the panel cannot offer a
+   move the server then refuses, which is the fault ADR-0007 exists to close.
 
-   `undefined` means this viewer gets no panel: not their task, not an LOI, not
-   claimed, or one of the two moves is shut. The caller then falls through to
-   whatever its ladder offered before, which on every other task type is the
-   plain `Complete` this control replaces on an LOI and nowhere else. */
-export const checkedPanelExits = (
-  task: LoanTask,
-  user: UserIdentity
-): { complete: boolean; needsFixes: boolean } | undefined => {
-  if (!hasCorrectionsState(task) || task.status !== "CLAIMED") {
-    return undefined;
-  }
-  const complete = canTransitionStatus(task, "COMPLETED", user).ok;
-  const needsFixes = canTransitionStatus(task, "NEEDS_REVIEW", user).ok;
-  return complete && needsFixes ? { complete, needsFixes } : undefined;
-};
+   The two calls are the whole rule, with no type or status guard in front of
+   them: `NEEDS_REVIEW` is refused for every type but LOI and from every status
+   but CLAIMED, and `COMPLETED` from CLAIMED is the assignee's alone. Restating
+   either here would be a second copy of a rule that already lives one function
+   away — the drift ADR-0007 was written to end.
+
+   `false` means this viewer gets no panel, and the caller falls through to
+   whatever its ladder offered before: on every other task type that is the
+   plain `Complete` this control replaces on a claimed LOI and nowhere else. */
+export const canUseCheckedPanel = (task: LoanTask, user: UserIdentity): boolean =>
+  canTransitionStatus(task, "COMPLETED", user).ok && canTransitionStatus(task, "NEEDS_REVIEW", user).ok;
 
 /* Out of it: the creator, and only the creator. They either complete the task
    (the common case — a typo needs no second opinion) or send it back to the

@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, checkedPanelExits, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -982,21 +982,41 @@ const CheckedPanel = ({
   const [note, setNote] = useState("");
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const close = useCallback(() => {
-    setOpen(false);
+  /* One place that puts the panel back to its opening state, so closing it and
+     backing out of the note stage can't drift into leaving a stale draft
+     behind. */
+  const toChoice = useCallback(() => {
     setStage("choice");
     setNote("");
   }, []);
+  /* Ties the held-back button to the sentence explaining it, per instance —
+     many rows render this panel and the ids must not collide. */
+  const blockedId = useId();
 
   /* The note stage is a good deal taller than the choice stage, so a panel that
-     flipped up has to re-anchor when the composer appears. */
+     flipped up has to re-anchor when the composer appears. An outside click
+     dismisses without taking focus: the click has already put focus where the
+     person aimed it, and yanking it back to this row would undo that. */
   const { triggerRef, panelRef, style: panelStyle } = useAnchoredPanel<HTMLButtonElement>({
     open,
     align: "right",
     fallbackWidth: CHECKED_PANEL_WIDTH,
-    onDismiss: close,
+    onDismiss: () => close(false),
     remeasureKey: stage
   });
+
+  /* Closing by keyboard or by taking an exit hands focus back to the trigger.
+     The panel is portaled to the body, so without this a keyboard user who
+     opens it, presses Escape and carries on tabbing resumes from
+     `document.body` — the top of the page, nowhere near the row they were
+     working. */
+  const close = useCallback((focusTrigger = true) => {
+    setOpen(false);
+    toChoice();
+    if (focusTrigger) {
+      triggerRef.current?.focus();
+    }
+  }, [toChoice, triggerRef]);
 
   useEffect(() => {
     if (open && stage === "note") {
@@ -1067,18 +1087,25 @@ const CheckedPanel = ({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />
+              {/* Disabled rather than hidden, and it says why in words rather
+                  than only in a tooltip: a disabled button raises no hover
+                  events, so a `title` on it would never render (the same trap
+                  #184's blocked Submit works around by hanging its sentence on
+                  the wrapper). The sentence is the server's own refusal, so the
+                  control cannot teach a different rule from the one stopping
+                  it. `aria-describedby` puts it on the assistive path too. */}
+              {!trimmed && (
+                <span className="checked-panel-blocked" id={blockedId}>{NEEDS_FIXES_NOTE_REQUIRED}</span>
+              )}
               <div className="checked-panel-actions">
-                <button type="button" className="btn-sm btn-ghost" onClick={() => { setStage("choice"); setNote(""); }}>
+                <button type="button" className="btn-sm btn-ghost" onClick={toChoice}>
                   Back
                 </button>
-                {/* Disabled rather than hidden, and it carries the same
-                    requirement the server would refuse with — the checker
-                    should see that this is the exit and why it won't go yet. */}
                 <button
                   type="button"
                   className="btn-sm"
                   disabled={!trimmed}
-                  title={trimmed ? undefined : "Say what needs fixed before sending it back"}
+                  aria-describedby={trimmed ? undefined : blockedId}
                   onClick={() => { onBeforeAction(); close(); void onTransition(task.id, "NEEDS_REVIEW", trimmed); }}
                 >
                   {ACTION_LABELS.NEEDS_FIXES}
@@ -1797,13 +1824,13 @@ const TaskCard = memo(({
   let primaryAction: QuickAction | null = null;
   /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
      checker holding it, and only when the server would accept BOTH moves —
-     `checkedPanelExits` asks `canTransitionStatus` twice and answers as a pair,
+     `canUseCheckedPanel` asks `canTransitionStatus` for both and answers once,
      so the panel can never be drawn with a dead half. When it is set the slot
      hosts the panel instead of a button, and the Complete branch below stands
      down: on this one cell `Checked` IS the Complete branch, wearing the name
      that tells the truth about what pressing it does. Everywhere else the
      ladder is byte-for-byte what it was. */
-  const checkedExits = showActions && !mini ? checkedPanelExits(task, user) : undefined;
+  const showCheckedPanel = showActions && !mini && canUseCheckedPanel(task, user);
   if (showActions) {
     // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
     // task sitting in the pool with no assignee at whatever status it was
@@ -1831,7 +1858,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if (!checkedExits && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!showCheckedPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -2506,7 +2533,7 @@ const TaskCard = memo(({
           {/* Mini (closed) rows never have a primary action — skip the
               spacer entirely instead of reserving its 116px, which used to
               strand empty space between the outcome stamp and the menu. */}
-          {!mini && (checkedExits ? (
+          {!mini && (showCheckedPanel ? (
             /* #231: the LOI checker's two exits, in the slot the plain
                Complete used to hold. First in the chain because on this cell it
                IS the ladder's Complete branch — that branch stands down for it

@@ -1621,6 +1621,15 @@ button.btn-good:hover {
   width: 100%;
   resize: vertical;
 }
+/* Why the held-back exit won't go, in words rather than a tooltip: a disabled
+   button raises no hover events, so a `title` on it would never render. Same
+   reasoning as `.task-card-quick-action-blocked` (#184), and the sentence is
+   the server's own refusal. */
+.checked-panel-blocked {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
 .checked-panel-actions {
   display: flex;
   gap: 8px;

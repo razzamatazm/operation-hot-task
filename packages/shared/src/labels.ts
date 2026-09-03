@@ -98,6 +98,13 @@ export type ActionLabelKey = keyof typeof ACTION_LABELS;
 export const GOOD_TO_GO_NOTE = "Good to go!";
 export const needsFixesNote = (text: string): string => `${ACTION_LABELS.NEEDS_FIXES}: ${text}`;
 
+/* Why `Needs fixes` won't go without a note. The server refuses the transition
+   with this sentence and the panel's held-back button carries the same one, so
+   the control never teaches a different rule from the one that stops it — the
+   discipline #184's blocked Submit already follows, and the drift this module
+   exists to prevent. */
+export const NEEDS_FIXES_NOTE_REQUIRED = "Sending a task for corrections requires a note saying what needs fixed";
+
 /* The two statuses whose stored identifier and displayed name deliberately
    differ (#237, ADR-0007 rule 4). Every surface that turns a status into words
    for a person — the web's timeline rail and chip, the bot's DM confirm — asks
