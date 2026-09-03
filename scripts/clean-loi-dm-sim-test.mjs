@@ -122,12 +122,12 @@ const run = async () => {
     assert.deepEqual(shape(loi.events), shape(value.events), "same notification shape as any other type");
   }
 
-  // 5. Closing an LOI out of corrections reads the same, for now. The creator
-  //     closes a task they've just fixed themselves (NEEDS_REVIEW → COMPLETED,
-  //     ADR-0007), and this DM can't yet tell that closure from the checker's.
-  //     Pinned rather than endorsed: #239 owns the corrections-loop
-  //     notifications and the record of who closed, and it is the ticket that
-  //     gets to split them.
+  // 5. Closing an LOI out of corrections reads differently, and goes the other
+  //     way. The creator closes a task they've just fixed themselves
+  //     (NEEDS_REVIEW → COMPLETED, ADR-0007), so the per-type "clean check"
+  //     wording would be the wrong news for the wrong reader: #239 gives that
+  //     closure its own "closed after corrections" line and sends it to the
+  //     assignee, who is the one who didn't press the button.
   {
     const { service, events } = await setup();
     const task = await service.createTask({ folderName: FOLDER, taskType: "LOI", notes: "n" }, CREATOR);
@@ -137,8 +137,8 @@ const run = async () => {
     await service.settleBackgroundWork();
     const dms = dmsFor(events, "COMPLETED");
     assert.equal(dms.length, 1, "one completion DM out of corrections");
-    assert.equal(dms[0].message, "Good to go!");
-    assert.deepEqual(dms[0].recipientUserIds, [CREATOR.id], "still the requester");
+    assert.equal(dms[0].message, `${CREATOR.displayName} closed ${FOLDER} after corrections — nothing more needed from you`);
+    assert.deepEqual(dms[0].recipientUserIds, [ASSIGNEE.id], "the party who did not close it");
   }
 
   // 6. The rule lives in shared, and it is per-type rather than per-string.

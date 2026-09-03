@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -1588,17 +1588,20 @@ const TaskCard = memo(({
      in the collapsed row's action cell — open regardless of whether the
      row itself is expanded. */
   const [menuOpen, setMenuOpen] = useState(false);
-  /* When the current assignee took the task (#166), for the third line of the
-     menu's timestamp block. Kept against the assignee it was fetched for, so a
-     handoff while the card is mounted can't leave the previous assignee's start
-     time sitting under the new one's name — a stale answer here is a
-     misattribution, not a cosmetic lag.
+  /* The task's history, for the lines of the menu's timestamp block that are
+     read back out of it rather than stored on the task: when the current
+     assignee took it (#166) and who closed it (#239).
+
+     Kept against a key naming everything the answers depend on — the assignee
+     and the closed status — so a handoff or a close while the card is mounted
+     can't leave the previous answer sitting under the new name. A stale answer
+     here is a misattribution, not a cosmetic lag.
 
      Per-card, per-mount, and deliberately without an invalidation scheme:
-     ADR-0005 declined to persist this instant precisely because it is reference
-     detail behind a menu. */
-  const [assigneeSince, setAssigneeSince] = useState<{ assigneeId: string; at: string | undefined } | undefined>(undefined);
-  const assigneeSinceInFlight = useRef<string | undefined>(undefined);
+     ADR-0005 declined to persist the claim instant precisely because it is
+     reference detail behind a menu, and the closer is the same kind of thing. */
+  const [menuHistory, setMenuHistory] = useState<{ key: string; events: TaskHistoryEvent[] } | undefined>(undefined);
+  const menuHistoryInFlight = useRef<string | undefined>(undefined);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -1609,40 +1612,54 @@ const TaskCard = memo(({
   }, [cancelStage]);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const assigneeId = task.assignee?.id;
-  /* Fetch the history when the menu opens and the task has an assignee (#166).
-     Keyed on `menuOpen` rather than hung off the hamburger's onClick because
-     the collapsed row's cancel shortcut opens the panel too, and an onClick
-     handler would leave that door without the line.
+  /* Deliberately narrower than the component's `isClosed` (`CLOSED_STATUSES`),
+     which also covers `CANCELLED`: a cancellation is the creator calling the
+     request off, and there is no closure row and nobody to name. */
+  const hasCloserToName = task.status === "COMPLETED" || task.status === "ARCHIVED";
+  /* Everything the fetched history is asked about. A change to any of it makes
+     the held answer somebody else's, so it re-fetches rather than re-labels. */
+  const historyKey = `${assigneeId ?? ""}|${hasCloserToName ? task.status : ""}`;
+  const wantsHistory = Boolean(assigneeId) || hasCloserToName;
+  /* Fetch the history when the menu opens and it has something to answer (#166,
+     #239). Keyed on `menuOpen` rather than hung off the hamburger's onClick
+     because the collapsed row's cancel shortcut opens the panel too, and an
+     onClick handler would leave that door without the lines.
 
-     One request per assignee per mount: an answered assignee short-circuits,
-     and an in-flight one is guarded by a ref so a quick close-and-reopen can't
-     fire a second. A read that failed records nothing, so the next open
-     retries — the cost of a retry is one GET, and the cost of not retrying is a
-     line that stays missing for as long as the card lives. An empty history is
-     an answer, not a failure, and is recorded as one.
+     One request per key per mount: an answered key short-circuits, and an
+     in-flight one is guarded by a ref so a quick close-and-reopen can't fire a
+     second. A read that failed records nothing, so the next open retries — the
+     cost of a retry is one GET, and the cost of not retrying is a line that
+     stays missing for as long as the card lives. An empty history is an answer,
+     not a failure, and is recorded as one.
 
      The in-flight ref is cleared only by the request that set it: a handoff
      mid-flight starts a second request, and the first one landing afterwards
      must not clear the guard the second is relying on.
 
-     Nothing here awaits the render: the other two timestamp lines are already
-     on screen, and this one appears underneath them when the answer lands. */
+     Nothing here awaits the render: the first two timestamp lines are already
+     on screen, and these appear underneath them when the answer lands. */
   useEffect(() => {
-    if (!menuOpen || !assigneeId) return;
-    if (assigneeSince?.assigneeId === assigneeId) return;
-    if (assigneeSinceInFlight.current === assigneeId) return;
-    assigneeSinceInFlight.current = assigneeId;
+    if (!menuOpen || !wantsHistory) return;
+    if (menuHistory?.key === historyKey) return;
+    if (menuHistoryInFlight.current === historyKey) return;
+    menuHistoryInFlight.current = historyKey;
     let live = true;
-    void taskHistory.read(task.id).then((history) => {
-      if (assigneeSinceInFlight.current === assigneeId) assigneeSinceInFlight.current = undefined;
-      if (live && history) setAssigneeSince({ assigneeId, at: currentAssigneeSince(history) });
+    void taskHistory.read(task.id).then((events) => {
+      if (menuHistoryInFlight.current === historyKey) menuHistoryInFlight.current = undefined;
+      if (live && events) setMenuHistory({ key: historyKey, events });
     });
     return () => {
       live = false;
     };
-  }, [menuOpen, assigneeId, task.id, taskHistory, assigneeSince]);
-  /* Only ever the answer for the assignee on the card right now. */
-  const claimedAt = assigneeSince && assigneeSince.assigneeId === assigneeId ? assigneeSince.at : undefined;
+  }, [menuOpen, wantsHistory, historyKey, task.id, taskHistory, menuHistory]);
+  /* Only ever the answer for the task as it is on the card right now. */
+  const answeredHistory = menuHistory && menuHistory.key === historyKey ? menuHistory.events : undefined;
+  const claimedAt = assigneeId && answeredHistory ? currentAssigneeSince(answeredHistory) : undefined;
+  /* Who actually closed it, which since ADR-0007 is not always the assignee.
+     Absent — not guessed from the assignee — on any task whose closure predates
+     the named history row. */
+  const completer = hasCloserToName && answeredHistory ? completedBy(answeredHistory) : undefined;
+  const archiver = task.status === "ARCHIVED" && answeredHistory ? archivedBy(answeredHistory) : undefined;
   /* The panel is portaled to document.body and fixed-positioned from the
      hamburger's rect (#122) — as an absolutely-positioned descendant it was
      clipped away by `.task-card`'s `overflow: hidden`, which on a collapsed row
@@ -1650,10 +1667,11 @@ const TaskCard = memo(({
 
      Right-aligned: the hamburger sits to the LEFT of the primary action button,
      so a left-anchored panel would drift under it and off the card's right edge.
-     The remeasure key is the confirm row's stage and the claimed timestamp: the
-     confirm row and the "Cancelled ✓" flash swap the panel's contents, and the
-     "Claimed" line (#166) arrives after open — all three change the panel's
-     height, which moves where an up-flipped panel has to sit. The share popover the menu hosts is portaled to
+     The remeasure key is the confirm row's stage plus every line the fetched
+     history feeds: the confirm row and the "Cancelled ✓" flash swap the panel's
+     contents, and "Claimed" (#166) and "Completed by" / "Archived by" (#239)
+     arrive after open — each changes the panel's height, which moves where an
+     up-flipped panel has to sit. The share popover the menu hosts is portaled to
      the body too, so it needs the outside-click exemption: without it, picking a
      person would close the menu and take the popover down with it. */
   const { triggerRef: menuTriggerRef, panelRef: menuPanelRef, style: menuPanelStyle } =
@@ -1662,7 +1680,7 @@ const TaskCard = memo(({
       align: "right",
       fallbackWidth: MENU_PANEL_WIDTH,
       onDismiss: closeMenu,
-      remeasureKey: `${cancelStage}:${claimedAt ?? ""}`,
+      remeasureKey: `${cancelStage}:${claimedAt ?? ""}:${completer?.id ?? ""}:${archiver?.id ?? ""}`,
       keepOpenWithin: ".share-pop-panel"
     });
   /* Escape closes the menu (#122 — it had no dismissal at all). Focus is
@@ -2302,6 +2320,11 @@ const TaskCard = memo(({
       <span><b>Created</b> <time dateTime={task.createdAt}>{formatDate(task.createdAt)}</time></span>
       {timeMeta && <span><b>{timeMeta.label}</b> <time dateTime={timeMeta.iso}>{timeMeta.value}</time></span>}
       {claimedAt && <span><b>Claimed</b> <time dateTime={claimedAt}>{formatDate(claimedAt)}</time></span>}
+      {/* Who closed it (#239). A creator may close a task assigned to somebody
+          else, so "Completed" on its own would read as the assignee's sign-off —
+          and that is the one question a task history gets asked weeks later. */}
+      {completer && <span><b>Completed by</b> {completer.displayName}</span>}
+      {archiver && <span><b>Archived by</b> {archiver.displayName}</span>}
     </div>
   );
 

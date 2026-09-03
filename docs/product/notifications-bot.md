@@ -182,7 +182,24 @@
   quiet: channel messages set no `channelData.notification.alert`, and the
   activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
   which this isn't. The recipient still gets the `DM_ASSIGN` card.
-- `Merge Done` and `Completed`: DM task creator
+- `Merge Done`: DM task creator
+- `Completed`: DM **whoever did not close it** — the creator, the assignee, or
+  both if neither is the closer, and never the person who pressed the button
+  (ADR-0007 rule 6). On the ordinary path that is the creator alone, exactly as
+  before: the assignee is the one closing. This is the hand-pressed close; an
+  OOO task the scheduler wraps up on its return date keeps its own single DM to
+  the creator, unchanged. When a creator closes an LOI out of
+  corrections, the assignee is told instead, and the message names the person
+  who did it, because they could not otherwise know their task ended. A close
+  made **out of** the corrections state also reads `closed <folder> after
+  corrections` rather than the per-type completion wording below — the tail of
+  that loop is a fix being accepted, not work finishing, and the reader should
+  be able to tell which happened without opening the task. Worded off the
+  status the close came from, so the creator's other move — sending it back for
+  a confirming look — ends in an ordinary close with the ordinary wording.
+  Nothing goes to the channel either way — a closure is two-party business
+  (ADR-0002), and the `CHANNEL_COMPLETED` card edit below is a silent terminal
+  state, not a post.
 - **A completed LOI says the check came back clean** (#232). The completion DM
   used to be the bare `Done and dusted 🎉` for every type, which told the
   requester the task closed but nothing about what the check found — the
@@ -192,14 +209,13 @@
   ([ADR-0007](../adr/0007-loi-corrections-loop.md)) — so the completion the
   checker performs is the clean one. The one completion that isn't the
   checker's is a creator closing a task out of corrections
-  (`NEEDS_REVIEW → COMPLETED`), who reads the same line about a fix they made;
-  telling the two closures apart belongs to #239, which owns the
-  corrections-loop notifications and the record of who closed. Every other type
+  (`NEEDS_REVIEW → COMPLETED`), which reads its own "closed after corrections"
+  line instead (#239), so the two closures are told apart. Every other type
   keeps `Done and dusted 🎉` unchanged, and so does
   `Merge Done`. The wording lives in `completionDmMessage`
   (`packages/shared/src/types.ts`); the folder name is appended by
   `formatLifecycleDmText`, so it carries the deep link like every other
-  lifecycle notice. Recipients are unchanged — the requester, and nobody new.
+  lifecycle notice. Recipients are the ones named above.
 - `Merge Approved`: DM task assignee
 - Notes: DM counterpart user as an **interactive note card** — shows the
   recent conversation (last ~5 notes, oldest → newest) with an inline reply
