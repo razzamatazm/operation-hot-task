@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentHolderSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canMoveNeedsReview, canRestoreTask, canReturnToPool, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -1007,16 +1007,18 @@ export interface AmendApi {
 }
 
 /* Reading a task's history (#166). One member, because the web app wants one
-   answer out of it: when the current holder took the task on. Fetched lazily
+   answer out of it: when the current assignee took the task on. Fetched lazily
    when a card's hamburger opens rather than with the task list — the list can
    hold hundreds of rows and this is reference detail nobody reads on most of
    them.
 
-   Unlike `AmendApi`, it swallows its failures and resolves to an empty list. A
+   Unlike `AmendApi`, it swallows its failures and resolves to `undefined`. A
    timestamp behind a menu is not worth a toast, and the two lines above it must
-   keep rendering either way. */
+   keep rendering either way. `undefined` is "could not read", distinct from an
+   empty list, which is "this task has no history" — the caller shows nothing for
+   both but only retries the first. */
 export interface TaskHistoryApi {
-  read: (taskId: string) => Promise<TaskHistoryEvent[]>;
+  read: (taskId: string) => Promise<TaskHistoryEvent[] | undefined>;
 }
 
 export interface ChecklistApi {
@@ -1392,17 +1394,17 @@ const TaskCard = memo(({
      in the collapsed row's action cell — open regardless of whether the
      row itself is expanded. */
   const [menuOpen, setMenuOpen] = useState(false);
-  /* When the current holder took the task (#166), for the third line of the
-     menu's timestamp block. Kept against the holder it was fetched for, so a
-     handoff while the card is mounted can't leave the previous holder's start
-     time sitting under the new holder's name — a stale answer here is a
+  /* When the current assignee took the task (#166), for the third line of the
+     menu's timestamp block. Kept against the assignee it was fetched for, so a
+     handoff while the card is mounted can't leave the previous assignee's start
+     time sitting under the new one's name — a stale answer here is a
      misattribution, not a cosmetic lag.
 
      Per-card, per-mount, and deliberately without an invalidation scheme:
      ADR-0005 declined to persist this instant precisely because it is reference
      detail behind a menu. */
-  const [holderSince, setHolderSince] = useState<{ holderId: string; at: string | undefined } | undefined>(undefined);
-  const holderSinceInFlight = useRef<string | undefined>(undefined);
+  const [assigneeSince, setAssigneeSince] = useState<{ assigneeId: string; at: string | undefined } | undefined>(undefined);
+  const assigneeSinceInFlight = useRef<string | undefined>(undefined);
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
@@ -1412,36 +1414,41 @@ const TaskCard = memo(({
     return () => clearTimeout(id);
   }, [cancelStage]);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
-  const holderId = task.assignee?.id;
-  /* Fetch the history when the menu opens and the task has a holder (#166).
+  const assigneeId = task.assignee?.id;
+  /* Fetch the history when the menu opens and the task has an assignee (#166).
      Keyed on `menuOpen` rather than hung off the hamburger's onClick because
      the collapsed row's cancel shortcut opens the panel too, and an onClick
      handler would leave that door without the line.
 
-     One request per holder per mount: an answered holder short-circuits, and an
-     in-flight one is guarded by a ref so a quick close-and-reopen can't fire a
-     second. A failure records nothing, so the next open retries — the cost of a
-     retry is one GET, and the cost of not retrying is a line that stays missing
-     for as long as the card lives.
+     One request per assignee per mount: an answered assignee short-circuits,
+     and an in-flight one is guarded by a ref so a quick close-and-reopen can't
+     fire a second. A read that failed records nothing, so the next open
+     retries — the cost of a retry is one GET, and the cost of not retrying is a
+     line that stays missing for as long as the card lives. An empty history is
+     an answer, not a failure, and is recorded as one.
+
+     The in-flight ref is cleared only by the request that set it: a handoff
+     mid-flight starts a second request, and the first one landing afterwards
+     must not clear the guard the second is relying on.
 
      Nothing here awaits the render: the other two timestamp lines are already
      on screen, and this one appears underneath them when the answer lands. */
   useEffect(() => {
-    if (!menuOpen || !holderId) return;
-    if (holderSince?.holderId === holderId) return;
-    if (holderSinceInFlight.current === holderId) return;
-    holderSinceInFlight.current = holderId;
+    if (!menuOpen || !assigneeId) return;
+    if (assigneeSince?.assigneeId === assigneeId) return;
+    if (assigneeSinceInFlight.current === assigneeId) return;
+    assigneeSinceInFlight.current = assigneeId;
     let live = true;
     void taskHistory.read(task.id).then((history) => {
-      holderSinceInFlight.current = undefined;
-      if (live) setHolderSince({ holderId, at: currentHolderSince(history) });
+      if (assigneeSinceInFlight.current === assigneeId) assigneeSinceInFlight.current = undefined;
+      if (live && history) setAssigneeSince({ assigneeId, at: currentAssigneeSince(history) });
     });
     return () => {
       live = false;
     };
-  }, [menuOpen, holderId, task.id, taskHistory, holderSince]);
-  /* Only ever the answer for the holder on the card right now. */
-  const claimedAt = holderSince && holderSince.holderId === holderId ? holderSince.at : undefined;
+  }, [menuOpen, assigneeId, task.id, taskHistory, assigneeSince]);
+  /* Only ever the answer for the assignee on the card right now. */
+  const claimedAt = assigneeSince && assigneeSince.assigneeId === assigneeId ? assigneeSince.at : undefined;
   /* The panel is portaled to document.body and fixed-positioned from the
      hamburger's rect (#122) — as an absolutely-positioned descendant it was
      clipped away by `.task-card`'s `overflow: hidden`, which on a collapsed row
@@ -4367,17 +4374,19 @@ export const App = () => {
      none). `useMemo`'d for the same reason `amendApi` is: a fresh literal every
      render would defeat TaskCard's memo across the whole list.
 
-     It resolves to an empty list on failure instead of rethrowing — the only
+     It resolves to `undefined` on failure instead of rethrowing — the only
      consumer is a timestamp line that is allowed to be absent, and a toast for
      a reference detail nobody asked for out loud would be worse than the
-     missing line. */
+     missing line. `undefined` rather than `[]` so the caller can tell "we could
+     not read it" from "the task genuinely has no history": both render the same
+     nothing, but only the first is worth retrying. */
   const taskHistoryApi = useMemo<TaskHistoryApi>(() => ({
     read: async (taskId) => {
       try {
         const { history } = await apiRequest<{ history: TaskHistoryEvent[] }>(`/tasks/${taskId}/history`, { method: "GET" }, user);
         return history;
       } catch {
-        return [];
+        return undefined;
       }
     }
   }), [user]);

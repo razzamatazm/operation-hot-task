@@ -497,10 +497,10 @@ Two consequences worth keeping straight:
 - **The third line is fetched, not stored.** ADR-0005 refused to persist a claim
   timestamp on `LoanTask`, so `Claimed` is read out of
   `GET /tasks/:id/history` — the web app's first and only caller of it — and
-  reduced by `currentHolderSince` in `packages/shared`. The request fires when
+  reduced by `currentAssigneeSince` in `packages/shared`. The request fires when
   the menu opens, never with the task list, and is held per card per mount
-  against the holder it answered for: a handoff while the card is mounted must
-  not leave the previous holder's start time under the new holder's name. A
+  against the assignee it answered for: a handoff while the card is mounted must
+  not leave the previous assignee's start time under the new one's name. A
   failed or empty response shows no line and no error. The line is absent for an
   unassigned task, so an `OPEN` row's block still has two lines.
 
