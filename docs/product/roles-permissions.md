@@ -84,6 +84,11 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   ([ADR-0007](../adr/0007-loi-corrections-loop.md)); a creator is refused
 - `Needs corrections -> Claimed` and `Needs corrections -> Completed` are the
   **creator's** alone; the assignee waits (and keeps the notes thread)
+- Completing a task sent back from `Needs corrections` for a confirming look
+  also archives it, in the same action (ADR-0007 rule 5). That is the only
+  archival an assignee performs, and it is not a general power: they may do it
+  because they were asked to confirm and did. Archiving on every other path is
+  still the creator's move or the retention sweep's
 
 ## Admin Panel (Users & Roles)
 

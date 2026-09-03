@@ -350,6 +350,22 @@ export interface LoanTask {
       the "Restore" action, which returns the task to exactly that status.
       Cleared as soon as the task reaches a closed status again. */
   reopenedFrom?: TaskStatus;
+  /** LOI corrections loop only (#238, ADR-0007 rule 5): the status a task now
+      sitting with its assignee was sent back FROM, when the creator sent it
+      back for a confirming look rather than closing it themselves. Always
+      `NEEDS_REVIEW` in practice — it is typed as a status, and set off the
+      status the move came from, for the same reason `reopenedFrom` above is:
+      the breadcrumb says where the task has been, not that a flag was raised.
+
+      It is what tells a CLAIMED task that arrived this way apart from one that
+      never entered corrections, which is otherwise indistinguishable. That
+      difference is the whole of rule 5: the confirm at the tail of the loop
+      closes AND archives, because the person pressing it is confirming
+      somebody else's fix and should not be left tidying up after it.
+
+      Read through `completionTargetStatus`, never directly. Cleared when the
+      task moves anywhere else, and when a new holder arrives. */
+  awaitingConfirmationFrom?: TaskStatus;
   lastReminderAt?: string;
   reviewNotes?: ReviewNote[];
   /** FRAUD only (#44): structured outstanding-items checklist that replaces the

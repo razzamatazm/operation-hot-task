@@ -354,7 +354,7 @@ Every other type (LOI, Value, Buddy Chat, OOO, …):
 | Status | Forward step | Creator | Assignee | Anyone else |
 |---|---|---|---|---|
 | `OPEN` | — | — | — | — |
-| `CLAIMED` | Complete | — | ✅ | — |
+| `CLAIMED` | Complete (`Confirm` after corrections) | — | ✅ | — |
 | `NEEDS_REVIEW` (LOI only) | Complete | ✅ | — | — |
 | `COMPLETED` / `CANCELLED` / `ARCHIVED` | — | — | — | — |
 
@@ -363,6 +363,13 @@ Every other type (LOI, Value, Buddy Chat, OOO, …):
 creator. It is the one completion in the app that is not the assignee's, and it
 exists on no other task type — Loan Docs and Fraud Check cannot reach it, which
 is why neither of their tables has a row for it.
+
+A `CLAIMED` LOI the creator sent back out of corrections for a confirming look
+reads `Confirm` rather than `Complete`, because that press also archives the
+task (#238, ADR-0007 rule 5 — see
+[status-model.md](status-model.md)). Same transition and one request either
+way; the card only changes the word, from the same shared rule the web row
+reads, so the two cannot drift.
 
 Fraud Check renders `fraudCardActions` instead — a role-aware set keyed on the
 viewer's **seat**, which is a live `FILE_CHECKER` role plus the assignee slot for
