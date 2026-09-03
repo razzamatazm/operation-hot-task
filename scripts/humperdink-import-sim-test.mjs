@@ -45,6 +45,9 @@ const LOAN_URL = "https://humperdink.loneoakfund.com/Loans/Details/335203";
    rename or reshape the constant and this goes red rather than silently
    testing a script with no link in it. */
 const APP_ID_LINE = /^(\s*var HOT_TASK_APP_ID = )"[^"]*";$/m;
+/* The same line, capturing the value instead of the prefix, so a test can ask
+   what the file actually ships with rather than restating it. */
+const APP_ID_LINE_VALUE = /^\s*var HOT_TASK_APP_ID = "([^"]*)";$/m;
 
 const userscriptWithAppId = (appId) => {
   assert.match(USERSCRIPT, APP_ID_LINE);
@@ -158,8 +161,10 @@ const runUserscript = ({
   clipboard = "ok",
   fields = TERMS_FIELDS,
   grids = withGrids(),
-  /* Blank is what the file ships with — nobody has told it where Hot Task is,
-     so it copies and says so, exactly as it did before #198. */
+  /* Every test states the id it wants, so this default is only the "nobody has
+     told it where Hot Task is" case — the pre-#198 copy-and-tell behaviour. It
+     is deliberately NOT the shipped value: the two tests that care about what
+     the file ships with read it out of the file. */
   appId = "",
   /* "blocked" makes window.open return null, the way a popup blocker does. */
   popups = "ok",
@@ -1242,9 +1247,29 @@ const HOT_TASK_APP_ID = "6a1b2c3d-0000-4444-8888-abcdefabcdef";
 
 const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
 
-test("the file ships with no app id, so a fresh install copies and says so", async () => {
-  assert.match(USERSCRIPT, /^\s*var HOT_TASK_APP_ID = "";$/m);
-  const page = goodPage();
+/* The id the file ships with, which is our real Teams app id — the same value
+   in teams-app/operation-hot-task-teams/manifest.json. It used to ship blank for
+   each installer to fill in; that was reversed once it turned out the repo
+   already committed the id in two other places, so making eleven people look it
+   up bought nothing. Read out of the file rather than restated, so the two
+   assertions below can say "as shipped" and mean it. */
+const SHIPPED_APP_ID = USERSCRIPT.match(APP_ID_LINE_VALUE)?.[1];
+
+test("the file ships with our app id, so a fresh install opens Hot Task", async () => {
+  assert.equal(SHIPPED_APP_ID, "bca6db0b-b2b7-423f-8c22-f4348f3a0340");
+  const page = goodPage({ appId: SHIPPED_APP_ID });
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(page.opened.length, 1);
+  assert.equal(page.opened[0].href, teamsTaskDeepLink(SHIPPED_APP_ID, undefined, { createForm: true }));
+  assert.match(page.button.textContent, /Copied — opening Hot Task/);
+});
+
+/* Blanking the constant stays supported and documented: an org catalog can
+   assign an app id other than the manifest's, and copy-and-tell is the honest
+   fallback when nobody knows which. */
+test("blanked, it still copies and says to paste it yourself", async () => {
+  const page = goodPage({ appId: "" });
   await page.press();
   assert.equal(page.copied.length, 1);
   assert.deepEqual(page.opened, []);

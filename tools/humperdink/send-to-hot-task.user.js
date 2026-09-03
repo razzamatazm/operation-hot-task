@@ -44,17 +44,25 @@
 
   /* ── Where Hot Task lives (#198) ──────────────────────────
 
-     Your Teams app id for Hot Task, so the control can land you on the create
-     form after it copies. The one thing here you have to fill in; the README
-     beside this file says where to find it.
+     Our Teams app id for Hot Task, so the control can land you on the create
+     form after it copies. This is the `id` at the top of the Teams manifest,
+     and it is already committed — `teams-app/operation-hot-task-teams/manifest.json`
+     carries the same value, as does the packaged .zip beside it. Filled in
+     here rather than left for each installer, because a value the repo already
+     states in two places is not one worth making eleven people go and look up.
 
-     Leave it blank and the control behaves exactly as it did before — it
-     copies, says so, and you go to Hot Task yourself. This is convenience, not
-     capability: the paste is what carries the loan, and it works from a create
-     form opened by any route. That mirrors `teamsTaskDeepLink` in
-     packages/shared, which returns no link at all when it has no app id rather
-     than emitting a broken one. */
-  var HOT_TASK_APP_ID = "";
+     Not a secret. A Teams app id is a public identifier, like the Entra client
+     id fifteen lines below it in that manifest — which is a different id and
+     not the one this needs. No tenant id and no credential is involved either
+     way.
+
+     Blank it and the control behaves as it did before — it copies, says so,
+     and you go to Hot Task yourself. This is convenience, not capability: the
+     paste is what carries the loan, and it works from a create form opened by
+     any route. That mirrors `teamsTaskDeepLink` in packages/shared, which
+     returns no link at all when it has no app id rather than emitting a broken
+     one. */
+  var HOT_TASK_APP_ID = "bca6db0b-b2b7-423f-8c22-f4348f3a0340";
 
   /* Keep in sync with packages/shared/src/deep-link.ts. The link carries no
      data — the loan is on the clipboard — so all it says is "open the create

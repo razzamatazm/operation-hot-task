@@ -32,19 +32,26 @@ roll out. Updating means pasting the current file over the old one, which is why
 the payload carries a version number: an old script and a new Hot Task (or the
 reverse) tell you so instead of importing something half-right.
 
-## The two lines you may have to change
+## Configuration
 
-Both are near the top of the file, and nothing else in it is configuration.
+Both settings are near the top of the file, and nothing else in it is
+configuration. **Neither normally needs changing** — install the file as it is.
 
 - `@match` is pinned to `https://humperdink.loneoakfund.com/Loans/Details/*`.
   If your Humperdink lives somewhere else, change that line.
-- `HOT_TASK_APP_ID` is your Teams app id for Hot Task, which is what lets the
+- `HOT_TASK_APP_ID` is filled in with our Teams app id, which is what lets the
   button open the create form for you. It is the `id` at the top of the Teams
-  manifest (`teams-app/manifest.json` once it's built for your tenant) — the
-  same value the server runs as `TEAMS_APP_ID`. Ask whoever deployed Hot Task
-  if you don't have it.
+  manifest — the same value the server runs as `TEAMS_APP_ID`, and the same one
+  in `teams-app/operation-hot-task-teams/manifest.json`.
 
-  Leaving it blank is fine: the button then copies and says so, and you go to
+  **If the button copies but the create form never opens**, this is the first
+  thing to suspect. A custom app uploaded to Teams uses its manifest id in deep
+  links, which is what is set here; an app published through the Teams admin
+  center into the org catalog can be assigned a different id, and then this
+  value is wrong. Find the right one in the Teams admin center under Manage
+  apps, or open Hot Task in Teams and read the id out of the tab's URL.
+
+  Blanking it is always safe: the button then copies and says so, and you go to
   Hot Task yourself. The paste is what carries the loan, and it works from a
   create form opened any way you like.
 
