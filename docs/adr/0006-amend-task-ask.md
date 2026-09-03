@@ -1,6 +1,8 @@
 # 0006. A task's ask is amendable by its creator, and only its ask
 
-Status: Accepted. Implemented in
+Status: Superseded by
+[ADR-0008](0008-loi-terms-are-a-field-not-a-message.md), which keeps the urgency
+rule and overturns the rest. Was accepted and implemented in
 [#160](https://github.com/razzamatazm/operation-hot-task/issues/160)
 ([PR #223](https://github.com/razzamatazm/operation-hot-task/pull/223)).
 
