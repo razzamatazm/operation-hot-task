@@ -322,12 +322,12 @@ await check("service: the checker sends an LOI back, the creator finishes it", a
 await check("service: the creator can instead send it back for a confirming look", async () => {
   const { service } = await setup();
   const task = await claimedTask(service);
-  await service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE);
+  await service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE, "wrong loan amount");
   const back = await service.transitionStatus(task.id, "CLAIMED", CREATOR);
   assert.equal(back.status, "CLAIMED");
   assert.equal(back.assignee.id, ASSIGNEE.id, "still in the assignee's hands");
   // And the loop can run again from there.
-  await service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE);
+  await service.transitionStatus(task.id, "NEEDS_REVIEW", ASSIGNEE, "still wrong");
   assert.equal((await service.getTask(task.id)).status, "NEEDS_REVIEW");
 });
 

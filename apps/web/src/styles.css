@@ -1554,6 +1554,80 @@ button.btn-good:hover {
 .task-card-menu-times:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .task-card-menu-times b { color: var(--ink-secondary); font-weight: 600; margin-right: 5px; }
 
+/* The Checked panel (#231) — an LOI checker's two exits behind the one control
+   that used to read `Complete`. The wrapper is only there to hold the trigger
+   and stop the row toggling under it; it takes no width of its own so the
+   trigger keeps the same 116px every other quick action takes and the column
+   stays aligned whichever control lands in the slot.
+
+   The panel is portaled to document.body and fixed-positioned from the
+   trigger's rect, like the actions menu and the share popover (#113, #122):
+   `.task-card` keeps `overflow: hidden` for its rounded corners and inset
+   stripe, so an absolutely-positioned descendant would be cut away on a
+   collapsed row. Deliberately its OWN class rather than a reuse of
+   `.share-pop-panel`: that class is what the actions menu's outside-click
+   exemption (`keepOpenWithin`) keys off, and this panel is the menu's sibling,
+   not something opening out of it — wearing that class would leave the menu
+   standing when you clicked in here. z-index sits at the popover's 60 for the
+   same reason it does there: nothing layers over it, and the form overlay's 50
+   would. All colour is tokens, so the three themes come for free. */
+.checked-panel {
+  display: block;
+  justify-self: stretch;
+}
+/* Label and caret on one line, centred as a unit — the caret is an affordance
+   glyph riding with the word, not a right-aligned chevron, and shrinking it
+   keeps `Checked ▾` reading as one label. */
+.checked-panel-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.checked-panel-caret {
+  font-size: 0.7em;
+  line-height: 1;
+  opacity: 0.75;
+}
+.checked-panel-panel {
+  position: fixed;
+  z-index: 60;
+  width: 232px;
+  max-width: min(232px, 80vw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md), 0 12px 32px -14px rgba(0, 0, 0, 0.35);
+  animation: slideUp 0.14s ease-out;
+}
+/* Both exits full width and stacked: they are two answers to one question, and
+   sitting them side by side would size each to its own label — the ragged
+   result #116 spent a ticket removing from the row. */
+.checked-panel-exit {
+  width: 100%;
+}
+.checked-panel-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.checked-panel-note {
+  width: 100%;
+  resize: vertical;
+}
+.checked-panel-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 /* Share affordance (issue #41): a person-picker + Share/Copy-link row in the
    expanded body. All color comes from theme tokens so it works in every theme.
    The trigger is an icon (#58) that sits inline in the action row (same row as
@@ -2909,7 +2983,8 @@ button.btn-good:hover {
    the slot to label + gap + 116px, overflowing the 116px action track. */
 .task-card-action-cell .task-card-quick-action-slot,
 .task-card-action-cell .task-card-quick-action-waiting,
-.task-card-action-cell .task-card-quick-action-empty { grid-column: 2; }
+.task-card-action-cell .task-card-quick-action-empty,
+.task-card-action-cell .checked-panel { grid-column: 2; }
 /* The primary action's slot: normally just the button, plus a one-line reason
    underneath when the move is blocked (#184). Stacked rather than beside, so a
    blocked row keeps the same column width as every other row. */

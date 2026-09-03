@@ -47,6 +47,12 @@
     (`canMoveToNeedsReview`). A creator never sends their own request there:
     handing the task over *is* the request. There is no way in from `Completed`;
     finished work is reopened, not corrected.
+    **A note is required to make this move** (#231): the state means the checker
+    found something, and a finding nobody had to write down is a state change
+    with no content. The server refuses the transition without one, and the note
+    lands in the notes thread as `Needs fixes: <what they wrote>`. The system
+    actor is exempt — the rule is about people, and nothing the app does on its
+    own behalf has a finding to type.
   - `Needs corrections -> Completed` and `Needs corrections -> Claimed` — the
     **creator**, and only the creator (`canMoveNeedsReview`). Completing is the
     common case (a typo needs no second opinion) and is the one completion in
@@ -55,7 +61,15 @@
     complete from here and cannot pull the task back to themselves; they keep
     the notes thread. Admin confers nothing (ADR-0003); the system actor keeps
     its route in and out.
-  - In the web UI the forward move is the collapsed row's quick action; the
+  - A claimed LOI's quick action is `Checked ▾` rather than `Complete` (#231):
+    one control holding the checker's two exits, `Good to go` (which completes
+    the task and writes `Good to go!` to the thread) and `Needs fixes` (which
+    reveals the required note and then makes the move above). It replaces
+    `Complete` on that one cell and nowhere else; every other task type's
+    claimed row is unchanged. The trigger is not called `Complete` because
+    pressing it completes nothing.
+  - In the web UI the forward move out of corrections is the collapsed row's
+    quick action; the
     move back to `Claimed` is the hamburger's `Send back to checker` entry —
     worded as the creator asking for a confirming second look, not as an undo.
     Both, and the bot card's button, read `canTransitionStatus` — the same

@@ -880,6 +880,37 @@ export const canMoveToNeedsReview = (task: LoanTask, user: UserIdentity): boolea
   return isSystem(user) || isAssignee;
 };
 
+/* The checker's two exits, as one answer (#231). A checker holding an LOI can
+   finish it two ways — the check was clean, or the check found something — and
+   the collapsed row offers them behind a single `Checked` control rather than
+   putting the clean path one tap away and the other path somewhere else
+   entirely. That asymmetry is what #172 was filed about: a check that found
+   problems tended to end as a silent completion with a note nobody had to
+   write.
+
+   Returned as a pair because the control is a pair. A surface asking "do I draw
+   the panel" is really asking whether BOTH exits are open to this viewer, and
+   answering that from two separate calls is how a panel ends up drawn with one
+   dead half. Both halves are `canTransitionStatus` — the exact question the
+   server runs on the click — so the panel cannot offer a move the server then
+   refuses, which is the fault ADR-0007 exists to close.
+
+   `undefined` means this viewer gets no panel: not their task, not an LOI, not
+   claimed, or one of the two moves is shut. The caller then falls through to
+   whatever its ladder offered before, which on every other task type is the
+   plain `Complete` this control replaces on an LOI and nowhere else. */
+export const checkedPanelExits = (
+  task: LoanTask,
+  user: UserIdentity
+): { complete: boolean; needsFixes: boolean } | undefined => {
+  if (!hasCorrectionsState(task) || task.status !== "CLAIMED") {
+    return undefined;
+  }
+  const complete = canTransitionStatus(task, "COMPLETED", user).ok;
+  const needsFixes = canTransitionStatus(task, "NEEDS_REVIEW", user).ok;
+  return complete && needsFixes ? { complete, needsFixes } : undefined;
+};
+
 /* Out of it: the creator, and only the creator. They either complete the task
    (the common case — a typo needs no second opinion) or send it back to the
    assignee for a confirming look. The assignee waits: they cannot complete from

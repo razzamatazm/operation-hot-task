@@ -116,7 +116,16 @@ await check("works for every task type, for both parties — and nobody else", a
     const b = await service.addCompletedNote(id, "from assignee", ASSIGNEE);
     assert.equal(a.status, "COMPLETED");
     assert.equal(b.status, "COMPLETED");
-    assert.equal((b.reviewNotes ?? []).length, 2, `two notes recorded for ${taskType}`);
+    /* Both notes are on the thread. Counted by text rather than by length: a
+       completed LOI arrives here already carrying the `Good to go!` its
+       checker's clean exit writes (#231), which is a thread entry this test
+       neither made nor is about. */
+    const texts = (b.reviewNotes ?? []).map((note) => note.text);
+    assert.deepEqual(
+      texts.filter((text) => text.startsWith("from ")),
+      ["from creator", "from assignee"],
+      `two notes recorded for ${taskType}`
+    );
     // ADR-0003: the thread is a conversation between the two people on the
     // task, so an admin who is neither is not in it. This used to pass.
     await assert.rejects(() => service.addCompletedNote(id, "from admin", ADMIN), /creator or assignee/i);

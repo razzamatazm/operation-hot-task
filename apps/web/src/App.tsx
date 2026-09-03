@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, checkedPanelExits, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -932,6 +932,167 @@ const AssignPopover = ({
   );
 };
 
+/* ── The Checked panel (#231, from #172) ──────────────────────
+   An LOI checker holding a task can finish it two ways: the check was clean,
+   or the check found something. Both used to be reachable, but only one was a
+   button on the row — the other lived elsewhere in the UI — so the clean path
+   was one tap and the found-something path was not. A check that found
+   problems therefore tended to end as a silent Complete with a note nobody was
+   required to write.
+
+   So the row's quick action on a claimed LOI is `Checked`, and pressing it
+   opens both exits instead of taking either. The rename is deliberate: it
+   completes nothing on its own, and a button reading Complete would lie about
+   what pressing it does.
+
+   Why a panel and not two buttons: the slot is a fixed 116px — narrow enough
+   that `Send Outstanding Items` is labelled `Send Items` purely to fit — and it
+   cannot hold two. Splitting the slot and swapping the outcomes into it in
+   place were both built and driven live, and both read worse. Settled on #172;
+   don't revisit.
+
+   `Needs fixes` REQUIRES a note, which is the one new rule here. It is why the
+   panel has a second stage rather than firing straight from the choice: the
+   corrections state means the checker found something, and a finding nobody
+   had to write down is a state change with no content. The server enforces the
+   same requirement (it is the rule, not a form nicety), so the composer is
+   there to make the requirement answerable rather than to be the requirement.
+
+   Portaled and anchored like the hamburger menu and the share popover (#113,
+   #122): `.task-card` keeps `overflow: hidden` for its rounded corners and
+   inset stripe, so anything taller than a collapsed row has to leave the card.
+   Escape is handled on the panel with `stopPropagation`, the SharePopover way
+   rather than the menu's document listener — the note stage owns a textarea,
+   and one keypress should close this panel and nothing else around it. */
+const CHECKED_PANEL_WIDTH = 232;
+
+const CheckedPanel = ({
+  task,
+  onTransition,
+  onBeforeAction
+}: {
+  task: LoanTask;
+  onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
+  /* The row's `acknowledgeUnread`, run on either exit — pressing a control on a
+     row is reading it, the same as every other quick action. */
+  onBeforeAction: () => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<"choice" | "note">("choice");
+  const [note, setNote] = useState("");
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setStage("choice");
+    setNote("");
+  }, []);
+
+  /* The note stage is a good deal taller than the choice stage, so a panel that
+     flipped up has to re-anchor when the composer appears. */
+  const { triggerRef, panelRef, style: panelStyle } = useAnchoredPanel<HTMLButtonElement>({
+    open,
+    align: "right",
+    fallbackWidth: CHECKED_PANEL_WIDTH,
+    onDismiss: close,
+    remeasureKey: stage
+  });
+
+  useEffect(() => {
+    if (open && stage === "note") {
+      noteRef.current?.focus();
+    }
+  }, [open, stage]);
+
+  const trimmed = note.trim();
+
+  return (
+    <span className="checked-panel" onClick={(e) => e.stopPropagation()}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="btn-sm task-card-quick-action checked-panel-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((was) => !was); }}
+      >
+        {ACTION_LABELS.CHECKED}
+        {/* A disclosure caret, not part of the label — the label module holds
+            one string per action and a glyph is not one of them. */}
+        <span className="checked-panel-caret" aria-hidden="true">▾</span>
+      </button>
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="checked-panel-panel"
+          role="dialog"
+          aria-label={`${ACTION_LABELS.CHECKED} — how did the check go?`}
+          style={panelStyle}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            /* Swallowed: this panel can sit inside a scrolled list with other
+               Escape handlers above it, and the note stage's draft is this
+               panel's business alone. */
+            e.stopPropagation();
+            close();
+          }}
+        >
+          {stage === "choice" ? (
+            <>
+              <button
+                type="button"
+                className="btn-sm checked-panel-exit"
+                autoFocus
+                onClick={() => { onBeforeAction(); close(); void onTransition(task.id, "COMPLETED"); }}
+              >
+                {ACTION_LABELS.GOOD_TO_GO}
+              </button>
+              <button
+                type="button"
+                className="btn-sm btn-ghost checked-panel-exit"
+                onClick={() => setStage("note")}
+              >
+                {ACTION_LABELS.NEEDS_FIXES}
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="checked-panel-label">What needs fixed?</span>
+              <textarea
+                ref={noteRef}
+                className="checked-panel-note"
+                rows={3}
+                placeholder="Add a note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              <div className="checked-panel-actions">
+                <button type="button" className="btn-sm btn-ghost" onClick={() => { setStage("choice"); setNote(""); }}>
+                  Back
+                </button>
+                {/* Disabled rather than hidden, and it carries the same
+                    requirement the server would refuse with — the checker
+                    should see that this is the exit and why it won't go yet. */}
+                <button
+                  type="button"
+                  className="btn-sm"
+                  disabled={!trimmed}
+                  title={trimmed ? undefined : "Say what needs fixed before sending it back"}
+                  onClick={() => { onBeforeAction(); close(); void onTransition(task.id, "NEEDS_REVIEW", trimmed); }}
+                >
+                  {ACTION_LABELS.NEEDS_FIXES}
+                </button>
+              </div>
+            </>
+          )}
+        </div>,
+        document.body
+      )}
+    </span>
+  );
+};
+
 /* ── Fraud outstanding-items checklist (#44) ──────────────────
    The structured handoff that replaces the old free-text outstanding-items
    surface on FRAUD checks. The checker builds the list, the requester resolves
@@ -1634,6 +1795,15 @@ const TaskCard = memo(({
      refusal would carry, so the button doesn't teach a different rule. */
   type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; blockedCount?: number };
   let primaryAction: QuickAction | null = null;
+  /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
+     checker holding it, and only when the server would accept BOTH moves —
+     `checkedPanelExits` asks `canTransitionStatus` twice and answers as a pair,
+     so the panel can never be drawn with a dead half. When it is set the slot
+     hosts the panel instead of a button, and the Complete branch below stands
+     down: on this one cell `Checked` IS the Complete branch, wearing the name
+     that tells the truth about what pressing it does. Everywhere else the
+     ladder is byte-for-byte what it was. */
+  const checkedExits = showActions && !mini ? checkedPanelExits(task, user) : undefined;
   if (showActions) {
     // `canClaimTask` owns the whole rule, status included: OPEN, plus a FRAUD
     // task sitting in the pool with no assignee at whatever status it was
@@ -1661,7 +1831,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if ((task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!checkedExits && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -2336,7 +2506,13 @@ const TaskCard = memo(({
           {/* Mini (closed) rows never have a primary action — skip the
               spacer entirely instead of reserving its 116px, which used to
               strand empty space between the outcome stamp and the menu. */}
-          {!mini && (primaryAction ? (
+          {!mini && (checkedExits ? (
+            /* #231: the LOI checker's two exits, in the slot the plain
+               Complete used to hold. First in the chain because on this cell it
+               IS the ladder's Complete branch — that branch stands down for it
+               above, so the two can never both render. */
+            <CheckedPanel task={task} onTransition={onTransition} onBeforeAction={acknowledgeUnread} />
+          ) : primaryAction ? (
             /* A blocked action keeps its slot rather than vanishing: the
                requester needs to see that Submit is the next step and why it
                won't go. The title rides the wrapper because a disabled button

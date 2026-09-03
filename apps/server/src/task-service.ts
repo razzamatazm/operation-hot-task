@@ -43,6 +43,9 @@ import {
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
+  GOOD_TO_GO_NOTE,
+  hasCorrectionsState,
+  needsFixesNote,
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
@@ -796,6 +799,28 @@ export class TaskService {
       throw new Error("Sending outstanding items requires a note or at least one checklist item");
     }
 
+    /* The LOI checker's two exits (#231, ADR-0007). Both write the thread from
+       here rather than from whichever surface pressed the button, so the web
+       row, a bot card and any later caller record the same act in the same
+       words — and so the words cannot be forged by a caller sending a note
+       that says something else.
+
+       `Needs fixes` REQUIRES a note, and that requirement is the point of the
+       ticket. The corrections state means the checker found something; a
+       finding nobody had to write down is a state change with no content, and
+       an optional note whose absence means nothing is not a signal. The system
+       actor is exempt for the usual reason — the rule is about people, and
+       nothing the app does on its own behalf has a finding to type.
+
+       `Good to go` writes a bare line and needs no input, so it carries no
+       guard: any completion of a claimed LOI IS the clean exit, whichever
+       surface took it. The creator's completion out of corrections is a
+       different move from a different status and writes nothing here. */
+    const fixesNote = next === "NEEDS_REVIEW" ? reviewNotes?.trim() : undefined;
+    if (next === "NEEDS_REVIEW" && !fixesNote && !isSystemActor(user)) {
+      throw new Error("Sending a task for corrections requires a note saying what needs fixed");
+    }
+
     const now = new Date().toISOString();
     /* Everything from here to the write reads the task as it is AT WRITE TIME
        (`current`), not the copy the guards above ran against. The two differ
@@ -853,12 +878,32 @@ export class TaskService {
       if (handsOff && (current.checklist?.length ?? 0) > 0) {
         moved.checklist = commitChecklistItems(current.checklist ?? []);
       }
+      /* Every line this transition contributes to the notes thread, appended to
+         the list as it stands AT WRITE TIME (#158): a note posted while the
+         move was in flight has to survive it. `current.status` for the same
+         reason — whether this completion is a checker's clean exit is a
+         question about the status being left, and the copy the guards ran
+         against can be one move stale. */
+      const threadLines: string[] = [];
       if (outstandingNote) {
-        // Record the outstanding-items note on the task so the thread has a seed
-        // (surfaced on the DM note card below).
+        // The outstanding-items note seeds the FRAUD thread (surfaced on the DM
+        // note card below).
+        threadLines.push(outstandingNote);
+      }
+      if (fixesNote) {
+        // #231: the checker's finding, under the prefix that says which exit
+        // wrote it.
+        threadLines.push(needsFixesNote(fixesNote));
+      }
+      if (next === "COMPLETED" && current.status === "CLAIMED" && hasCorrectionsState(current)) {
+        // #231: the clean exit from an LOI check. Nothing to type, so the
+        // thread says so on the checker's behalf.
+        threadLines.push(GOOD_TO_GO_NOTE);
+      }
+      if (threadLines.length > 0) {
         moved.reviewNotes = [
           ...(current.reviewNotes ?? []),
-          { text: outstandingNote, by: { id: user.id, displayName: user.displayName }, at: now }
+          ...threadLines.map((text) => ({ text, by: { id: user.id, displayName: user.displayName }, at: now }))
         ];
       }
       if (next === "PENDING_APPROVAL") {
@@ -909,12 +954,6 @@ export class TaskService {
           moved.pooledSince = now;
           moved.lastPoolNagAt = now;
         }
-      }
-      if (next === "NEEDS_REVIEW" && reviewNotes) {
-        moved.reviewNotes = [
-          ...(current.reviewNotes ?? []),
-          { text: reviewNotes, by: { id: user.id, displayName: user.displayName }, at: now }
-        ];
       }
       // Once a task is closed again (restored, completed, cancelled, or archived)
       // it's no longer "reopened" — drop the restore breadcrumb.

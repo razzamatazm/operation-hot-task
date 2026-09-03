@@ -31,6 +31,20 @@ export const ACTION_LABELS = {
      this on. */
   CLAIM_AND_OPEN: "Claim & Open",
   COMPLETE: "Complete",
+  /* The LOI checker's two exits, and the one control that holds them (#231,
+     ADR-0007 rule 1). `CHECKED` replaces `Complete` in the collapsed row's slot
+     on a claimed LOI, and it is deliberately not called Complete: pressing it
+     completes nothing, it opens a panel asking which way the check went. The
+     disclosure caret the panel's trigger draws is an affordance glyph, not part
+     of the label, so it is not in this string.
+
+     `GOOD_TO_GO` and `NEEDS_FIXES` are the exits themselves. Both live only
+     inside that panel, never in the 116px slot, so neither is bound by the
+     ceiling `Approve Merge` sets — but `CHECKED` is, and at ~62px it has room
+     to spare. */
+  CHECKED: "Checked",
+  GOOD_TO_GO: "Good to go",
+  NEEDS_FIXES: "Needs fixes",
   ARCHIVE: "Archive",
   MERGE_DONE: "Merge Done",
   APPROVE_MERGE: "Approve Merge",
@@ -69,6 +83,20 @@ export const ACTION_LABELS = {
 } as const;
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;
+
+/* What each of the checker's two exits writes into the notes thread (#231).
+   The server writes both — it is the one place that knows the move actually
+   landed, and putting the words here rather than on the surface that asked
+   keeps the web row, a bot card and any later caller writing the same sentence
+   for the same act.
+
+   A clean check writes a bare `Good to go!`. A check that found something
+   writes what the checker typed under a prefix, so the thread reads as the
+   loop's own record and not as a stray note; the note is required, and this is
+   how it becomes legible weeks later. Append-only in both directions: a second
+   trip round the loop adds a second line rather than replacing the first. */
+export const GOOD_TO_GO_NOTE = "Good to go!";
+export const needsFixesNote = (text: string): string => `${ACTION_LABELS.NEEDS_FIXES}: ${text}`;
 
 /* The two statuses whose stored identifier and displayed name deliberately
    differ (#237, ADR-0007 rule 4). Every surface that turns a status into words

@@ -127,7 +127,7 @@ await check("an admin cannot move a needs-review task back out of it", async () 
   const service = await setup();
   // The corrections state is LOI-only and the assignee's to enter (ADR-0007).
   const task = await claimedTask(service, { taskType: "LOI" });
-  await service.transitionStatus(task.id, "NEEDS_REVIEW", WORKER);
+  await service.transitionStatus(task.id, "NEEDS_REVIEW", WORKER, "wrong loan amount");
   await refused(() => service.transitionStatus(task.id, "CLAIMED", ADMIN), /only the task creator/i);
   assert.equal((await service.getTask(task.id)).status, "NEEDS_REVIEW");
 });

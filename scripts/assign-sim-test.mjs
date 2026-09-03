@@ -131,7 +131,7 @@ await check("an in-flight task swaps assignee with its status untouched", async 
   assert.equal(swapped.assignee.id, BYSTANDER.id, "assignee swapped in place");
 
   // NEEDS_REVIEW is the other non-FRAUD in-flight status; the holder sends it.
-  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", BYSTANDER);
+  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", BYSTANDER, "wrong loan amount");
   const inReview = await ctx.service.assignTask({ taskId: task.id, target: OFFICER, actor: CREATOR });
   assert.equal(inReview.status, "NEEDS_REVIEW", "NEEDS_REVIEW is preserved across a handoff");
   assert.equal(inReview.assignee.id, OFFICER.id);
@@ -286,7 +286,7 @@ await check("handing off a NEEDS_REVIEW task fires no activity-feed alert", asyn
   }
   const task = await openTask(ctx.service, { taskType: "LOI" });
   await ctx.service.claimTask(task.id, OFFICER);
-  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER);
+  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER, "wrong loan amount");
 
   const { emitted } = await capture(ctx, () =>
     ctx.service.assignTask({ taskId: task.id, target: BYSTANDER, actor: CREATOR })
@@ -521,7 +521,7 @@ await check("the refusal says which rule refused, not the nearest one", async ()
   const ctx = await setup();
   const task = await openTask(ctx.service, { taskType: "LOI" });
   await ctx.service.claimTask(task.id, OFFICER);
-  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER);
+  await ctx.service.transitionStatus(task.id, "NEEDS_REVIEW", OFFICER, "wrong loan amount");
 
   /* The creator IS the creator, so telling them they are not is a lie the
      shared refusal exists to prevent — the reason this move is unavailable here

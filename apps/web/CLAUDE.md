@@ -243,6 +243,17 @@ hamburger sits left of the quick action); the share popover left-aligns.
 z-index: menu 55, share popover 60 — the popover opens out of the menu and
 layers over it.
 
+The Checked panel (`.checked-panel-panel`, #231) is the fourth, and the one
+that deliberately does **not** reuse `.share-pop-panel`. It is the menu's
+sibling in the action cell rather than something opening out of it, so wearing
+that class would buy it the menu's outside-click exemption and leave the menu
+standing when you clicked in here. Right-aligned like the menu (it lives in the
+quick-action slot, at the row's right edge), z-index 60, and it swallows Escape
+on the panel the way the share popover does — its note stage owns a textarea,
+and one keypress should close this panel and nothing else. Its `remeasureKey`
+is the stage: the note composer is much taller than the two-choice list, so a
+panel that flipped up has to re-anchor when it appears.
+
 Things portaling makes easy to get wrong:
 
 - The panel isn't a DOM descendant of the row, so **outside-click dismissal
@@ -270,7 +281,23 @@ The `primaryAction` ladder covers one status-and-role case per branch
 ADR-0007, gated like the `CLAIMED` Complete and the hamburger's `Send back to checker`
 by `canTransitionStatus`, the exact question the server asks on the click, so
 the row can't offer a move the server refuses; #236 is what happens when it
-reads a neighbouring predicate instead). When it produces nothing, the slot is **not**
+reads a neighbouring predicate instead).
+
+One cell sits ahead of the whole ladder: a **claimed LOI held by its checker**
+renders the Checked panel (#231) instead of a button, and the `CLAIMED`
+Complete branch stands down for it, so the two can never both appear. The
+condition is `checkedPanelExits` from `packages/shared` — it asks
+`canTransitionStatus` for both exits and answers as a pair, so the panel is
+never drawn with a dead half, and the view never re-derives who may do what.
+`Checked` replaces `Complete` there and nowhere else; every other task type's
+claimed row is byte-for-byte what it was. The trigger is not called `Complete`
+because pressing it completes nothing — it opens a panel offering `Good to go`
+and `Needs fixes`, and the second reveals a required note before it will move.
+Why a panel and not two buttons: the slot is a fixed 116px, four variants were
+built and driven live on #172, and splitting the slot or swapping the outcomes
+into it in place both read worse. Settled; don't revisit.
+
+When the ladder produces nothing, the slot is **not**
 blank by default — a bare hamburger with dead space beside it read as a
 rendering failure on your own tasks. In order:
 
