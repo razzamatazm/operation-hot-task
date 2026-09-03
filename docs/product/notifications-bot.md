@@ -21,12 +21,21 @@
   button and an **Open in Hot Task** deep link, plus in-app event. The card's
   root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
   so follow-ups can thread.
-  - Title is `[<TASK_TYPE>] <creator> <type phrase>: <file name>`,
-    e.g. `[LOAN_DOCS] Tyler needs a set of loan docs done: Smith-1042`.
-    Per-type phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked",
-    VALUE "needs a Value Check", OOO "is out of office", etc.). The file name
-    links to the task's Humperdink link when one exists. Urgency is NOT in the
-    title (it moved to the detail block).
+  - Title is `<creator> <type phrase>: <file name>`, e.g. `Tyler needs a set of
+    loan docs done: Smith-1042`, composed by `formatNewTaskHeadline`. Per-type
+    phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked", VALUE
+    "needs a Value Check", OOO "needs OOO Coverage", etc.). The file name links
+    to the task's Humperdink link when one exists. Urgency is NOT in the title
+    (it moved to the detail block).
+  - **No plain type tag on this card, by decision.** Every other notification
+    surface names the type as its `TASK_TYPE_LABELS` noun ("LOI Check"), and
+    the raw `[LOI]`-style bracket tag this card once carried is gone. It is not
+    returning as a friendly-label tag either: four of the six needs-phrases
+    already contain the label verbatim, so a tag beside the phrase stutters
+    ("Tyler needs a Fraud Check - Fraud Check"), and the two that differ
+    (`LOAN_DOCS`, `OOO`) still name themselves plainly in the sentence. The
+    type was only ever ambiguous on the cards *after* creation, which is a
+    separate problem from this card's copy.
   - Detail block is `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as
     its time-frame label ("Within 1 Hour"), not the raw colour code. Folder is
     omitted — the file name is already in the title.
@@ -62,9 +71,33 @@
   claimable → claimed → terminal — so a claim made from one card retires the
   Claim button everywhere it was posted. Never a new message: the edits are
   silent, so nobody is re-pinged as a task moves.
-  - At a terminal status the card becomes a record: `✅ Completed — <folder>`
-    (also used for ARCHIVED) or `🚫 Cancelled — <folder>`, with every action
-    button dropped except **Open in Hot Task**, which survives so the card that
+  - **Every card after creation is one headline plus one context line**, and
+    nothing else — no detail block. The context line names the four facts the
+    creation headline carried and the later edits used to drop: the task type as
+    its `TASK_TYPE_LABELS` label, the file name, the assigner, and whoever holds
+    the task now. It reads
+    `LOI Check · Smith-1042 · asked by Tyler · done by Suzie`. Composed once, by
+    `formatChannelContextLine` (`packages/shared/src/types.ts`).
+    - Headlines by stage: `<claimer> grabbed <folder>` on claim,
+      `✅ Completed — <folder>` (also used for ARCHIVED),
+      `🚫 Cancelled — <folder>`.
+    - The holder segment says how they got there: `claimed by` on the claimed
+      and cancelled cards, `done by` on the completed one, `assigned to` for a
+      task born assigned (nobody claimed that one).
+    - A segment with nothing to say is **omitted, not blanked**. A task
+      cancelled before anyone took it ends at `asked by Tyler`.
+    - **OOO carries no file name.** An OOO task's Folder Name is a Vacation
+      Description and the task has no Loan behind it, so the line is
+      `Out of Office · asked by Tyler · done by Suzie`.
+    - The facts are threaded in from the task snapshot the notification layer
+      already holds (`channelCardContext` in `apps/server/src/bot.ts`). The card
+      layer never reads the store and never re-derives a fact from the folder
+      name. The user-specific refresh path rebuilds from the live task and
+      passes the same facts, so a Teams refresh replays the card it was edited
+      to rather than reverting to a folder-only form. A card-tap claim and a web
+      claim go through the same builder and render the same body.
+  - At a terminal status the card becomes a record, with every action button
+    dropped except **Open in Hot Task**, which survives so the card that
     records the finished work is still a way into it. The URL is the one
     recorded when the card was first posted, so a card keeps pointing where it
     always pointed across a config change. With no link recorded — the case
@@ -95,7 +128,13 @@
     under anyone, so that is never silent.
 - **Task created already handed off** (`assigneeUserId` on the create payload):
   the channel post uses the **claimed-card** variant instead of the claimable
-  one — announced, with no Claim button to appear and then vanish. Deliberately
+  one — announced, with no Claim button to appear and then vanish. It keeps the
+  creation headline and reads `assigned to <assignee>` on its context line,
+  because nobody claimed it. Nothing on the task itself records that — an
+  assignee looks the same however it got there — so the thread record remembers
+  who the task was born in the hands of, and a later Teams refresh keeps saying
+  "assigned to" until the task changes hands, at which point somebody really did
+  claim it and the card says so. Deliberately
   quiet: channel messages set no `channelData.notification.alert`, and the
   activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
   which this isn't. The recipient still gets the `DM_ASSIGN` card.

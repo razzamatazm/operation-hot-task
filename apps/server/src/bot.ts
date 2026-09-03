@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
+import { ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botPrimaryAdvance, canTransitionStatus, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -30,8 +30,15 @@ interface StoredThread {
      which is the safe reading: an unmarked post is never deleted. */
   posts: Array<{ reference: Partial<ConversationReference>; activityId: string; userId?: string; kind?: "create" | "nag" }>;
   /* The claimable-card content, kept so the user-specific refresh can rebuild
-     the creator's Cancel view (and the OPEN base card) without re-deriving it. */
-  card?: { title: string; detail: string; openUrl?: string; creatorUserIds?: string[] };
+     the creator's Cancel view (and the OPEN base card) without re-deriving it.
+
+     `bornAssignedTo` is the id of the assignee a task was created already
+     handed to (ADR-0002). Nothing on the task itself records that it was never
+     claimed — `assignee` looks the same either way — so the refresh path would
+     otherwise rewrite an "assigned to X" card as "X grabbed Y" the first time
+     Teams asked for it (#193). It stops applying the moment the task changes
+     hands, which is the point at which somebody really did claim it. */
+  card?: { title: string; detail: string; openUrl?: string; creatorUserIds?: string[]; bornAssignedTo?: string };
 }
 
 type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "points" | "notes" | "startDate" | "returnDate" | "humperdinkLink">;
@@ -333,13 +340,44 @@ class ThreadStore {
 
 /* Result the bot returns to the injected claim handler, normalized so the
    bot doesn't need to know about TaskService error shapes. */
-interface ClaimOutcome {
-  ok: boolean;
-  message: string;
-  status?: string;
-  assignee?: string;
-  openUrl?: string;
-}
+/* The one place a task snapshot turns into a `ChannelCardContext` — the facts a
+   post-creation channel card needs beyond its headline (#193): who asked, for
+   which file, what kind of work, and who holds it now. Threaded in from the
+   snapshot the caller already has, so the card layer never reads the store and
+   never re-derives a fact from the folder name.
+
+   `assignee` overrides the snapshot's holder for the moment of a claim, where
+   the actor who just took the task is the truth the card should show. */
+export const channelCardContext = (
+  task: Pick<LoanTask, "taskType" | "folderName" | "createdBy" | "assignee">,
+  assignee?: string
+): ChannelCardContext => {
+  const holder = assignee ?? task.assignee?.displayName;
+  return {
+    taskType: task.taskType,
+    folderName: task.folderName,
+    createdBy: task.createdBy.displayName,
+    ...(holder ? { assignee: holder } : {})
+  };
+};
+
+/* A claim either happened or it didn't, and the two carry different things: a
+   refusal is a sentence for a toast, a success is everything the claimed card
+   needs. Modelled as a union so the invoke handler can't reach the card
+   builders without the facts they take — an "ok but no context" success would
+   otherwise render as an error toast on a task that really was claimed. */
+type ClaimOutcome =
+  | { ok: false; message: string }
+  | {
+      ok: true;
+      message: string;
+      status?: string;
+      assignee?: string;
+      openUrl?: string;
+      /* So the tapper's own card refresh renders the same enriched body the
+         channel-wide edit does. */
+      context: ChannelCardContext;
+    };
 
 interface AdvanceAction {
   status: TaskStatus;
@@ -665,48 +703,72 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
 const openUrlAction = (openUrl?: string): Record<string, unknown> =>
   openUrl ? { actions: [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: openUrl }] } : {};
 
+/* How a task born assigned (Handoff at creation, ADR-0002) names its holder.
+   Two surfaces render that card — the announcement and the later refresh — and
+   the whole point is that it does NOT read as a claim, so the wording is one
+   constant rather than a string typed twice. */
+const ASSIGNED_VERB = "assigned to";
+
+/* The subtle second line under a post-creation card's headline. Every one of
+   the three builders below renders exactly this and nothing else, so the three
+   cards can't drift into three different shapes (#193). */
+const contextBlock = (context: ChannelCardContext, assigneeVerb?: string): Record<string, unknown> => ({
+  type: "TextBlock",
+  text: formatChannelContextLine({ ...context, ...(assigneeVerb ? { assigneeVerb } : {}) }),
+  wrap: true,
+  spacing: "Small",
+  isSubtle: true
+});
+
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card, but
    "Open in Hot Task" stays so the card is still useful after claiming.
-   `assigneeLine` overrides the default "Claimed by X" attribution: a task born
+   `assigneeVerb` overrides the default "claimed by" attribution: a task born
    assigned (Handoff at creation, ADR-0002) posts this same card, and nobody
    claimed that one. */
-const claimedCard = (outcome: ClaimOutcome, openUrl?: string, assigneeLine?: string): Record<string, unknown> => ({
+const claimedCard = (params: {
+  message: string;
+  context: ChannelCardContext;
+  openUrl?: string;
+  assigneeVerb?: string;
+}): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
-    { type: "TextBlock", text: outcome.message, weight: "Bolder", wrap: true, size: "Medium" },
-    ...(outcome.assignee
-      ? [{ type: "TextBlock", text: assigneeLine ?? `Claimed by ${outcome.assignee}`, wrap: true, spacing: "Small", isSubtle: true }]
-      : [])
+    { type: "TextBlock", text: params.message, weight: "Bolder", wrap: true, size: "Medium" },
+    contextBlock(params.context, params.assigneeVerb)
   ],
-  ...openUrlAction(openUrl)
+  ...openUrlAction(params.openUrl)
 });
 
 /* Terminal state the root card is silently edited to when a task completes —
    every action button is gone, but "Open in Hot Task" survives so the card that
    records the finished work is still a way into it (#178). Also the ARCHIVED
    rendering. */
-const completedCard = (folder: string, assignee?: string, openUrl?: string): Record<string, unknown> => ({
+const completedCard = (context: ChannelCardContext, openUrl?: string): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
-    { type: "TextBlock", text: `✅ Completed — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" },
-    ...(assignee ? [{ type: "TextBlock", text: `by ${assignee}`, wrap: true, spacing: "Small", isSubtle: true }] : [])
+    { type: "TextBlock", text: `✅ Completed — ${context.folderName}`, weight: "Bolder", wrap: true, size: "Medium" },
+    contextBlock(context, "done by")
   ],
   ...openUrlAction(openUrl)
 });
 
 /* Terminal cancelled state for the root card. Keeps the link for the same
    reason — a cancellation is exactly when someone goes to look at what
-   happened. */
-const cancelledCard = (folder: string, openUrl?: string): Record<string, unknown> => ({
+   happened. A cancelled task may never have been claimed, in which case the
+   context line simply ends after the assigner. */
+const cancelledCard = (context: ChannelCardContext, openUrl?: string): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
-  body: [{ type: "TextBlock", text: `🚫 Cancelled — ${folder}`, weight: "Bolder", wrap: true, size: "Medium" }],
+  body: [
+    { type: "TextBlock", text: `🚫 Cancelled — ${context.folderName}`, weight: "Bolder", wrap: true, size: "Medium" },
+    contextBlock(context)
+  ],
   ...openUrlAction(openUrl)
 });
 
@@ -861,7 +923,11 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(claimedCard(outcome, outcome.openUrl));
+      // Same builder, same facts as the channel-wide edit: a card-tap claim and
+      // a web claim have to render the identical body (#193).
+      return cardRefreshResponse(
+        claimedCard({ message: outcome.message, context: outcome.context, ...(outcome.openUrl ? { openUrl: outcome.openUrl } : {}) })
+      );
     }
 
     if (verb === "replyNote") {
@@ -2058,9 +2124,10 @@ export class TeamsBotClient {
       const thread = await this.threads.get(taskId);
       const outcome: ClaimOutcome = {
         ok: true,
-        message: `${user.displayName} grabbed ${task.folderName}`,
+        message: formatClaimedHeadline(user.displayName, task.folderName),
         status: task.status,
         assignee: user.displayName,
+        context: channelCardContext(task, user.displayName),
         ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {})
       };
       return outcome;
@@ -2079,25 +2146,25 @@ export class TeamsBotClient {
   /* Update a task's channel card(s) to the claimed state. Called for every
      claim (web or card tap) so the Claim button disappears everywhere. A silent
      in-place edit — no new channel message, so nobody is re-pinged. */
-  async markTaskClaimed(taskId: string, message: string, assignee: string): Promise<void> {
+  async markTaskClaimed(taskId: string, message: string, context: ChannelCardContext): Promise<void> {
     const thread = await this.threads.get(taskId);
-    await this.updateTaskCard(taskId, claimedCard({ ok: true, message, assignee }, thread?.card?.openUrl));
+    await this.updateTaskCard(taskId, claimedCard({ message, context, ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {}) }));
   }
 
   /* Silently edit the channel card(s) to the terminal "completed" state. The
      link comes off the recorded thread rather than being rebuilt from the app
      id, so a card posted before a config change keeps pointing where it always
      pointed — the same read markTaskClaimed makes right above. */
-  async markTaskCompleted(taskId: string, folder: string, assignee?: string): Promise<void> {
+  async markTaskCompleted(taskId: string, context: ChannelCardContext): Promise<void> {
     const thread = await this.threads.get(taskId);
-    await this.updateTaskCard(taskId, completedCard(folder, assignee, thread?.card?.openUrl));
+    await this.updateTaskCard(taskId, completedCard(context, thread?.card?.openUrl));
   }
 
   /* Silently edit the channel card(s) to the terminal "cancelled" state — for a
      creator's card-tap Cancel and for a cancel from the web app alike. */
-  async markTaskCancelled(taskId: string, folder: string): Promise<void> {
+  async markTaskCancelled(taskId: string, context: ChannelCardContext): Promise<void> {
     const thread = await this.threads.get(taskId);
-    await this.updateTaskCard(taskId, cancelledCard(folder, thread?.card?.openUrl));
+    await this.updateTaskCard(taskId, cancelledCard(context, thread?.card?.openUrl));
   }
 
   /* Build the card a user sees when Teams auto-refreshes the user-specific view
@@ -2127,25 +2194,28 @@ export class TeamsBotClient {
         ? creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds })
         : base;
     }
-    if (task.status === "COMPLETED") {
-      return withRefresh(completedCard(task.folderName, task.assignee?.displayName, content.openUrl));
+    /* Every terminal/in-flight branch below rebuilds its card from the task, so
+       each one is handed the same context the in-place edit used. Miss this and
+       an enriched card silently reverts to the folder-only form the first time
+       Teams refreshes it (#193). */
+    const context = channelCardContext(task);
+    if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
+      return withRefresh(completedCard(context, content.openUrl));
     }
     if (task.status === "CANCELLED") {
-      return withRefresh(cancelledCard(task.folderName, content.openUrl));
+      return withRefresh(cancelledCard(context, content.openUrl));
     }
-    if (task.status === "ARCHIVED") {
-      return withRefresh(completedCard(task.folderName, task.assignee?.displayName, content.openUrl));
-    }
-    // In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state.
+    /* In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state —
+       unless this is the task that was born in somebody's hands and is still in
+       them, which nobody claimed and whose card said so when it was posted. */
+    const stillBornAssigned = Boolean(content.bornAssignedTo) && task.assignee?.id === content.bornAssignedTo;
     return withRefresh(
-      claimedCard(
-        {
-          ok: true,
-          message: `${task.assignee?.displayName ?? "Someone"} grabbed ${task.folderName}`,
-          ...(task.assignee?.displayName ? { assignee: task.assignee.displayName } : {})
-        },
-        content.openUrl
-      )
+      claimedCard({
+        message: stillBornAssigned ? content.title : formatClaimedHeadline(task.assignee?.displayName, task.folderName),
+        context,
+        ...(stillBornAssigned ? { assigneeVerb: ASSIGNED_VERB } : {}),
+        ...(content.openUrl ? { openUrl: content.openUrl } : {})
+      })
     );
   }
 
@@ -2522,18 +2592,32 @@ export class TeamsBotClient {
     openUrl?: string,
     summary?: string,
     creatorAadObjectId?: string,
-    assignedTo?: string
+    /* Present only for a task born assigned (Handoff at creation, ADR-0002),
+       carrying that assignee and their id. The card reads "assigned to" rather
+       than "claimed by" — nobody claimed this one — on the same context line
+       every other post-creation card uses (#193). */
+    assignedContext?: ChannelCardContext & { assigneeId?: string }
   ): Promise<void> {
     if (!this.adapter) {
       return;
     }
     const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
-    const card = assignedTo
-      ? claimedCard({ ok: true, message: title, assignee: assignedTo }, openUrl, `Assigned to ${assignedTo}`)
+    const card = assignedContext
+      ? claimedCard({ message: title, context: assignedContext, assigneeVerb: ASSIGNED_VERB, ...(openUrl ? { openUrl } : {}) })
       : adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
     const posts = await this.broadcastCard(card, summary?.trim() || plainSummary(title), "create");
     if (posts.length > 0) {
-      await this.threads.save({ taskId, posts, card: { title, detail, ...(openUrl ? { openUrl } : {}), creatorUserIds } });
+      await this.threads.save({
+        taskId,
+        posts,
+        card: {
+          title,
+          detail,
+          ...(openUrl ? { openUrl } : {}),
+          creatorUserIds,
+          ...(assignedContext?.assigneeId ? { bornAssignedTo: assignedContext.assigneeId } : {})
+        }
+      });
     }
   }
 

@@ -45,6 +45,14 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
   `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
+/* Headline of the channel card once somebody takes the task. Composed here
+   because two surfaces build it — the in-place edit on claim, and the
+   user-specific refresh rebuilding the same card from the live task — and a
+   claimed card that reads two ways depending on which one rendered it is the
+   drift this card family already had once (#193). */
+export const formatClaimedHeadline = (assigneeName: string | undefined, folderName: string): string =>
+  `${assigneeName ?? "Someone"} grabbed ${folderName}`;
+
 /* A Fraud Check released back to the pool is NOT a new request — it's a
    half-finished one whose checker walked away, so the channel card says so
    rather than borrowing the "needs a Fraud Check" headline and reading as a
@@ -71,6 +79,49 @@ export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
   FRAUD: "Fraud Check",
   LOAN_DOCS: "Loan Docs",
   OOO: "Out of Office"
+};
+
+/* The one context line every post-creation channel card carries under its
+   headline (#193). The claimed / completed / cancelled cards used to be rebuilt
+   from the folder name alone, which dropped the two facts a reader scrolling
+   the channel actually wants — who asked for this, and what kind of work it was
+   — the moment the card left its created state.
+
+   Reads as `LOI Check · Smith-1042 · asked by Tyler · done by Suzie`: the
+   friendly type label (the same `TASK_TYPE_LABELS` wording every DM surface
+   uses, never a second phrasing), the file name, the assigner, the current
+   holder. A segment is omitted rather than rendered empty, so a cancelled task
+   nobody claimed simply ends after the assigner.
+
+   OOO carries no file name: an OOO task's Folder Name is a Vacation
+   Description and the task has no Loan behind it, so there is nothing to name.
+
+   `assigneeVerb` is how the holder got there — "claimed by" for a real claim,
+   "done by" on the completed card, "assigned to" for a task born assigned
+   (Handoff at creation, ADR-0002), which nobody claimed. */
+export interface ChannelCardContext {
+  taskType: TaskType;
+  /** The file name, or — on OOO — the Vacation Description, which never
+      reaches the line. */
+  folderName: string;
+  /** Display name of whoever asked for the work. */
+  createdBy: string;
+  /** Display name of whoever holds it now, absent when nobody does. */
+  assignee?: string;
+}
+
+export const formatChannelContextLine = (params: ChannelCardContext & { assigneeVerb?: string }): string => {
+  const segments: string[] = [TASK_TYPE_LABELS[params.taskType]];
+  if (params.taskType !== "OOO" && params.folderName.trim()) {
+    segments.push(params.folderName.trim());
+  }
+  if (params.createdBy.trim()) {
+    segments.push(`asked by ${params.createdBy.trim()}`);
+  }
+  if (params.assignee?.trim()) {
+    segments.push(`${params.assigneeVerb ?? "claimed by"} ${params.assignee.trim()}`);
+  }
+  return segments.join(" · ");
 };
 
 /* Text of a plain lifecycle DM — the completion notice, the merge steps, the

@@ -85,6 +85,11 @@ const postOpenTask = async (client, openUrl) => {
   await client.postTaskCard("task-1", "Smith-1042 needs an LOI check", "Type: LOI Check\nDue: Aug 14", openUrl);
 };
 
+/* The facts the terminal builders are handed (#193). What they say is
+   channel-card-facts-sim-test.mjs's business; here they're just the argument
+   the link assertions need. */
+const CONTEXT = { taskType: "LOI", folderName: "Smith-1042", createdBy: "Dana Requester", assignee: "Casey Checker" };
+
 console.log("Channel terminal card sim");
 
 await check("a completed task's card keeps the deep link and drops Claim", async () => {
@@ -92,19 +97,19 @@ await check("a completed task's card keeps the deep link and drops Claim", async
   await postOpenTask(client, OPEN_URL);
   assert.deepEqual(actionTitles(cardOf(posted[0])), ["Claim", "Open in Hot Task"]);
 
-  await client.markTaskCompleted("task-1", "Smith-1042", "Casey Checker");
+  await client.markTaskCompleted("task-1", CONTEXT);
 
   // The bug in one assertion: the terminal card is still clickable.
   assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Open in Hot Task"]);
   assert.equal(cardOf(updated.at(-1)).actions[0].url, OPEN_URL, "the same URL the card carried while open");
   assert.equal(headline(cardOf(updated.at(-1))), "✅ Completed — Smith-1042");
-  assert.equal(cardOf(updated.at(-1)).body[1].text, "by Casey Checker", "the attribution line is untouched");
+  assert.equal(cardOf(updated.at(-1)).body[1].text, "LOI Check · Smith-1042 · asked by Dana Requester · done by Casey Checker");
 });
 
 await check("completion edits the posted message in place — no second post", async () => {
   const { client, posted, updated } = await botSetup();
   await postOpenTask(client, OPEN_URL);
-  await client.markTaskCompleted("task-1", "Smith-1042", "Casey Checker");
+  await client.markTaskCompleted("task-1", CONTEXT);
 
   assert.equal(posted.length, 1, "completion must not put a new card in the channel");
   assert.equal(updated.length, 1);
@@ -114,7 +119,7 @@ await check("completion edits the posted message in place — no second post", a
 await check("a cancelled task's card keeps the link and drops Cancel Task", async () => {
   const { client, updated } = await botSetup();
   await postOpenTask(client, OPEN_URL);
-  await client.markTaskCancelled("task-1", "Smith-1042");
+  await client.markTaskCancelled("task-1", CONTEXT);
 
   assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Open in Hot Task"]);
   assert.equal(headline(cardOf(updated.at(-1))), "🚫 Cancelled — Smith-1042");
@@ -124,18 +129,19 @@ await check("with no link recorded the terminal cards carry no actions key at al
   const { client, updated } = await botSetup();
   await postOpenTask(client, undefined);
 
-  await client.markTaskCompleted("task-1", "Smith-1042", "Casey Checker");
+  await client.markTaskCompleted("task-1", CONTEXT);
   // Not an empty array — TEAMS_APP_ID is unset in local and test environments,
   // so this is the deployed-today rendering and it must not change.
   assert.equal("actions" in cardOf(updated.at(-1)), false);
 
-  await client.markTaskCancelled("task-1", "Smith-1042");
+  await client.markTaskCancelled("task-1", CONTEXT);
   assert.equal("actions" in cardOf(updated.at(-1)), false);
 });
 
 const taskAt = (status) => ({
   id: "task-1",
   folderName: "Smith-1042",
+  taskType: "LOI",
   status,
   createdBy: { id: "aad-creator", displayName: "Dana Requester" },
   assignee: { id: "aad-checker", displayName: "Casey Checker" }

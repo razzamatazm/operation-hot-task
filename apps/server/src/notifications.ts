@@ -1,7 +1,7 @@
 import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
-import { TeamsBotClient, recentNoteThread } from "./bot.js";
+import { TeamsBotClient, channelCardContext, recentNoteThread } from "./bot.js";
 import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
@@ -190,7 +190,9 @@ export class TeamsNotificationProvider implements NotificationProvider {
         card.openUrl,
         card.summary,
         event.task.createdBy.id,
-        event.task.assignee?.displayName
+        event.task.assignee
+          ? { ...channelCardContext(event.task), assigneeId: event.task.assignee.id }
+          : undefined
       );
       await this.webhookIfBroadcasting({ title: card.summary, text: card.detail });
       return;
@@ -256,23 +258,21 @@ export class TeamsNotificationProvider implements NotificationProvider {
     if (event.target === "CHANNEL_CLAIMED") {
       // Silently edit every recorded root card to its claimed state (button
       // removed) — a web claim disables the card too, with no channel re-ping.
-      await this.botClient.markTaskClaimed(event.task.id, event.message, event.actor.displayName);
+      // The claimer is the actor, not whatever the snapshot's assignee happens
+      // to say, so the card names the person who just tapped.
+      await this.botClient.markTaskClaimed(event.task.id, event.message, channelCardContext(event.task, event.actor.displayName));
       return;
     }
 
     if (event.target === "CHANNEL_COMPLETED") {
       // Silently edit the root card to the terminal completed state.
-      await this.botClient.markTaskCompleted(
-        event.task.id,
-        event.task.folderName,
-        event.task.assignee?.displayName
-      );
+      await this.botClient.markTaskCompleted(event.task.id, channelCardContext(event.task));
       return;
     }
 
     if (event.target === "CHANNEL_CANCELLED") {
       // Silently edit the root card to the terminal cancelled state.
-      await this.botClient.markTaskCancelled(event.task.id, event.task.folderName);
+      await this.botClient.markTaskCancelled(event.task.id, channelCardContext(event.task));
       return;
     }
 
