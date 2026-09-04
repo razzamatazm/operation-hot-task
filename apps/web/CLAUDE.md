@@ -817,6 +817,19 @@ that wants vertical room, then the Humperdink link. Across the bottom,
 own edge, holding the two exits on the right and the one thing each mode has to
 say beside them on the left. Two columns from 980px, one from 480px.
 
+**The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
+Humperdink copies a term sheet, and an LOI Check is the only type whose request
+field is one — on the other five the paste box and its button took a paste
+nobody has. Not disabled and not left to fail on the parse: not drawn.
+
+**Every control in the top row is told to fill its column**, and to be allowed
+to shrink below its natural width. Both halves matter and neither is the
+default: a `<select>`'s natural width is its *longest option* (which is what put
+the type box under the Urgency label), and a field that under-fills leaves the
+shortfall against one gap, so four equal 14px gaps read as four different ones.
+The poop tray is the deliberate exception — content-sized, with its column
+sized to it.
+
 The footer's negative margins are tied to `.form-panel`'s padding and are
 restated in the 480px block where that padding tightens. That is the price of a
 full-bleed footer inside a padded panel; change one and change the other.

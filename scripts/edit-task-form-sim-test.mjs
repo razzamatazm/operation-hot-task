@@ -667,7 +667,7 @@ test("edit mode offers a plain box, never the loan typeahead", () => {
   const html = editing();
   assert.ok(!html.includes("loan-typeahead"), "no typeahead wrapper");
   assert.ok(!html.includes('role="combobox"'), "and no combobox");
-  assert.ok(!html.includes("Search existing loans"), "and none of its placeholder");
+  assert.ok(!html.includes("Search or type a loan"), "and none of its placeholder");
 });
 
 test("an OOO task edits a vacation description, and has no link field", () => {
@@ -901,6 +901,19 @@ test("the footer holds the exits, and the import belongs to filing alone", () =>
   assert.ok(foot.includes("Import from Humperdink"), "and so is its button");
   assert.ok(foot.includes(">Cancel<") && foot.includes(">Create Task<"), "beside the two exits");
   assert.ok(!editing().includes("Import from Humperdink"), "editing offers no import");
+});
+
+/* `Send to Hot Task` in Humperdink copies a term sheet, and an LOI Check is the
+   only task type whose request field is one. On the other five the control took
+   a paste nobody has, so it is not drawn — not disabled, not left to fail on the
+   parse. The create form opens on LOI, which is why the test above sees it. */
+test("the import is offered on an LOI Check and on nothing else", () => {
+  assert.ok(render({}).includes("Import from Humperdink"), "an LOI Check gets it");
+  for (const taskType of ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
+    const html = render({ initialValues: { taskType } });
+    assert.ok(!html.includes("Import from Humperdink"), `${taskType} does not`);
+    assert.ok(!html.includes("Paste what Send to Hot Task copied"), `${taskType} has no paste box either`);
+  }
 });
 
 test("the loan fields are no longer paired, and the sentence is in the footer", () => {

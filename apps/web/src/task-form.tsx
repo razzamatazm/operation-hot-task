@@ -433,7 +433,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
           <input
             value={form.folderName}
             autoComplete="off"
-            placeholder="Search existing loans or type a new name"
+            /* Short enough to survive the column it lives in. The long version
+               ("Search existing loans or type a new name") truncated mid-word
+               once the field joined the four-across top row, and a placeholder
+               that has to be scrolled to read is worse than a terser one. */
+            placeholder="Search or type a loan"
             role="combobox"
             aria-expanded={loanSuggestOpen && loanMatches.length > 0}
             aria-autocomplete="list"
@@ -590,12 +594,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
                 value={form.taskType}
                 onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}
               >
-                <option value="LOI">LOI Check</option>
-                <option value="BUDDY_CHAT">Buddy Chat</option>
-                <option value="VALUE">Value Check</option>
-                <option value="FRAUD">Fraud Check</option>
-                <option value="LOAN_DOCS">Loan Docs</option>
-                <option value="OOO">OOO - Out of Office</option>
+                {/* Labels from the shared map, not literals. Two reasons: the
+                    locked chip in edit mode reads the same map, so the two can
+                    never name the same type differently — and the local copy
+                    said `OOO - Out of Office`, which is the widest string any
+                    option holds and therefore the thing that set this select's
+                    minimum width. It was overflowing its column and running
+                    under the Urgency label beside it. */}
+                {(["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const).map((type) => (
+                  <option key={type} value={type}>{TASK_TYPE_LABELS[type]}</option>
+                ))}
               </select>
             </label>
           )}
@@ -856,10 +864,17 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
         <div className="task-form-foot">
           {/* Humperdink import (#194). The paste target and the button that
               takes it; the human presses paste, the app never reads the
-              clipboard itself. Hidden for OOO: a vacation has no loan and no
-              Humperdink link. And hidden in edit mode, where it would rewrite
-              fields this ticket deliberately doesn't offer. */}
-          {!editing && form.taskType !== "OOO" && (
+              clipboard itself.
+
+              LOI Check only. `Send to Hot Task` over in Humperdink is a
+              term-sheet handoff — it is how an LOI's terms get filed without
+              being retyped — and on any other type it was a control that took a
+              paste nobody has. Narrower than the old rule, which only kept it
+              off an out-of-office task on the grounds that a vacation has no
+              loan; that was true and not the point. Hidden in edit mode too,
+              where it would rewrite fields this ticket deliberately doesn't
+              offer. */}
+          {!editing && form.taskType === "LOI" && (
             <div className="task-form-import">
               <label className="task-form-import-field">
                 <span className="sr-only">Paste from Humperdink</span>
