@@ -97,7 +97,13 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
 - OOO UI wording:
   - Folder Name label becomes `Vacation Description`
 - Notes label by task type:
-  - LOI: `Loan Terms and Contacts`
+  - LOI: `Loan Terms and Contacts` — the task's _Terms_. Since #258 this one
+    field renders as its own bordered section in the expanded card, above the
+    conversation, and is **not** echoed as the thread's first message, so a
+    brand-new LOI opens on an empty conversation that says so. Free text, line
+    breaks as typed. It is the same field with the same payload — no new
+    column, nothing to migrate — drawn somewhere else. See
+    [ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md)
   - Buddy Chat: `Concerns`
   - Fraud: `Notes` — `NOTES_FIELD_LABELS.FRAUD` heads the card's free-text
     **discussion thread** (#68), not a separate outstanding-items field;

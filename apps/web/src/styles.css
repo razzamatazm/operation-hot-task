@@ -1807,7 +1807,81 @@ button.btn-good:hover {
   animation: fadeIn 0.12s ease-out;
 }
 
+/* ── Standing terms (LOI only, #258 / ADR-0008) ───────────── */
+/* The loan's terms are a standing description of what is being checked, not
+   message number one, so they get a box instead of a chat row. A bordered,
+   shadowed panel raised off the recessed expanded body, with the conversation
+   below it left as bare rows on the background: the two are told apart by
+   shape, which is what makes the split readable without either heading being
+   loud about it. The brand left edge is the same 3px the card uses for a
+   status stripe, borrowed here to mark "this is the document".
+
+   Only LOI renders one. The other five types have no field a second person
+   verifies, so the section would be structure without meaning. */
+.task-card-terms {
+  display: flex;
+  flex-direction: column;
+}
+.loi-terms {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px 16px 14px;
+  box-shadow: var(--shadow-sm);
+}
+/* The panel's own border is the separator, so the expanded body's sibling
+   hairline would draw a second line 1px away from it. */
+.task-card-expanded > .task-card-terms + * {
+  border-top: none;
+  padding-top: 4px;
+}
+.loi-terms-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+/* Same mono section label as .thread-head — the two headings are peers. */
+.loi-terms-title {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-secondary);
+  font-weight: 600;
+}
+.loi-terms-head > :not(.loi-terms-title) { margin-left: auto; }
+/* Free text exactly as typed. `pre-wrap` is the whole formatting story: a
+   typed list of figures has to read as a list, and the app does no parsing.
+   Tight leading (1.5 against the thread's 1.45 at a slightly larger size) so
+   several short lines read as a block rather than as loose paragraphs. */
+.loi-terms-body {
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
 /* ── Conversation thread ──────────────────────────────────── */
+/* A genuine empty state, which only exists since #258: an LOI's terms left the
+   thread, so a brand-new one opens on nothing at all and has to say so rather
+   than leave a gap that reads as a failed load. */
+.msgs-empty {
+  padding: 14px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.82rem;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
 .thread {
   display: flex;
   flex-direction: column;
@@ -1826,9 +1900,11 @@ button.btn-good:hover {
   margin-bottom: 8px;
 }
 
-/* Reply stream. The originating note renders as the first .msg entry here
-   too (identical treatment to the replies), not a separate "Name: text"
-   block style.
+/* Reply stream. On the five types that still carry their field in the thread,
+   the originating note renders as the first .msg entry here (identical
+   treatment to the replies), not a separate "Name: text" block style. On an
+   LOI it doesn't — the terms moved into `.loi-terms` above (#258) — so this
+   box can also hold `.msgs-empty` and nothing else.
 
    The cap is sized against a single-line note. The 24px glyph is the tallest
    thing on the row (the text is 0.86rem x 1.45 + 2px = ~22px), so a row is
