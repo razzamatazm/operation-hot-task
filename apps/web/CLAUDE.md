@@ -835,6 +835,43 @@ loan, finished ones included. Three consequences the markup carries:
   vacation description that saves on the task, it has no link field, and there
   is no shared record to warn about.
 
+### The one confirmation dialog (#265)
+
+A link edit that lands on another loan's link would fold the two records
+together, and that question gets a real dialog —
+[src/loan-merge-confirm.tsx](src/loan-merge-confirm.tsx),
+`.merge-confirm-overlay` at z-index 70, above the form modal's 50 and a toast's
+60. It is the only one in the app, and it does not contradict the muted line
+above it: that line reports a consequence of something that is going fine, this
+one asks a question, and a toast cannot ask a question (ADR-0008 rule 7).
+
+- **It names the other loan**, in the title and in the body, so the person is
+  making a decision rather than clearing a dialog. `mergeConfirmCopy` is a pure
+  function so the wording is asserted directly.
+- **It says which of the two survives**, and does not assume. The merge keeps the
+  OLDER record, which on the commonest version of this — correcting a URL on a
+  record filed last week so it points at a long-running loan — is the *other*
+  loan, and the one being edited is the one that disappears. The 409 carries
+  `survivingName` / `absorbedName` from the code that decides it, because a
+  dialog guessing here tells half the people who read it the exact opposite of
+  what will happen.
+- **`role="alertdialog"`, inert backdrop, Escape declines**, and focus lands on
+  `Keep them separate` — the destructive answer is never one stray Return away.
+  The buttons are answers (`Merge the loans` / `Keep them separate`), not OK and
+  Cancel.
+- **Two-step round trip, not an optimistic merge.** The first save posts as it
+  always did and the server refuses with a 409 naming the collision, having
+  written nothing; only a yes re-sends the identical body with `confirmMerge`.
+  `patchLoan` in `App.tsx` is that whole dance, and it is the single path both
+  editing surfaces — the form and `LoanFilterHeader` — save through, so there is
+  one confirmation rather than two.
+- **A decline is not an error.** It rejects with `MergeDeclined`, which nobody
+  toasts: nothing was sent, and the rejection exists only to leave the form open
+  with the typing in it. What *did* happen still gets said — a merge that ran
+  shows the existing transient "Merged with …" notice (ADR-0001 addendum
+  2026-07-31), fired inside `patchLoan` rather than by each caller, so the notice
+  belongs to the step that merged and a third editing surface inherits it.
+
 **A Save sends only what moved.** `taskEdit` diffs the task against the form
 and returns the changed fields; App turns that into one call per field, on the
 existing focused route for each. There is no endpoint that takes a

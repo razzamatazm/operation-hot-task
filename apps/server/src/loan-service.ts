@@ -38,16 +38,32 @@ export interface LoanMergeNotice {
    It names the other loan, because "that link is taken" without saying by what
    leaves the person with nowhere to go. Its own error type rather than a bare
    `Error` so the route can answer 409 rather than the blanket 400 — a refusal
-   about the state of another record is not a malformed request — and so #265
-   has the other loan's identity to hand when it turns this into a
-   confirm-then-merge.
+   about the state of another record is not a malformed request.
+
+   Since #265 the refusal is a QUESTION rather than a dead end: the client shows
+   it as "merge with <that loan>?", and a yes re-sends the identical change with
+   `confirmMerge`, which lands on the merge below. Nothing here changed to make
+   that work — the refusal already carried everything the question needs.
 
    Merges at task CREATION are untouched: `create`/`resolveForTask` fold a new
    record into an existing one through `findLoanForCreate`, which is the dedupe
    that stops duplicates being minted in the first place and absorbs nobody's
    work. This is only about editing a loan that already has tasks on it. */
 export class LoanLinkCollisionError extends Error {
-  constructor(readonly collision: { loanId: string; loanName: string }) {
+  constructor(
+    readonly collision: {
+      loanId: string;
+      loanName: string;
+      /* Which of the two records would survive, and which would be absorbed into
+         it, decided by the same age rule the merge below uses. The client asks
+         about this merge in plain words, and "its tasks move over and its record
+         goes away" is a sentence that is only true of one of the two — guessing
+         which tells half the people who read it the exact opposite of what will
+         happen to their loan. So the answer comes from the code that decides it. */
+      survivingName: string;
+      absorbedName: string;
+    }
+  ) {
     super(
       `That Humperdink link is already on "${collision.loanName}". Saving it here would merge the two loans into one.`
     );
@@ -55,10 +71,11 @@ export class LoanLinkCollisionError extends Error {
   }
 }
 
-/* How far a loan edit is allowed to go. Empty — the only thing any caller
-   passes today — means "refuse a merge". #265 adds the confirm that sets the
-   flag; the merge itself is already built and stays exactly as it was, so that
-   ticket adds a door rather than reopening this decision. */
+/* How far a loan edit is allowed to go. Absent means "refuse a merge", which is
+   what every FIRST save sends; `confirmMerge` is set only on the re-send after
+   the person has been shown the other loan's name and agreed (#265). The flag
+   is an answer, never a default: a caller that sets it unconditionally is back
+   to merging unannounced. */
 export interface UpdateLoanOptions {
   confirmMerge?: boolean;
   /* Who is making the edit, so every task the edit reaches gets a history row
@@ -173,14 +190,27 @@ export class LoanService {
         : undefined;
 
     if (collision && !options.confirmMerge) {
-      throw new LoanLinkCollisionError({ loanId: collision.id, loanName: collision.name });
+      /* The same older-record-wins rule the merge below applies, asked one step
+         early so the refusal can say which way this would go. Read off
+         `createdAt`, which `applyUpdate` never touches, so asking now and asking
+         after the write give the same answer. */
+      const edited = { ...loan, name: input.name?.trim() || loan.name };
+      const [original, duplicate] = collision.createdAt <= edited.createdAt ? [collision, edited] : [edited, collision];
+      throw new LoanLinkCollisionError({
+        loanId: collision.id,
+        loanName: collision.name,
+        // The name as the save WOULD leave it: a rename travelling with the link
+        // change is what the person just typed, and it is what they would see.
+        survivingName: original.name,
+        absorbedName: duplicate.name
+      });
     }
 
     const updated = await this.applyUpdate(loan, input, options.actor);
 
-    // Canonical-key merge: fold this record into the older original. Only
-    // reachable with an explicit confirmation (#262); the flow that asks for one
-    // is #265.
+    // Canonical-key merge: fold this record into the older original. On an edit
+    // this is reachable only with an explicit confirmation (#262/#265) — the
+    // refusal above is the only other way out.
     if (collision) {
       const [original, duplicate] =
         collision.createdAt <= updated.createdAt ? [collision, updated] : [updated, collision];

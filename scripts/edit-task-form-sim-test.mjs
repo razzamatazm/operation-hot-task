@@ -611,14 +611,20 @@ test("no catch-all update route was introduced", () => {
 test("the loan fields save to the loan record, and OOO's to the task", () => {
   assert.match(app, /if \(task\.taskType === "OOO"\) \{\s*\n\s*if \(edit\.folderName !== undefined\) await amendApi\.setFolderName/);
   assert.match(app, /await saveLoanFields\(task\.loanId, \{/, "everything else goes to the loan");
-  assert.match(app, /`\/loans\/\$\{loanId\}`,\s*\n\s*\{\s*\n\s*method: "PATCH"/, "through the existing loan route");
+  /* Since #265 the request itself is made one level down, in `patchLoan`, which
+     is the shared step that asks before a merge — but it is still the same
+     existing loan route, and still one call carrying both fields. */
+  assert.match(app, /await patchLoan\(loanId, \{/, "through the shared loan save");
+  assert.match(app, /`\/loans\/\$\{loanId\}`,\s*\n\s*\{ method: "PATCH"/, "which is the existing loan route");
 });
 
 /* A link edit that would fold two loans together is refused rather than done,
-   and the refusal names the other loan (#262). #265 turns it into a confirm. */
+   and the refusal names the other loan (#262). #265 turned that refusal into a
+   question the person can answer — see `loan-merge-confirm-sim-test.mjs`. What
+   stays true here is that no save merges without one. */
 test("a colliding link is refused by the server, not silently merged", () => {
   const loanService = readFileSync(join(REPO, "apps/server/src/loan-service.ts"), "utf8");
   assert.match(loanService, /export class LoanLinkCollisionError extends Error/);
-  assert.match(loanService, /if \(collision && !options\.confirmMerge\) \{\s*\n\s*throw new LoanLinkCollisionError/);
+  assert.match(loanService, /if \(collision && !options\.confirmMerge\) \{[\s\S]{0,600}?throw new LoanLinkCollisionError/);
   assert.match(routes, /error instanceof LoanLinkCollisionError[\s\S]{0,120}status\(409\)/, "answered as a 409");
 });

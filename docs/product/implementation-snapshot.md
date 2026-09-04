@@ -41,8 +41,12 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/loans` (create; dedupes by canonical link / normalized name)
   - `GET /api/loans/:loanId`
   - `PATCH /api/loans/:loanId` (edit name/link; propagates to every linked task;
-    **409** if the new link is already on another loan, naming it — merging two
-    loans is refused here rather than done, and nothing is written, #262)
+    **409** if the new link is already on another loan, naming it and which of
+    the two would survive the merge (the older record), with nothing
+    written, #262. That refusal is a question, not a dead end: the app asks
+    "merge with that loan?" and a yes re-sends the same body with
+    `confirmMerge: true`, which merges as it always has, #265. The flag is an
+    answer only — on its own it edits nothing)
 - Tasks:
   - `GET /api/tasks`
   - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or

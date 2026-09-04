@@ -37,8 +37,9 @@ const sendError = (res: Response, error: unknown, fallback: string): void => {
   }
   /* A loan edit refused because the link belongs to another loan (#262). 409,
      not 400: the request is well-formed and the caller is not at fault — another
-     record is in the way. The other loan rides along so #265's confirm has
-     something to name, and nothing has been written either way. */
+     record is in the way. The other loan rides along because the client turns
+     this into the question "merge with that one?" and has to name it (#265),
+     and nothing has been written either way. */
   if (error instanceof LoanLinkCollisionError) {
     res.status(409).json({ error: error.message, collision: error.collision });
     return;
@@ -400,7 +401,11 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.humperdinkLink !== undefined ? { humperdinkLink: input.humperdinkLink } : {})
         },
-        { actor }
+        /* A merge only happens when the caller says it may (#265). The first
+           save never carries the flag, so a colliding link comes back as the
+           409 below with the other loan named; the client asks, and only a
+           confirmed re-send gets here with `confirmMerge` set. */
+        { actor, ...(input.confirmMerge ? { confirmMerge: true } : {}) }
       );
       res.json({ loan: result.loan, ...(result.merged ? { merged: result.merged } : {}) });
     } catch (error) {

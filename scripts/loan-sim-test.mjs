@@ -31,6 +31,7 @@ import { parseHumperdinkPayload } from "../packages/shared/dist/humperdink.js";
 import { applyImportedLoan, initialCreateForm } from "../apps/web/src/create-form-state.ts";
 import { LoanStore, TaskStore } from "../apps/server/dist/store.js";
 import { LoanService } from "../apps/server/dist/loan-service.js";
+import { updateLoanSchema } from "../apps/server/dist/validation.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 
 const results = [];
@@ -269,6 +270,14 @@ const run = async () => {
         assert.equal(err.name, "LoanLinkCollisionError", "refused with the collision error");
         assert.equal(err.collision.loanId, older.id, "and it names the loan in the way");
         assert.ok(err.message.includes("First Record"), "by name, in the sentence the user reads");
+        /* Which way the merge would go, so the confirm can say it (#265). The
+           OLDER record survives, which here is the OTHER loan — the one being
+           edited is the one that would disappear, and a dialog that assumed the
+           opposite would promise the reverse of what happens. The rename
+           travelling with the link change is the name it reports, because that is
+           what the person just typed and what they would see. */
+        assert.equal(err.collision.survivingName, "First Record", "the older record survives");
+        assert.equal(err.collision.absorbedName, "Renamed Too", "and the edited one is what gets absorbed");
         return true;
       }
     );
@@ -284,6 +293,26 @@ const run = async () => {
     assert.equal(task.loanId, newer.id, "the task did not repoint");
     assert.equal(task.folderName, "Second Record", "and shows no half-applied rename");
     pass("a link edit that would merge two loans is refused, and nothing changes");
+  });
+
+  /* The other direction, so the reported survivor is derived and not assumed:
+     edit the OLDER loan onto a newer one's link and the edited record is the one
+     that survives. Same refusal, opposite names in it. */
+  await withTempDir(async ({ service }) => {
+    const older = await service.create({ name: "First Record" });
+    // Distinct createdAt: the survivor is decided by age, so they must differ.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const newer = await service.create({ name: "Second Record", humperdinkLink: "https://h.example/dup" });
+    assert.ok(newer.createdAt > older.createdAt, "the second record really is newer");
+    await assert.rejects(
+      () => service.update(older.id, { humperdinkLink: "https://h.example/dup" }),
+      (err) => {
+        assert.equal(err.collision.survivingName, "First Record", "the loan being edited survives, being older");
+        assert.equal(err.collision.absorbedName, "Second Record", "and the other one is what gets absorbed");
+        return true;
+      }
+    );
+    pass("the refusal reports which record would survive, in either direction");
   });
 
   /* The refusal is about a link that MOVES onto another loan's. Renaming, or
@@ -420,6 +449,51 @@ const run = async () => {
     assert.equal(again.id, first.id, "a case/slash variant of the same page is the same loan");
     assert.equal((await loanStore.all()).length, 1, "still one loan");
     pass("importing the same loan page twice never mints a second loan");
+  });
+
+  /* ── #265: the confirmation is the ONLY thing that changed ──
+     The merge itself, and the refusal that guards it, are #262's and are tested
+     above. What this ticket adds is a way to answer the refusal, so what is
+     pinned here is the shape of that answer: the flag is accepted on the wire,
+     it means nothing on its own, and the route hands it to the service. */
+  {
+    const yes = updateLoanSchema.parse({ humperdinkLink: "https://h.example/dup", confirmMerge: true });
+    assert.equal(yes.confirmMerge, true, "the wire carries a merge confirmation");
+    const plain = updateLoanSchema.parse({ humperdinkLink: "https://h.example/dup" });
+    assert.equal(plain.confirmMerge, undefined, "and a first save carries none, so it is refused");
+    assert.throws(
+      () => updateLoanSchema.parse({ confirmMerge: true }),
+      /name and\/or humperdinkLink/,
+      "confirming nothing is not an edit — the flag is an answer, not a field"
+    );
+    pass("a loan edit can carry a merge confirmation, which on its own edits nothing");
+  }
+
+  {
+    const routes = await fs.readFile(new URL("../apps/server/src/routes.ts", import.meta.url), "utf8");
+    const from = routes.indexOf('router.patch("/loans/:loanId"');
+    assert.ok(from > 0, "PATCH /loans/:loanId still exists");
+    const handler = routes.slice(from, routes.indexOf("\n  router.", from + 1));
+    assert.match(
+      handler.replace(/\s+/g, " "),
+      /\.\.\.\(input\.confirmMerge \? \{ confirmMerge: true \} : \{\}\)/,
+      "the route sets the flag only when the caller sent one — never unconditionally"
+    );
+    pass("the loan route forwards the confirmation rather than assuming one");
+  }
+
+  /* Merging at task CREATION is a different door and this ticket must not have
+     touched it: `create`/`resolveForTask` fold a new record into an existing one
+     by link, with nothing to confirm, because nobody's tasks are absorbed —
+     there is no second record yet. */
+  await withTempDir(async ({ service, loanStore }) => {
+    const first = await service.create({ name: "Harbor 41", humperdinkLink: "https://h.example/harbor" });
+    const second = await service.create({ name: "Harbor Forty One", humperdinkLink: "https://h.example/harbor" });
+    assert.equal(second.id, first.id, "creating with a taken link joins that loan, unasked");
+    const viaTask = await service.resolveForTask({ name: "Harbor 41 (rush)", humperdinkLink: "https://h.example/harbor" });
+    assert.equal(viaTask.id, first.id, "and so does filing a task against it");
+    assert.equal((await loanStore.all()).length, 1, "still one loan, no confirmation anywhere");
+    pass("merges at task creation need no confirmation and are unchanged by #265");
   });
 
   for (const line of results) console.log(line);
