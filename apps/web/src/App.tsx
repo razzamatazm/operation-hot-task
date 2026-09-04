@@ -1155,15 +1155,19 @@ const TwoExitPanel = ({
    (`canEditChecklist`), while changing what's being asked — retext, delete —
    is scoped to the specific item (`canEditChecklistItemText`,
    `canDeleteChecklistItem`). */
-/* Amending the ask (ADR-0006, extended by ADR-0008 rule 4). Three calls, never
-   one patch — the same shape the server's three routes have, so the surface
-   can't offer a field the rule doesn't cover. There is no due-date member and
-   there is no due-date input: `dueAt` is derived from the urgency band
-   server-side.
+/* Amending the ask (ADR-0006, extended by ADR-0008 rules 4 and 8). Four calls,
+   never one patch — the same shape the server's four routes have, so the
+   surface can't offer a field the rule doesn't cover. There is no due-date
+   member and there is no due-date input: `dueAt` is derived from the urgency
+   band server-side, or on an OOO task from the return date.
 
    `setPoints` is the edit form's way to the same route the row's click-to-rate
    track uses, and exists alongside `onUpdatePoints` rather than replacing it
-   because the two want opposite failure behaviour — see `amendApi` below. */
+   because the two want opposite failure behaviour — see `amendApi` below.
+
+   `setDates` takes both dates in one call because they are one range: the rule
+   is that the start is on or before the return, which cannot be checked against
+   half of itself. */
 export interface AmendApi {
   setNotes: (taskId: string, notes: string) => Promise<void>;
   setUrgency: (taskId: string, urgency: UrgencyLevel) => Promise<void>;
@@ -1175,6 +1179,7 @@ export interface AmendApi {
      have different owners, not one field with a special case. */
   setFolderName: (taskId: string, folderName: string) => Promise<void>;
   setPoints: (taskId: string, points: number) => Promise<void>;
+  setDates: (taskId: string, dates: { startDate: string; returnDate: string }) => Promise<void>;
 }
 
 /* Reading a task's history (#166). One member, because the web app wants one
@@ -4058,7 +4063,8 @@ export const App = () => {
       setUrgency: (taskId, urgency) => amend(taskId, "urgency", { urgency }, "urgency"),
       setPoints: (taskId, points) => amend(taskId, "points", { points }, "poops"),
       setFolderName: (taskId, folderName) =>
-        amend(taskId, "folder-name", { folderName }, "the description")
+        amend(taskId, "folder-name", { folderName }, "the description"),
+      setDates: (taskId, dates) => amend(taskId, "dates", dates, "dates")
     };
   }, [user, showToast]);
 
@@ -4107,11 +4113,10 @@ export const App = () => {
      a fresh literal per render would defeat TaskCard's memo across the list. */
   const onEditTask = useCallback((taskId: string): void => setEditingTaskId(taskId), []);
 
-  /* Save an edit (#260, #262, extended by #261). A focused route per field,
-     chosen from what the form says actually moved — there is deliberately no
-     endpoint that takes a task-shaped body (ADR-0008 rule 4, inherited from
-     ADR-0006), so this is a dispatch rather than a payload, and it grows a
-     branch per field as #264 lands rather than growing a schema.
+  /* Save an edit (#260, #262, extended by #261 and #264). A focused route per
+     field, chosen from what the form says actually moved — there is deliberately
+     no endpoint that takes a task-shaped body (ADR-0008 rule 4, inherited from
+     ADR-0006), so this is a dispatch rather than a payload.
 
      Which record each field lands on is decided here, and it is not the same
      record for all of them: the request field is the task's, and the folder name
@@ -4127,11 +4132,13 @@ export const App = () => {
      The form never calls it with an empty edit, so a save that changed nothing
      makes no request at all: no history entry and no DM. Nothing here can
      express a due date — changing the urgency re-derives it server-side, from
-     the moment of the edit, exactly as filing does. Rejects on failure, after
-     the api layer has toasted, so the form stays open with the creator's
-     typing still in it. */
+     the moment of the edit, exactly as filing does, and changing an OOO task's
+     return date re-derives it from that. Rejects on failure, after the api
+     layer has toasted, so the form stays open with the creator's typing still
+     in it. */
   const onSaveEdit = useCallback(async (task: LoanTask, edit: TaskEdit): Promise<void> => {
     try {
+      if (edit.dates !== undefined) await amendApi.setDates(task.id, edit.dates);
       if (edit.urgency !== undefined) await amendApi.setUrgency(task.id, edit.urgency);
       if (edit.points !== undefined) await amendApi.setPoints(task.id, edit.points);
       if (edit.notes !== undefined) await amendApi.setNotes(task.id, edit.notes);

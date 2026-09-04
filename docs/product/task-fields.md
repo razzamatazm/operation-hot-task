@@ -3,10 +3,11 @@
 ## Amending a task after it is filed
 
 A task's **creator** may correct the ask while the task is **active** — its
-request field, and (on a non-OOO task) its urgency. On an **LOI Check** the
-request field holds the loan's terms, and the **current assignee** may correct
-those too: they are facts the checker is checking against, and the checker is
-the person reading them closely enough to notice a wrong figure.
+request field, its urgency (on a non-OOO task) and its start and return dates
+(on an OOO task). On an **LOI Check** the request field holds the loan's terms,
+and the **current assignee** may correct those too: they are facts the checker
+is checking against, and the checker is the person reading them closely enough
+to notice a wrong figure.
 
 Editing stops at the task's two parties, its creator and whoever currently holds
 it. Not an observer, not a file checker who has not claimed the task, and not an
@@ -30,27 +31,30 @@ the web alike.
 | Poop points | yes | creator | any non-closed status |
 | Folder name / Humperdink link (non-`OOO`) | yes — **on the loan**, not the task | the task's creator or its current assignee, and only from that task | any non-closed status |
 | Vacation description (`OOO` folder name) | yes, on the task | creator | any non-closed status |
-| Due date | **never directly** — derived from urgency | — | — |
-| Task type, which loan a task is on, creator, assignee, OOO dates | no | — | — |
+| OOO start + return dates | yes, `OOO` only | creator | any non-closed status |
+| Due date | **never directly** — derived from urgency, or on `OOO` from the return date | — | — |
+| Task type, which loan a task is on, creator, assignee | no | — | — |
 
 Poop points are the creator's too, on the same terms, and have their own
 `POST /api/tasks/:id/points` — see
 [claiming-scoring.md](claiming-scoring.md#poop-points-rules).
 
 Focused operations, never a generic patch: `POST /api/tasks/:id/notes`,
-`POST /api/tasks/:id/urgency`, `POST /api/tasks/:id/points` and
-`POST /api/tasks/:id/folder-name`. Each refuses with the rule that refused it.
-The folder-name route is `OOO`-only and says so — every other type's folder name
-belongs to the shared Loan record and goes to `PATCH /api/loans/:loanId`, below.
+`POST /api/tasks/:id/urgency`, `POST /api/tasks/:id/points`,
+`POST /api/tasks/:id/folder-name` and `POST /api/tasks/:id/dates`. Each refuses
+with the rule that refused it. The folder-name and dates routes are `OOO`-only
+and say so — every other type's folder name belongs to the shared Loan record
+and goes to `PATCH /api/loans/:loanId`, below.
 
 - **Due date is derived, never set.** Changing the urgency re-derives `dueAt`
   from the new band at the moment of the edit, through the same computation
   creation uses (weekend roll and all) — see
   [due-date-urgency.md](due-date-urgency.md). No route accepts a `dueAt`, and
-  the web surface renders no date input.
+  the web surface renders no due-date input.
 - **`OOO` urgency is refused.** An OOO task's `dueAt` is the person's return
   date and the maintenance pass auto-completes on it, so it is a scheduled
-  action rather than a deadline. Its notes are still amendable.
+  action rather than a deadline. Its notes are still amendable, and so are its
+  dates.
 - **The request field cannot be emptied.** On an LOI that is ADR-0008 rule 1 —
   a checked LOI that says nothing about what was checked is worse than one that
   is slightly wrong.
@@ -59,13 +63,37 @@ belongs to the shared Loan record and goes to `PATCH /api/loans/:loanId`, below.
   urgency", "The terms cannot be changed on a closed task" — never a generic
   denial, and on an LOI the field is called *terms* in the sentence, in the
   history entry, and in the box.
+- **`OOO` dates are amendable, and any date is accepted — including one in the
+  past** (ADR-0008 rule 8, which reverses ADR-0006's exclusion of them).
+  Somebody back early correcting the record is the case this exists for, and
+  refusing a past date would block the only person with a reason to fix it. A
+  return date that has already gone simply means the next maintenance pass
+  auto-completes the task, which is the honest outcome. This is the one place
+  editing deliberately disagrees with filing, which still refuses a return date
+  that is already behind us.
+  - Both dates go in **one** call, because they are one range: the rule is that
+    the start is on or before the return, and that cannot be checked against
+    half of it. Sending either sends both, and the history entry names all four
+    values. The range rule itself is shared with filing — one rule, not two
+    copies. What each surface *says* when it refuses stays its own: filing's
+    request check speaks in field names, the rest in English.
+  - The new return date re-derives `dueAt` through the same shared computation
+    filing uses, so everything hanging off the dates is recomputed: the
+    auto-completion, the overdue arithmetic, the ordering, the `Returns` line
+    in the hamburger, and the headline the cards quote. The last-reminder stamp
+    is left alone — there is no cadence to restart, because a task whose new
+    return date has passed gets completed on the pass that would have reminded
+    about it.
+  - The other five task types have no dates; the route refuses them.
 - **A no-op is a no-op.** Setting a field to the value it already has writes no
   history event and notifies nobody.
-- **What the other party sees.** Both edits re-render the task's existing DM
+- **What the other party sees.** Every edit re-renders the task's existing DM
   cards in place through the silent card-sync path, so no surface quotes a
   stale value. On top of that:
   - **An urgency change DMs the assignee** when there is one — their deadline
-    moved.
+    moved. **A date change does too**, for a related but distinct reason: an OOO
+    task's dates are a scheduled action rather than a deadline, but they are the
+    window the assignee is covering the desk across, and it just moved.
   - **A change to an LOI's terms DMs the checker holding it**, unless the
     checker is the one who made the change — the terms are what they are
     checking against, so a change to them is the amendment most likely to make
@@ -77,13 +105,16 @@ belongs to the shared Loan record and goes to `PATCH /api/loans/:loanId`, below.
   - **A notes change on the other five types is silent**, claimed or not, and
     so is a points change.
   Nothing posts to the channel.
-- **The reminder cadence restarts.** Moving `dueAt` clears the task's
-  last-reminder stamp, so a task made newly overdue by the edit is eligible for
-  its next reminder immediately (see
-  [reminders-retention.md](reminders-retention.md)).
+- **The reminder cadence restarts on an urgency change.** Moving `dueAt` from a
+  new band clears the task's last-reminder stamp, so a task made newly overdue
+  by the edit is eligible for its next reminder immediately (see
+  [reminders-retention.md](reminders-retention.md)). A date change does not: an
+  OOO task whose return date has passed is completed rather than nagged.
 - **Every applied edit is in the task's history**, with the field and both
   values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED` /
-  `TASK_FOLDER_NAME_AMENDED`).
+  `TASK_FOLDER_NAME_AMENDED` / `TASK_POINTS_UPDATED` / `TASK_DATES_AMENDED`).
+  The points line named only the new rating until #261 put it on the edit form
+  alongside the others.
 - **In the web app**, whoever may edit an active task gets `Edit Task` in the
   row's hamburger — its creator, plus the assignee on an LOI — and that is the
   only way in (ADR-0008 rule 4); the old `Edit request` button on the thread
@@ -92,12 +123,14 @@ belongs to the shared Loan record and goes to `PATCH /api/loans/:loanId`, below.
   would turn away. It opens the same form the task was filed with, preloaded,
   with the task type shown disabled and a reason, and `Save` in place of
   `Create Task`. It carries the request field, the folder name, the Humperdink
-  link, **urgency** and **poop points**; the OOO dates land on it in later work.
-  Urgency and the poops are drawn **only for the person who filed the task**,
-  because they are permanently the creator's — a checker correcting an LOI's
-  terms is never shown a control the server would refuse them, and is left with
-  the one field they may write. Urgency is absent on an `OOO` task too, whose
-  timing is its dates. A save that changed nothing sends nothing, and a save
+  link, **urgency**, **poop points** and — on an `OOO` task — its **start and
+  return dates**. Urgency and the poops are drawn **only for the person who
+  filed the task**, because they are permanently the creator's — a checker
+  correcting an LOI's terms is never shown a control the server would refuse
+  them, and is left with the one field they may write. The two timing controls
+  are exclusive: an `OOO` task shows its dates and no urgency, every other type
+  shows its urgency and no dates. Neither date input floors itself at today.
+  A save that changed nothing sends nothing, and a save
   that changed two things makes two focused calls — there is no request that
   carries a task-shaped body. The row's click-to-rate poop track still works:
   two ways to one number is intended (ADR-0008 rule 4).

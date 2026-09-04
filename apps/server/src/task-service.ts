@@ -50,8 +50,11 @@ import {
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
+  formatWallDate,
   needsFixesNote,
   NEEDS_FIXES_NOTE_REQUIRED,
+  oooDatesOutOfOrder,
+  OOO_DATE_RANGE_REFUSAL,
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
@@ -158,8 +161,8 @@ export class TaskService {
       if (!startDate || !returnDate) {
         throw new Error("OOO tasks need a start date and a return date");
       }
-      if (startDate > returnDate) {
-        throw new Error("Start date must be on or before the return date");
+      if (oooDatesOutOfOrder(startDate, returnDate)) {
+        throw new Error(OOO_DATE_RANGE_REFUSAL);
       }
     }
 
@@ -339,11 +342,13 @@ export class TaskService {
      admin (back-end access confers nothing over other people's work, ADR-0003),
      and not on a closed task.
 
-     Two focused operations rather than one patch, deliberately: a generic
+     Four focused operations rather than one patch, deliberately — notes,
+     urgency, poop points and an OOO task's dates: a generic
      endpoint taking an arbitrary subset of the task would push "which fields
      are amendable and by whom" out into a validation list that nobody reads as
      a rule. Each of these names its field and refuses with the rule that
-     refused it, exactly as updateTaskPoints above does.
+     refused it — including updateTaskPoints above, which is one of the four and
+     sits apart only because the collapsed row calls it directly too.
 
      The status gate is the shared CLOSED_STATUSES, not this file's local
      ACTIVE_STATUSES. Those two are not complements — AWAITING_ITEMS is in
@@ -554,6 +559,109 @@ export class TaskService {
       // two-party business.
       await this.emitCardSync(updated, [], now);
     }, { method: "updateTaskUrgency", taskId: updated.id });
+
+    return updated;
+  }
+
+  /* Correct an OOO task's start and return dates (ADR-0008 rule 8, #264). The
+     third focused amendment, and the only field on the edit form that needed a
+     route of its own — ADR-0006 excluded these dates as "a genuinely different
+     behaviour to build", and this is that behaviour.
+
+     The two dates move together because they are one range: a start that may not
+     pass its return can't be validated against half of itself, and a correction
+     that named only one value would leave history saying less than what changed.
+
+     `dueAt` is re-derived from the new return date through the same shared
+     computation filing uses, so everything hanging off the dates is recomputed
+     rather than patched: the auto-completion the maintenance pass fires on, the
+     overdue arithmetic, the ordering, and the headline the cards quote.
+
+     **Any date is accepted, including one in the past** — the deliberate
+     difference from filing, which refuses a return date that is already gone
+     ("must result in a future due time"). Filing a vacation that already ended
+     is a typo; *correcting* a task because you came back early is the whole
+     point of the edit, and refusing it would leave the only person with a reason
+     to fix the record unable to. A return date now in the past simply means the
+     next maintenance pass auto-completes the task, which is what "I am back" is
+     supposed to mean.
+
+     The last-reminder stamp is left alone, unlike `updateTaskUrgency`. There is
+     no cadence to restart here: a task whose new `dueAt` has passed does not
+     become a newly-overdue obligation, it becomes a completed vacation on the
+     same pass that would have reminded about it.
+
+     The assignee is told — not because these dates are a deadline, which is
+     exactly what ADR-0008 rule 8 says a return date is not. A return date is a
+     scheduled action. The reason is simpler: the assignee is the person
+     covering the desk across this window, and the window just moved. A
+     coverage span that changes under a quietly re-rendered card is the failure
+     this avoids. Silent when nobody has claimed it. No channel post either way
+     (ADR-0002). */
+  async updateTaskOooDates(
+    taskId: string,
+    startDate: string,
+    returnDate: string,
+    user: UserIdentity
+  ): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    /* Wrong door before wrong person, as on the folder-name route: on any other
+       type there are no dates to change, and answering "only the creator can
+       change its dates" would send somebody looking for a permission that was
+       never the problem. */
+    if (task.taskType !== "OOO") {
+      throw new Error("Only an out of office task has start and return dates");
+    }
+
+    this.assertCanAmend(task, user, "dates");
+
+    const nextStart = startDate.trim();
+    const nextReturn = returnDate.trim();
+    if (oooDatesOutOfOrder(nextStart, nextReturn)) {
+      throw new Error(OOO_DATE_RANGE_REFUSAL);
+    }
+    if (nextStart === task.startDate && nextReturn === task.returnDate) {
+      return task;
+    }
+
+    const now = new Date();
+    // Throws on a malformed or impossible date, the same way filing does.
+    const dueAt = computeDueAtFromReturnDate(nextReturn, this.appConfig);
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_DATES_AMENDED",
+      `Dates changed from ${formatWallDate(task.startDate ?? "")} – ${formatWallDate(task.returnDate ?? "")} ` +
+        `to ${formatWallDate(nextStart)} – ${formatWallDate(nextReturn)}`,
+      now
+    );
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: {
+        ...current,
+        startDate: nextStart,
+        returnDate: nextReturn,
+        dueAt,
+        updatedAt: now.toISOString()
+      },
+      event
+    }));
+
+    this.background(async () => {
+      if (updated.assignee) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          message:
+            `${firstName(user.displayName)} changed the out of office dates on ${updated.folderName} — ` +
+            `now ${formatWallDate(nextStart)} to ${formatWallDate(nextReturn)}`,
+          target: "DM",
+          recipientUserIds: [updated.assignee.id]
+        }, now);
+      }
+      await this.emitCardSync(updated, [], now);
+    }, { method: "updateTaskOooDates", taskId: updated.id });
 
     return updated;
   }

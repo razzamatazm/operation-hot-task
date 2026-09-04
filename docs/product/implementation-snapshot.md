@@ -100,6 +100,15 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     folder name is the loan's name and is edited through
     `PATCH /api/loans/:loanId` so the correction reaches every task on that loan
     (#262, ADR-0008 rule 7).
+  - `POST /api/tasks/:taskId/dates` — amend an `OOO` task's start and return
+    dates (#264, ADR-0008 rule 8). Body `{ startDate, returnDate }`, both
+    `YYYY-MM-DD` and both required: they are one range, and "start on or before
+    return" can't be checked against half of it. **Any date is accepted,
+    including one in the past** — a return date that has gone means the next
+    maintenance pass auto-completes the task. `dueAt` is re-derived server-side
+    from the new return date. Creator only, non-closed statuses only, and
+    rejected outright on a non-`OOO` task. DMs the assignee when there is one;
+    no channel post.
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
   - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
     without reopening it — creator/assignee; the card's "Add a note"

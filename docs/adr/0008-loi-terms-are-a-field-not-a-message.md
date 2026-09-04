@@ -189,6 +189,12 @@ re-derive everything that hangs off them.
   to make their work wrong, which is what separates it from the wording fix
   ADR-0006 was right to keep silent.
 - **Urgency** — the assignee is told, unchanged.
+- **OOO start and return dates** — silent while unclaimed; the assignee is told
+  once there is one. Not because the dates are a deadline — rule 8 is explicit
+  that a return date is a scheduled action — but because the assignee is
+  covering that desk across the window, and the window moved. This list
+  originally omitted the dates only because ADR-0006 had banned editing them
+  outright; rule 8 lifts the ban, so the silence was a gap rather than a ruling.
 - **Notes on the other five types** — silent, unchanged.
 - **Nothing goes to the channel**, per [ADR-0002](0002-task-handoff.md).
 - **Cards stop quoting an LOI's terms.** The notification cards include a

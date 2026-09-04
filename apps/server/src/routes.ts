@@ -13,6 +13,7 @@ import { LoanLinkCollisionError, LoanService } from "./loan-service.js";
 import {
   amendFolderNameSchema,
   amendNotesSchema,
+  amendOooDatesSchema,
   amendUrgencySchema,
   assignSchema,
   checklistItemCheckedSchema,
@@ -597,8 +598,9 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
-  /* Amend the ask (ADR-0006, #160). Two routes, not one patch — the URL names
-     the field, so the rule that refuses is the rule the route is about. */
+  /* Amend the ask (ADR-0006, #160, extended by ADR-0008 rule 8). Three routes,
+     not one patch — the URL names the field, so the rule that refuses is the
+     rule the route is about. */
   router.post("/tasks/:taskId/notes", async (req, res) => {
     try {
       const { notes } = amendNotesSchema.parse(req.body);
@@ -634,6 +636,20 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to update description");
+    }
+  });
+
+  /* An OOO task's start and return dates (#264). One route taking both,
+     because they are one range: the rule is that the start is on or before the
+     return, which cannot be asked of half of it. */
+  router.post("/tasks/:taskId/dates", async (req, res) => {
+    try {
+      const { startDate, returnDate } = amendOooDatesSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.updateTaskOooDates(req.params.taskId, startDate, returnDate, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to update dates");
     }
   });
 

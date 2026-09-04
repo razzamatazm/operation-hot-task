@@ -89,14 +89,21 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
    is before it can decide whether to draw them (#261, #263). */
 export type EditableTask = Pick<
   LoanTask,
-  "taskType" | "notes" | "folderName" | "humperdinkLink" | "urgency" | "points" | "createdBy"
+  | "taskType"
+  | "notes"
+  | "folderName"
+  | "humperdinkLink"
+  | "urgency"
+  | "points"
+  | "createdBy"
+  | "startDate"
+  | "returnDate"
 >;
 
 /* What edit mode opens with. The task's type, its request field, the two loan
-   fields the row displays (#262), and its urgency and poop points (#261), plus
-   the blank form's values for everything else. The OOO dates are a later ticket
-   (#264); until they land, edit mode neither shows them nor carries them, so
-   there is nothing half-loaded for a Save to write back.
+   fields the row displays (#262), its urgency and poop points (#261) and — on an
+   OOO task — its two dates (#264), plus the blank form's values for everything
+   else.
 
    The folder name and the link are loaded from the task rather than from the
    Loan record because the task already carries the loan's current values — the
@@ -105,7 +112,14 @@ export type EditableTask = Pick<
 
    Urgency and points are preloaded rather than defaulted (#261). A select
    sitting on GREEN while the task is RED is a control that lies about the task,
-   and saving the form would silently push the deadline out.
+   and saving the form would silently push the deadline out. The dates (#264)
+   are preloaded for the same reason and more sharply: they are a correction
+   surface, and a person fixing "back on the 9th, not the 12th" needs the 12th
+   in front of them to change.
+
+   The five types that have no dates get the blank form's empty strings, which
+   is what they had before — nothing draws them, and `taskEdit` refuses to send
+   them.
 
    The type is loaded even though nobody may change it: the form shows it,
    disabled, because "what kind of task am I editing" is the first thing a
@@ -118,7 +132,9 @@ export const editFormValues = (task: EditableTask): CreateFormValues => ({
   folderName: task.folderName ?? "",
   humperdinkLink: task.taskType === "OOO" ? "" : task.humperdinkLink ?? "",
   urgency: task.urgency,
-  points: task.points
+  points: task.points,
+  startDate: task.startDate ?? BLANK_CREATE_FORM.startDate,
+  returnDate: task.returnDate ?? BLANK_CREATE_FORM.returnDate
 });
 
 /* Everything a Save may change, and nothing else. Optional throughout: an
@@ -131,17 +147,24 @@ export const editFormValues = (task: EditableTask): CreateFormValues => ({
    they travel together because they land on one record, but that record is the
    Loan's own `PATCH /loans/:loanId`, not the task's. There is deliberately no
    `dueAt` and never will be: the due date is derived from the urgency band, and
-   no route accepts one.
+   no route accepts one — including on an OOO task, whose `dueAt` the server
+   re-derives from the new return date.
 
    `humperdinkLink` is the one key whose empty string means something. A link is
    optional, so clearing it is a real edit; the folder name and the request
-   field are both required, and an emptied one is never sent. */
+   field are both required, and an emptied one is never sent.
+
+   `dates` is one key holding both, not two keys (#264). The two dates are a
+   range and the rule about them — start on or before return — cannot be asked
+   of half of it, so they move together, go to one route together, and land in
+   history together. */
 export interface TaskEdit {
   notes?: string;
   folderName?: string;
   humperdinkLink?: string;
   urgency?: UrgencyLevel;
   points?: number;
+  dates?: { startDate: string; returnDate: string };
 }
 
 /* What actually moved. Compared trimmed on both sides, so re-saving a field
@@ -163,7 +186,16 @@ export interface TaskEdit {
    the track is a change to send rather than a falsy nothing. Neither needs a
    creator check here: the form draws both only for the creator, and everyone
    else's form opens on the task's own values, so there is nothing for a
-   non-creator's Save to move. */
+   non-creator's Save to move.
+
+   The dates are the mirror of the urgency exclusion below (#264): only an OOO task has them, so only
+   an OOO task can send them, and the other five can't leak a stray value into a
+   route that would refuse it. They move as a pair — one of them changing sends
+   both, because the server takes the range rather than an endpoint of it — and
+   an empty one is never sent: a cleared date input is a half-finished edit, not
+   an instruction to unset a vacation's start. The ordering rule stays with the
+   server and the shared predicate it asks; the form's `min` attribute is a
+   convenience, not the check. */
 export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit => {
   const edit: TaskEdit = {};
 
@@ -187,6 +219,13 @@ export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit
      become a request the server will reject. */
   if (task.taskType !== "OOO" && values.urgency !== task.urgency) edit.urgency = values.urgency;
   if (values.points !== task.points) edit.points = values.points;
+
+  if (task.taskType === "OOO") {
+    const startDate = values.startDate.trim();
+    const returnDate = values.returnDate.trim();
+    const moved = startDate !== (task.startDate ?? "") || returnDate !== (task.returnDate ?? "");
+    if (startDate && returnDate && moved) edit.dates = { startDate, returnDate };
+  }
 
   return edit;
 };
