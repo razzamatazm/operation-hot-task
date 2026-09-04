@@ -532,11 +532,12 @@ nested card chrome, in this order:
 
 1. **Status timeline** (`.timeline`) — horizontal rail of the task's
    lifecycle, one dot + label per step, with a `NOW` (or `NEEDS CORRECTIONS`)
-   tag on the current in-flight step. It is the one card component lifted out
-   of `App.tsx`, into [src/timeline.tsx](src/timeline.tsx), because it is the
-   web surface that puts a status into words: #247 renders it and reads the
+   tag on the current in-flight step. It was the first card component lifted
+   out of `App.tsx`, into [src/timeline.tsx](src/timeline.tsx), because it is
+   the web surface that puts a status into words: #247 renders it and reads the
    words back, and `App.tsx` cannot be imported into a node script to allow
-   that. Flow comes from the task type:
+   that. (`src/thread.tsx` was lifted out for the same reason in #258 — see
+   below.) Flow comes from the task type:
    LOAN_DOCS gets the merge steps, FRAUD gets the two-phase checklist
    steps, everything else is Opened → Claimed → Completed. `NEEDS_REVIEW`
    renders on the `CLAIMED` step; `ARCHIVED` reads as `COMPLETED`. Step
@@ -563,12 +564,44 @@ nested card chrome, in this order:
    viewer's own seat's note field, and a viewer holds one seat or none. An
    existing note drops below the row with the author's full name, not a chip —
    it's a sentence attributed to a person.
-4. **Notes** — originating note + reply thread + add-note input, all in one
-   avatar + text style: a note is a single row, glyph then what they said,
-   with no name/timestamp line above it (#165) — the author and the time ride
-   the row's `title` and a visually-hidden span instead. Thread caps at 178px
-   (`.msgs` `max-height`) with internal scroll and auto-scroll-to-newest on
-   new entries / re-open.
+4. **Terms** (`.loi-terms`, LOI only) — the standing description of the loan
+   being checked, out of the conversation and into its own box (#258,
+   [ADR-0008](../../docs/adr/0008-loi-terms-are-a-field-not-a-message.md)). A
+   bordered, shadowed panel with a 3px brand left edge, raised off the recessed
+   expanded body while the thread below it stays bare rows on the background —
+   the split is carried by shape, not by shouting in the headings. Free text
+   rendered as typed (`white-space: pre-wrap`, body font, 1.4 leading — tighter than the thread’s 1.45) so a
+   list of figures reads as a list; no parsing, no label columns, no structured
+   fields until the direct import exists. It is the *same* `notes` field the
+   task has always carried, just drawn here instead of in the thread — nothing
+   was added and nothing migrated. The other five types render no section at
+   all: they have no field a second person verifies, so it would be structure
+   without meaning, and an LOI and a Buddy Chat being laid out differently is
+   deliberate. The panel's own border is the separator, so
+   `.task-card-expanded > .task-card-terms + *` drops the sibling hairline.
+5. **Notes** — reply thread + add-note input, all in one avatar + text style: a
+   note is a single row, glyph then what they said, with no name/timestamp line
+   above it (#165) — the author and the time ride the row's `title` and a
+   visually-hidden span instead. Thread caps at 178px (`.msgs` `max-height`)
+   with internal scroll and auto-scroll-to-newest on new entries / re-open.
+   On the five types that still carry their field here, the originating note is
+   the first row, in the same style as the replies, and the head reads with the
+   field's label. On an LOI the field has left, so the head reads
+   `Conversation` — naming the box next door would be a lie — and an LOI with
+   no replies renders `.msgs-empty` rather than an unexplained gap. That state
+   invites a reply only when the viewer has a composer; an Observer, or anyone
+   on a task with no reply box, is told the conversation is empty and not
+   pointed at something that isn't there.
+
+   The terms section and the message list are the one part of the card lifted
+   out of `App.tsx`, into [src/thread.tsx](src/thread.tsx), for the reason
+   `timeline.tsx` was: ADR-0008's promise is about rendered output, App.tsx
+   can't be imported into a node script, and
+   `scripts/loi-terms-section-sim-test.mjs` renders both and reads the markup
+   back. Only the read-only halves moved; the composer, the amend block and all
+   card state stayed. Which of the two draws the field is never decided locally
+   — both ask shared `standingTermsFor`, so the section cannot show it while
+   the thread also does.
 
 The body **ends on the notes thread**. It used to close with a compact
 Created / Due meta row; that moved into the hamburger in #166 — reference

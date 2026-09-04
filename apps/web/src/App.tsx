@@ -1,11 +1,13 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, standingTermsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
 import { CreateFormInitialValues, CreateFormValues, applyImportedLoan, initialCreateForm } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
+import { bylineOf, formatDate, initialsOf } from "./format";
+import { TermsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -102,16 +104,6 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
   return data as T;
 };
 
-const formatDate = (iso: string): string => {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-};
-
-/* "Heather Finn - Aug 21, 2026, 9:39 AM" — one string, used twice per note:
-   the row's hover title and its visually-hidden label. Both have to say the
-   same thing, so they read it from the same place. */
-const bylineOf = (name: string, iso: string): string => `${name} - ${formatDate(iso)}`;
-
 const formatPtDateOnly = (iso: string): string => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", {
@@ -142,14 +134,6 @@ const applyTheme = (theme?: string): void => {
 };
 
 /* ── Grouped ("courts") view helpers ──────────────────────── */
-/* Two-letter initials for the compact avatar chips, "Suzie Lim" → "SL". */
-const initialsOf = (name?: string): string => {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  const letters = parts.map((p) => p[0] ?? "").join("");
-  return (letters.slice(0, 2) || "?").toUpperCase();
-};
-
 /* Stable per-person color for the pair avatar chips: hashes the user id
    into one of 8 themed slots (--avatar-1..8 in styles.css) so the same
    person always gets the same chip color across rows and sessions. */
@@ -456,15 +440,6 @@ const PoopDisplay = ({
     </span>
   );
 };
-
-/* ── Small neutral avatar (notes thread) ──────────────────── */
-/* Mono treatment: initials in a neutral circle, no per-user color. Since the
-   notes thread dropped its author/timestamp row, these initials are the only
-   visible identity on a note — hence the size, and hence .msg carrying the
-   full name for hover and for assistive tech. */
-const ExpandAvatar = ({ name }: { name?: string }) => (
-  <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
-);
 
 /* Standard three-connected-nodes "share" glyph (#58). Hand-rolled inline SVG —
    the app ships no icon library (only the logo SVG + Unicode marks), so this is
@@ -2471,46 +2446,37 @@ const TaskCard = memo(({
     </div>
   );
 
-  /* The originating note (task.notes) renders as the first entry in the same
-     list as the replies below it, instead of a separate "Name: text" block
-     style — one consistent list, not two different-looking ones.
+  /* Where the task's own field is drawn, and where it isn't (ADR-0008 rules 1
+     and 2). `standingTermsFor` decides once: on an LOI it hands back the terms,
+     the `TermsSection` above the thread draws them, and `ThreadMessages` leaves
+     the conversation to the replies. On the other five it hands back nothing,
+     the section renders nothing, and the field opens the thread as before.
 
-     A note is one row: glyph + text. The author and timestamp that used to sit
-     on their own line above the text are now the row's `title` (hover) and a
-     visually-hidden span (screen readers, and touch devices where there is no
-     hover at all). `title` alone would strand both. */
+     The amend button rides whichever of the two the field is in. It is still
+     the one door and still the same handler — ADR-0008 rule 4 replaces it with
+     `Edit Task` in the hamburger (#260) — but until then it has to sit with the
+     field it edits, not over a conversation it does not write to. */
+  const fieldIsInThread = standingTermsFor(task) === undefined;
+  const amendButton = canAmend && !amendOpen && (
+    <button type="button" className="btn-sm btn-ghost" onClick={openAmend}>
+      Edit request
+    </button>
+  );
+  const termsBlock = fieldIsInThread ? null : (
+    <div className="task-card-terms">
+      <TermsSection task={task} action={amendButton} />
+      {amendOpen && amendBlock}
+    </div>
+  );
   const notesBlock = (
     <>
       <div className="thread-head">
-        {notesLabel}
-        {canAmend && !amendOpen && (
-          <button type="button" className="btn-sm btn-ghost" onClick={openAmend}>
-            Edit request
-          </button>
-        )}
+        {threadHeadLabel(task)}
+        {fieldIsInThread && amendButton}
       </div>
-      {amendOpen && amendBlock}
+      {fieldIsInThread && amendOpen && amendBlock}
       <div className="msgs" ref={reviewListRef}>
-        <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
-          <ExpandAvatar name={task.createdBy.displayName} />
-          <div>
-            <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
-            <div className="msg-text">{task.notes}</div>
-          </div>
-        </div>
-        {Array.isArray(task.reviewNotes) && task.reviewNotes.map((note, i) => (
-          <div
-            key={i}
-            className={`msg${note.by.id === user.id ? " msg-mine" : ""}`}
-            title={bylineOf(note.by.displayName, note.at)}
-          >
-            <ExpandAvatar name={note.by.displayName} />
-            <div>
-              <span className="sr-only">{bylineOf(note.by.displayName, note.at)}</span>
-              <div className="msg-text">{note.text}</div>
-            </div>
-          </div>
-        ))}
+        <ThreadMessages task={task} viewerId={user.id} canReply={canPostNote} />
       </div>
       {canPostNote && (
         <div className="composer">
@@ -2530,16 +2496,23 @@ const TaskCard = memo(({
   /* Expanded body: always a single stacked column, sections separated by a
      hairline rather than nested card chrome. Leads with the status timeline
      (compact horizontal rail) so opening a card says where it sits in its
-     flow, then FRAUD forward moves → checklist → notes, ending on the thread.
+     flow, then FRAUD forward moves → checklist → terms → notes, ending on the
+     thread.
      No due-pill — the collapsed row's own OVERDUE/due chip already shows that.
      Secondary actions never show here — they live in the row's hamburger, and
      since #166 so do the Created/Due timestamps that used to close the body
-     out. */
+     out.
+
+     The terms section (LOI only, ADR-0008) sits directly above the thread: it
+     is what the conversation below it is about, so it reads in that order, and
+     it is the last thing before the replies rather than the first thing in the
+     body — the timeline still answers "where is this" first. */
   const renderExpanded = () => (
     <div className="task-card-expanded">
       <Timeline task={task} />
       {fraudActionsBlock}
       {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
+      {termsBlock}
       <div className="thread">{notesBlock}</div>
     </div>
   );
