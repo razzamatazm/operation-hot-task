@@ -22,9 +22,11 @@
  *     and still nobody else may.
  *   - Closed tasks are frozen; an OOO task's urgency is not amendable at all.
  *   - A no-op edit writes no history and notifies nobody.
- *   - An urgency change DMs the assignee when there is one; a notes change is
- *     silent. Neither posts to the channel; both re-render existing cards
- *     through the silent card-sync path.
+ *   - An urgency change DMs the assignee when there is one. So does a change to
+ *     an LOI's terms, unless the holder made it themselves (#267, rule 9); a
+ *     notes change on the other five types is silent. Nothing posts to the
+ *     channel, and every applied edit re-renders existing cards through the
+ *     silent card-sync path.
  *   - Every applied edit lands in history with both values.
  *   - Two simultaneous edits do not erase one another (#158's rule).
  */
@@ -531,6 +533,104 @@ await check("an LOI calls the field terms in the history and in the empty refusa
     /^The notes cannot be emptied$/,
     "the other five types still say notes"
   );
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #267 / ADR-0008 rule 9 — who hears about a terms change.
+
+   The terms are what the checker is checking against, so a change to them
+   under a working checker is the one amendment likely to make somebody's work
+   wrong. That is what separates it from the wording fix on the other five
+   types, which stays silent. Nobody but the assignee is told, nothing reaches
+   the channel, and the existing cards re-render either way so no surface is
+   left quoting stale terms.
+   ────────────────────────────────────────────────────────────────────────── */
+
+await check("a terms change on a claimed LOI DMs the holder, and stays off the channel", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "Rate: 9.57%", CREATOR);
+  await service.settleBackgroundWork();
+
+  const dms = events.filter((e) => e.target === "DM");
+  assert.equal(dms.length, 1, "exactly one plain DM");
+  assert.deepEqual(dms[0].recipientUserIds, [CHECKER.id], "it goes to the checker holding it");
+  assert.match(dms[0].message, /^Dana changed the terms on Amend Sim\b/, "named actor, named file");
+  assert.doesNotMatch(dms[0].message, /9\.57/, "the DM is a nudge, not a copy of the terms");
+  assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
+});
+
+await check("a terms change on an unclaimed LOI DMs nobody, but still syncs cards", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", notes: "Rate: 9.75%" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "Rate: 9.57%", CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.filter((e) => e.target === "DM").length, 0, "there is nobody holding it to tell");
+  assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
+  assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are still re-rendered");
+});
+
+/* The holder may now correct the terms themselves (#263), so "always tell the
+   assignee" would DM a checker about their own typo fix. The DM is for the
+   party who did not make the change, and on an LOI that is only ever the
+   assignee — a checker correcting the terms does not tell the creator, because
+   ADR-0008 rule 9 names the assignee and nobody else. */
+await check("the holder correcting the terms themselves is told nothing, and neither is the creator", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "Rate: 9.57%", CHECKER);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.filter((e) => e.target !== "DM_CARD_SYNC").length, 0, "silent apart from the sync");
+  assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are re-rendered");
+});
+
+await check("the other five types' request field stays silent even when claimed", async () => {
+  for (const taskType of ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
+    const { service, events } = await setup();
+    const id = await makeTask(service, { taskType, claimed: true, holder: CHECKER, notes: "the original ask" });
+    await drain(service, events);
+
+    await service.updateTaskNotes(id, "the reworded ask", CREATOR);
+    await service.settleBackgroundWork();
+
+    assert.equal(
+      events.filter((e) => e.target !== "DM_CARD_SYNC").length,
+      0,
+      `${taskType}: a wording fix is still silent`
+    );
+  }
+});
+
+await check("a no-op terms save on a claimed LOI notifies nobody", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "  Rate: 9.75%  ", CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.length, 0, "no notification of any kind, not even a card sync");
+});
+
+await check("the card sync carries the new terms, so no card is left quoting the old ones", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "Rate: 9.57%", CREATOR);
+  await service.settleBackgroundWork();
+
+  const syncs = events.filter((e) => e.target === "DM_CARD_SYNC");
+  assert.equal(syncs.length, 1, "the existing cards are re-rendered in place");
+  assert.equal(syncs[0].task.notes, "Rate: 9.57%", "and they are rebuilt from the corrected terms");
 });
 
 /* Poop points are the creator's on every type, ADR-0008 rule 4 — the number
