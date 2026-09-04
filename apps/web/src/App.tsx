@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, standingTermsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingTermsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -2811,13 +2811,24 @@ const CollapseAllButton = ({
   );
 };
 
-/* Editable header shown above the task list when it's filtered to a single
-   Loan (ADR-0001). The app's only post-creation edit surface, scoped to the
-   Loan's name + Humperdink link. Any authenticated user may edit. */
+/* The header above the task list when it's filtered to a single Loan
+   (ADR-0001). Read-only since #266.
+
+   It used to carry an `Edit` button opening the name and the link inline — the
+   app's first post-creation edit surface, open to any authenticated user.
+   ADR-0008 rule 5 narrows a loan edit to the two parties of the task it is made
+   from, and this header stands outside any task: it is a filter over a list, so
+   there is no creator and no assignee here to be one of. A surface with nobody
+   to check cannot carry the rule, and keeping it would mean one editing surface
+   with a rule and another without — the exact drift the ticket closes.
+
+   So the ability is gone rather than weakened, and the heading keeps its job of
+   saying which loan the list is filtered to. The name and the link are still
+   corrected from `Edit Task` on any task on this loan, which is one click from
+   the rows directly below this header. */
 const LoanFilterHeader = ({
   loan,
   taskCount,
-  onSave,
   onClear,
   grouped,
   onGroupedChange,
@@ -2828,7 +2839,6 @@ const LoanFilterHeader = ({
 }: {
   loan: Loan;
   taskCount: number;
-  onSave: (loanId: string, name: string, humperdinkLink: string) => Promise<void>;
   onClear: () => void;
   grouped: boolean;
   onGroupedChange: (g: boolean) => void;
@@ -2837,66 +2847,18 @@ const LoanFilterHeader = ({
   expandedIds: string[];
   onCollapseAll: (taskIds: string[]) => void;
 }) => {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(loan.name);
-  const [link, setLink] = useState(loan.humperdinkLink ?? "");
-  const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    // Re-sync when the underlying loan changes (e.g. after a save/merge).
-    setName(loan.name);
-    setLink(loan.humperdinkLink ?? "");
-    setEditing(false);
-  }, [loan.id, loan.name, loan.humperdinkLink]);
-
-  const save = async (): Promise<void> => {
-    if (!name.trim()) return;
-    setSaving(true);
-    try {
-      await onSave(loan.id, name, link);
-      setEditing(false);
-    } catch {
-      /* The save has already said whatever there was to say — a refusal toasts,
-         and a declined merge deliberately says nothing because nothing was sent.
-         Either way the editor stays open on what was typed rather than closing
-         as if it had landed. */
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="loan-header">
       <div className="loan-header-main">
         <span className="loan-header-eyebrow">Loan</span>
-        {editing ? (
-          <div className="loan-header-edit">
-            <input
-              className="loan-header-name-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              aria-label="Loan name"
-            />
-            <input
-              className="loan-header-link-input"
-              value={link}
-              placeholder="Humperdink link (optional)"
-              onChange={(e) => setLink(e.target.value)}
-              aria-label="Humperdink link"
-            />
-            <button type="button" className="btn-sm btn-good" disabled={saving} onClick={() => { void save(); }}>Save</button>
-            <button type="button" className="btn-sm btn-ghost" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
-          </div>
-        ) : (
-          <div className="loan-header-view">
-            <h2 className="loan-header-name">{loan.name}</h2>
-            {loan.humperdinkLink && (
-              <a className="loan-header-link" href={loan.humperdinkLink} target="_blank" rel="noreferrer">
-                Humperdink <span aria-hidden="true">↗</span>
-              </a>
-            )}
-            <button type="button" className="btn-sm btn-ghost" onClick={() => setEditing(true)}>Edit</button>
-          </div>
-        )}
+        <div className="loan-header-view">
+          <h2 className="loan-header-name">{loan.name}</h2>
+          {loan.humperdinkLink && (
+            <a className="loan-header-link" href={loan.humperdinkLink} target="_blank" rel="noreferrer">
+              Humperdink <span aria-hidden="true">↗</span>
+            </a>
+          )}
+        </div>
       </div>
       <div className="loan-header-meta">
         <span className="section-count">{taskCount} TASK{taskCount === 1 ? "" : "S"}</span>
@@ -3968,9 +3930,16 @@ export const App = () => {
   const [mergeAsk, setMergeAsk] = useState<{ collision: LoanLinkCollision; decide: (confirmed: boolean) => void } | null>(null);
   const [merging, setMerging] = useState(false);
 
-  /* The single door every loan edit goes through, whichever surface asked — the
-     edit form or the loan-filter header. They are two callers of one save, so
-     they get one confirmation rather than two implementations of it.
+  /* The single door every loan edit goes through. Two surfaces used to call it;
+     since #266 there is one, because the loan-filter header no longer edits
+     anything — but the door stays a door, so the confirmation below is written
+     once whatever comes to use it next.
+
+     Every body sent through here carries the `taskId` its caller was editing
+     from, and the server checks the party rule on each request — including the
+     `confirmMerge` re-send, which is the same body a second time. A refusal that
+     only arrived after the dialog would be a refusal someone had to answer a
+     question to discover.
 
      A save posts exactly what it always did. If the link lands on another loan's
      the server writes nothing and answers 409 naming that loan (#262); we ask
@@ -4019,29 +3988,10 @@ export const App = () => {
     }
   }, [user, showToast]);
 
-  /* Edit a Loan's name/link (the app's first post-creation edit surface).
-     Server propagates to every linked task; we refresh tasks + loans so the
-     live reference is reflected everywhere. */
-  const onSaveLoan = async (loanId: string, name: string, humperdinkLink: string): Promise<void> => {
-    try {
-      const trimmedLink = humperdinkLink.trim();
-      const normLink = trimmedLink && !/^https?:\/\//i.test(trimmedLink) ? `https://${trimmedLink}` : trimmedLink;
-      // A confirmed merge can move the list onto the surviving loan; filtering to
-      // the id that came back is what keeps this view pointed at a record that
-      // still exists. The notice about it is `patchLoan`'s.
-      const { loan } = await patchLoan(loanId, { name: name.trim(), humperdinkLink: normLink });
-      setLoanFilterId(loan.id);
-      setError(null);
-      await refresh();
-      await loadLoans();
-    } catch (err) {
-      /* Declining is not a failure: nothing was sent, so there is nothing to
-         report, and the header stays open on the link the person typed rather
-         than snapping back as if the edit had gone through. */
-      if (err instanceof MergeDeclined) throw err;
-      showToast(err instanceof Error ? err.message : "Failed to update loan", { variant: "error" });
-    }
-  };
+  /* `onSaveLoan` — the loan-filter header's save — is gone with #266. That
+     header sits outside any task, so under ADR-0008 rule 5 there is nobody to
+     check and it carries no edit at all now. `saveLoanFields` below is the one
+     remaining caller of `patchLoan`, and it always has a task behind it. */
 
   const onUpdatePoints = useCallback(async (taskId: string, points: number): Promise<void> => {
     try {
@@ -4117,19 +4067,21 @@ export const App = () => {
 
   /* Write the shared Loan record from the edit form (#262, ADR-0008 rule 7).
 
-     Deliberately not `onSaveLoan`, which serves the loan-filter header: that one
-     switches the list over to the edited loan when it saves, which is right when
-     you are standing in that loan's filtered view and wrong when you are
-     correcting one task and expect to land back where you were.
+     The task it was edited from travels with it (#266): the server's permission
+     rule is "is this person a party to this task, and is the task on this loan",
+     so the task id is not context for the log, it is the thing being checked.
+     There is no way to reach this without one — the only caller is the edit
+     form, which is always open on a task.
 
      The server pushes the new name and link onto every task on the loan, so the
      refresh below is what makes the whole list agree — not just the task the
      form was open on. A refusal (a link already on another loan, #262's 409) is
      toasted and rethrown, so the form stays open with the typing still in it. */
-  const saveLoanFields = useCallback(async (loanId: string, fields: { name?: string; humperdinkLink?: string }): Promise<void> => {
+  const saveLoanFields = useCallback(async (loanId: string, taskId: string, fields: { name?: string; humperdinkLink?: string }): Promise<void> => {
     const link = fields.humperdinkLink?.trim();
     try {
       await patchLoan(loanId, {
+        taskId,
         ...(fields.name !== undefined ? { name: fields.name.trim() } : {}),
         // Saved straight from the keyboard, the field's own blur-time
         // prefixing may never have run. Normalized here so a bare host isn't
@@ -4189,7 +4141,7 @@ export const App = () => {
       showToast(message, { variant: "error" });
       throw new Error(message);
     }
-    await saveLoanFields(task.loanId, {
+    await saveLoanFields(task.loanId, task.id, {
       ...(edit.folderName !== undefined ? { name: edit.folderName } : {}),
       ...(edit.humperdinkLink !== undefined ? { humperdinkLink: edit.humperdinkLink } : {})
     });
@@ -4200,6 +4152,13 @@ export const App = () => {
      "All Tasks" view are filtered from it — so an id that came off any row
      resolves here. */
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : undefined;
+
+  /* Whether this viewer may correct the loan behind the task they have open, and
+     if not, why (#266, ADR-0008 rule 5). Resolved out of `editingTask` rather
+     than out of the form's copy so it re-answers when the task moves underneath
+     the open form — a handoff mid-edit takes the assignee seat away, and the
+     boxes should shut when it does. */
+  const editingLoanRefusal = editingTask ? loanEditRefusal(editingTask, user) : undefined;
 
   /* Share a task with one person (issue #41). Returns whether the DM actually
      reached them (they may have no bot reference), so the card can distinguish
@@ -4527,7 +4486,16 @@ export const App = () => {
           tasks={tasks}
           onClose={() => setEditingTaskId(null)}
           onCreate={onCreate}
-          edit={{ task: editingTask, onSave: (edit) => onSaveEdit(editingTask, edit) }}
+          edit={{
+            task: editingTask,
+            onSave: (edit) => onSaveEdit(editingTask, edit),
+            /* The same function the server refuses with (#266), asked here so
+               the form can shut the two boxes instead of letting someone type
+               into them and be told no afterwards. Undefined for a party on an
+               open task, which is the everyday case and leaves the pair exactly
+               as #262 built them. */
+            ...(editingLoanRefusal ? { loanRefusal: editingLoanRefusal } : {})
+          }}
         />
       )}
 
@@ -4543,7 +4511,6 @@ export const App = () => {
               <LoanFilterHeader
                 loan={activeLoan}
                 taskCount={filtered.length}
-                onSave={onSaveLoan}
                 onClear={() => setLoanFilterId(null)}
                 grouped={grouped}
                 onGroupedChange={setGrouped}

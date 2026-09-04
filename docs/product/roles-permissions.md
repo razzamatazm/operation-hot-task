@@ -90,6 +90,35 @@ rejected. A Handoff is the only third-party way a task's assignee changes.
   because they were asked to confirm and did. Archiving on every other path is
   still the creator's move or the retention sweep's
 
+## Correcting A Loan
+
+A loan's folder name and its Humperdink link belong to the **loan record**, not
+to any one task, so correcting either corrects it on every task pointing at that
+loan — finished ones included.
+
+**Only the two parties of the task you are correcting it from may do it: its
+creator or its current assignee.** Not an observer, not a file checker who has
+not claimed the task, and **not an admin** — this is the ADR-0003 rule again,
+and back-end access confers nothing over other people's work. There is no
+override.
+
+- The edit is made **from a task**, and the server checks that the task exists,
+  that it is on that loan, and that you are a party to it. No task named, or a
+  task on a different loan, is refused: being a party to one task gives you
+  nothing over another loan.
+- **A closed task is frozen.** Neither party can correct a loan through a task
+  they have finished; reopening is the route for a genuinely late correction
+  ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 6).
+- **The refusal names the rule**, and the app shows the fields read-only rather
+  than letting anyone type into a box the server will refuse.
+- **This removed an ability.** Until ADR-0008 rule 5 landed, any signed-in
+  person could rename any loan, and the header above a loan-filtered task list
+  carried its own edit. That header stands outside any task, so it has no two
+  parties to check, and it is now read-only. Full account of which surface got
+  which answer: [task-fields.md](task-fields.md#who-may-correct-a-loan).
+- **Filing a task is not affected.** Anyone who may file a task may still mint a
+  loan, join an existing one, or fill in a link it was missing.
+
 ## Admin Panel (Users & Roles)
 
 - Admin-only `Admin` tab (next to Metrics) manages the `users` table

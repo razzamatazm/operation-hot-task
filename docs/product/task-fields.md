@@ -27,8 +27,12 @@ the web alike.
 | Terms (`LOI`) | yes | creator **or** current assignee | any non-closed status |
 | Notes (other five types) | yes | creator | any non-closed status |
 | Urgency | yes, except on `OOO` | creator | any non-closed status |
+<<<<<<< HEAD
 | Poop points | yes | creator | while the task is active (not `AWAITING_ITEMS`) |
 | Folder name / Humperdink link (non-`OOO`) | yes — **on the loan**, not the task | any authenticated user | any status |
+=======
+| Folder name / Humperdink link (non-`OOO`) | yes — **on the loan**, not the task | the task's creator or its current assignee, and only from that task | any non-closed status |
+>>>>>>> 520f19b (Only a task's two parties can change its loan (#266))
 | Vacation description (`OOO` folder name) | yes, on the task | creator | any non-closed status |
 | Due date | **never directly** — derived from urgency | — | — |
 | Task type, which loan a task is on, creator, assignee, OOO dates | no | — | — |
@@ -128,9 +132,9 @@ is wrong on all of them.
   - This is the app's **one** confirmation dialog, and it is deliberate: the
     muted line above is not a dialog because nothing has gone wrong there, and a
     toast is not an option because a toast cannot ask a question
-    ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 7). Both
-    surfaces that edit a loan — the edit form and the loan header above a
-    filtered task list — ask the same question through the same path.
+    ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 7). The
+    edit form is now the only surface that edits a loan (see *Who may correct a
+    loan*, below), and it asks through the one shared save path.
   - Merging at task **creation** is untouched and asks nothing: filing against a
     link that already has a loan simply joins that loan, which is the dedupe that
     stops a duplicate record being minted. Nobody's tasks are absorbed there,
@@ -146,8 +150,65 @@ is wrong on all of them.
   (creator only, non-closed only, silent, in history with both values), it has
   no Humperdink link field at all, and it shows no shared-record line — there is
   no shared record.
-- **Who may edit the loan** is unchanged: any authenticated user, as it has been
-  since ADR-0001. ADR-0008 rule 5 narrows it to the two parties in separate work.
+### Who may correct a loan
+
+**Only the two people with a stake in the task it is corrected from: its creator
+or its current assignee.** Not an observer, not a file checker who has not
+claimed the task, and **not an admin** — back-end access confers nothing over
+other people's work ([ADR-0003](../adr/0003-creator-is-never-assignee.md)).
+
+This **removed an ability that used to exist**. Until this landed, any signed-in
+person could rename any loan or repoint its link, and a loan's name shows on
+every task pointing at it, so an edit by someone with no involvement rewrote
+other people's work. [ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md)
+rule 5 and its consequences section name the narrower answer; this is it.
+
+- **A loan edit is made from a task.** The request carries which task you were
+  editing from, and the server checks three things before it writes anything:
+  that the task exists, that it is on that loan, and that you are a party to it.
+  A request with no task named, or naming a task on a different loan, is
+  refused — being a party to one task confers nothing over somebody else's loan.
+- **The refusal names the rule**, not just "forbidden": you are told it is the
+  requester's or the checker's to change. Same sentence on the server and in the
+  app, written once beside the rule so the two cannot drift.
+- **A closed task is frozen**, for both parties
+  ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 6). Reopen
+  it if a genuinely late correction is needed. The refusal says so, and says it
+  differently from the not-a-party one — those are different facts.
+- **Nothing is offered to someone who would be refused.** In the edit form the
+  two boxes render **read-only** with the reason beneath them, rather than
+  accepting typing and refusing it at save time. The shared-record line and the
+  merge confirmation are unreachable for them, and the confirmed re-send of a
+  merge takes the same check as the save that asked — a refusal is never
+  something you discover only after answering a dialog.
+- **Filing a task is untouched.** Creating a loan, joining an existing one by
+  name or link, and filling in a link the loan was missing all still happen for
+  anyone who may file a task. This rule is about *changing* an existing loan's
+  name or link.
+
+**Known edge, not yet answered: the loan on the other side of a merge.** The
+check is made against the loan you are editing. A confirmed link edit merges a
+*second* loan in, and nothing checks that you have any standing over **that**
+one — so a party to one loan can still absorb another loan's tasks. This is not
+a regression (before ADR-0008 rule 5 anyone could do it to either side, unasked
+and without a dialog), and the confirmation names the other loan so nobody does
+it by accident. But narrowing it needs an answer that does not exist yet: a loan
+has many tasks and many parties, so "a party to the absorbed loan" would have to
+mean a party to *any one* of its tasks, and a loan with no tasks has nobody at
+all. Deliberately left open rather than guessed at.
+
+**Every loan-editing surface, and what each got:**
+
+| Surface | Answer |
+|---|---|
+| The two loan fields in `Edit Task` | Kept, narrowed to the task's two parties, open tasks only |
+| The header above a loan-filtered task list | **Editing removed.** It stands outside any task, so it has no two parties to check. It is now a read-only heading with the loan's name and its Humperdink link |
+
+The header's ability went rather than being softened for it: a surface with
+nobody to check cannot carry the rule, and keeping it would have left one editing
+surface with a rule and another without — the drift this closes. The name and
+link are still corrected from `Edit Task` on any task on that loan, which is one
+click away in the list directly beneath that header.
 
 ## Create Task Fields
 

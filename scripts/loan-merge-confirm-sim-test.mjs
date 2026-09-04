@@ -162,18 +162,21 @@ test("a merge in flight disables both answers rather than letting them be presse
 
 /* ── The round trip, read out of App.tsx ────────────────── */
 
-test("both loan-edit surfaces save through the one path that asks", () => {
+/* This ticket built `patchLoan` as the one door two surfaces went through. #266
+   then removed one of them: the loan-filter header sits outside any task, so
+   under ADR-0008 rule 5 it has no two parties and carries no edit at all now.
+   What #265 promised survives the removal — there is still exactly one loan-save
+   path, and the surface that remains goes through it rather than around it. */
+test("the surviving loan-edit surface saves through the one path that asks", () => {
   assert.match(APP, /const patchLoan = useCallback/, "there is a single loan-save path");
-  const header = APP.slice(APP.indexOf("const onSaveLoan"), APP.indexOf("const onUpdatePoints"));
   const form = APP.slice(APP.indexOf("const saveLoanFields"), APP.indexOf("const onEditTask"));
-  for (const [what, source] of [["the loan header", header], ["the edit form", form]]) {
-    assert.match(source, /await patchLoan\(/, `${what} saves through patchLoan`);
-    assert.doesNotMatch(source, /apiRequest[\s\S]*?\/loans\//, `${what} does not PATCH the loan itself`);
-  }
+  assert.match(form, /await patchLoan\(/, "the edit form saves through patchLoan");
+  assert.doesNotMatch(form, /apiRequest[\s\S]*?\/loans\//, "and does not PATCH the loan itself");
+  assert.ok(!/const onSaveLoan/.test(APP), "and the header's save is gone rather than bypassing it");
 });
 
 test("the flag rides only on the re-send, after a yes", () => {
-  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("/* Edit a Loan's name/link"));
+  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("const onUpdatePoints"));
   assert.match(patch, /return await send\(\);/, "the first save carries nothing extra, so a collision is refused");
   assert.match(patch, /if \(!confirmed\)[\s\S]*?throw new MergeDeclined\(\)/, "a no sends nothing and rejects");
   const afterDecline = patch.slice(patch.indexOf("if (!confirmed)"));
@@ -182,23 +185,20 @@ test("the flag rides only on the re-send, after a yes", () => {
 });
 
 test("declining is silent, and every other refusal still speaks", () => {
-  for (const surface of ["const onSaveLoan", "const saveLoanFields"]) {
-    const end = APP.indexOf(surface === "const onSaveLoan" ? "const onUpdatePoints" : "const onEditTask");
-    const source = APP.slice(APP.indexOf(surface), end);
-    assert.match(source, /MergeDeclined/, `${surface} treats a decline as its own case`);
-    const declineBranch = source.slice(source.indexOf("MergeDeclined"));
-    assert.doesNotMatch(
-      declineBranch.slice(0, declineBranch.indexOf("\n") + 1),
-      /showToast/,
-      "nothing was sent, so nothing is announced"
-    );
-  }
+  const source = APP.slice(APP.indexOf("const saveLoanFields"), APP.indexOf("const onEditTask"));
+  assert.match(source, /MergeDeclined/, "the edit form treats a decline as its own case");
+  const declineBranch = source.slice(source.indexOf("MergeDeclined"));
+  assert.doesNotMatch(
+    declineBranch.slice(0, declineBranch.indexOf("\n") + 1),
+    /showToast/,
+    "nothing was sent, so nothing is announced"
+  );
 });
 
 test("a confirmed merge still shows the notice it always did, said once", () => {
   const notices = APP.match(/Merged with "\$\{result\.merged\.intoLoanName\}"/g) ?? [];
   assert.equal(notices.length, 1, "the notice belongs to the step that merged, not to each caller");
-  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("/* Edit a Loan's name/link"));
+  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("const onUpdatePoints"));
   assert.match(patch, /Merged with/, "so any surface that saves a loan inherits it");
   assert.match(patch, /variant: "info"/, "as the same transient toast (ADR-0001 addendum 2026-07-31)");
 });

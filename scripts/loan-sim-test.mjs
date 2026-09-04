@@ -496,6 +496,69 @@ const run = async () => {
     pass("merges at task creation need no confirmation and are unchanged by #265");
   });
 
+  /* ── #266: the service is not the gate, and must not become one ──
+     Who may edit a loan is a question about a TASK — its creator, its assignee,
+     its status — and `LoanService` knows about none of those. The rule therefore
+     lives on the route, which is where the actor and the task both are, and the
+     service keeps taking any edit handed to it. That is deliberate rather than
+     an oversight: the create path calls straight into the same service, and a
+     permission check buried in `update` would either have to be bypassed there
+     or would start refusing people filing tasks. What is pinned here is that the
+     route really does the checking, and does it before anything is written. */
+  {
+    const routes = await fs.readFile(new URL("../apps/server/src/routes.ts", import.meta.url), "utf8");
+    const from = routes.indexOf('router.patch("/loans/:loanId"');
+    const handler = routes.slice(from, routes.indexOf("\n  router.", from + 1));
+    const flat = handler.replace(/\s+/g, " ");
+
+    assert.match(flat, /if \(!input\.taskId\) \{ throw new Error\(LOAN_EDIT_NEEDS_TASK\); \}/,
+      "a loan edit with no task behind it is refused, in words");
+    assert.match(flat, /const editedFrom = await service\.getTask\(input\.taskId\)/,
+      "the named task is loaded");
+    assert.match(flat, /if \(editedFrom\.loanId !== req\.params\.loanId\)/,
+      "and has to actually be on this loan");
+    assert.match(flat, /const refusal = loanEditRefusal\(editedFrom, actor\)/,
+      "the shared rule decides, not a second copy of it here");
+    assert.match(flat, /if \(refusal\) \{ res\.status\(403\)\.json\(\{ error: refusal \}\); return; \}/,
+      "and the refusal that comes back IS what the caller is told");
+
+    /* Order matters as much as presence. Every check sits ahead of the call that
+       writes, so a refused edit never reaches the service — and the merge branch
+       is downstream of all of it, which is what stops a confirmed re-send from
+       being a way in. */
+    assert.ok(
+      flat.indexOf("const refusal = loanEditRefusal") < flat.indexOf("await loanService.update"),
+      "the rule runs before anything is written"
+    );
+    assert.ok(
+      flat.indexOf("const refusal = loanEditRefusal") < flat.indexOf("input.confirmMerge"),
+      "including on the confirmed re-send — no refusal is reachable only after a dialog"
+    );
+
+    /* ADR-0003: back-end access confers nothing over other people's work. */
+    assert.ok(!/isAdmin|ADMIN/.test(handler), "no admin bypass anywhere in the handler");
+    pass("the loan route checks the task and its parties before it writes anything");
+  }
+
+  /* Creation is a different door and this ticket does not touch it (#266). The
+     service still mints, joins and completes a loan for anyone filing a task —
+     the rule is about CHANGING an existing loan's name or link. Proved here at
+     the service, and again over real HTTP in loan-edit-permission-sim-test. */
+  await withTempDir(async ({ service, loanStore }) => {
+    const made = await service.create({ name: "Filed by anybody" });
+    assert.ok(made.id, "create takes no actor and asks no permission");
+    const joined = await service.resolveForTask({ name: "Filed by anybody" });
+    assert.equal(joined.id, made.id, "and so does resolving one for a new task");
+    const filled = await service.resolveForTask({
+      name: "Filed by anybody",
+      humperdinkLink: "https://h.example/filed"
+    });
+    assert.equal(filled.id, made.id, "still the same loan");
+    assert.equal(filled.humperdinkLink, "https://h.example/filed", "with its missing link filled in");
+    assert.equal((await loanStore.all()).length, 1);
+    pass("creating and joining a loan is untouched — the rule is about changing one");
+  });
+
   for (const line of results) console.log(line);
   console.log(`SUMMARY total=${results.length} passed=${results.length} failed=0`);
 };

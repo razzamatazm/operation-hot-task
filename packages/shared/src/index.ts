@@ -8,6 +8,7 @@ export * from "./loan.js";
 export * from "./deep-link.js";
 export * from "./ordering.js";
 export * from "./parties.js";
+export * from "./loan-edit.js";
 export * from "./notes.js";
 export * from "./humperdink.js";
 export * from "./history.js";

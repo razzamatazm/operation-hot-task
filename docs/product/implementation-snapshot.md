@@ -40,7 +40,17 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `GET /api/loans` (list; `?q=` fuzzy search for the create-form typeahead)
   - `POST /api/loans` (create; dedupes by canonical link / normalized name)
   - `GET /api/loans/:loanId`
-  - `PATCH /api/loans/:loanId` (edit name/link; propagates to every linked task;
+  - `PATCH /api/loans/:loanId` (edit name/link; propagates to every linked task.
+    Body carries a **required `taskId`** — the task the edit was made from
+    (#266, ADR-0008 rule 5). The route refuses with **400** if no task is named,
+    **404** if the named task does not exist, and **403** if it is on a different
+    loan, if the caller is not that task's creator or current assignee, or if the
+    task is closed — the three 403s are all "you have no standing here", which is
+    why a task on the wrong loan is not a 400. Admin confers nothing. The
+    refusal sentences come from
+    `loanEditRefusal` in `packages/shared`, which the web app asks too, so the
+    boxes it greys out and the requests the server refuses are one rule.
+    Checked on every request including the `confirmMerge` re-send;
     **409** if the new link is already on another loan, naming it and which of
     the two would survive the merge (the older record), with nothing
     written, #262. That refusal is a question, not a dead end: the app asks

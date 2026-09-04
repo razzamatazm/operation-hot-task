@@ -492,6 +492,106 @@ test("an OOO task edits a vacation description, and has no link field", () => {
   assert.ok(!html.includes("Humperdink"), "a vacation has no loan and no link");
 });
 
+/* ── No control offered to somebody the server will refuse (#266) ──
+   ADR-0008 rule 5 narrows a loan edit to the task's two parties. The form is
+   handed the server's own refusal sentence, and the two boxes shut. What is
+   pinned here is that they shut *properly*: read-only rather than merely
+   un-submittable, with the reason attached to them rather than left to a toast
+   after the save. The rule that produces the sentence is exercised end to end
+   over HTTP in `loan-edit-permission-sim-test.mjs`. */
+
+const REFUSAL = "Only the person who requested this task or the person working it can change its loan's name or link";
+/* React escapes the apostrophe on the way out, so the markup is searched for
+   the escaped form rather than the sentence as written. */
+const REFUSAL_HTML = REFUSAL.replace(/'/g, "&#x27;");
+const locked = (task = loiTask()) =>
+  render({ edit: { task, onSave: async () => {}, loanRefusal: REFUSAL } });
+
+test("a non-party gets the loan's two boxes read-only, with the reason", () => {
+  const html = locked();
+  /* Both boxes, not one: they land on one record and the rule is about the
+     record, so half a lock would be an invitation to try the other half. */
+  assert.equal((html.match(/readonly=""/g) ?? []).length, 2, "both loan boxes are read-only");
+  assert.ok(html.includes(REFUSAL_HTML), "and the reason is on the page");
+  assert.match(html, /class="task-form-locked task-form-loan-locked"/, "in the muted register");
+});
+
+test("the boxes still show what the loan says — locked, not hidden", () => {
+  const html = locked();
+  assert.ok(html.includes("Whitfield 4471"), "the folder name is still readable");
+  assert.ok(html.includes("https://h.example/whitfield-4471"), "so is the link");
+  assert.ok(html.includes("Folder Name"), "and both keep their labels");
+  assert.ok(html.includes("Humperdink Link"));
+});
+
+test("the reason is announced with the fields, not just drawn near them", () => {
+  const html = locked();
+  const ids = [...html.matchAll(/aria-describedby="([^"]+)"/g)].map((m) => m[1]);
+  const paragraph = html.match(/<p id="([^"]+)" class="task-form-locked task-form-loan-locked"/);
+  assert.ok(paragraph, "the refusal has an id to point at");
+  assert.equal(
+    ids.filter((id) => id === paragraph[1]).length,
+    2,
+    "both boxes are described by the one sentence about both of them"
+  );
+});
+
+test("a locked-out viewer is not also warned about a save they cannot make", () => {
+  const html = locked();
+  assert.ok(!SHARED_LINE.test(html), "the shared-record line is unreachable");
+  assert.ok(!html.includes("task-form-shared-loan"), "and never drawn");
+});
+
+test("a party sees no lock and no refusal at all", () => {
+  const html = editing();
+  assert.ok(!html.includes("readonly"), "nothing is read-only for the two people it belongs to");
+  assert.ok(!html.includes(REFUSAL_HTML));
+  assert.ok(!html.includes("task-form-loan-locked"));
+});
+
+/* The Save button is part of "no control is offered". The lock is recomputed
+   live from the task, so it can close over a draft somebody had already typed —
+   a handoff landing mid-edit takes the assignee seat away with the boxes still
+   full. What must not then happen is the Save posting that draft and eating a
+   refusal. Read out of the source, because reaching it needs typing into a
+   rendered form and there is no DOM harness here. */
+test("a locked form drops the loan pair from what a Save sends", () => {
+  const source = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+  assert.match(
+    source,
+    /if \(loanLocked\) \{\s*\n\s*delete changed\.folderName;\s*\n\s*delete changed\.humperdinkLink;\s*\n\s*\}/,
+    "the pair never leaves a locked form"
+  );
+  /* It is dropped from the real diff, and before the nothing-moved check, so a
+     lock-only edit closes the form instead of posting an empty save. */
+  assert.ok(
+    source.indexOf("if (loanLocked) {") > source.indexOf("const changed = taskEdit(edit.task, form)"),
+    "dropped from the real diff, not from a second one"
+  );
+  assert.ok(
+    source.indexOf("if (loanLocked) {") < source.indexOf("if (Object.keys(changed).length === 0)"),
+    "and before the nothing-moved check"
+  );
+});
+
+test("locked boxes show what the loan says, not an abandoned draft", () => {
+  const source = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+  assert.match(source, /value=\{loanLocked \? lockedFolderName : form\.folderName\}/);
+  assert.match(source, /value=\{loanLocked \? lockedLink : form\.humperdinkLink\}/);
+  const html = locked();
+  assert.ok(html.includes("Whitfield 4471"), "the loan's current name");
+  assert.ok(html.includes("https://h.example/whitfield-4471"), "and its current link");
+});
+
+/* An OOO task's "folder name" is a vacation description on the task itself,
+   governed by the creator-only amend rule and not by this one. A loan refusal
+   must never reach it — there is no loan behind it to protect. */
+test("an out-of-office description is never locked by the loan rule", () => {
+  const html = locked(oooTask());
+  assert.ok(!html.includes("readonly"), "the description stays editable");
+  assert.ok(!html.includes(REFUSAL_HTML), "and the loan refusal is not shown");
+});
+
 /* ── The muted shared-record line (ADR-0008 rule 7) ─────── */
 
 const SHARED_LINE = /Saving updates them on every task for this loan/;
@@ -514,8 +614,8 @@ const formSource = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8"
 test("the line is drawn from the changed-value predicate, never from focus", () => {
   assert.match(
     formSource,
-    /const sharedLoanWarning = editing && edit \? touchesSharedLoan\(edit\.task, form\) : false;/,
-    "the only thing that reveals it is a value having moved"
+    /const sharedLoanWarning = editing && edit && !loanLocked \? touchesSharedLoan\(edit\.task, form\) : false;/,
+    "the only thing that reveals it is a value having moved — and #266's lock takes it away"
   );
   assert.equal(
     (formSource.match(/sharedLoanWarning &&/g) ?? []).length,
@@ -610,7 +710,10 @@ test("no catch-all update route was introduced", () => {
    OOO task's description is written on the task itself. */
 test("the loan fields save to the loan record, and OOO's to the task", () => {
   assert.match(app, /if \(task\.taskType === "OOO"\) \{\s*\n\s*if \(edit\.folderName !== undefined\) await amendApi\.setFolderName/);
-  assert.match(app, /await saveLoanFields\(task\.loanId, \{/, "everything else goes to the loan");
+  /* The task id travels with it since #266: the server checks that the caller
+     is a party to that task and that the task is on that loan, so the id is
+     part of the request rather than context for the log. */
+  assert.match(app, /await saveLoanFields\(task\.loanId, task\.id, \{/, "everything else goes to the loan, from a named task");
   /* Since #265 the request itself is made one level down, in `patchLoan`, which
      is the shared step that asks before a merge — but it is still the same
      existing loan route, and still one call carrying both fields. */
@@ -627,4 +730,43 @@ test("a colliding link is refused by the server, not silently merged", () => {
   assert.match(loanService, /export class LoanLinkCollisionError extends Error/);
   assert.match(loanService, /if \(collision && !options\.confirmMerge\) \{[\s\S]{0,600}?throw new LoanLinkCollisionError/);
   assert.match(routes, /error instanceof LoanLinkCollisionError[\s\S]{0,120}status\(409\)/, "answered as a 409");
+});
+
+/* ── Every loan-editing surface is accounted for (#266) ───
+   The ticket's fourth criterion is an inventory, not a behaviour, so this is
+   the inventory. There were two surfaces that could change a loan's name or
+   link. One kept the ability under the new rule; the other lost it. */
+
+test("the edit form is the one surface that still edits a loan, and it names its task", () => {
+  /* `patchLoan` is the only place the app issues a loan PATCH, and every body
+     through it carries a `taskId` — there is no path to the route without
+     one. */
+  assert.equal(
+    (app.match(/method: "PATCH", body: JSON\.stringify\(\{ \.\.\.body/g) ?? []).length,
+    1,
+    "one loan-save step, not one per surface"
+  );
+  assert.match(app, /const saveLoanFields = useCallback\(async \(loanId: string, taskId: string,/);
+  assert.match(app, /await patchLoan\(loanId, \{\s*\n\s*taskId,/, "and the task rides on the body");
+  /* Which means the confirmed re-send carries it too: `patchLoan` re-sends the
+     same `body` with only `confirmMerge` added, so the second request is judged
+     by the same rule as the first. A refusal reachable only after answering a
+     merge dialog is a refusal that arrives too late. */
+  assert.match(app, /const result = await send\(\{ confirmMerge: true \}\);/);
+});
+
+test("the loan-filter header no longer edits anything", () => {
+  const from = app.indexOf("const LoanFilterHeader = (");
+  assert.ok(from > 0, "the header is still there — it says which loan the list is filtered to");
+  const header = app.slice(from, app.indexOf("\nconst ", from + 1));
+  /* It sits outside any task, so under ADR-0008 rule 5 there is nobody to
+     check. The answer this surface got is that the ability goes, rather than
+     the rule being softened for it: no inputs, no save, no edit toggle. */
+  assert.ok(!/<input/.test(header), "no boxes to type in");
+  assert.ok(!/onSave/.test(header), "and nothing to save with");
+  assert.ok(!/setEditing/.test(header), "and no way into an editing state");
+  assert.match(header, /<h2 className="loan-header-name">\{loan\.name\}<\/h2>/, "still a heading");
+  assert.match(header, /href=\{loan\.humperdinkLink\}/, "still linking out to Humperdink");
+  /* And App no longer carries the save that served it. */
+  assert.ok(!/const onSaveLoan = /.test(app), "the header's save is gone from App too");
 });

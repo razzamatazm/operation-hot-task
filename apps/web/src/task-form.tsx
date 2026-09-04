@@ -68,6 +68,19 @@ const UrgencySelect = ({
 export interface TaskFormEdit {
   task: EditableTask;
   onSave: (edit: TaskEdit) => Promise<void>;
+  /* Why this viewer may not touch the folder name or the Humperdink link, or
+     absent when they may (#266, ADR-0008 rule 5). The sentence is the server's
+     own — `loanEditRefusal` in `@loan-tasks/shared` — resolved by App, which is
+     the half of the app holding the whole task and the signed-in user. Passed in
+     rather than asked here so `EditableTask` stays the four fields this form
+     actually draws.
+
+     Present means the two boxes render read-only with the reason beneath them.
+     Not hidden: they are the loan's name and link on the task being edited, and
+     a form that dropped them would read as one that had lost them. Not merely
+     un-submittable either — a control that takes typing and then refuses it is
+     the version people file bugs about. */
+  loanRefusal?: string;
 }
 
 interface TaskFormProps {
@@ -142,6 +155,31 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      Described-by rather than inside the <label>, so the reason is announced
      after the field's name instead of becoming part of it. */
   const typeLockedId = useId();
+  /* The same trick for the loan pair's refusal (#266). One id for both boxes:
+     it is one sentence about both of them, exactly like the muted shared-record
+     line it stands in for. */
+  const loanLockedId = useId();
+
+  /* The loan's two fields are locked shut for anyone who isn't a party to this
+     task (#266, ADR-0008 rule 5). Never on OOO: its "folder name" is a vacation
+     description that lives on the task itself and is governed by the
+     creator-only amend rule, not by this one, so a loan refusal must not reach
+     it.
+
+     Declared up here rather than beside the fields it locks, because the SAVE
+     reads it too — the boxes shutting and the pair being dropped from what a
+     Save sends are two halves of one rule, and a lock the submit path could not
+     see would be a lock with a way round it. */
+  const loanLocked = editing && form.taskType !== "OOO" && edit?.loanRefusal !== undefined;
+
+  /* What a locked box shows. The lock is recomputed live from the task, so it
+     can close over a half-typed draft — a handoff mid-edit is the case — and a
+     read-only box displaying somebody's abandoned typing states it as if it
+     were the loan's name. Falling back to the task's own values means the pair
+     always reads as what the loan currently says, which is the only thing a
+     locked-out viewer should be able to learn from them. */
+  const lockedFolderName = edit?.task.folderName ?? "";
+  const lockedLink = edit?.task.humperdinkLink ?? "";
 
   /* Take a pasted Humperdink payload into the form, or say why it can't.
      A failure leaves every field exactly as it was: the parser returns a reason
@@ -264,7 +302,19 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       field?.reportValidity();
       return;
     }
+    /* The loan pair never leaves a locked form (#266). The boxes are read-only,
+       so ordinarily nothing in them can have moved — but the lock is recomputed
+       live from the task, so a handoff landing while the form is open takes the
+       assignee seat away with typing already in the boxes. Dropping the pair
+       here is what stops that draft being posted at a save the server would
+       refuse: "no control is offered to someone the server will refuse" has to
+       hold for the Save button too, not only for the two fields. Everything
+       else on the form is judged by its own rule and is unaffected. */
     const changed = taskEdit(edit.task, form);
+    if (loanLocked) {
+      delete changed.folderName;
+      delete changed.humperdinkLink;
+    }
     if (Object.keys(changed).length === 0) {
       onClose();
       return;
@@ -362,7 +412,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       {form.taskType === "OOO" || editing ? (
         <input
           ref={folderNameRef}
-          value={form.folderName}
+          value={loanLocked ? lockedFolderName : form.folderName}
+          readOnly={loanLocked}
+          {...(loanLocked ? { "aria-describedby": loanLockedId } : {})}
           onChange={(e) => {
             /* Clear a refusal the moment they start fixing it, so the box isn't
                stuck invalid on the next submit — same as the request field. */
@@ -451,7 +503,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
         type="text"
         inputMode="url"
         placeholder="Optional"
-        value={form.humperdinkLink}
+        value={loanLocked ? lockedLink : form.humperdinkLink}
+        readOnly={loanLocked}
+        {...(loanLocked ? { "aria-describedby": loanLockedId } : {})}
         onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
         onBlur={(e) => {
           const v = e.target.value.trim();
@@ -474,7 +528,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      keys off focus — clicking a field to read it warns about nothing — and it
      is a line of text under the fields rather than a dialog, a banner or a
      toast. Never on OOO, which has no loan to share. */
-  const sharedLoanWarning = editing && edit ? touchesSharedLoan(edit.task, form) : false;
+  const sharedLoanWarning = editing && edit && !loanLocked ? touchesSharedLoan(edit.task, form) : false;
   const sharedLoanCopy =
     "Heads up: this loan's name and link are shared. Saving updates them on every task for this loan, including finished ones.";
 
@@ -549,6 +603,19 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             <p className="sr-only" role="status">{sharedLoanWarning ? sharedLoanCopy : ""}</p>
             {sharedLoanWarning && (
               <p className="task-form-shared-loan" aria-hidden="true">{sharedLoanCopy}</p>
+            )}
+            {/* The refusal takes that line's place rather than sitting beside it
+                (#266). They are mutually exclusive by construction: read-only
+                boxes cannot move, so `touchesSharedLoan` is false here anyway,
+                and the sentence a locked-out viewer needs is why the boxes are
+                shut — not a warning about a save they cannot make. Muted prose
+                in the same register as `.task-form-locked`, because nothing has
+                gone wrong; they are simply not one of the two people this is
+                for. */}
+            {loanLocked && (
+              <p id={loanLockedId} className="task-form-locked task-form-loan-locked">
+                {edit?.loanRefusal}
+              </p>
             )}
           </div>
         ) : (
