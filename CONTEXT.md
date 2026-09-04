@@ -118,8 +118,11 @@ because it is not one)
 **Amend**:
 Correcting a task after filing — its _Terms_ or notes, its urgency, its poop
 points, its folder name and Humperdink link, and an OOO task's dates. Open to
-both _Parties_, with one exception: **urgency belongs to the creator alone**,
-because it sets the deadline and the assignee is the person under it. Refused
+both _Parties_, with two exceptions, both about timing: **urgency belongs to
+the creator alone**, because it sets the deadline and the assignee is the person
+under it, and so do **an OOO task's dates**, which are that task's deadline.
+Any date is accepted there, including one already past — somebody back early
+correcting the record is the case it exists for. Refused
 once the task is closed — completed, cancelled or archived — because a closed
 task is a record. Not "on an active task": a Fraud Check parked at
 `AWAITING_ITEMS` is waiting on its requester rather than finished, and is the

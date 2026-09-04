@@ -75,6 +75,8 @@ const oooTask = (over = {}) => ({
   taskType: "OOO",
   notes: "back on the 4th",
   folderName: "Two weeks in Lisbon",
+  startDate: "2026-03-02",
+  returnDate: "2026-03-09",
   urgency: "GREEN",
   points: 2,
   createdBy: { id: "creator-1", displayName: "Dana Requester" },
@@ -131,14 +133,14 @@ test("an unrated task preloads no poops rather than the blank form's default", (
   assert.equal(editFormValues(loiTask({ points: 0 })).points, 0);
 });
 
-/* The OOO dates are still a later ticket (#264), so edit mode opens with the
-   blank form's values for them and never renders them — nothing in the form can
-   move them, and `taskEdit` below refuses to send them even if something did. */
+/* The dates are blank on an LOI because an LOI has none; the OOO case is its
+   own section further down. Nothing else in the form can move the fields below,
+   and `taskEdit` refuses to send them even if something did. */
 test("edit mode carries no other field into the form", () => {
   const values = editFormValues(loiTask());
+  assert.equal(values.loanId, BLANK_CREATE_FORM.loanId);
   assert.equal(values.startDate, BLANK_CREATE_FORM.startDate);
   assert.equal(values.returnDate, BLANK_CREATE_FORM.returnDate);
-  assert.equal(values.loanId, BLANK_CREATE_FORM.loanId);
   assert.equal(values.recipientUserId, BLANK_CREATE_FORM.recipientUserId);
   assert.deepEqual(values.initialItems, []);
 });
@@ -237,13 +239,13 @@ test("clearing the poops sends the zero rather than nothing", () => {
   assert.deepEqual(taskEdit(task, { ...editFormValues(task), points: 0 }), { points: 0 });
 });
 
-test("changing terms, urgency and points in one save sends all three", () => {
+test("changing all three in one save sends all three", () => {
   const task = loiTask();
   const values = { ...editFormValues(task), notes: "Rate: 9.25%", urgency: "YELLOW", points: 5 };
   assert.deepEqual(taskEdit(task, values), { notes: "Rate: 9.25%", urgency: "YELLOW", points: 5 });
 });
 
-test("changing nothing sends nothing", () => {
+test("changing none of the three sends nothing", () => {
   const task = loiTask();
   assert.deepEqual(taskEdit(task, editFormValues(task)), {});
 });
@@ -252,14 +254,81 @@ test("changing nothing sends nothing", () => {
    server refuses the route outright — so the form neither shows the control nor
    lets a stale value leak into a save. */
 test("an OOO task never sends an urgency", () => {
-  const task = oooTask({ urgency: "GREEN" });
+  const task = loiTask({ taskType: "OOO", notes: "back on the 9th", urgency: "GREEN" });
   const values = { ...editFormValues(task), urgency: "RED", points: 4 };
   assert.deepEqual(taskEdit(task, values), { points: 4 });
 });
 
+/* ── An OOO task's dates (#264, ADR-0008 rule 8) ────────── */
+
+test("edit mode preloads an OOO task's start and return dates", () => {
+  const values = editFormValues(oooTask());
+  assert.equal(values.startDate, "2026-03-02");
+  assert.equal(values.returnDate, "2026-03-09");
+});
+
+/* The two are one range, so one of them moving sends both: the server's rule is
+   that the start is on or before the return, which it cannot check against half
+   of the pair, and history that named one value would say less than what
+   changed. */
+test("moving one date sends both", () => {
+  const task = oooTask();
+  const values = { ...editFormValues(task), returnDate: "2026-03-06" };
+  assert.deepEqual(taskEdit(task, values), { dates: { startDate: "2026-03-02", returnDate: "2026-03-06" } });
+});
+
+test("moving both sends both", () => {
+  const task = oooTask();
+  const values = { ...editFormValues(task), startDate: "2026-03-03", returnDate: "2026-03-06" };
+  assert.deepEqual(taskEdit(task, values), { dates: { startDate: "2026-03-03", returnDate: "2026-03-06" } });
+});
+
+test("saving unchanged dates sends nothing", () => {
+  const task = oooTask();
+  assert.deepEqual(taskEdit(task, editFormValues(task)), {});
+});
+
+/* A return date already gone is a correction, not a mistake: somebody back
+   early is the case the edit exists for. Nothing here refuses it — the server
+   accepts it and the next maintenance pass auto-completes the task. */
+test("a return date in the past is sent like any other", () => {
+  const task = oooTask();
+  const values = { ...editFormValues(task), startDate: "2020-01-06", returnDate: "2020-01-08" };
+  assert.deepEqual(taskEdit(task, values), { dates: { startDate: "2020-01-06", returnDate: "2020-01-08" } });
+});
+
+/* A cleared input is a half-finished edit, not an instruction to unset a
+   vacation's start date. There is no route that can express that, so the form
+   sends nothing rather than something the server would have to interpret. */
+test("an emptied date is not a change to send", () => {
+  const task = oooTask();
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), startDate: "" }), {});
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), returnDate: "" }), {});
+});
+
+/* The mirror of "an OOO task never sends an urgency": only an OOO task has
+   dates, so nothing else can leak a stray value into a route that refuses it. */
+test("the other five types never send dates", () => {
+  for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS"]) {
+    const task = loiTask({ taskType, notes: "what I asked for" });
+    const values = { ...editFormValues(task), startDate: "2026-03-02", returnDate: "2026-03-09" };
+    assert.deepEqual(taskEdit(task, values), {}, taskType);
+  }
+});
+
+test("an OOO task can change its dates, its poops and its notes in one save", () => {
+  const task = oooTask();
+  const values = { ...editFormValues(task), notes: "back Monday, not Tuesday", points: 3, returnDate: "2026-03-06" };
+  assert.deepEqual(taskEdit(task, values), {
+    notes: "back Monday, not Tuesday",
+    points: 3,
+    dates: { startDate: "2026-03-02", returnDate: "2026-03-06" }
+  });
+});
+
 /* The guard against a catch-all update creeping in: even a form whose every
    other value has moved sends only the fields this form actually offers. The
-   OOO dates and the task type are not among them. */
+   seeded items, the recipient and the task type are not among them. */
 test("only the fields the form offers are ever sent, whatever else moved", () => {
   const task = loiTask();
   const values = {
@@ -494,10 +563,11 @@ test("the task type is shown, disabled, with a reason", () => {
   assert.ok(/cancel/i.test(html) && /refile/i.test(html), "and says to cancel and refile");
 });
 
-/* The one field still to come is the OOO dates (#264). Kept out rather than
-   shown disabled: a control nobody can move is noise, and the type is disabled
-   only because a form that hid it would read as having lost the task's type. */
-test("the creator's edit form carries urgency and the poop picker", () => {
+/* What edit mode draws. Anything a viewer may not move is kept out rather than
+   shown disabled:
+   a control nobody can move is noise, and the type is disabled only because a
+   form that hid it would read as having lost the task's type. */
+test("edit mode carries the request field, urgency and points", () => {
   const html = editing();
   assert.ok(html.includes("How Bad?"), "the poop picker is on the form");
   assert.ok(html.includes("Urgency"), "and so is urgency");
@@ -524,20 +594,20 @@ test("an OOO task's edit form has no urgency control", () => {
 });
 
 /* The due date is derived from the band, never typed (docs/product/
-   due-date-urgency.md). The OOO dates are #264; until then, nothing in edit
-   mode is a date at all. */
-test("no date input exists in the edit form", () => {
-  for (const task of [loiTask(), loiTask({ taskType: "OOO", notes: "back on the 9th" })]) {
-    assert.ok(!/type="date"/.test(editing(task)), task.taskType);
+   due-date-urgency.md). On the five types that have a urgency band, that leaves
+   nothing in edit mode that is a date at all. */
+test("no date input exists in the edit form on a task that has no dates", () => {
+  for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS"]) {
+    const html = editing(loiTask({ taskType, notes: "what I asked for" }));
+    assert.ok(!/type="date"/.test(html), taskType);
   }
   assert.ok(!editing().includes("Due"), "and nothing offers to set a due date");
 });
 
-/* #263's second half, and the clause that decides who #261's two controls are
-   drawn for. The form a checker opens must offer nothing the server would
-   refuse them: urgency and poop points are the creator's on every type, so the
-   holder of an LOI is shown the one field they may write, with its terms in
-   it, and neither of the creator's controls. */
+/* #263's second half: the form a checker opens must offer nothing the server
+   would refuse them. Urgency and poop points are the creator's on every type,
+   and the form carries neither — so what the holder of an LOI sees is the one
+   field they may write, with its terms in it. */
 test("the checker holding an LOI gets the terms box and no creator-only control", () => {
   const html = render({
     user: { ...ASSIGNEE, roles: ["FILE_CHECKER"] },
@@ -749,6 +819,28 @@ test("an OOO task is never told about a shared record", () => {
   assert.ok(!html.includes("task-form-loan"), "and gets no paired block at all");
 });
 
+/* #264, ADR-0008 rule 8. The one type that does have dates gets them back, on
+   the same form and preloaded — a correction surface that opened blank would
+   ask the creator to retype what they are correcting. */
+test("an OOO task's edit form carries both dates, preloaded", () => {
+  const html = editing(oooTask());
+  assert.ok(html.includes("Start Date"), "the start date is on the form");
+  assert.ok(html.includes("Return Date"), "and so is the return date");
+  assert.match(html, /type="date"[^>]*value="2026-03-02"/, "start preloaded from the task");
+  assert.match(html, /type="date"[^>]*value="2026-03-09"/, "return preloaded from the task");
+});
+
+/* Nothing refuses a past date, at any layer. A `min` of today on either input
+   is exactly the guard ADR-0008 rule 8 rules out: somebody back early
+   correcting the record is the case this exists for. The only `min` on the form
+   is the return date's, which is the start date — the range rule, not a
+   calendar floor. */
+test("neither date input floors itself at today", () => {
+  const html = editing(oooTask());
+  const mins = [...html.matchAll(/type="date"[^>]*?\bmin="([^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(mins, ["2026-03-02"], "the only min is the return date's start-date floor");
+});
+
 test("the field keeps the label its task type gives it", () => {
   assert.ok(editing().includes("Loan Terms and Contacts"));
   assert.ok(editing(loiTask({ taskType: "BUDDY_CHAT", notes: "n" })).includes("Concerns"));
@@ -800,6 +892,7 @@ test("no catch-all update route was introduced", () => {
   assert.ok(routes.includes('router.post("/tasks/:taskId/folder-name"'), "and the OOO description has its own");
   assert.ok(routes.includes('router.post("/tasks/:taskId/urgency"'), "and urgency has its own");
   assert.ok(routes.includes('router.post("/tasks/:taskId/points"'), "and so do the poops");
+  assert.ok(routes.includes('router.post("/tasks/:taskId/dates"'), "and the OOO dates got their own rather than a patch");
 });
 
 /* Where each field lands (#262, ADR-0008 rule 7). The loan fields go to the
@@ -891,6 +984,7 @@ test("the save dispatches each field to its own route", () => {
   assert.match(dispatch[0], /edit\.notes !== undefined.*setNotes/);
   assert.match(dispatch[0], /edit\.urgency !== undefined.*setUrgency/);
   assert.match(dispatch[0], /edit\.points !== undefined.*setPoints/);
+  assert.match(dispatch[0], /edit\.dates !== undefined.*setDates/);
   /* And the list is refetched once for the whole save, not once per field. */
   assert.equal((dispatch[0].match(/refresh\(\)/g) ?? []).length, 1);
 });

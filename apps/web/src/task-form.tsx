@@ -652,14 +652,20 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             A task&rsquo;s type can&rsquo;t be changed. If this one is wrong, cancel and refile it.
           </p>
         )}
-        {/* The OOO dates are filing-time only, until #264. Which is why the two
-            timing controls are split rather than one either/or: urgency is
-            editable now (#261) and the dates are not, so an OOO task in edit
-            mode shows neither — its timing is its dates, and the server refuses
-            an urgency on it outright (ADR-0008 rule 5). No date input is drawn
-            in edit mode at all, which is also the rule for the due date
-            permanently: it is derived from the band, never typed. */}
-        {!editing && form.taskType === "OOO" && (
+        {/* An OOO task's two dates are editable (#264, ADR-0008 rule 8), so
+            this pair is the one part of the form that is NOT `!editing`. The
+            two timing controls stay split rather than becoming one either/or:
+            an OOO task shows its dates and no urgency, every other type shows
+            its urgency and no dates, and the server refuses each the other's
+            (ADR-0008 rule 5).
+
+            No `min` of today on either input. Any date is accepted, including
+            one already gone — somebody back early correcting the record is the
+            case this exists for, and a return date in the past auto-completes
+            the task on the next maintenance pass. The due date remains the
+            thing nobody ever types: it is derived, here from the return date
+            and everywhere else from the urgency band. */}
+        {form.taskType === "OOO" && (
           <>
             <label>
               Start Date

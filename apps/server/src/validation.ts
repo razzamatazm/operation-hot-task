@@ -1,3 +1,4 @@
+import { oooDateRangeRefusal } from "@loan-tasks/shared";
 import { z } from "zod";
 
 const SCHEME_PREFIX_RE = /^[a-z][a-z0-9+.-]*:/i;
@@ -77,10 +78,15 @@ export const createTaskSchema = z.object({
         message: "returnDate is required for OOO tasks"
       });
     }
-    if (value.startDate && value.returnDate && value.startDate > value.returnDate) {
+    // The range rule is the shared one the edit path asks too (#264), not a
+    // third copy of it: filing and correcting must agree on what a valid pair
+    // of dates is, right down to the sentence a refusal shows.
+    const rangeRefusal =
+      value.startDate && value.returnDate ? oooDateRangeRefusal(value.startDate, value.returnDate) : undefined;
+    if (rangeRefusal) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "startDate must be on or before returnDate"
+        message: rangeRefusal
       });
     }
     if (value.urgency) {
@@ -153,9 +159,10 @@ export const updatePointsSchema = z.object({
   points: z.number().int().min(0).max(5)
 });
 
-/* Amending the ask (ADR-0006). Two focused schemas, one per operation, each
-   accepting exactly its own field — there is deliberately no `dueAt` anywhere:
-   the deadline is derived from urgency server-side and is never an input. */
+/* Amending the ask (ADR-0006, extended by ADR-0008 rule 8). Three focused
+   schemas, one per operation, each accepting exactly its own field — there is
+   deliberately no `dueAt` anywhere: the deadline is derived from urgency
+   server-side and is never an input. */
 export const amendNotesSchema = z.object({
   notes: z.string().min(1)
 });
@@ -170,6 +177,19 @@ export const amendUrgencySchema = z.object({
    are never accepted here — they belong to the shared Loan record. */
 export const amendFolderNameSchema = z.object({
   folderName: z.string().min(1)
+});
+
+/* An OOO task's two dates (#264). Both required, because they are one range
+   and a start is only valid against the return it is checked with — sending
+   half of it would validate against a value the caller never saw.
+
+   Shape only. Whether the range makes sense is `oooDateRangeRefusal` in shared,
+   which filing asks the same question of, and nothing here rejects a date in
+   the past: correcting a vacation that has already ended is the case the edit
+   exists for (ADR-0008 rule 8). */
+export const amendOooDatesSchema = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD"),
+  returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "returnDate must be YYYY-MM-DD")
 });
 
 export const transitionSchema = z.object({

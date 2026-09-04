@@ -809,10 +809,11 @@ Edit mode differs in seven ways and no others:
   [src/create-form-state.ts](src/create-form-state.ts)),
 - the person picker, the Humperdink import and the outstanding-items seeder
   are gone — all three only mean something at filing time,
-- the OOO start/return dates are gone, until #264 lands them. Which is why **no
-  date input is drawn in edit mode at all**, and why an `OOO` task in edit mode
-  shows no timing control: its timing is its dates, and the server refuses an
-  urgency on it outright,
+- the two timing controls stay exclusive: an `OOO` task draws its start and
+  return dates and **no** urgency (the server refuses an urgency on it
+  outright), every other type draws its urgency and no dates. The due date is
+  the input that never appears anywhere — it is derived, from the band or from
+  the return date,
 - urgency and the poop picker are drawn **only for the person who filed the
   task** (`creatorOnlyFields`) — see above; everyone else who may edit is a
   checker correcting terms, and neither control is theirs to move,
@@ -931,15 +932,22 @@ reads the markup back. `CheckIcon` / `TrashIcon` moved to
 [src/icons.tsx](src/icons.tsx) so the card and the form can both draw them.
 
 **Urgency and poop points are on the form** (#261), preloaded from the task —
-a select sitting on GREEN while the task is RED is a control that lies. No date
-input appears: changing the urgency re-derives `dueAt` server-side from the
-moment of the edit, the same computation filing uses. The collapsed row keeps
-its click-to-rate poop track; two ways to one number is intended. Both are drawn
-for the filer alone (`creatorOnlyFields`) — urgency stays the creator's, because
-an assignee who can extend their own deadline is not accepting a deal (ADR-0008
-rule 5), and the poops say what the creator thinks the ask is worth.
+a select sitting on GREEN while the task is RED is a control that lies. No
+due-date input appears: changing the urgency re-derives `dueAt` server-side from
+the moment of the edit, the same computation filing uses. The collapsed row
+keeps its click-to-rate poop track; two ways to one number is intended. Both are
+drawn for the filer alone (`creatorOnlyFields`) — urgency stays the creator's,
+because an assignee who can extend their own deadline is not accepting a deal
+(ADR-0008 rule 5), and the poops say what the creator thinks the ask is worth.
 
-The OOO dates are create-only for now; they land on this form in #264.
+**An `OOO` task's start and return dates are on the form too** (#264, ADR-0008
+rule 8), preloaded, and this is the one control that renders in *both* modes.
+**Neither input floors itself at today** — any date is accepted, including one
+already gone, because somebody back early correcting the record is the case this
+exists for. The only `min` on the form is the return date's, set to the start
+date, which is the range rule and not a calendar floor. `taskEdit` sends both
+dates as one `dates` member on one route: they are a range, and the rule about
+them can't be asked of half of it.
 
 ## When Adding UI
 

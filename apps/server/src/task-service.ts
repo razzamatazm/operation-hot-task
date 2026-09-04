@@ -50,8 +50,10 @@ import {
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
+  formatWallDate,
   needsFixesNote,
   NEEDS_FIXES_NOTE_REQUIRED,
+  oooDateRangeRefusal,
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
@@ -158,8 +160,9 @@ export class TaskService {
       if (!startDate || !returnDate) {
         throw new Error("OOO tasks need a start date and a return date");
       }
-      if (startDate > returnDate) {
-        throw new Error("Start date must be on or before the return date");
+      const rangeRefusal = oooDateRangeRefusal(startDate, returnDate);
+      if (rangeRefusal) {
+        throw new Error(rangeRefusal);
       }
     }
 
@@ -554,6 +557,103 @@ export class TaskService {
       // two-party business.
       await this.emitCardSync(updated, [], now);
     }, { method: "updateTaskUrgency", taskId: updated.id });
+
+    return updated;
+  }
+
+  /* Correct an OOO task's start and return dates (ADR-0008 rule 8, #264). The
+     third focused amendment, and the only field on the edit form that needed a
+     route of its own — ADR-0006 excluded these dates as "a genuinely different
+     behaviour to build", and this is that behaviour.
+
+     The two dates move together because they are one range: a start that may not
+     pass its return can't be validated against half of itself, and a correction
+     that named only one value would leave history saying less than what changed.
+
+     `dueAt` is re-derived from the new return date through the same shared
+     computation filing uses, so everything hanging off the dates is recomputed
+     rather than patched: the auto-completion the maintenance pass fires on, the
+     overdue arithmetic, the ordering, and the headline the cards quote.
+
+     **Any date is accepted, including one in the past** — the deliberate
+     difference from filing, which refuses a return date that is already gone
+     ("must result in a future due time"). Filing a vacation that already ended
+     is a typo; *correcting* a task because you came back early is the whole
+     point of the edit, and refusing it would leave the only person with a reason
+     to fix the record unable to. A return date now in the past simply means the
+     next maintenance pass auto-completes the task, which is what "I am back" is
+     supposed to mean.
+
+     The last-reminder stamp is left alone, unlike `updateTaskUrgency`. There is
+     no cadence to restart here: a task whose new `dueAt` has passed does not
+     become a newly-overdue obligation, it becomes a completed vacation on the
+     same pass that would have reminded about it.
+
+     The assignee is told, for `updateTaskUrgency`'s reason exactly: the dates
+     are an OOO task's deadline, the assignee is the person covering the desk
+     through them, and a coverage window that moves under a quietly re-rendered
+     card is the failure this avoids. Silent when nobody has claimed it. No
+     channel post either way (ADR-0002). */
+  async updateTaskOooDates(
+    taskId: string,
+    startDate: string,
+    returnDate: string,
+    user: UserIdentity
+  ): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    this.assertCanAmend(task, user, "dates");
+
+    if (task.taskType !== "OOO") {
+      throw new Error("Only an out of office task has start and return dates");
+    }
+
+    const nextStart = startDate.trim();
+    const nextReturn = returnDate.trim();
+    const rangeRefusal = oooDateRangeRefusal(nextStart, nextReturn);
+    if (rangeRefusal) {
+      throw new Error(rangeRefusal);
+    }
+    if (nextStart === task.startDate && nextReturn === task.returnDate) {
+      return task;
+    }
+
+    const now = new Date();
+    // Throws on a malformed or impossible date, the same way filing does.
+    const dueAt = computeDueAtFromReturnDate(nextReturn, this.appConfig);
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_DATES_AMENDED",
+      `Dates changed from ${formatWallDate(task.startDate ?? "")} – ${formatWallDate(task.returnDate ?? "")} ` +
+        `to ${formatWallDate(nextStart)} – ${formatWallDate(nextReturn)}`,
+      now
+    );
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: {
+        ...current,
+        startDate: nextStart,
+        returnDate: nextReturn,
+        dueAt,
+        updatedAt: now.toISOString()
+      },
+      event
+    }));
+
+    this.background(async () => {
+      if (updated.assignee) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          message:
+            `${firstName(user.displayName)} changed the out of office dates on ${updated.folderName} — ` +
+            `now ${formatWallDate(nextStart)} to ${formatWallDate(nextReturn)}`,
+          target: "DM",
+          recipientUserIds: [updated.assignee.id]
+        }, now);
+      }
+      await this.emitCardSync(updated, [], now);
+    }, { method: "updateTaskOooDates", taskId: updated.id });
 
     return updated;
   }

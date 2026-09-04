@@ -9,10 +9,10 @@
  * request field is the loan's *terms*, and either party may correct them.
  *
  * Focused operations, never a generic patch: `updateTaskNotes`,
- * `updateTaskUrgency`, and — since #262 / ADR-0008 rule 7 —
- * `updateTaskFolderName`, which is OOO-only because every other type's folder
- * name is its LOAN's name and is edited on the shared Loan record instead.
- * This drives the real TaskService against a real
+ * `updateTaskUrgency`, `updateTaskPoints`, `updateTaskOooDates` and — since
+ * #262 / ADR-0008 rule 7 — `updateTaskFolderName`, which is OOO-only because
+ * every other type's folder name is its LOAN's name and is edited on the shared
+ * Loan record instead. This drives the real TaskService against a real
  * (temp-file) TaskStore with a mock notifier and asserts the SERVER behaviour:
  *   - The creator may amend notes, and urgency on a non-OOO task, while the
  *     task is active.
@@ -24,6 +24,9 @@
  *     confers nothing. On an LOI the checker holding it may correct the terms,
  *     and still nobody else may.
  *   - Closed tasks are frozen; an OOO task's urgency is not amendable at all.
+ *   - An OOO task's start and return dates ARE amendable (#264, ADR-0008
+ *     rule 8), by the creator, to any date including one in the past — see the
+ *     section at the foot of this file.
  *   - A no-op edit writes no history and notifies nobody.
  *   - An urgency change DMs the assignee when there is one. So does a change to
  *     an LOI's terms, unless the holder made it themselves (#267, rule 9); a
@@ -41,7 +44,13 @@ import path from "node:path";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
-import { computeDueAtFromUrgency, shouldSendReminder } from "../packages/shared/dist/workflow.js";
+import { createTaskSchema } from "../apps/server/dist/validation.js";
+import { formatOooHeadline, formatWallDate } from "../packages/shared/dist/types.js";
+import {
+  computeDueAtFromReturnDate,
+  computeDueAtFromUrgency,
+  shouldSendReminder
+} from "../packages/shared/dist/workflow.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -162,7 +171,9 @@ await check("a non-creator is refused on both operations, with a message naming 
   }
 });
 
-await check("all three operations are refused on a closed task", async () => {
+// Notes, urgency and points here; the fourth operation, an OOO task's dates,
+// needs an OOO task and gets its own closed-task check further down.
+await check("notes, urgency and points are all refused on a closed task", async () => {
   for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
     const { service } = await setup();
     const id = await makeTask(service, { claimed: true });
@@ -784,6 +795,254 @@ await check("poop points stay the creator's, holder or not", async () => {
     );
   }
   assert.equal((await service.updateTaskPoints(id, 4, CREATOR)).points, 4);
+});
+
+/* ---------------------------------------------------------------------------
+   An OOO task's start and return dates (#264, ADR-0008 rule 8).
+
+   ADR-0006 excluded these as "a genuinely different behaviour to build"; rule 8
+   reverses that. The behaviour that makes them different is still real, and is
+   what most of this section is about: the return date is a scheduled action,
+   not a deadline, so changing it reschedules the auto-completion the
+   maintenance pass fires on rather than moving somebody's due time — and **any
+   date is accepted, including one in the past**, which is the one place this
+   deliberately disagrees with filing.
+   --------------------------------------------------------------------------- */
+
+await check("the creator changes both dates, and dueAt is re-derived from the new return date", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+
+  const updated = await service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR);
+  assert.equal(updated.startDate, "2026-06-01");
+  assert.equal(updated.returnDate, "2026-06-12");
+  assert.equal(
+    updated.dueAt,
+    computeDueAtFromReturnDate("2026-06-12", config),
+    "the deadline is recomputed from the new return date, through the shared computation"
+  );
+
+  const reloaded = await store.findTask(id);
+  assert.equal(reloaded.returnDate, "2026-06-12", "visible on reload");
+  assert.equal(reloaded.dueAt, updated.dueAt);
+});
+
+/* The case the whole ticket exists for. Filing refuses a return date that has
+   already gone ("must result in a future due time") because that is a typo;
+   correcting a task because you came back early is not, and refusing it would
+   leave the only person with a reason to fix the record unable to. */
+await check("a return date in the past is accepted, and the next maintenance pass completes the task", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+
+  const updated = await service.updateTaskOooDates(id, "2020-01-06", "2020-01-08", CREATOR);
+  assert.equal(updated.returnDate, "2020-01-08", "no guard refused the past");
+  assert.ok(new Date(updated.dueAt).getTime() < Date.now(), "its due time is already behind us");
+  assert.equal(updated.status, "OPEN", "the edit itself completes nothing");
+
+  await service.runMaintenance(new Date());
+  const after = await store.findTask(id);
+  assert.equal(after.status, "COMPLETED", "the maintenance pass wrapped it up, as it does on any elapsed return date");
+  assert.ok(after.completedAt, "with a completion stamp");
+});
+
+await check("start after return is refused, as at filing", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  const before = await store.findTask(id);
+
+  await rejects(
+    () => service.updateTaskOooDates(id, "2026-06-12", "2026-06-01", CREATOR),
+    /on or before/i,
+    "the range rule refuses it"
+  );
+  // One shared rule, not two copies of it. The two service paths happen to
+  // refuse in the same sentence; the request schema keeps its own field-name
+  // wording, which is deliberate and asserted separately below.
+  // Future dates, because filing has its own separate objection to a return
+  // date that has already gone, and that is the objection the edit drops.
+  await rejects(
+    () => service.createTask(
+      { folderName: "Backwards Sim", taskType: "OOO", notes: "out", startDate: isoDay(30), returnDate: isoDay(20) },
+      CREATOR
+    ),
+    /on or before/i,
+    "and filing refuses it the same way"
+  );
+
+  const after = await store.findTask(id);
+  assert.equal(after.startDate, before.startDate, "nothing moved");
+  assert.equal(after.returnDate, before.returnDate);
+});
+
+/* Sharing the rule with the edit path must not reword what somebody filing a
+   backwards vacation is shown. This schema speaks in field names, as the
+   messages either side of it do, and neither #261 nor #264 asked to change it. */
+await check("the filing schema keeps its own refusal wording", async () => {
+  const parsed = createTaskSchema.safeParse({
+    folderName: "Backwards Sim",
+    taskType: "OOO",
+    notes: "out",
+    startDate: "2026-06-12",
+    returnDate: "2026-06-01"
+  });
+  assert.equal(parsed.success, false, "the schema refuses a backwards range");
+  const messages = parsed.error.issues.map((issue) => issue.message);
+  assert.ok(
+    messages.includes("startDate must be on or before returnDate"),
+    `the field-name wording is unchanged (got ${JSON.stringify(messages)})`
+  );
+});
+
+// Equal dates are a one-day absence, not a backwards range.
+await check("a start equal to the return is allowed", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  const updated = await service.updateTaskOooDates(id, "2026-06-05", "2026-06-05", CREATOR);
+  assert.equal(updated.startDate, "2026-06-05");
+  assert.equal(updated.returnDate, "2026-06-05");
+});
+
+await check("nobody but the creator may change the dates", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "OOO", claimed: true });
+  for (const other of [ASSIGNEE, ADMIN, OUTSIDER]) {
+    await rejects(
+      () => service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", other),
+      /only the task creator/i,
+      `${other.displayName} refused`
+    );
+  }
+});
+
+await check("a closed OOO task refuses the date edit", async () => {
+  for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    const { service } = await setup();
+    const id = await makeTask(service, { taskType: "OOO", claimed: true });
+    if (status === "ARCHIVED") {
+      await service.transitionStatus(id, "COMPLETED", ASSIGNEE);
+      await service.transitionStatus(id, "ARCHIVED", CREATOR);
+    } else {
+      await service.transitionStatus(id, status, status === "COMPLETED" ? ASSIGNEE : CREATOR);
+    }
+    await rejects(
+      () => service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR),
+      /closed/i,
+      `dates refused at ${status}`
+    );
+  }
+});
+
+// The mirror of "an urgency edit on an OOO task is refused": the other five
+// types have no dates, so the route has nothing to change on them.
+await check("the other five types have no dates to change", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "VALUE" });
+  await rejects(
+    () => service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR),
+    /out of office/i,
+    "refused on a non-OOO task"
+  );
+});
+
+await check("the date change lands in history with both values", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  const before = await store.findTask(id);
+
+  await service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR);
+  const event = (await store.allHistoryForTask(id)).find((e) => e.action === "TASK_DATES_AMENDED");
+
+  assert.ok(event, "a dates-amended event");
+  assert.equal(event.by.id, CREATOR.id, "attributed to the creator");
+  for (const value of [before.startDate, before.returnDate, "2026-06-01", "2026-06-12"]) {
+    assert.ok(event.detail.includes(formatWallDate(value)), `names ${value} (got "${event.detail}")`);
+  }
+});
+
+await check("a date edit that changes nothing writes no history and notifies nobody", async () => {
+  const { service, store, events } = await setup();
+  const id = await makeTask(service, { taskType: "OOO", claimed: true });
+  await drain(service, events);
+  const before = await store.findTask(id);
+  const historyBefore = await store.allHistoryForTask(id);
+
+  const updated = await service.updateTaskOooDates(id, before.startDate, before.returnDate, CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal((await store.allHistoryForTask(id)).length, historyBefore.length, "no history event");
+  assert.equal(events.length, 0, "no notification of any kind");
+  assert.equal(updated.dueAt, before.dueAt, "the deadline is not even restamped");
+});
+
+/* The dates are an OOO task's deadline, and the assignee is the person covering
+   the desk through them — the same reason an urgency change DMs them. */
+await check("a date change DMs the assignee, syncs cards, and stays off the channel", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "OOO", claimed: true });
+  await drain(service, events);
+
+  await service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR);
+  await service.settleBackgroundWork();
+
+  const dms = events.filter((e) => e.target === "DM");
+  assert.equal(dms.length, 1, "exactly one plain DM");
+  assert.deepEqual(dms[0].recipientUserIds, [ASSIGNEE.id], "it goes to the assignee");
+  assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are re-rendered");
+  assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
+});
+
+await check("a date change on an unclaimed OOO task DMs nobody, but still syncs cards", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  await drain(service, events);
+
+  await service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.filter((e) => e.target === "DM").length, 0, "no DM without an assignee");
+  assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are still re-rendered");
+});
+
+/* AC: "everything derived from the dates is recomputed from the new values."
+   Nothing about an OOO task's dates is stored twice — the deadline, the
+   auto-completion, the overdue arithmetic, the ordering and the headline every
+   card and row quotes are all read back off the task — so the proof is that the
+   re-render is handed the NEW task rather than a stale copy, and that a headline
+   built from it names the new dates. */
+await check("every surface re-renders from the new dates, not a stale copy", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "OOO", claimed: true });
+  await drain(service, events);
+
+  const updated = await service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR);
+  await service.settleBackgroundWork();
+
+  const sync = events.find((e) => e.target === "DM_CARD_SYNC");
+  assert.ok(sync, "the cards are re-rendered");
+  assert.equal(sync.task.startDate, "2026-06-01", "from the new start date");
+  assert.equal(sync.task.returnDate, "2026-06-12", "the new return date");
+  assert.equal(sync.task.dueAt, updated.dueAt, "and the deadline re-derived from it");
+
+  const headline = formatOooHeadline(CREATOR.displayName, sync.task.startDate, sync.task.returnDate);
+  assert.match(headline, /Jun 1, 2026/, "the headline quotes the new start");
+  assert.match(headline, /Jun 12, 2026/, "and the new return");
+});
+
+await check("a date edit disturbs nothing else on the task", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO", claimed: true, notes: "cover my desk" });
+  await service.addReviewNote(id, "will do", ASSIGNEE);
+  await service.settleBackgroundWork();
+  const before = await store.findTask(id);
+
+  const after = await service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR);
+
+  assert.deepEqual(after.reviewNotes, before.reviewNotes, "the notes thread is untouched");
+  assert.equal(after.notes, before.notes, "the description is untouched");
+  assert.deepEqual(after.assignee, before.assignee, "the assignee is untouched");
+  assert.equal(after.points, before.points, "the rating is untouched");
+  assert.equal(after.status, before.status, "the status is untouched");
 });
 
 console.log(`\n${passed} checks passed.`);
