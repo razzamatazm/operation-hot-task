@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { Loan, LoanTask, SYSTEM_ACTOR, TaskHistoryEvent, TaskStatus, hasCorrectionsState } from "@loan-tasks/shared";
+import { Loan, LoanTask, SYSTEM_ACTOR, TaskHistoryEvent, TaskStatus, hasCorrectionsState, migrateTaskMessages } from "@loan-tasks/shared";
 
 /* The limits past which the start-up migration below refuses to act (#236:
    "more than a handful, or they cluster on one task type"). A handful is five;
@@ -38,6 +38,40 @@ export class TaskStore {
     }
 
     await this.migrateStrandedCorrections();
+    await this.migrateMessageIdentity();
+  }
+
+  /* #286 / ADR-0009: every stored message gains a stable identifier and, where
+     the app wrote its prefix into the text, a label held apart from the
+     author's words. Messages written from now on carry both from birth; the
+     ones already in the file have neither, and nothing else will ever give
+     them one.
+
+     Nothing a person can see changes — `noteBodyText` puts a label back in
+     front of its text exactly as `needsFixesNote` once stored it — so this
+     writes no history rows and touches no `updatedAt`. It is a change to the
+     shape of the record, not an act on the task, and ADR-0009 rule 6 is
+     explicit that a correction must not drag an old task up the done list.
+
+     Safe to run twice, and it runs at every start-up. The rule for what needs
+     repairing lives in `migrateTaskMessages` in the shared package, which
+     repairs only what is missing and reports whether it moved anything; the
+     second pass finds nothing, reports no change, and this writes nothing. */
+  private async migrateMessageIdentity(): Promise<void> {
+    await this.enqueue(async () => {
+      const data = await this.read();
+      let touched = 0;
+      const tasks = data.tasks.map((task) => {
+        const result = migrateTaskMessages(task, () => randomUUID());
+        if (result.changed) touched += 1;
+        return result.task;
+      });
+      if (touched === 0) {
+        return;
+      }
+      await this.write({ ...data, tasks });
+      console.warn(`[store] gave stored messages an identifier and a label on ${touched} task(s) (#286, ADR-0009)`);
+    });
   }
 
   /* NEEDS_REVIEW became LOI-only (ADR-0007, #236). Any task of another type

@@ -210,7 +210,11 @@ Endpoint: `GET /api/tasks/:taskId/history`.
 
 ### 9.2 Review notes (`reviewNotes[]`)
 
-Timestamped, attributed free-text comments that accompany `NEEDS_REVIEW` transitions and add-note actions in the expanded card. Each entry: author id, author name, UTC timestamp, body.
+Timestamped, attributed free-text comments that accompany `NEEDS_REVIEW` transitions and add-note actions in the expanded card. Each entry: a stable message id, author id, author name, UTC timestamp, body, and an optional app-authored `label`.
+
+The id is the message's own handle and is never its timestamp — the timestamp is what the unread calculation compares and is frozen across an edit (ADR-0009 rule 6). Messages stored before the id existed are backfilled once, idempotently, when the store starts up.
+
+The `label` holds the app's own words apart from the author's (ADR-0009 rule 5): a `Needs fixes` send-back stores `Needs fixes` as the label and only the checker's finding as the body. Every surface renders the two together, so the message reads exactly as `Needs fixes: <finding>` as it always has.
 
 ### 9.3 Lifecycle timestamps on the task
 

@@ -33,6 +33,7 @@ import path from "node:path";
 import { SYSTEM_ACTOR, TASK_STATUSES, TASK_TYPES } from "../packages/shared/dist/types.js";
 import { canTransitionStatus, canUseCheckedPanel, canUseFixedPanel } from "../packages/shared/dist/workflow.js";
 import { ACTION_LABELS, NEEDS_FIXES_NOTE_REQUIRED, needsFixesNote } from "../packages/shared/dist/labels.js";
+import { noteBodyText } from "../packages/shared/dist/notes.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
@@ -228,7 +229,14 @@ const claimedTask = async (service, taskType = "LOI") => {
   return service.claimTask(task.id, ASSIGNEE);
 };
 
-const threadTexts = (task) => (task.reviewNotes ?? []).map((note) => note.text);
+/* What the thread READS AS, not what a column holds. Since #286 the
+   `Needs fixes` prefix is a label on the message rather than characters at the
+   front of its text (ADR-0009 rule 5), and `noteBodyText` is the one place the
+   two are put back together — the same call the web thread and the Teams card
+   make. Reading `note.text` here would assert the storage and miss the promise:
+   this ticket's promise is the sentence a person reads, which is unchanged.
+   `message-identity-sim-test.mjs` covers the split itself. */
+const threadTexts = (task) => (task.reviewNotes ?? []).map((note) => noteBodyText(note));
 
 await check("Good to go completes the task and writes nothing to the thread", async () => {
   /* The user's ruling on #231, which overrode that ticket's own acceptance
