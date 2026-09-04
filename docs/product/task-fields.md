@@ -54,9 +54,19 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
   history event and notifies nobody.
 - **What the other party sees.** Both edits re-render the task's existing DM
   cards in place through the silent card-sync path, so no surface quotes a
-  stale value. On top of that an urgency change DMs the assignee when there is
-  one — their deadline moved. A notes change is silent. Neither posts to the
-  channel.
+  stale value. On top of that:
+  - **An urgency change DMs the assignee** when there is one — their deadline
+    moved.
+  - **A change to an LOI's terms DMs the checker holding it**, unless the
+    checker is the one who made the change — the terms are what they are
+    checking against, so a change to them is the amendment most likely to make
+    their work wrong (ADR-0008 rule 9). While the LOI is unclaimed there is
+    nobody to tell, so it is silent. The DM names the person and the file and
+    says to check the terms; it does not quote them, because the terms are a
+    block and a DM you have to scroll is one people stop reading. Nobody else
+    hears — a checker correcting a transposed digit does not DM the creator.
+  - **A notes change on the other five types is silent**, claimed or not.
+  Nothing posts to the channel.
 - **The reminder cadence restarts.** Moving `dueAt` clears the task's
   last-reminder stamp, so a task made newly overdue by the edit is eligible for
   its next reminder immediately (see

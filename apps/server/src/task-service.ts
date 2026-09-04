@@ -349,10 +349,16 @@ export class TaskService {
   }
 
   /* Correct the free-text description of the request — an LOI's terms, or the
-     notes on any other type. Silent: a DM for every wording fix is the noise
-     that trains people to ignore the DMs that matter. The existing cards are
-     still re-rendered so no surface quotes a stale ask. (#267 adds the one DM
-     ADR-0008 rule 9 does want: a terms change tells whoever is holding the LOI.)
+     notes on any other type. Silent on the other five types: a DM for every
+     wording fix is the noise that trains people to ignore the DMs that matter.
+     The existing cards are re-rendered either way so no surface quotes a stale
+     ask.
+
+     An LOI is the exception, per ADR-0008 rule 9 (#267). The terms are what the
+     checker is checking *against*, so changing them under a working checker is
+     the one amendment likely to make somebody's work wrong — which is exactly
+     what the silent-wording-fix rule is not about. Whoever is holding the task
+     is told; while it is unclaimed there is nobody to tell.
 
      Required either way, per ADR-0008 rule 1 — an edit that could empty the
      terms would leave a checked LOI saying nothing about what was checked. The
@@ -382,10 +388,29 @@ export class TaskService {
       event
     }));
 
-    this.background(
-      () => this.emitCardSync(updated, [], now),
-      { method: "updateTaskNotes", taskId: updated.id }
-    );
+    this.background(async () => {
+      /* Only the party who did NOT make the change, which since #263 is a real
+         distinction: the holder may correct the terms themselves, and DMing a
+         checker about their own typo fix is the noise this rule exists to
+         avoid. And only the assignee — a checker correcting the terms tells the
+         creator nothing, because rule 9 names the assignee and stops there. */
+      const holder = updated.taskType === "LOI" ? updated.assignee : undefined;
+      if (holder && holder.id !== user.id) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor: { id: user.id, displayName: user.displayName },
+          // Names the change, not its contents: the terms are a block, and a DM
+          // you have to scroll is one people stop reading (ADR-0008 rule 9).
+          message: `${firstName(user.displayName)} changed the terms on ${updated.folderName} — check them before you carry on`,
+          target: "DM",
+          recipientUserIds: [holder.id]
+        }, now);
+      }
+      // No channel post: the channel saw this task when it was created, and
+      // ADR-0002 already rejected channel announcements for two-party business.
+      await this.emitCardSync(updated, [], now);
+    }, { method: "updateTaskNotes", taskId: updated.id });
 
     return updated;
   }
