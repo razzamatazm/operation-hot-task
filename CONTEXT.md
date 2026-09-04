@@ -133,12 +133,33 @@ task is a record. Not "on an active task": a Fraud Check parked at
 case whose ask most often needs correcting. Distinct from _Resolve_, which
 records a fact about the world, and from a _Handoff_, which moves the seat: an
 amendment changes what the task says, never what happened or who is doing it. A
-task's type and both its seats are not amendable, and posted messages are never
-editable. Reached through `Edit Task` in the task's menu, and nowhere else. See
+task's type and both its seats are not amendable. Says nothing about the
+conversation: a posted message is its author's to fix or withdraw, under
+different rules and a different control — see _Message edit_. Reached through
+`Edit Task` in the task's menu, and nowhere else. See
 [ADR-0008](docs/adr/0008-loi-terms-are-a-field-not-a-message.md), which
 supersedes [ADR-0006](docs/adr/0006-amend-task-ask.md).
 _Avoid_: "editing the notes" for an LOI (that is _Terms_, and it has its own
 rules)
+
+**Message edit**:
+Correcting or withdrawing a message you posted. The author's alone — not the
+other _Party_, not an admin — because a message is a thing one person said,
+where an _Amend_ corrects a fact either party can see is wrong. Available
+indefinitely and at any status, stopping only when the task is archived, which
+is where the conversation itself closes. A corrected message carries a plain
+`(edited)`; a withdrawn one leaves a **tombstone**, the muted `Message deleted`
+row that keeps the author's name and its place in the thread and counts as a
+message like any other. Neither act notifies anybody, re-raises the message as
+unread, or moves the task in any list — a correction is not activity. Reached
+from a menu on the message itself, which is the one deliberate exception to
+_Amend_'s single door. A message the app prefixed — a send-back's `Needs
+fixes:` — keeps its prefix through both: the author owns the words, the app owns
+the label. See
+[ADR-0009](docs/adr/0009-messages-are-editable-by-their-author.md).
+_Avoid_: "amending a message" (an _Amend_ is a task's facts, and answers "who
+may change this" differently); "removing"/"retracting" a message (the app says
+`Delete` and shows `Message deleted`)
 
 **Back-end access**:
 The whole of what _admin_ means. Managing users and roles, system config, and

@@ -1,7 +1,10 @@
 # 0008. An LOI's terms are a field, not a message
 
 Status: Accepted, not yet implemented. Supersedes
-[ADR-0006](0006-amend-task-ask.md).
+[ADR-0006](0006-amend-task-ask.md). Rule 5's closing clause — messages stay
+immutable — is amended by
+[ADR-0009](0009-messages-are-editable-by-their-author.md), which is the future
+work that clause named.
 
 ## Context
 
