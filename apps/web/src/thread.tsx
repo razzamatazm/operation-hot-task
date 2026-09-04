@@ -59,8 +59,10 @@ export const TermsSection = ({
 }) => {
   const terms = standingTermsFor(task);
   if (terms === undefined) return null;
+  /* No `aria-label` on the section: the visible mono title already names the
+     block, and a label repeating it makes a screen reader say it twice. */
   return (
-    <section className="loi-terms" aria-label={getNotesFieldLabel(task.taskType)}>
+    <section className="loi-terms">
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
         {action}
@@ -81,18 +83,26 @@ export const TermsSection = ({
  *
  * The empty state is a real row rather than a blank box: an empty conversation
  * on a brand-new task is the normal case now, and an unexplained gap between
- * the terms and the composer reads as something failing to load. */
+ * the terms and the composer reads as something failing to load. It invites a
+ * reply only when the viewer has a composer — an Observer, or anyone looking at
+ * a task with no reply box, has nothing below to start. */
 export const ThreadMessages = ({
   task,
-  viewerId
+  viewerId,
+  canReply
 }: {
   task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "createdAt" | "reviewNotes">;
   viewerId: string;
+  canReply: boolean;
 }) => {
   const opensWithOriginatingNote = standingTermsFor(task) === undefined;
   const replies = Array.isArray(task.reviewNotes) ? task.reviewNotes : [];
   if (!opensWithOriginatingNote && replies.length === 0) {
-    return <div className="msgs-empty">No messages yet — start the conversation below.</div>;
+    return (
+      <div className="msgs-empty">
+        {canReply ? "No messages yet — start the conversation below." : "No messages yet."}
+      </div>
+    );
   }
   return (
     <>

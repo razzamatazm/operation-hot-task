@@ -1856,14 +1856,19 @@ button.btn-good:hover {
 .loi-terms-head > :not(.loi-terms-title) { margin-left: auto; }
 /* Free text exactly as typed. `pre-wrap` is the whole formatting story: a
    typed list of figures has to read as a list, and the app does no parsing.
-   Tight leading (1.5 against the thread's 1.45 at a slightly larger size) so
-   several short lines read as a block rather than as loose paragraphs. */
+   Body font at the thread's size, with leading pulled in below the thread's
+   1.45 — a typed list of figures has to read as a list, and lines set as far
+   apart as prose read as six separate paragraphs. */
 .loi-terms-body {
   font-size: 0.86rem;
-  line-height: 1.5;
+  line-height: 1.4;
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
+  /* Capped and scrolled for the same reason `.msgs` is: an imported Humperdink
+     terms block runs to twenty-odd lines, and an uncapped box would push the
+     conversation clean off the card on exactly the tasks people open to read
+     it. Generous against the thread's 178px, because this is the document. */
   max-height: 260px;
   overflow-y: auto;
 }

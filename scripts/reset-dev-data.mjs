@@ -114,7 +114,20 @@ const TASKS = [
     status: "OPEN",
     urgency: "RED",
     points: 3,
-    notes: "Borrower wants the terms confirmed before the 10am call.",
+    /* The one seeded LOI whose terms are typed the way a real one is: several
+       short lines, which is the shape #258's terms section exists to render.
+       Leave the line breaks in — a single-line seed makes the section look
+       like a message with a border round it. */
+    notes: [
+      "Loan Amount: $2,340,000",
+      "Term: 24 months + two 6-month extensions",
+      "Rate: 9.75% mos 1-12, 10.50% mos 13-24",
+      "Origination: 2.00 pts, due at close",
+      "Broker: Dana Whitfield, Crossbeam Commercial",
+      "Borrower: Elena Vasquez, Wexford Holdings LLC",
+      "",
+      "Borrower wants the terms confirmed before the 10am call."
+    ].join("\n"),
     createdBy: SUZIE,
     createdAt: at(-3 * HOUR),
     updatedAt: at(-3 * HOUR),

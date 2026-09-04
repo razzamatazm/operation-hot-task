@@ -2456,13 +2456,13 @@ const TaskCard = memo(({
      the one door and still the same handler — ADR-0008 rule 4 replaces it with
      `Edit Task` in the hamburger (#260) — but until then it has to sit with the
      field it edits, not over a conversation it does not write to. */
-  const standingTerms = standingTermsFor(task);
+  const fieldIsInThread = standingTermsFor(task) === undefined;
   const amendButton = canAmend && !amendOpen && (
     <button type="button" className="btn-sm btn-ghost" onClick={openAmend}>
       Edit request
     </button>
   );
-  const termsBlock = standingTerms === undefined ? null : (
+  const termsBlock = fieldIsInThread ? null : (
     <div className="task-card-terms">
       <TermsSection task={task} action={amendButton} />
       {amendOpen && amendBlock}
@@ -2472,11 +2472,11 @@ const TaskCard = memo(({
     <>
       <div className="thread-head">
         {threadHeadLabel(task)}
-        {standingTerms === undefined && amendButton}
+        {fieldIsInThread && amendButton}
       </div>
-      {standingTerms === undefined && amendOpen && amendBlock}
+      {fieldIsInThread && amendOpen && amendBlock}
       <div className="msgs" ref={reviewListRef}>
-        <ThreadMessages task={task} viewerId={user.id} />
+        <ThreadMessages task={task} viewerId={user.id} canReply={canPostNote} />
       </div>
       {canPostNote && (
         <div className="composer">

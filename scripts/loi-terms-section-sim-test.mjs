@@ -96,8 +96,8 @@ const task = (overrides = {}) => ({
 });
 
 const section = (t) => renderToStaticMarkup(createElement(TermsSection, { task: t }));
-const messages = (t, viewerId = ASSIGNEE.id) =>
-  renderToStaticMarkup(createElement(ThreadMessages, { task: t, viewerId }));
+const messages = (t, viewerId = ASSIGNEE.id, canReply = true) =>
+  renderToStaticMarkup(createElement(ThreadMessages, { task: t, viewerId, canReply }));
 
 const OTHER_TYPES = TASK_TYPES.filter((type) => type !== "LOI");
 
@@ -157,6 +157,16 @@ test("an LOI with no replies shows an empty conversation, not its terms", () => 
   assert.match(markup, /No messages yet/);
   assert.ok(!markup.includes(TERMS), "and the terms are nowhere in it");
   assert.ok(!markup.includes("msg-text"), "there is no message row at all");
+});
+
+test("the empty state only invites a reply from someone who has a reply box", () => {
+  assert.match(messages(task(), ASSIGNEE.id, true), /start the conversation below/);
+  const noComposer = messages(task(), OBSERVER.id, false);
+  assert.match(noComposer, /No messages yet/, "an Observer is still told the conversation is empty");
+  assert.ok(
+    !noComposer.includes("start the conversation"),
+    "but not pointed at a composer that is not there"
+  );
 });
 
 test("an LOI's conversation is its replies and only its replies", () => {

@@ -570,7 +570,7 @@ nested card chrome, in this order:
    bordered, shadowed panel with a 3px brand left edge, raised off the recessed
    expanded body while the thread below it stays bare rows on the background —
    the split is carried by shape, not by shouting in the headings. Free text
-   rendered as typed (`white-space: pre-wrap`, body font, 1.5 leading) so a
+   rendered as typed (`white-space: pre-wrap`, body font, 1.4 leading — tighter than the thread’s 1.45) so a
    list of figures reads as a list; no parsing, no label columns, no structured
    fields until the direct import exists. It is the *same* `notes` field the
    task has always carried, just drawn here instead of in the thread — nothing
@@ -588,7 +588,10 @@ nested card chrome, in this order:
    the first row, in the same style as the replies, and the head reads with the
    field's label. On an LOI the field has left, so the head reads
    `Conversation` — naming the box next door would be a lie — and an LOI with
-   no replies renders `.msgs-empty` rather than an unexplained gap.
+   no replies renders `.msgs-empty` rather than an unexplained gap. That state
+   invites a reply only when the viewer has a composer; an Observer, or anyone
+   on a task with no reply box, is told the conversation is empty and not
+   pointed at something that isn't there.
 
    The terms section and the message list are the one part of the card lifted
    out of `App.tsx`, into [src/thread.tsx](src/thread.tsx), for the reason
