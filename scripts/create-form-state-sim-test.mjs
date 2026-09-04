@@ -279,12 +279,24 @@ test("changing only the task type is something to lose", () => {
   assert.equal(formHasChanges(opened, { ...opened, taskType: "OOO" }), true);
 });
 
-/* Whitespace is not normalised away. A space typed into an empty box is a box
-   somebody typed into, and the prompt costs one click while the wrong answer
-   costs the draft. */
+/* Whitespace is not normalised away in any field. A space typed into an empty
+   box is a box somebody typed into, and the prompt costs one click while the
+   wrong answer costs the draft. */
 test("even typing a single space counts", () => {
   const opened = initialCreateForm();
   assert.equal(formHasChanges(opened, { ...opened, notes: " " }), true);
+  assert.equal(formHasChanges(opened, { ...opened, folderName: " " }), true);
+});
+
+/* Nothing today can hand this two objects with different keys — both come out
+   of the same two builders — but the draft-saving ticket compares against values
+   that have been through storage, where a dropped or added key is reachable. A
+   field surviving on only one side is a change, not an invisible. */
+test("a field present on one side and not the other is a change, not a blind spot", () => {
+  const opened = initialCreateForm();
+  const { notes, ...missingNotes } = opened;
+  assert.equal(formHasChanges(opened, missingNotes), true, "a field that did not survive storage");
+  assert.equal(formHasChanges(missingNotes, opened), true, "and one that appeared out of it");
 });
 
 /* The seeder rebuilds the list on every add, so reference equality would call
@@ -309,6 +321,29 @@ test("a half-typed outstanding item counts as something to lose", () => {
   assert.equal(formHasChanges(opened, opened, ""), false, "an empty box is not");
   assert.equal(formHasChanges(opened, opened, "   "), false, "nor is one holding only spaces");
   assert.equal(formHasChanges(opened, opened), false, "and it is optional");
+});
+
+/* The form captures its opening values on the first render, so anything that
+   rewrites those values without a person doing something would make an untouched
+   form look touched. There is exactly one such thing: the effect that clears a
+   picked recipient who turns out to be ineligible. It cannot fire at open while
+   no form can open with a recipient already picked — which is a fact about these
+   two builders, and therefore is asserted here rather than assumed there. */
+test("no form opens with a recipient already picked, so nothing clears one at open", () => {
+  assert.equal(initialCreateForm().recipientUserId, "");
+  assert.equal(initialCreateForm({ folderName: "Adams - Harbor" }).recipientUserId, "");
+  assert.equal(
+    editFormValues({
+      taskType: "LOI",
+      notes: "n",
+      folderName: "f",
+      humperdinkLink: "",
+      urgency: "GREEN",
+      points: 0,
+      createdBy: { id: "creator-1", displayName: "Dana Requester" }
+    }).recipientUserId,
+    ""
+  );
 });
 
 test("formHasChanges does not touch either form it is given", () => {

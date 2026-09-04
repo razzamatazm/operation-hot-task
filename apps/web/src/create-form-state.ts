@@ -90,11 +90,12 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
    prompt every single time.
 
    Deliberately over-eager: every field counts, including the task type on its
-   own, and nothing is trimmed or normalised first. A decision someone made is
-   worth one extra click to undo, and a threshold clever enough to ignore the
-   type picker will eventually eat real work. This is not `taskEdit` — that one
-   answers "what is worth sending to the server", which is a narrower and much
-   more forgiving question than "did this person do anything here".
+   own, and no field is trimmed or normalised first — a space typed into an
+   empty box is a box somebody typed into. A decision someone made is worth one
+   extra click to undo, and a threshold clever enough to ignore the type picker
+   will eventually eat real work. This is not `taskEdit` — that one answers
+   "what is worth sending to the server", which is a narrower and much more
+   forgiving question than "did this person do anything here".
 
    `pendingItemText` is the FRAUD seeder's input (#69), which holds typing that
    has not been committed to `initialItems` yet. It lives outside the values
@@ -102,9 +103,22 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
    typed outstanding item is still typing, and losing it silently is the exact
    thing this ticket is about.
 
+   It is the one thing here that IS trimmed, and deliberately so rather than by
+   oversight: the seeder refuses to commit a whitespace-only item — its Add
+   button is disabled on exactly that check, and the submit filters blanks — so
+   a box holding only spaces holds nothing that could ever have become an item.
+   Everywhere else the raw value is what a Save would carry, so everywhere else
+   the raw value is what is compared.
+
    `initialItems` is an array, so it is compared item by item — the seeder
    rebuilds it on every add, so reference equality would call every list
    changed and value equality on the reference would call none of them.
+
+   Both sets of keys are walked, not just the opening form's. Nothing today can
+   hand this two objects with different keys — they come out of the same two
+   builders — but the draft-saving ticket that reuses this will compare against
+   values that have been through storage, and a field that survived only on one
+   side must read as a change rather than as invisible.
 
    Kept here, framework-free and pure, because the draft-saving work that
    follows reuses it to decide whether there is a draft worth keeping. */
@@ -114,7 +128,8 @@ export const formHasChanges = (
   pendingItemText = ""
 ): boolean => {
   if (pendingItemText.trim() !== "") return true;
-  return (Object.keys(opened) as (keyof CreateFormValues)[]).some((key) => {
+  const fields = new Set([...Object.keys(opened), ...Object.keys(current)]) as Set<keyof CreateFormValues>;
+  return [...fields].some((key) => {
     const before = opened[key];
     const after = current[key];
     if (Array.isArray(before) && Array.isArray(after)) {

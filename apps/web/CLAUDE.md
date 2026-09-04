@@ -874,7 +874,9 @@ lose. "Anything to lose" is `formHasChanges` in
 the values it OPENED with, which is what lets one predicate serve both modes —
 an edit form is full of values nobody typed, and measuring those against a
 blank form would prompt every time. Deliberately over-eager: any field, nothing
-trimmed, a changed task type on its own included. It is not `taskEdit`, which
+trimmed, a changed task type on its own included, plus the FRAUD seeder's
+half-typed item — the one thing it *does* trim, because the seeder itself
+refuses to commit a whitespace-only one. It is not `taskEdit`, which
 answers the much more forgiving "is this worth sending to the server". An
 untouched form still closes on the first press, because a prompt that appears
 every time is one people stop reading. The backdrop stays inert and raises no
