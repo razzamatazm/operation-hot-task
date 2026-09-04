@@ -43,9 +43,13 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
   [reminders-retention.md](reminders-retention.md)).
 - **Every applied edit is in the task's history**, with the field and both
   values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED`).
-- **In the web app**, the creator of an active task gets an `Edit request`
-  button on the notes thread head; it edits the originating note in place and,
-  for non-OOO tasks, offers the same urgency control the create form uses.
+- **In the web app**, the creator of an active task gets `Edit Task` in the
+  row's hamburger, and that is the only way in (ADR-0008 rule 4) — the old
+  `Edit request` button on the thread head is gone. It opens the same form the
+  task was filed with, preloaded, with the task type shown disabled and a
+  reason, and `Save` in place of `Create Task`. Today it carries the request
+  field alone; urgency, poop points, the loan fields and the OOO dates land on
+  it in later work. A save that changed nothing sends nothing.
 
 ## Create Task Fields
 

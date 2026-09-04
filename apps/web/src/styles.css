@@ -409,6 +409,18 @@ h1, h2, h3, h4 {
   line-height: 1.35;
 }
 
+/* Why the task type is greyed out in edit mode (#260, ADR-0008 rule 4). Muted
+   prose sitting directly under the disabled select, not a warning: nothing has
+   gone wrong, the form is answering the question a disabled control provokes.
+   The negative top margin pulls it up under the select it explains, out of the
+   form grid's row gap. */
+.task-form-locked {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
 /* FRAUD outstanding-items seeder on the create form (#69). A non-label field so
    the heading never steals focus to one of the remove buttons; mirrors the
    label heading style and reuses the card checklist's add row. */

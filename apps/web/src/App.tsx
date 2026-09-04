@@ -4,9 +4,11 @@ import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent,
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
-import { CreateFormInitialValues, CreateFormValues, applyImportedLoan, initialCreateForm } from "./create-form-state";
+import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { bylineOf, formatDate, initialsOf } from "./format";
+import { CheckIcon, TrashIcon } from "./icons";
+import { DirectoryUser, TaskForm } from "./task-form";
 import { TermsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -40,40 +42,6 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
   LOAN_DOCS: "Loan Docs",
   OOO: "OOO - Out of Office"
 };
-
-const URGENCY_LABELS: Record<UrgencyLevel, string> = {
-  GREEN: "Within 24 Hours",
-  YELLOW: "End of Day",
-  ORANGE: "Within 1 Hour",
-  RED: "Urgent Now"
-};
-
-/* The one urgency control in the app. The create form and the creator's amend
-   panel (ADR-0006) render this same select — a second way to express timing is
-   how the two drift apart, and neither surface offers a date at all: `dueAt` is
-   derived from the band server-side (docs/product/due-date-urgency.md). The
-   order is the shared `URGENCY_LEVELS`, least-to-most urgent, which is also the
-   order the create form has always listed. */
-const UrgencySelect = ({
-  value,
-  onChange,
-  ariaLabel
-}: {
-  value: UrgencyLevel;
-  onChange: (urgency: UrgencyLevel) => void;
-  /* Only for a use outside a <label> — the create form has one wrapping it. */
-  ariaLabel?: string;
-}) => (
-  <select
-    {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
-    value={value}
-    onChange={(e) => onChange(e.target.value as UrgencyLevel)}
-  >
-    {URGENCY_LEVELS.map((level) => (
-      <option key={level} value={level}>{URGENCY_LABELS[level]}</option>
-    ))}
-  </select>
-);
 
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
   const send = (token: string | null): Promise<Response> =>
@@ -366,7 +334,6 @@ const firstName = (displayName: string | undefined): string => {
    (share, handoff) offer. `roles` came with the Handoff (ADR-0002): the handoff
    picker filters to people who can actually work the task, so a Fraud Check
    never offers someone the server would reject. */
-type DirectoryUser = { id: string; displayName: string; roles: UserRole[] };
 
 /* LOAN_DOCS and FRAUD have multiple stages between claim and complete. Stage
    suffix rides on the title as a hyphen suffix so the type label stays terse.
@@ -1200,18 +1167,6 @@ export interface ChecklistApi {
   setNote: (taskId: string, itemId: string, note: string) => Promise<void>;
 }
 
-const CheckIcon = () => (
-  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
-    <path d="M3 8.5l3.2 3.3L13 4.8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-    <path d="M3 4.5h10M6.5 4.5V3.2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.3M5 4.5l.6 8a1 1 0 0 0 1 .95h2.8a1 1 0 0 0 1-.95l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
 /* Whose requirement is this? `addedBy` records the seat that asked for the
    item, so it resolves to one of the task's two people. Not who ticked it —
    that isn't stored (deliberately out of scope in #137), and the chip would be
@@ -1476,7 +1431,7 @@ const TaskCard = memo(({
   onAddReviewNote,
   onAddCompletedNote,
   onUpdatePoints,
-  amend,
+  onEditTask,
   taskHistory,
   onFilterLoan,
   onShare,
@@ -1504,8 +1459,10 @@ const TaskCard = memo(({
      COMPLETED — no visible reopen. */
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
-  /* Amend the ask (ADR-0006) — offered to the creator of an active task only. */
-  amend: AmendApi;
+  /* Open the edit form on this task (#260). App owns the form and the save, so
+     the row hands over an id and nothing else — a card that held the draft
+     would lose it on every list refresh. */
+  onEditTask: (taskId: string) => void;
   /* Reading this task's history, for the menu's "Claimed" line (#166). Called
      on menu open, never on list load. */
   taskHistory: TaskHistoryApi;
@@ -1549,15 +1506,6 @@ const TaskCard = memo(({
      draft. */
   const [completedNoteOpen, setCompletedNoteOpen] = useState(false);
   const [completedNote, setCompletedNote] = useState("");
-  /* Amending the ask (ADR-0006, #160): the creator's in-place edit of the
-     originating note and — on a non-OOO task — the urgency band. Opened from
-     the thread head, because the thing it edits is the first entry in that
-     thread; nothing new is added to the expanded body's section order. There is
-     no draft here beyond the open panel: closing it discards. */
-  const [amendOpen, setAmendOpen] = useState(false);
-  const [amendNotes, setAmendNotes] = useState("");
-  const [amendUrgency, setAmendUrgency] = useState<UrgencyLevel>("GREEN");
-  const [amendBusy, setAmendBusy] = useState(false);
   /* Actions menu: everything but the row's one primary action and FRAUD's
      forward moves lives behind this hamburger, next to the primary action
      in the collapsed row's action cell — open regardless of whether the
@@ -1838,7 +1786,7 @@ const TaskCard = memo(({
      block shows it. */
   const timeMeta = taskTimeMeta(task);
   const dueTitle = timeMeta?.inTooltip ? `${timeMeta.label} ${timeMeta.value}` : undefined;
-  const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_LABELS[task.urgency]}` : undefined;
+  const urgencyTitle = task.taskType !== "OOO" ? `Urgency: ${URGENCY_TIMEFRAMES[task.urgency]}` : undefined;
 
   /* FRAUD two-phase role-aware buttons (#39), shared with the bot cards so both
      surfaces show the same set. Empty for non-FRAUD. `fraudQuick` is the phase's
@@ -2262,6 +2210,31 @@ const TaskCard = memo(({
     />
   );
 
+  /* `Edit Task` (#260, ADR-0008 rule 4) — the one door onto what the task
+     says. It opens the form the task was filed with, preloaded and saving
+     instead of creating; the old `Edit request` button that sat inside the
+     expanded body is gone.
+
+     Gated on the shared predicate the server's own refusal is written from, so
+     a row can't offer an edit the server would turn away: the creator, on a
+     task that isn't closed. A closed task is a record rather than an ask, and
+     re-opening is the route to a genuine late correction (ADR-0008 rule 6).
+     Widening this to both parties is #263, not this ticket.
+
+     First in the panel, above the status ladder. It is not a move through the
+     workflow — it changes what the task says, not where it is — and the thing
+     someone opens this menu to fix is usually the thing they just noticed is
+     wrong. */
+  const editMenuItemBlock = canAmendTask(task, user) && (
+    <button
+      type="button"
+      className="btn-sm btn-ghost"
+      onClick={() => { closeMenu(); onEditTask(task.id); }}
+    >
+      Edit Task
+    </button>
+  );
+
   /* Handoff (ADR-0002): a menu row of its own, next to Share but never merged
      with it — share tells someone about a task, this moves it into their court.
      Reads "Assign" while nobody holds it and "Reassign" once someone does.
@@ -2324,6 +2297,7 @@ const TaskCard = memo(({
      computed answer rather than `true` so it follows the contents if a later
      change makes the block conditional. */
   const menuHasContent = [
+    editMenuItemBlock,
     secondaryActionsBlock,
     shareMenuItemBlock,
     assignMenuItemBlock,
@@ -2362,6 +2336,7 @@ const TaskCard = memo(({
           style={menuPanelStyle}
         >
           {cancelBlock}
+          {cancelStage === "idle" && editMenuItemBlock}
           {secondaryActionsBlock}
           {shareMenuItemBlock}
           {assignMenuItemBlock}
@@ -2374,107 +2349,26 @@ const TaskCard = memo(({
 
   const checklistBlock = task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />;
 
-  /* Amend the ask (ADR-0006). The shared predicate, not a local re-derivation:
-     the server's two operations refuse through the same `amendRefusal`, so the
-     button can't appear on a task the server would turn away. */
-  const canAmend = canAmendTask(task, user);
-
-  const openAmend = (): void => {
-    setAmendNotes(task.notes ?? "");
-    setAmendUrgency(task.urgency);
-    setAmendOpen(true);
-  };
-
-  /* One Save for both fields, two calls behind it — the operations stay focused
-     server-side and each is a no-op when its field didn't move, so an untouched
-     urgency writes no history and DMs nobody. Notes go first: if the urgency
-     call is refused, the correction the creator most likely came for is already
-     saved. A refusal rejects (the api layer toasts and rethrows) and the panel
-     stays open with the draft intact — closing it would take both. */
-  const submitAmend = async (): Promise<void> => {
-    const nextNotes = amendNotes.trim();
-    if (!nextNotes) return;
-    setAmendBusy(true);
-    try {
-      if (nextNotes !== (task.notes ?? "")) {
-        await amend.setNotes(task.id, nextNotes);
-      }
-      if (task.taskType !== "OOO" && amendUrgency !== task.urgency) {
-        await amend.setUrgency(task.id, amendUrgency);
-      }
-      setAmendOpen(false);
-    } catch {
-      // Toasted at the api layer; nothing to add, and the panel holds its draft.
-    } finally {
-      setAmendBusy(false);
-    }
-  };
-
-  /* Editing the originating note in place, where it is displayed, rather than
-     as a new section in the expanded body. No due-date input, on purpose: the
-     product expresses timing as a band and derives the deadline from it, so a
-     date picker here would be a control the app has nowhere else and would let
-     the two disagree. OOO has no urgency row at all — its timing is its start
-     and return dates, which this operation deliberately does not touch. */
-  const amendBlock = (
-    <div className="composer" style={{ flexDirection: "column", alignItems: "stretch" }}>
-      <textarea
-        rows={3}
-        aria-label={`Edit ${notesLabel.toLowerCase()}`}
-        value={amendNotes}
-        onChange={(e) => setAmendNotes(e.target.value)}
-      />
-      {task.taskType !== "OOO" && (
-        <label>
-          Urgency
-          <UrgencySelect value={amendUrgency} onChange={setAmendUrgency} />
-        </label>
-      )}
-      <span>
-        <button
-          type="button"
-          className="btn-sm"
-          onClick={() => { void submitAmend(); }}
-          disabled={amendBusy || !amendNotes.trim()}
-        >
-          Save
-        </button>
-        <button type="button" className="btn-sm btn-ghost" onClick={() => setAmendOpen(false)} disabled={amendBusy}>
-          Cancel
-        </button>
-      </span>
-    </div>
-  );
-
   /* Where the task's own field is drawn, and where it isn't (ADR-0008 rules 1
      and 2). `standingTermsFor` decides once: on an LOI it hands back the terms,
      the `TermsSection` above the thread draws them, and `ThreadMessages` leaves
      the conversation to the replies. On the other five it hands back nothing,
      the section renders nothing, and the field opens the thread as before.
 
-     The amend button rides whichever of the two the field is in. It is still
-     the one door and still the same handler — ADR-0008 rule 4 replaces it with
-     `Edit Task` in the hamburger (#260) — but until then it has to sit with the
-     field it edits, not over a conversation it does not write to. */
+     Neither carries an edit button any more (#260, ADR-0008 rule 4). The
+     hamburger's `Edit Task` is the one door: a second entrance beside the field
+     is fewer clicks from where the error is spotted, at the cost of two
+     surfaces that have to be kept in agreement, and this app already keeps
+     "what can I do to this task" in one place. */
   const fieldIsInThread = standingTermsFor(task) === undefined;
-  const amendButton = canAmend && !amendOpen && (
-    <button type="button" className="btn-sm btn-ghost" onClick={openAmend}>
-      Edit request
-    </button>
-  );
   const termsBlock = fieldIsInThread ? null : (
     <div className="task-card-terms">
-      <TermsSection task={task} action={amendButton} />
-      {amendOpen && amendBlock}
+      <TermsSection task={task} />
     </div>
   );
   const notesBlock = (
     <>
-      <div className="thread-head">
-        {threadHeadLabel(task)}
-        {fieldIsInThread && amendButton}
-      </div>
-      {fieldIsInThread && amendOpen && amendBlock}
+      <div className="thread-head">{threadHeadLabel(task)}</div>
       <div className="msgs" ref={reviewListRef}>
         <ThreadMessages task={task} viewerId={user.id} canReply={canPostNote} />
       </div>
@@ -2716,7 +2610,7 @@ const CardList = ({
   onAddReviewNote,
   onAddCompletedNote,
   onUpdatePoints,
-  amend,
+  onEditTask,
   taskHistory,
   onFilterLoan,
   onShare,
@@ -2743,7 +2637,10 @@ const CardList = ({
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
-  amend: AmendApi;
+  /* Open the edit form on this task (#260). App owns the form and the save, so
+     the row hands over an id and nothing else — a card that held the draft
+     would lose it on every list refresh. */
+  onEditTask: (taskId: string) => void;
   taskHistory: TaskHistoryApi;
   onFilterLoan?: (loanId: string) => void;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
@@ -2782,7 +2679,7 @@ const CardList = ({
           onAddReviewNote={onAddReviewNote}
           onAddCompletedNote={onAddCompletedNote}
           onUpdatePoints={onUpdatePoints}
-          amend={amend}
+          onEditTask={onEditTask}
           taskHistory={taskHistory}
           {...(onFilterLoan ? { onFilterLoan } : {})}
           onShare={onShare}
@@ -3478,572 +3375,6 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
   );
 };
 
-/* ── Create-task form ─────────────────────────────────────────
-   Extracted from App (issue #72) so that typing in any field only
-   re-renders this subtree — App (and the whole task list it renders) no
-   longer re-renders on every keystroke. All form-input state lives here;
-   App keeps only `formOpen` and mounts this child while it's true. The two
-   side-effects the form triggers (persist + post-create share) stay on App
-   behind the single stable `onCreate` callback so this component stays
-   presentational — it builds the payload and closes on success. */
-interface CreateTaskFormProps {
-  loans: Loan[];
-  directory: DirectoryUser[];
-  user: UserIdentity;
-  tasks: LoanTask[];
-  onClose: () => void;
-  /* Persist the task, then fire the optional post-create share (#46) with its
-     delivered/couldn't-reach toast, and refresh. Resolves once the task is
-     created; rejects only when the create itself fails (App has already shown
-     the error toast) so the form stays open for a retry. */
-  onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
-  /* Values the form opens with (#194). Omitted — the everyday case — opens it
-     blank, exactly as before. The defaults and the FRAUD seeder / recipient
-     picker / OOO date fields all live in `create-form-state.ts`; see there for
-     why only this subset is openable. */
-  initialValues?: CreateFormInitialValues;
-}
-
-const CreateTaskForm = ({ loans, directory, user, tasks, onClose, onCreate, initialValues }: CreateTaskFormProps) => {
-  const { showToast } = useToast();
-  /* Lazy initializer, so re-renders don't rebuild the state and a changing
-     `initialValues` identity can't reset a half-typed draft: the values seed
-     the form once, at open. Reopening the form remounts this component, which
-     is when new initial values take effect. */
-  const [form, setForm] = useState<CreateFormValues>(() => initialCreateForm(initialValues));
-  /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
-     from the committed `form.initialItems` list. */
-  const [seedDraft, setSeedDraft] = useState("");
-  /* Create-form loan typeahead: which suggestion list is open + which loan
-     (if any) the typed Folder Name resolved to. */
-  const [loanSuggestOpen, setLoanSuggestOpen] = useState(false);
-  /* The text the user actually typed into Folder Name (issue #55). Kept
-     separate from `form.folderName` so keyboard arrow-autofill can preview a
-     highlighted loan's name in the field without reshuffling the match list. */
-  const [loanQuery, setLoanQuery] = useState("");
-  /* Highlighted suggestion index for keyboard nav, or -1 for none (#55). */
-  const [loanHighlight, setLoanHighlight] = useState(-1);
-  const [namvarHover, setNamvarHover] = useState<number | null>(null);
-  /* In-flight guard for Create (#115). Not a debounce — the reported double
-     submit came from a deliberate second click after a pause, so the flag is
-     held for the WHOLE operation (create + the post-create share `onCreate`
-     also awaits) and released only when it settles. It doubles as the button's
-     pending state, which is half the fix: the reporter's read was "the button
-     didn't register my click," and a disabled `Creating…` corrects that. */
-  const [submitting, setSubmitting] = useState(false);
-  /* Humperdink import (#194). `importText` is the paste target — the human
-     presses paste, the app never reads the clipboard itself. `imported` is the
-     button's own confirmation, cleared the moment the text changes so the label
-     can't claim a paste it hasn't taken. */
-  const [importText, setImportText] = useState("");
-  const [imported, setImported] = useState(false);
-  /* The note text the last import wrote (#196), so a second import replaces its
-     own block rather than stacking a second copy of the terms under the first.
-     Whatever the filer typed around it is theirs and survives either way. */
-  const [importedNote, setImportedNote] = useState("");
-
-  /* Take a pasted Humperdink payload into the form, or say why it can't.
-     A failure leaves every field exactly as it was: the parser returns a reason
-     rather than a null so the filer, who has no console open, gets told. */
-  const importFromHumperdink = (): void => {
-    const result = parseHumperdinkPayload(importText);
-    if (!result.ok) {
-      setImported(false);
-      showToast(result.error, { variant: "error" });
-      return;
-    }
-    const noteText = humperdinkNoteText(result.payload);
-    setForm((c) => applyImportedLoan(c, result.payload, { noteText, previousNoteText: importedNote }));
-    setImportedNote(noteText);
-    // Keep the typeahead in step with the name the import just wrote, and shut
-    // it — the loan is settled, so a suggestion list over it is only noise.
-    setLoanQuery(result.payload.loanName);
-    setLoanSuggestOpen(false);
-    setLoanHighlight(-1);
-    setImported(true);
-  };
-
-  /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
-     by a task the current user created (merged loans share one id, so they
-     count automatically). Drives the empty-query, open-on-focus view. Kept
-     local so it only recomputes on this form's renders, not App's. */
-  const myLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
-
-  /* Current typeahead suggestions: empty query → my most-recently-used loans;
-     typing → all users' loans ranked by match (#55). Excludes an option that
-     exactly equals what's already typed. */
-  const loanMatches = useMemo(
-    () =>
-      loanTypeaheadSuggestions(loanQuery, loans, myLoanIds, 6).filter(
-        (m) => m.loan.name.trim().toLowerCase() !== loanQuery.trim().toLowerCase()
-      ),
-    [loanQuery, loans, myLoanIds]
-  );
-
-  /* Commit a loan pick from the typeahead (mouse click or keyboard Enter):
-     link the task to the existing loan and confirm with a transient toast
-     (#56) instead of an inline hint that reflowed the form. */
-  const selectLoan = (loan: Loan): void => {
-    setForm((c) => ({
-      ...c,
-      folderName: loan.name,
-      loanId: loan.id,
-      humperdinkLink: loan.humperdinkLink ?? c.humperdinkLink
-    }));
-    setLoanQuery(loan.name);
-    setLoanSuggestOpen(false);
-    setLoanHighlight(-1);
-    showToast("Linked to an existing loan", { variant: "success" });
-  };
-
-  /* Everyone who could work this task if it existed — the shared predicate, so
-     the form, the row and the server all agree on who that is. Excludes the
-     filer themselves: a task born assigned to its own creator is the fourth
-     door ADR-0003 shuts. */
-  const eligible = useMemo(
-    () => eligibleAssignees({ taskType: form.taskType, createdBy: { id: user.id, displayName: user.displayName } }, directory),
-    [directory, form.taskType, user.id, user.displayName]
-  );
-
-  /* Who the one at-creation picker offers, per mode. Assign offers only people
-     who could actually take it; Share excludes just you, since you already know
-     about your own task. */
-  const recipientCandidates = useMemo(
-    () => (form.pickerMode === "assign" ? eligible : directory.filter((u) => u.id !== user.id)),
-    [directory, eligible, form.pickerMode, user.id]
-  );
-
-  /* The sole-checker dead end (#142). If the only file checker available is the
-     person filing, nobody can claim this Fraud Check — the creator is barred
-     from their own task at every door, with no admin override and no escape
-     hatch, because an escape hatch is indistinguishable from letting one person
-     file and check their own review. So the form says so up front and the filer
-     redirects it, instead of the task sitting unclaimable with no error that
-     helps. It informs; it never blocks submit. `directory.length > 0` keeps a
-     not-yet-loaded directory from crying wolf. */
-  const noEligibleChecker = form.taskType === "FRAUD" && directory.length > 0 && eligible.length === 0;
-  /* Two ways to reach that dead end, and they aren't the same sentence. If the
-     filer holds FILE_CHECKER, the only checker around is them and the rule
-     that bites is second-pair-of-hands. If they don't, there simply is no
-     checker to hand it to. */
-  const noCheckerWarning = user.roles.includes("FILE_CHECKER")
-    ? "You're the only file checker available, and nobody can work a Fraud Check they filed themselves — so no one will be able to claim this one. Someone else needs to file it."
-    : "No file checker is available to work this Fraud Check, so nobody will be able to claim it. Worth checking who's on shift before you file.";
-
-  /* Switching to Assign, or to a Fraud Check, can make the current pick
-     ineligible. Drop it rather than leave a selection showing that the server
-     would reject at submit. */
-  useEffect(() => {
-    if (form.recipientUserId && !recipientCandidates.some((c) => c.id === form.recipientUserId)) {
-      setForm((c) => ({ ...c, recipientUserId: "" }));
-    }
-  }, [recipientCandidates, form.recipientUserId]);
-
-  const handleSubmit = async (event: FormEvent): Promise<void> => {
-    event.preventDefault();
-    // Re-entry guard (#115). Covers every submit path, not just the button:
-    // Enter in a text field and held/repeated Enter both land here.
-    if (submitting) return;
-    const rawLink = form.humperdinkLink.trim();
-    const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
-    // Only pass loanId when the typed name still matches the selected loan —
-    // editing the text after selecting means the user intends a new loan.
-    const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
-    const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
-    // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
-    // ship the outstanding items the creator already knows about.
-    const assignAtCreate = Boolean(form.recipientUserId) && form.pickerMode === "assign";
-    const seededItems =
-      form.taskType === "FRAUD"
-        ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
-        : [];
-    const payload: CreateTaskInput = {
-      folderName: form.folderName,
-      taskType: form.taskType,
-      notes: form.notes,
-      ...(keepLoanId ? { loanId: form.loanId } : {}),
-      ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
-      ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
-      ...(form.points > 0 ? { points: form.points } : {}),
-      ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {}),
-      // The two branches are deliberately asymmetric. A handoff rides the create
-      // payload so the task is born assigned in ONE call — creating it first and
-      // assigning after would post a claimable channel card and then edit the
-      // Claim button away, and would race the backgrounded fan-out. A share
-      // stays a follow-up call (below) because its response carries the
-      // `delivered` reachability flag, which the create response has no place
-      // to hold.
-      ...(assignAtCreate ? { assigneeUserId: form.recipientUserId } : {}),
-      ...(assignAtCreate && form.recipientNote.trim() ? { assigneeNote: form.recipientNote.trim() } : {})
-    };
-
-    setSubmitting(true);
-    try {
-      // App owns persist + post-create share + refresh; on success we close,
-      // which unmounts this child and discards the draft state. A create
-      // failure rejects here (App already toasted) — keep the form open.
-      // onCreate deliberately resolves only after the share follow-up too, so
-      // the pending state spans the whole wait rather than going idle-looking
-      // mid-flight.
-      await onCreate(
-        payload,
-        assignAtCreate ? "" : form.recipientUserId,
-        form.recipientNote.trim() || undefined
-      );
-      onClose();
-    } catch {
-      /* create failed — App surfaced the error; leave the form open to retry */
-    } finally {
-      // In `finally`, not the catch: an exception must never strand the form
-      // permanently disabled. Harmless after onClose — React no-ops a setState
-      // on an unmounted component.
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    /* The backdrop is deliberately inert (#114): a stray click here used to
-       call onClose, which unmounts this component and silently destroys the
-       whole draft. Cancel and Escape are the only exits, and both are
-       deliberate acts taken at the user's word — no confirmation prompt, no
-       dirty tracking. The panel's old stopPropagation went with it; with
-       nothing listening on the overlay it was dead weight. */
-    <div
-      className="form-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="New task"
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
-    >
-      <div className="form-panel">
-      <form className="task-form" onSubmit={handleSubmit}>
-        {/* Humperdink import (#194). Above Folder Name because it fills Folder
-            Name — the shortcut sits where the typing it saves would start.
-            Hidden for OOO: a vacation has no loan and no Humperdink link. */}
-        {form.taskType !== "OOO" && (
-          <div className="span-full task-form-import">
-            <label className="task-form-import-field">
-              Paste from Humperdink
-              <input
-                type="text"
-                autoComplete="off"
-                placeholder="Paste what Send to Hot Task copied"
-                value={importText}
-                onChange={(e) => {
-                  setImportText(e.target.value);
-                  setImported(false);
-                }}
-                onKeyDown={(e) => {
-                  // Enter in this field means "import", not "create the task" —
-                  // the form's implicit submit would file a half-filled task
-                  // out from under a paste.
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    importFromHumperdink();
-                  }
-                }}
-              />
-            </label>
-            <button type="button" className="btn-ghost btn-sm" onClick={importFromHumperdink}>
-              {imported ? "Imported" : "Import from Humperdink"}
-            </button>
-          </div>
-        )}
-        <label>
-          {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
-          {form.taskType === "OOO" ? (
-            <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
-          ) : (
-            <span className="loan-typeahead">
-              <input
-                value={form.folderName}
-                autoComplete="off"
-                placeholder="Search existing loans or type a new name"
-                role="combobox"
-                aria-expanded={loanSuggestOpen && loanMatches.length > 0}
-                aria-autocomplete="list"
-                aria-activedescendant={loanHighlight >= 0 ? `loan-opt-${loanHighlight}` : undefined}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  // Typing diverges from any prior selection → treat as a new
-                  // loan, and re-scope the match list to the typed query.
-                  setForm((c) => ({ ...c, folderName: v, loanId: "" }));
-                  setLoanQuery(v);
-                  setLoanSuggestOpen(true);
-                  setLoanHighlight(-1);
-                }}
-                onFocus={() => { setLoanQuery(form.folderName); setLoanSuggestOpen(true); setLoanHighlight(-1); }}
-                onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                    if (loanMatches.length === 0) return;
-                    e.preventDefault();
-                    if (!loanSuggestOpen) setLoanSuggestOpen(true);
-                    const next = nextHighlightIndex(loanHighlight, e.key === "ArrowDown" ? 1 : -1, loanMatches.length);
-                    setLoanHighlight(next);
-                    // Autofill the field with the highlighted loan's name;
-                    // selection (link + toast) waits for Enter.
-                    const preview = loanMatches[next];
-                    if (preview) setForm((c) => ({ ...c, folderName: preview.loan.name, loanId: "" }));
-                  } else if (e.key === "Enter" && loanSuggestOpen && loanHighlight >= 0 && loanMatches[loanHighlight]) {
-                    e.preventDefault();
-                    selectLoan(loanMatches[loanHighlight]!.loan);
-                  } else if (e.key === "Escape" && loanSuggestOpen) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setLoanSuggestOpen(false);
-                    setLoanHighlight(-1);
-                  }
-                }}
-                required
-              />
-              {loanSuggestOpen && loanMatches.length > 0 && (
-                <ul className="loan-typeahead-list" role="listbox">
-                  {loanMatches.map((m, i) => (
-                    <li key={m.loan.id}>
-                      <button
-                        type="button"
-                        id={`loan-opt-${i}`}
-                        role="option"
-                        aria-selected={i === loanHighlight}
-                        className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
-                        onMouseEnter={() => setLoanHighlight(i)}
-                        // onMouseDown fires before the input's onBlur so the pick registers.
-                        onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
-                      >
-                        <span className="loan-typeahead-name">{m.loan.name}</span>
-                        {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </span>
-          )}
-        </label>
-        <label>
-          Type
-          <select value={form.taskType} onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}>
-            <option value="LOI">LOI Check</option>
-            <option value="BUDDY_CHAT">Buddy Chat</option>
-            <option value="VALUE">Value Check</option>
-            <option value="FRAUD">Fraud Check</option>
-            <option value="LOAN_DOCS">Loan Docs</option>
-            <option value="OOO">OOO - Out of Office</option>
-          </select>
-        </label>
-        {form.taskType === "OOO" ? (
-          <>
-            <label>
-              Start Date
-              <input
-                type="date"
-                value={form.startDate}
-                onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              Return Date
-              <input
-                type="date"
-                value={form.returnDate}
-                min={form.startDate || undefined}
-                onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
-                required
-              />
-            </label>
-          </>
-        ) : (
-          <label>
-            Urgency
-            <UrgencySelect value={form.urgency} onChange={(urgency) => setForm((c) => ({ ...c, urgency }))} />
-          </label>
-        )}
-        <label>
-          How Bad?
-          <span
-            className="poop-picker poop-picker-form"
-            onMouseLeave={() => setNamvarHover(null)}
-          >
-            {[1, 2, 3, 4, 5].map((n) => {
-              const active = n <= (namvarHover ?? form.points);
-              return (
-                <button
-                  key={n}
-                  type="button"
-                  className={`poop-pick${active ? " poop-pick-on" : ""}`}
-                  onMouseEnter={() => setNamvarHover(n)}
-                  onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
-                  aria-label={`${n} poop${n === 1 ? "" : "s"}`}
-                  aria-pressed={n <= form.points}
-                >
-                  💩
-                </button>
-              );
-            })}
-          </span>
-        </label>
-        {/* Two nodes for one sentence, on purpose. A live region only announces
-            changes made INSIDE it, so one that appears with its text already in
-            place is usually read out by nobody — and this warning is the whole
-            signal a screen-reader user gets before the dead end. The region is
-            always mounted (visually hidden, costing no layout) and only its
-            text changes; the visible box is the sighted half, hidden from the
-            reader so it isn't said twice. */}
-        <p className="sr-only" role="status">{noEligibleChecker ? noCheckerWarning : ""}</p>
-        {noEligibleChecker && (
-          <p className="span-full task-form-warning" aria-hidden="true">{noCheckerWarning}</p>
-        )}
-        {/* FRAUD only (#69): seed the outstanding-items checklist with items
-            the creator already knows about. Enter-to-add, mirrors the card's
-            FraudChecklist add idiom. Optional — the checker seeds later.
-            Rendered above Notes (#78) so the checklist leads the form. */}
-        {form.taskType === "FRAUD" && (
-          <div className="span-full task-form-seed">
-            <span className="task-form-seed-head">Outstanding Items <span className="form-label-optional">- Optional</span></span>
-            {form.initialItems.length > 0 && (
-              <ul className="task-form-seed-list">
-                {form.initialItems.map((text, idx) => (
-                  <li key={idx} className="task-form-seed-item">
-                    <span className="task-form-seed-text">{text}</span>
-                    <button
-                      type="button"
-                      className="checklist-delete"
-                      aria-label={`Remove "${text}"`}
-                      onClick={() => setForm((c) => ({ ...c, initialItems: c.initialItems.filter((_, i) => i !== idx) }))}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {/* (#79) .checklist-add's dashed top divider exists to separate an
-                already-seeded item list above it; with nothing seeded yet on
-                the create form it reads as a stray gap, so drop it via
-                .checklist-add-flush until the first item lands. */}
-            <div className={`checklist-add${form.initialItems.length > 0 ? "" : " checklist-add-flush"}`}>
-              <input
-                className="checklist-item-input"
-                placeholder="Add an item, press Enter…"
-                value={seedDraft}
-                onChange={(e) => setSeedDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const v = seedDraft.trim();
-                    if (!v) return;
-                    setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
-                    setSeedDraft("");
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="btn-sm"
-                disabled={!seedDraft.trim()}
-                onClick={() => {
-                  const v = seedDraft.trim();
-                  if (!v) return;
-                  setForm((c) => ({ ...c, initialItems: [...c.initialItems, v] }));
-                  setSeedDraft("");
-                }}
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        )}
-        <label className="span-full">
-          {/* FRAUD's free-text field is now a general discussion seed, so it
-              gets a purpose-built "Notes" label (#69); the shared
-              NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
-          {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
-          <textarea rows={2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
-        </label>
-        {form.taskType !== "OOO" && (
-          <label className="span-full">
-            Humperdink Link
-            <input
-              type="text"
-              inputMode="url"
-              placeholder="Optional"
-              value={form.humperdinkLink}
-              onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && !/^https?:\/\//i.test(v)) {
-                  setForm((c) => ({ ...c, humperdinkLink: `https://${v}` }));
-                }
-              }}
-            />
-          </label>
-        )}
-        {/* One person, one of two things to do with them (issue #46 +
-            ADR-0002). Share = "make sure they see this", task stays in the
-            pool. Assign = hand it to them, task is born CLAIMED. The picker
-            narrows to eligible recipients in Assign mode — a Fraud Check can
-            only go to a file checker, same rule the server enforces — and a
-            selection that stops being eligible is dropped rather than left to
-            fail at submit. Hidden when there's nobody to point at. */}
-        {recipientCandidates.length > 0 && (
-          <div className="span-full form-direct">
-            <div className="form-direct-head">
-              <span>
-                {form.pickerMode === "assign" ? "Assign Directly" : "Share Directly"}
-                <span className="form-label-optional"> - Optional</span>
-              </span>
-              <div className="seg" role="group" aria-label="Share or assign">
-                <button
-                  type="button"
-                  className={form.pickerMode === "share" ? "seg-on" : ""}
-                  aria-pressed={form.pickerMode === "share"}
-                  onClick={() => setForm((c) => ({ ...c, pickerMode: "share" }))}
-                >
-                  Share
-                </button>
-                <button
-                  type="button"
-                  className={form.pickerMode === "assign" ? "seg-on" : ""}
-                  aria-pressed={form.pickerMode === "assign"}
-                  onClick={() => setForm((c) => ({ ...c, pickerMode: "assign" }))}
-                >
-                  {ACTION_LABELS.ASSIGN}
-                </button>
-              </div>
-            </div>
-            <select
-              aria-label={form.pickerMode === "assign" ? "Assign to" : "Share with"}
-              value={form.recipientUserId}
-              onChange={(e) => setForm((c) => ({ ...c, recipientUserId: e.target.value }))}
-            >
-              <option value="">No one — just create it</option>
-              {recipientCandidates.map((u) => (
-                <option key={u.id} value={u.id}>{u.displayName}</option>
-              ))}
-            </select>
-            {form.recipientUserId && (
-              <input
-                type="text"
-                value={form.recipientNote}
-                placeholder="Add a note (optional)"
-                maxLength={280}
-                onChange={(e) => setForm((c) => ({ ...c, recipientNote: e.target.value }))}
-              />
-            )}
-          </div>
-        )}
-        <div className="form-actions">
-          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={submitting}>{submitting ? "Creating…" : "Create Task"}</button>
-        </div>
-      </form>
-      </div>
-    </div>
-  );
-};
-
 /* ── Main app ─────────────────────────────────────────────── */
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
@@ -4067,6 +3398,10 @@ export const App = () => {
      lives in <CreateTaskForm> (issue #72) and App no longer re-renders (and
      re-renders the task list) as the user types. */
   const [formOpen, setFormOpen] = useState(false);
+  /* Which task the edit form is open on (#260), or null. An id rather than the
+     task itself: the list refreshes underneath, and holding the object would
+     pin the form to a snapshot taken when the menu was clicked. */
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
 
   /* Grouped ("courts") view toggle — buckets tasks by whose court the ball is
@@ -4400,7 +3735,7 @@ export const App = () => {
     return () => source.close();
   }, []);
 
-  /* Create-form submit seam (issue #72). <CreateTaskForm> owns the form state
+  /* Create-form submit seam (issue #72). <TaskForm> owns the form state
      and builds the payload; App keeps the two side-effects — persistence and
      the post-create share — so the child stays presentational. Resolves once
      the task is persisted (the child then closes itself); rejects only when the
@@ -4628,14 +3963,6 @@ export const App = () => {
     }
   }, [user, refresh, showToast]);
 
-  /* Amend the ask (ADR-0006). Two calls, mirroring the two server routes —
-     nothing here can express a due date, because no route accepts one.
-     `useMemo`'d as one object for the same reason `checklistApi` is: a fresh
-     literal on every render would defeat TaskCard's memo for the whole list.
-
-     Both rethrow after toasting, unlike `onUpdatePoints`: the edit panel holds a
-     draft, so a refused save has to leave it open with the text still in it
-     rather than swallow the rejection and close over the creator's typing. */
   /* The web app's first caller of GET /tasks/:id/history (ADR-0002 noted it had
      none). `useMemo`'d for the same reason `amendApi` is: a fresh literal every
      render would defeat TaskCard's memo across the whole list.
@@ -4657,6 +3984,19 @@ export const App = () => {
     }
   }), [user]);
 
+  /* Amend the ask (ADR-0006, and ADR-0008 rule 4's replacement for it). One
+     call per field, mirroring the server's one route per field — nothing here
+     can express a due date, because no route accepts one, and there is
+     deliberately nothing that can post a whole task at once.
+
+     Both rethrow after toasting, unlike `onUpdatePoints`: the edit form holds a
+     draft, so a refused save has to leave it open with the text still in it
+     rather than swallow the rejection and close over the creator's typing.
+
+     `setUrgency` has no caller while #261 is unbuilt — the edit form carries
+     the request field alone for now (#260). Kept rather than deleted and
+     re-added: the route, the rule and the toast are all still exactly right,
+     and urgency comes back onto this same form next. */
   const amendApi = useMemo<AmendApi>(() => ({
     setNotes: async (taskId, notes) => {
       try {
@@ -4677,6 +4017,30 @@ export const App = () => {
       }
     }
   }), [user, refresh, showToast]);
+
+  /* Open the edit form (#260). `useCallback` because every card holds this and
+     a fresh literal per render would defeat TaskCard's memo across the list. */
+  const onEditTask = useCallback((taskId: string): void => setEditingTaskId(taskId), []);
+
+  /* Save an edit (#260). One focused route per field, chosen from what the form
+     says actually moved — there is deliberately no endpoint that takes a
+     task-shaped body (ADR-0008 rule 4, inherited from ADR-0006), so this is a
+     dispatch rather than a payload, and it grows a line per field as #261–#264
+     land rather than growing a schema.
+
+     The form never calls it with an empty edit, so a save that changed nothing
+     makes no request at all: no history entry and no DM. Rejects on failure,
+     after the api layer has toasted, so the form stays open with the creator's
+     typing still in it. */
+  const onSaveEdit = useCallback(async (taskId: string, edit: TaskEdit): Promise<void> => {
+    if (edit.notes !== undefined) await amendApi.setNotes(taskId, edit.notes);
+  }, [amendApi]);
+
+  /* The task the edit form is open on, resolved fresh out of the list every
+     render. `tasks` is the whole store — both the active view and the admin
+     "All Tasks" view are filtered from it — so an id that came off any row
+     resolves here. */
+  const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : undefined;
 
   /* Share a task with one person (issue #41). Returns whether the DM actually
      reached them (they may have no bot reference), so the card can distinguish
@@ -4830,7 +4194,7 @@ export const App = () => {
       onAddReviewNote,
       onAddCompletedNote,
       onUpdatePoints,
-      amend: amendApi,
+      onEditTask,
       taskHistory: taskHistoryApi,
       onFilterLoan,
       onShare,
@@ -4981,13 +4345,30 @@ export const App = () => {
           typing never re-renders App or the task list. Mounted only while
           open; unmounting on close discards the draft. */}
       {formOpen && (
-        <CreateTaskForm
+        <TaskForm
           loans={loans}
           directory={directory}
           user={user}
           tasks={tasks}
           onClose={() => setFormOpen(false)}
           onCreate={onCreate}
+        />
+      )}
+
+      {/* The same form, opened on a task that already exists (#260). Mounted
+          from App rather than from the card so it survives the list refresh a
+          save triggers, and so the two modes are one component in one place.
+          A task that vanished underneath the open form resolves to nothing and
+          the form unmounts, rather than going on editing a snapshot. */}
+      {editingTask && (
+        <TaskForm
+          loans={loans}
+          directory={directory}
+          user={user}
+          tasks={tasks}
+          onClose={() => setEditingTaskId(null)}
+          onCreate={onCreate}
+          edit={{ task: editingTask, onSave: (edit) => onSaveEdit(editingTask.id, edit) }}
         />
       )}
 

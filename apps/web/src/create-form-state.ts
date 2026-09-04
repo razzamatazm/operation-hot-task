@@ -9,7 +9,7 @@
    Framework-free and pure so both are testable without React; the component
    keeps only the useState around them. Types are imported type-only, so this
    module type-strips straight into a node test with no build. */
-import type { TaskType, UrgencyLevel } from "@loan-tasks/shared";
+import type { LoanTask, TaskType, UrgencyLevel } from "@loan-tasks/shared";
 import type { HumperdinkPayload } from "@loan-tasks/shared";
 
 export interface CreateFormValues {
@@ -74,6 +74,70 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
   ) as CreateFormInitialValues;
   return { ...BLANK_CREATE_FORM, initialItems: [...BLANK_CREATE_FORM.initialItems], ...supplied };
 };
+
+/* ── Edit mode (#260, ADR-0008 rule 4) ────────────────────────
+   The same form, opened on a task that already exists. Two pure functions
+   either side of the component: one says what the form opens with, the other
+   says what a Save is actually allowed to send.
+
+   The task the form edits, as far as this module is concerned. A `LoanTask`
+   satisfies it; the narrow shape is what keeps the tests from having to build
+   a whole task to ask a question about two fields. */
+export type EditableTask = Pick<LoanTask, "taskType" | "notes">;
+
+/* What edit mode opens with. The task's type and its request field, and the
+   blank form's values for everything else — deliberately. Urgency, poop
+   points, the folder name, the Humperdink link and the OOO dates are later
+   tickets (#261–#264); until they land, edit mode neither shows them nor
+   carries them, so there is nothing half-loaded for a Save to write back.
+
+   The type is loaded even though nobody may change it: the form shows it,
+   disabled, because "what kind of task am I editing" is the first thing a
+   person checks and a blank type would read as a form that lost it. */
+export const editFormValues = (task: EditableTask): CreateFormValues => ({
+  ...BLANK_CREATE_FORM,
+  initialItems: [],
+  taskType: task.taskType,
+  notes: task.notes ?? ""
+});
+
+/* Everything a Save may change, and nothing else. Optional throughout: an
+   absent key means "this did not move", which is what the caller turns into
+   "make no request at all".
+
+   One key today. It is an interface rather than a bare string because the
+   later tickets add their fields here, each still going to its own focused
+   route — the shape that must never appear is a single object posted at a
+   catch-all `PATCH /tasks/:id` (ADR-0008 rule 4, inherited from ADR-0006). */
+export interface TaskEdit {
+  notes?: string;
+}
+
+/* What actually moved. Compared trimmed on both sides, so re-saving a field
+   whose only difference is a trailing newline is the same nothing as re-saving
+   it untouched: the server would otherwise record that as a real amendment,
+   write it into the task's history with both values, and tell the assignee
+   their terms changed.
+
+   An emptied field is a no-change rather than an empty write. Terms are
+   required on edit (ADR-0008 rule 1) — a checked LOI whose terms say nothing
+   is worse than an uncorrected one — and the form blocks the submit, so this
+   is the second lock on the same door rather than the message a person sees. */
+export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit => {
+  const notes = values.notes.trim();
+  if (!notes || notes === (task.notes ?? "").trim()) return {};
+  return { notes };
+};
+
+/* Why a Save can't go through, or `null` when it can.
+
+   The browser's own `required` catches a box a person emptied completely, but
+   a single space satisfies it. Without this, `taskEdit` reads a wiped field as
+   "nothing moved", the form closes, and the person walks away believing they
+   cleared the terms when nothing was saved and nothing said so. Worded like the
+   browser's own message, because the form shows it in the same place. */
+export const editRefusal = (values: CreateFormValues): string | null =>
+  values.notes.trim() ? null : "Please fill this in — spaces alone don't count.";
 
 /* The note text an import writes, and the one the last import wrote.
 

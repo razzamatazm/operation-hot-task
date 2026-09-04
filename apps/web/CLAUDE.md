@@ -598,19 +598,24 @@ nested card chrome, in this order:
    `timeline.tsx` was: ADR-0008's promise is about rendered output, App.tsx
    can't be imported into a node script, and
    `scripts/loi-terms-section-sim-test.mjs` renders both and reads the markup
-   back. Only the read-only halves moved; the composer, the amend block and all
-   card state stayed. Which of the two draws the field is never decided locally
-   — both ask shared `standingTermsFor`, so the section cannot show it while
-   the thread also does.
+   back. Only the read-only halves moved; the composer and all card state
+   stayed. Which of the two draws the field is never decided locally — both ask
+   shared `standingTermsFor`, so the section cannot show it while the thread
+   also does.
+
+   Neither box carries an edit button (#260). The terms section and the thread
+   head both used to host `Edit request`; ADR-0008 rule 4 makes the hamburger's
+   `Edit Task` the one door, so a second entrance beside the field is gone
+   rather than duplicated.
 
 The body **ends on the notes thread**. It used to close with a compact
 Created / Due meta row; that moved into the hamburger in #166 — reference
 detail nobody reads on the way through a task, costing a full row plus its
 rule on every open card.
 
-Everything else (Re-open, Add a note, Unclaim, Cancel, Archive, Restore,
-Share, Assign/Reassign, Undo Merge Done, and FRAUD's Send Back / Release) lives in the
-collapsed row's hamburger, not here — there is no actions card in the body
+Everything else (Edit Task, Re-open, Add a note, Unclaim, Cancel, Archive,
+Restore, Share, Assign/Reassign, Undo Merge Done, and FRAUD's Send Back /
+Release) lives in the collapsed row's hamburger, not here — there is no actions card in the body
 anymore. `Send Back` is note-required, so it opens its composer inside the
 menu panel; that is fine, the panel already hosts the `Add a note` field and
 its Esc handler exempts text fields.
@@ -777,6 +782,43 @@ it first.
   replacing the ring.
 - Theme respects Teams (`light` / `dark` / `contrast`); `contrast`
   intentionally has no shadows.
+
+## The task form (file and edit)
+
+One form does both jobs, in [src/task-form.tsx](src/task-form.tsx). Filing a
+new task is the default; passing an `edit` prop turns it into the edit mode
+`Edit Task` opens (#260, ADR-0008 rule 4). Two surfaces that write the same
+fields are two surfaces that drift, so there is deliberately no second form.
+
+Edit mode differs in four ways and no others:
+
+- it opens preloaded from the task (`editFormValues` in
+  [src/create-form-state.ts](src/create-form-state.ts)),
+- the person picker, the Humperdink import and the outstanding-items seeder
+  are gone — all three only mean something at filing time,
+- the task type is rendered **disabled**, with a muted `.task-form-locked`
+  line beneath it saying it can't change and to cancel and refile. Disabled
+  rather than hidden: a form that dropped the type would read as one that lost
+  track of what it is editing, and a control that silently refuses clicks is
+  the version people file bugs about,
+- the submit button reads `Save` / `Saving…`.
+
+**A Save sends only what moved.** `taskEdit` diffs the task against the form
+and returns the changed fields; App turns that into one call per field, on the
+existing focused route for each. There is no endpoint that takes a
+task-shaped body and this form must never grow one. A save that changed
+nothing makes no request at all, so it writes no history and DMs nobody.
+
+The module lives outside `App.tsx` for the same reason `thread.tsx` does: the
+ticket's promises are about rendered output, `App.tsx` can't be imported into
+a node script, and `scripts/edit-task-form-sim-test.mjs` renders the form and
+reads the markup back. `CheckIcon` / `TrashIcon` moved to
+[src/icons.tsx](src/icons.tsx) so the card and the form can both draw them.
+
+Urgency, poop points, folder name, Humperdink link and the OOO dates are
+create-only for now; each lands on this form in its own ticket (#261–#264).
+Urgency stays the creator's in all of them — an assignee who can extend their
+own deadline is not accepting a deal (ADR-0008 rule 5).
 
 ## When Adding UI
 
