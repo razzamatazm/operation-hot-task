@@ -128,7 +128,12 @@ export class TeamsNotificationProvider implements NotificationProvider {
             `How Bad: ${howBad}`,
             `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
             ...(options.withDue ? [`Due: ${formatWallDate(event.task.dueAt)}`] : []),
-            ...(event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
+            /* An LOI's request field is its terms — the whole block of loan
+               figures, not a sentence (ADR-0008). Quoting it here turns the
+               card into a wall of numbers that has to be scrolled, and a card
+               people scroll is a card people stop reading. An LOI leans on its
+               deep link instead; the other five keep the line (#259). */
+            ...(event.task.taskType !== "LOI" && event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
             ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
           ];
     // A personal note (share or handoff) leads the body, above the task
