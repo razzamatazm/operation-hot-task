@@ -816,7 +816,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
           <textarea
             ref={notesRef}
             className={editing ? (form.taskType === "LOI" ? "task-form-terms task-form-terms-mono" : "task-form-terms") : undefined}
-            rows={editing ? 8 : 2}
+            /* Three rows while filing, which is the height the New Task mockup
+               gives this box; eight while editing, where reading what is
+               already there is the job. Rows rather than a min-height, so the
+               edit mode class below doesn't have to out-specify a rule aimed at
+               every textarea on the form. */
+            rows={editing ? 8 : 3}
             value={form.notes}
             onChange={(e) => {
               /* Clear a refusal the moment they start fixing it, so the box
