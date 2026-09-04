@@ -7,6 +7,7 @@ import { createTokenCache, sendWithToken } from "./auth-token";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { bylineOf, formatDate, initialsOf } from "./format";
+import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { TermsSection, ThreadMessages, threadHeadLabel } from "./thread";
@@ -43,6 +44,27 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
   OOO: "OOO - Out of Office"
 };
 
+/* A failed request, with the server's answer still attached. Everything that
+   catches one reads `.message` and always has, which is why this is an `Error`
+   and not a result type; the status and body ride along for the one caller that
+   needs more than a sentence — a loan edit refused because the link belongs to
+   another loan answers 409 and names that loan, and the confirm-then-merge flow
+   (#265) has to read that name to ask about it. */
+class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly body: unknown) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/* What `PATCH /loans/:loanId` answers with. `merged` is present only when this
+   save actually folded another loan in — the transient notice ADR-0001's
+   2026-07-31 addendum asks for is the only thing that reads it. */
+interface LoanPatchResult {
+  loan: Loan;
+  merged?: { intoLoanId: string; intoLoanName: string; mergedName: string };
+}
+
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
   const send = (token: string | null): Promise<Response> =>
     fetch(`${API_BASE}${path}`, {
@@ -66,7 +88,7 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error ?? "Request failed");
+    throw new ApiError(data.error ?? "Request failed", response.status, data);
   }
 
   return data as T;
@@ -2832,6 +2854,11 @@ const LoanFilterHeader = ({
     try {
       await onSave(loan.id, name, link);
       setEditing(false);
+    } catch {
+      /* The save has already said whatever there was to say — a refusal toasts,
+         and a declined merge deliberately says nothing because nothing was sent.
+         Either way the editor stays open on what was typed rather than closing
+         as if it had landed. */
     } finally {
       setSaving(false);
     }
@@ -3935,6 +3962,63 @@ export const App = () => {
     setNote: (taskId, itemId, note) => runChecklist(`/tasks/${taskId}/checklist/items/${itemId}/note`, { note }, "Failed to save note")
   }), [runChecklist, deleteChecklist]);
 
+  /* The merge question, while it is on screen (#265, ADR-0008 rule 7). Holds
+     the loan being merged into — so the dialog can name it — and the resolver
+     that hands the answer back to the save that is waiting on it. */
+  const [mergeAsk, setMergeAsk] = useState<{ collision: LoanLinkCollision; decide: (confirmed: boolean) => void } | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  /* The single door every loan edit goes through, whichever surface asked — the
+     edit form or the loan-filter header. They are two callers of one save, so
+     they get one confirmation rather than two implementations of it.
+
+     A save posts exactly what it always did. If the link lands on another loan's
+     the server writes nothing and answers 409 naming that loan (#262); we ask
+     about that loan by name, and only a yes re-sends the identical change with
+     `confirmMerge`, at which point the merge runs as it always has. A no sends
+     nothing at all — both records and the link are exactly as they were — and
+     rejects, so the caller leaves its form open with the typing still in it. */
+  const patchLoan = useCallback(async (loanId: string, body: Record<string, unknown>): Promise<LoanPatchResult> => {
+    const send = (extra?: Record<string, unknown>) =>
+      apiRequest<LoanPatchResult>(
+        `/loans/${loanId}`,
+        { method: "PATCH", body: JSON.stringify({ ...body, ...extra }) },
+        user
+      );
+    try {
+      return await send();
+    } catch (err) {
+      const collision = linkCollisionIn(err);
+      if (!collision) throw err;
+      const confirmed = await new Promise<boolean>((decide) => setMergeAsk({ collision, decide }));
+      if (!confirmed) {
+        setMergeAsk(null);
+        throw new MergeDeclined();
+      }
+      // The dialog stays up, busy, until the merge lands: it is the only thing
+      // on screen saying what is happening to the other loan's tasks.
+      setMerging(true);
+      try {
+        const result = await send({ confirmMerge: true });
+        /* ADR-0001's transient notice (addendum 2026-07-31), said once here
+           rather than once per calling surface: the dialog asked and closed, and
+           this is what says the merge actually happened. It belongs to the step
+           that merged, not to whoever started the save — a third editing surface
+           should inherit it without remembering to. */
+        if (result.merged) {
+          showToast(
+            `Merged with "${result.merged.intoLoanName}", an existing loan sharing this Humperdink link.`,
+            { variant: "info" }
+          );
+        }
+        return result;
+      } finally {
+        setMerging(false);
+        setMergeAsk(null);
+      }
+    }
+  }, [user, showToast]);
+
   /* Edit a Loan's name/link (the app's first post-creation edit surface).
      Server propagates to every linked task; we refresh tasks + loans so the
      live reference is reflected everywhere. */
@@ -3942,33 +4026,19 @@ export const App = () => {
     try {
       const trimmedLink = humperdinkLink.trim();
       const normLink = trimmedLink && !/^https?:\/\//i.test(trimmedLink) ? `https://${trimmedLink}` : trimmedLink;
-      const { loan, merged } = await apiRequest<{
-        loan: Loan;
-        merged?: { intoLoanId: string; intoLoanName: string; mergedName: string };
-      }>(
-        `/loans/${loanId}`,
-        { method: "PATCH", body: JSON.stringify({ name: name.trim(), humperdinkLink: normLink }) },
-        user
-      );
+      // A confirmed merge can move the list onto the surviving loan; filtering to
+      // the id that came back is what keeps this view pointed at a record that
+      // still exists. The notice about it is `patchLoan`'s.
+      const { loan } = await patchLoan(loanId, { name: name.trim(), humperdinkLink: normLink });
       setLoanFilterId(loan.id);
       setError(null);
-      // ADR-0001: a shared Humperdink link merges the two loans; surface that so
-      // the edit doesn't silently fold this record into another. The notice is a
-      // transient auto-dismiss toast (ADR-0001 addendum 2026-07-31).
-      //
-      // Since #262 the server refuses that merge on an edit rather than doing
-      // it, so this branch is unreachable today and a colliding link surfaces as
-      // the error toast below instead. Kept, not deleted: #265 adds the confirm
-      // that lets a merge through again, and this is the notice it needs.
-      if (merged) {
-        showToast(
-          `Merged with "${merged.intoLoanName}", an existing loan sharing this Humperdink link.`,
-          { variant: "info" }
-        );
-      }
       await refresh();
       await loadLoans();
     } catch (err) {
+      /* Declining is not a failure: nothing was sent, so there is nothing to
+         report, and the header stays open on the link the person typed rather
+         than snapping back as if the edit had gone through. */
+      if (err instanceof MergeDeclined) throw err;
       showToast(err instanceof Error ? err.message : "Failed to update loan", { variant: "error" });
     }
   };
@@ -4059,29 +4129,27 @@ export const App = () => {
   const saveLoanFields = useCallback(async (loanId: string, fields: { name?: string; humperdinkLink?: string }): Promise<void> => {
     const link = fields.humperdinkLink?.trim();
     try {
-      await apiRequest<{ loan: Loan }>(
-        `/loans/${loanId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            ...(fields.name !== undefined ? { name: fields.name.trim() } : {}),
-            // Saved straight from the keyboard, the field's own blur-time
-            // prefixing may never have run. Normalized here so a bare host isn't
-            // stored as a relative link.
-            ...(fields.humperdinkLink !== undefined
-              ? { humperdinkLink: link && !/^https?:\/\//i.test(link) ? `https://${link}` : link }
-              : {})
-          })
-        },
-        user
-      );
+      await patchLoan(loanId, {
+        ...(fields.name !== undefined ? { name: fields.name.trim() } : {}),
+        // Saved straight from the keyboard, the field's own blur-time
+        // prefixing may never have run. Normalized here so a bare host isn't
+        // stored as a relative link.
+        ...(fields.humperdinkLink !== undefined
+          ? { humperdinkLink: link && !/^https?:\/\//i.test(link) ? `https://${link}` : link }
+          : {})
+      });
       await refresh();
       await loadLoans();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to update the loan", { variant: "error" });
+      /* A declined merge is not a failure — nothing was sent — so it gets no
+         toast. It still rejects, which is what keeps the form open with the
+         typing in it, the same as a refusal does. */
+      if (!(err instanceof MergeDeclined)) {
+        showToast(err instanceof Error ? err.message : "Failed to update the loan", { variant: "error" });
+      }
       throw err;
     }
-  }, [user, refresh, loadLoans, showToast]);
+  }, [patchLoan, refresh, loadLoans, showToast]);
 
   /* Open the edit form (#260). `useCallback` because every card holds this and
      a fresh literal per render would defeat TaskCard's memo across the list. */
@@ -4525,6 +4593,17 @@ export const App = () => {
 
       {/* ── Admin tab content ───────────────────────── */}
       {activeTab === "admin" && isAdmin && <AdminPanel user={user} />}
+
+      {/* Last in the tree so it paints over everything, including the edit form,
+          which is itself a modal (#265). */}
+      {mergeAsk && (
+        <MergeConfirmDialog
+          collision={mergeAsk.collision}
+          busy={merging}
+          onConfirm={() => mergeAsk.decide(true)}
+          onCancel={() => mergeAsk.decide(false)}
+        />
+      )}
     </main>
   );
 };

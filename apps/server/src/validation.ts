@@ -123,11 +123,17 @@ export const createLoanSchema = z.object({
 });
 
 /* Loan edit: at least one editable field must be present. An empty-string
-   link explicitly clears it. */
+   link explicitly clears it.
+
+   `confirmMerge` is an answer, not a field: it says the person has been told
+   this link belongs to another loan and has agreed to fold the two together
+   (#265, ADR-0008 rule 7). It is not one of the fields the refine below counts,
+   because on its own it changes nothing. */
 export const updateLoanSchema = z
   .object({
     name: z.string().min(1).optional(),
-    humperdinkLink: humperdinkLinkSchema
+    humperdinkLink: humperdinkLinkSchema,
+    confirmMerge: z.boolean().optional()
   })
   .refine((value) => value.name !== undefined || value.humperdinkLink !== undefined, {
     message: "Provide a name and/or humperdinkLink to update"

@@ -112,13 +112,29 @@ is wrong on all of them.
   saving updates the name and link on every task for this loan, including
   finished ones ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md)
   rule 7).
-- **A link edit that would collide with another loan is refused.** Two loans
-  sharing a Humperdink link would merge — one absorbs the other's tasks — and
-  that is too large a consequence to fall out of fixing a URL. The server answers
-  `409` naming the other loan, **neither record changes**, and the form stays
-  open with the typing in it. Merging is still what happens at task *creation*,
-  where it stops a duplicate record being minted in the first place; turning the
-  edit-time refusal into a confirm-then-merge is separate work.
+- **A link edit that would merge two loans asks first, and names the other
+  loan.** Two loans sharing a Humperdink link become one — the other loan's tasks
+  move over, its name survives only as an old name, and its record goes away.
+  Merging is usually the right outcome, but that is too large a consequence to
+  fall out of fixing a URL unannounced, so the save stops and asks. Nothing is
+  written before the answer: the first save comes back refused, the app shows a
+  confirmation dialog naming the loan in the way, and only a **yes** re-sends the
+  same change with permission to merge. The dialog also says **which of the two
+  survives** — the older record, which is usually the loan that was already
+  there, so the one that disappears is often the one you are editing. It then merges exactly as it always has,
+  including the brief "Merged with …" notice afterwards. **No** sends nothing at
+  all — both records and the link are untouched — and leaves you in the form with
+  your typing still in it.
+  - This is the app's **one** confirmation dialog, and it is deliberate: the
+    muted line above is not a dialog because nothing has gone wrong there, and a
+    toast is not an option because a toast cannot ask a question
+    ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 7). Both
+    surfaces that edit a loan — the edit form and the loan header above a
+    filtered task list — ask the same question through the same path.
+  - Merging at task **creation** is untouched and asks nothing: filing against a
+    link that already has a loan simply joins that loan, which is the dedupe that
+    stops a duplicate record being minted. Nobody's tasks are absorbed there,
+    because there is no second record yet.
 - **Every affected task records it.** A loan edit writes a history row on each
   task the loan reaches — `TASK_LOAN_NAME_AMENDED` and/or
   `TASK_LOAN_LINK_AMENDED`, naming who did it and both values
