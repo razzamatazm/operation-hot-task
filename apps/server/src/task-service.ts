@@ -436,11 +436,16 @@ export class TaskService {
      they quote the folder name. */
   async updateTaskFolderName(taskId: string, folderName: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    this.assertCanAmend(task, user, "description");
 
+    /* Wrong-door before wrong-person: on any other type this route is simply
+       the wrong one, and answering "only the creator can change its
+       description" would send a checker looking for a permission they were
+       never missing. */
     if (task.taskType !== "OOO") {
       throw new Error("This task's folder name is its loan's name — edit the loan instead");
     }
+
+    this.assertCanAmend(task, user, "description");
 
     const next = folderName.trim();
     if (next.length === 0) {
