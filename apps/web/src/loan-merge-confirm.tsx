@@ -7,8 +7,12 @@
  * too large a consequence to fall out of fixing a URL unannounced. So the save
  * asks first.
  *
- * This is the one place in the app where a dialog is right. The shared-record
- * line under the same two fields is deliberately NOT one (see apps/web/CLAUDE.md):
+ * This was the one place in the app where a dialog was right, and #283's
+ * discard prompt is now the second — built to match this one, because two
+ * dialogs that behave differently are two dialogs people read twice.
+ *
+ * The shared-record line under the same two fields is deliberately NOT one (see
+ * apps/web/CLAUDE.md):
  * nothing has gone wrong there and nothing needs answering. Here something does.
  * A toast is not an alternative — a toast cannot ask a question, and it goes
  * away on its own, which is exactly the wrong behaviour for a decision.

@@ -4577,7 +4577,9 @@ export const App = () => {
 
       {/* New Task form (issue #72): its input state lives in the child, so
           typing never re-renders App or the task list. Mounted only while
-          open; unmounting on close discards the draft. */}
+          open; unmounting on close discards the draft — which is why the form
+          itself asks before it calls `onClose` on anything a person has typed
+          into (#283). App still holds nothing but "is it open". */}
       {formOpen && (
         <TaskForm
           loans={loans}

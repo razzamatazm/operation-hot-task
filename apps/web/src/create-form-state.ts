@@ -75,6 +75,55 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
   return { ...BLANK_CREATE_FORM, initialItems: [...BLANK_CREATE_FORM.initialItems], ...supplied };
 };
 
+/* ── Is there anything to lose? (#283) ────────────────────────
+   Closing the form used to throw the whole draft away instantly and silently.
+   Cancel and Escape now ask first — but only once there is something to ask
+   about, because a prompt over an untouched form is a prompt people learn to
+   click through.
+
+   "Something to lose" is the form differing from the one that was opened,
+   whichever way it was opened: blank or seeded in create mode
+   (`initialCreateForm`), preloaded from the task in edit mode
+   (`editFormValues`). Comparing against the OPENING values rather than against
+   the blank form is what makes the same question work in both modes — an edit
+   form is full of values nobody typed, and measuring those as "changed" would
+   prompt every single time.
+
+   Deliberately over-eager: every field counts, including the task type on its
+   own, and nothing is trimmed or normalised first. A decision someone made is
+   worth one extra click to undo, and a threshold clever enough to ignore the
+   type picker will eventually eat real work. This is not `taskEdit` — that one
+   answers "what is worth sending to the server", which is a narrower and much
+   more forgiving question than "did this person do anything here".
+
+   `pendingItemText` is the FRAUD seeder's input (#69), which holds typing that
+   has not been committed to `initialItems` yet. It lives outside the values
+   object in the component, so it is passed in rather than read here; a half-
+   typed outstanding item is still typing, and losing it silently is the exact
+   thing this ticket is about.
+
+   `initialItems` is an array, so it is compared item by item — the seeder
+   rebuilds it on every add, so reference equality would call every list
+   changed and value equality on the reference would call none of them.
+
+   Kept here, framework-free and pure, because the draft-saving work that
+   follows reuses it to decide whether there is a draft worth keeping. */
+export const formHasChanges = (
+  opened: CreateFormValues,
+  current: CreateFormValues,
+  pendingItemText = ""
+): boolean => {
+  if (pendingItemText.trim() !== "") return true;
+  return (Object.keys(opened) as (keyof CreateFormValues)[]).some((key) => {
+    const before = opened[key];
+    const after = current[key];
+    if (Array.isArray(before) && Array.isArray(after)) {
+      return before.length !== after.length || before.some((item, i) => item !== after[i]);
+    }
+    return before !== after;
+  });
+};
+
 /* ── Edit mode (#260, ADR-0008 rule 4) ────────────────────────
    The same form, opened on a task that already exists. Two pure functions
    either side of the component: one says what the form opens with, the other

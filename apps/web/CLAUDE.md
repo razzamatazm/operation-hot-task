@@ -863,6 +863,24 @@ that wants vertical room, then the Humperdink link. Across the bottom,
 own edge, holding the two exits on the right and the one thing each mode has to
 say beside them on the left. Two columns from 980px, one from 480px.
 
+**Closing it asks first** (#283). The backdrop has been inert since #114, which
+fixed the accidental exit; Cancel and Escape were still instant and silent, and
+took the whole draft with them. Both now go through one `requestClose` in
+[src/task-form.tsx](src/task-form.tsx) — one door, so the two exits can never
+answer differently — which raises
+[src/discard-confirm.tsx](src/discard-confirm.tsx) when there is anything to
+lose. "Anything to lose" is `formHasChanges` in
+[src/create-form-state.ts](src/create-form-state.ts): the form differing from
+the values it OPENED with, which is what lets one predicate serve both modes —
+an edit form is full of values nobody typed, and measuring those against a
+blank form would prompt every time. Deliberately over-eager: any field, nothing
+trimmed, a changed task type on its own included. It is not `taskEdit`, which
+answers the much more forgiving "is this worth sending to the server". An
+untouched form still closes on the first press, because a prompt that appears
+every time is one people stop reading. The backdrop stays inert and raises no
+prompt either. Confirming is a bare `onClose`, which is the single line the
+draft-saving work hangs "and clear the draft" onto.
+
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request
 field is one — on the other five the paste box and its button took a paste
@@ -990,15 +1008,21 @@ caller (`saveLoanFields`). Every body through `patchLoan` carries its `taskId`,
 which is what makes the confirmed merge re-send take the same check as the save
 that asked — a refusal must never be reachable only after a dialog.
 
-### The one confirmation dialog (#265)
+### The merge confirmation (#265)
 
 A link edit that lands on another loan's link would fold the two records
 together, and that question gets a real dialog —
 [src/loan-merge-confirm.tsx](src/loan-merge-confirm.tsx),
 `.merge-confirm-overlay` at z-index 70, above the form modal's 50 and a toast's
-60. It is the only one in the app, and it does not contradict the muted line
-above it: that line reports a consequence of something that is going fine, this
-one asks a question, and a toast cannot ask a question (ADR-0008 rule 7).
+60. It was the app's only dialog until #283 added the discard prompt, which is
+built to match it — same overlay and panel rules (one CSS block under both
+names), same `alertdialog`, same inert backdrop, same Escape-declines, same
+focus on the safe answer. Two dialogs that behave differently are two dialogs
+people have to read twice; a third joins that list rather than forking it.
+
+Neither contradicts the muted shared-record line above the loan fields: that
+line reports a consequence of something that is going fine, these ask a
+question, and a toast cannot ask a question (ADR-0008 rule 7).
 
 - **It names the other loan**, in the title and in the body, so the person is
   making a decision rather than clearing a dialog. `mergeConfirmCopy` is a pure
