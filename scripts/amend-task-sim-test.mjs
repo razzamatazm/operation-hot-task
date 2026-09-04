@@ -333,6 +333,23 @@ await check("a points change is silent, even on a claimed task", async () => {
   assert.ok(history.some((e) => e.action === "TASK_POINTS_UPDATED"), "but it is in the history");
 });
 
+/* ADR-0008 rule 9: every applied edit lands in the history with both values.
+   The rating used to record only where it ended up, which was survivable while
+   it lived on the row alone; #261 put it on the same form as the notes, the
+   urgency and the OOO dates, all three of which name what they moved from. */
+await check("the rating's history line names the value it moved from", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service);
+  const before = await service.updateTaskPoints(id, 2, CREATOR);
+  assert.equal(before.points, 2, "the starting rating is the one we set");
+
+  await service.updateTaskPoints(id, 5, CREATOR);
+
+  const history = await store.allHistoryForTask(id);
+  const entry = history.filter((e) => e.action === "TASK_POINTS_UPDATED").pop();
+  assert.match(entry.detail, /from 2 to 5/, "the line names both values, as the other amended fields do");
+});
+
 await check("an urgency change on an unclaimed task DMs nobody, but still syncs cards", async () => {
   const { service, events } = await setup();
   const id = await makeTask(service);
@@ -415,6 +432,7 @@ await check("each applied edit lands in history with the field and both values",
   const id = await makeTask(service, { urgency: "GREEN", notes: "first draft" });
   await service.updateTaskNotes(id, "second draft", CREATOR);
   await service.updateTaskUrgency(id, "RED", CREATOR);
+  await service.updateTaskPoints(id, 3, CREATOR);
   const history = await store.allHistoryForTask(id);
 
   const notesEvent = history.find((e) => e.action === "TASK_NOTES_AMENDED");
@@ -427,6 +445,11 @@ await check("each applied edit lands in history with the field and both values",
   assert.ok(urgencyEvent, "an urgency-amended event");
   assert.match(urgencyEvent.detail, /24 Hours/, "old value");
   assert.match(urgencyEvent.detail, /Urgent Now/, "new value");
+
+  const pointsEvent = history.find((e) => e.action === "TASK_POINTS_UPDATED");
+  assert.ok(pointsEvent, "a points-updated event");
+  assert.match(pointsEvent.detail, /from 1/, "old value");
+  assert.match(pointsEvent.detail, /to 3/, "new value");
 });
 
 await check("two simultaneous edits do not lose one another", async () => {

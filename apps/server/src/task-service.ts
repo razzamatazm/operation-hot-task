@@ -308,7 +308,17 @@ export class TaskService {
     if (next === task.points) {
       return task;
     }
-    const event = this.makeHistory(task.id, user, "TASK_POINTS_UPDATED", `Poops set to ${next}`);
+    // Both values, like every other amended field (ADR-0008 rule 9). This read
+    // "set to N" while the rating lived only on the collapsed row; #261 put it
+    // on the same form as the notes, the urgency and the OOO dates, and a
+    // history where one of the four records half of what it did is a history
+    // that has to be read twice.
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_POINTS_UPDATED",
+      `Poops changed from ${task.points} to ${next}`
+    );
     return this.writeTask(task.id, (current) => ({
       task: { ...current, points: next, updatedAt: new Date().toISOString() },
       event
