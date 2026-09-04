@@ -1,3 +1,4 @@
+import { isTaskParty } from "./parties.js";
 import { LoanTask, UserIdentity } from "./types.js";
 
 /* ADR-0008 rules 1–3 — an LOI's terms are a standing description of the loan,
@@ -29,12 +30,6 @@ import { LoanTask, UserIdentity } from "./types.js";
    member of the thread. */
 export const standingTermsFor = (task: Pick<LoanTask, "taskType" | "notes">): string | undefined =>
   task.taskType === "LOI" ? task.notes : undefined;
-
-/* A Party (CONTEXT.md) — the task's creator or its current assignee, the two
-   people with a stake in it. Anyone else is an Observer: they can see the task
-   but have no move to make on it. */
-export const isTaskParty = (task: LoanTask, user: Pick<UserIdentity, "id">): boolean =>
-  task.createdBy.id === user.id || task.assignee?.id === user.id;
 
 /* Latest review-note timestamp from someone other than `userId`. Empty string
    when there is no such note.

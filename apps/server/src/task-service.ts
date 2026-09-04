@@ -24,6 +24,7 @@ import {
   canEditChecklistItemText,
   checklistSeat,
   CLOSED_STATUSES,
+  AmendableField,
   amendRefusal,
   commitChecklistItems,
   completionDmMessage,
@@ -54,6 +55,7 @@ import {
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
+  requestFieldNoun,
   submitBlockReason,
   shouldPurgeArchived,
   shouldSendReminder,
@@ -73,6 +75,10 @@ import { TaskStore } from "./store.js";
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "PENDING_APPROVAL"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
+/* History details open a sentence ("Urgency changed from…"), and the request
+   field's noun is stored lowercase because every other use of it is
+   mid-sentence. */
+const sentenceCase = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
 export class TaskService {
   /* Post-response fan-out currently in flight (#119), one chain per task id.
@@ -302,11 +308,18 @@ export class TaskService {
   }
 
   /* ------------------------------------------------------------------------
-     Amending the ask (ADR-0006, #160). A task's creator may correct what they
-     asked for — its notes, and its urgency — while the task is still active.
-     Nobody amends the record: not the assignee (the notes thread is where they
-     say the deadline is wrong), not an admin (back-end access confers nothing
-     over other people's work, ADR-0003), and not on a closed task.
+     Amending the ask (ADR-0006 #160, widened by ADR-0008 rule 5 #263). The
+     people with a stake in a task may correct what it says while it is still
+     active — its request field, and its urgency.
+
+     Who that is depends on the field, and the shared rule below owns the whole
+     answer: urgency is the creator's on every type, and so is the request field
+     on five of the six. On an LOI the request field holds the loan's terms, and
+     the checker holding it may correct those too — they are the person reading
+     the figures closely enough to spot a wrong one. Nobody else amends anything:
+     not an observer, not a file checker who has not claimed the task, not an
+     admin (back-end access confers nothing over other people's work, ADR-0003),
+     and not on a closed task.
 
      Two focused operations rather than one patch, deliberately: a generic
      endpoint taking an arbitrary subset of the task would push "which fields
@@ -328,23 +341,29 @@ export class TaskService {
      restated here — the web gates its edit affordance on the same predicate, and
      the sentence a refusal shows is user-facing copy that belongs beside the
      rule it explains. */
-  private assertCanAmend(task: LoanTask, user: UserIdentity, field: string): void {
+  private assertCanAmend(task: LoanTask, user: UserIdentity, field: AmendableField): void {
     const refusal = amendRefusal(task, user, field);
     if (refusal) {
       throw new Error(refusal);
     }
   }
 
-  /* Correct the free-text description of the request. Silent: a DM for every
-     wording fix is the noise that trains people to ignore the DMs that matter.
-     The existing cards are still re-rendered so no surface quotes a stale ask. */
+  /* Correct the free-text description of the request — an LOI's terms, or the
+     notes on any other type. Silent: a DM for every wording fix is the noise
+     that trains people to ignore the DMs that matter. The existing cards are
+     still re-rendered so no surface quotes a stale ask. (#267 adds the one DM
+     ADR-0008 rule 9 does want: a terms change tells whoever is holding the LOI.)
+
+     Required either way, per ADR-0008 rule 1 — an edit that could empty the
+     terms would leave a checked LOI saying nothing about what was checked. The
+     sentence calls the field what the reader's task calls it. */
   async updateTaskNotes(taskId: string, notes: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
     this.assertCanAmend(task, user, "notes");
 
     const next = notes.trim();
     if (next.length === 0) {
-      throw new Error("Notes cannot be emptied");
+      throw new Error(`The ${requestFieldNoun(task.taskType)} cannot be emptied`);
     }
     if (next === task.notes) {
       return task;
@@ -355,7 +374,7 @@ export class TaskService {
       task.id,
       user,
       "TASK_NOTES_AMENDED",
-      `Notes changed from "${task.notes}" to "${next}"`,
+      `${sentenceCase(requestFieldNoun(task.taskType))} changed from "${task.notes}" to "${next}"`,
       now
     );
     const updated = await this.writeTask(task.id, (current) => ({

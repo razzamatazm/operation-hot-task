@@ -30,6 +30,21 @@ export const getNotesFieldLabel = (taskType?: TaskType): string => {
   return NOTES_FIELD_LABELS[taskType] ?? "Notes";
 };
 
+/* The same field named mid-sentence rather than as a box heading. Prose wants
+   "the terms cannot be emptied", not "the Loan Terms and Contacts cannot be
+   emptied", so this is the short noun and `NOTES_FIELD_LABELS` above stays the
+   heading.
+
+   One definition because three sentences use it and they must agree: the
+   refusal a permission check throws (`amendRefusal`), the refusal an emptied
+   field throws, and the history entry an applied edit writes. A reader who is
+   told "the terms cannot be changed on a closed task" and then finds a history
+   line saying "Notes changed" is reading about two different fields (#263,
+   ADR-0008 rule 5). Lowercase, because every use is mid-sentence bar one that
+   capitalises it itself. */
+export const requestFieldNoun = (taskType: TaskType): string =>
+  taskType === "LOI" ? "terms" : "notes";
+
 /* Human, creator-perspective phrase per task type for the "New Task" headline,
    e.g. "Tyler needs a set of loan docs done". OOO isn't a request, so it reads
    as a status instead. */
