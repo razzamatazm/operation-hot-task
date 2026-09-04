@@ -249,8 +249,13 @@ export const computeDueAtFromReturnDate = (
 
 /* The one rule about an OOO task's pair of dates: the vacation cannot end
    before it starts. Filing has always checked it; editing them (ADR-0008
-   rule 8) checks the same sentence rather than a second copy of it, so the two
-   surfaces can never drift apart on what a valid range is.
+   rule 8) asks the same rule rather than keeping a second copy of it, so the
+   two surfaces can never drift apart on what a valid range is.
+
+   The rule is shared; the sentence a caller shows is not. Filing's request
+   schema speaks in field names, as the messages either side of it do, and the
+   service paths speak in English. Unifying the wording was tried and reverted:
+   it silently reworded a refusal neither ticket had asked to touch.
 
    It deliberately says nothing about the past. Any date is accepted, including
    one already gone — somebody back early correcting the record is the case the
@@ -259,8 +264,11 @@ export const computeDueAtFromReturnDate = (
    guard against.
 
    Compared as strings, which is exact for `YYYY-MM-DD` and needs no timezone. */
-export const oooDateRangeRefusal = (startDate: string, returnDate: string): string | undefined =>
-  startDate.trim() > returnDate.trim() ? "Start date must be on or before the return date" : undefined;
+export const oooDatesOutOfOrder = (startDate: string, returnDate: string): boolean =>
+  startDate.trim() > returnDate.trim();
+
+/* What the service paths say when they refuse it. */
+export const OOO_DATE_RANGE_REFUSAL = "Start date must be on or before the return date";
 
 export const computeDefaultDueAt = (
   _taskType: TaskType,

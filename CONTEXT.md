@@ -120,9 +120,13 @@ Correcting a task after filing — its _Terms_ or notes, its urgency, its poop
 points, its folder name and Humperdink link, and an OOO task's dates. Open to
 both _Parties_, with two exceptions, both about timing: **urgency belongs to
 the creator alone**, because it sets the deadline and the assignee is the person
-under it, and so do **an OOO task's dates**, which are that task's deadline.
-Any date is accepted there, including one already past — somebody back early
-correcting the record is the case it exists for. Refused
+under it, and so do **an OOO task's dates**, which are the creator's own
+absence to declare. Those dates are a scheduled action rather than a deadline —
+the return date is when the task wraps itself up, not when someone is late. Any
+date is accepted there, including one already past; somebody back early
+correcting the record is the case it exists for, and a return date that has gone
+simply means the next maintenance pass completes the task. The assignee covering
+that desk is told when the window moves. Refused
 once the task is closed — completed, cancelled or archived — because a closed
 task is a record. Not "on an active task": a Fraud Check parked at
 `AWAITING_ITEMS` is waiting on its requester rather than finished, and is the

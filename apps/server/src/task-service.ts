@@ -53,7 +53,8 @@ import {
   formatWallDate,
   needsFixesNote,
   NEEDS_FIXES_NOTE_REQUIRED,
-  oooDateRangeRefusal,
+  oooDatesOutOfOrder,
+  OOO_DATE_RANGE_REFUSAL,
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
@@ -160,9 +161,8 @@ export class TaskService {
       if (!startDate || !returnDate) {
         throw new Error("OOO tasks need a start date and a return date");
       }
-      const rangeRefusal = oooDateRangeRefusal(startDate, returnDate);
-      if (rangeRefusal) {
-        throw new Error(rangeRefusal);
+      if (oooDatesOutOfOrder(startDate, returnDate)) {
+        throw new Error(OOO_DATE_RANGE_REFUSAL);
       }
     }
 
@@ -342,11 +342,13 @@ export class TaskService {
      admin (back-end access confers nothing over other people's work, ADR-0003),
      and not on a closed task.
 
-     Two focused operations rather than one patch, deliberately: a generic
+     Four focused operations rather than one patch, deliberately — notes,
+     urgency, poop points and an OOO task's dates: a generic
      endpoint taking an arbitrary subset of the task would push "which fields
      are amendable and by whom" out into a validation list that nobody reads as
      a rule. Each of these names its field and refuses with the rule that
-     refused it, exactly as updateTaskPoints above does.
+     refused it — including updateTaskPoints above, which is one of the four and
+     sits apart only because the collapsed row calls it directly too.
 
      The status gate is the shared CLOSED_STATUSES, not this file's local
      ACTIVE_STATUSES. Those two are not complements — AWAITING_ITEMS is in
@@ -589,11 +591,13 @@ export class TaskService {
      become a newly-overdue obligation, it becomes a completed vacation on the
      same pass that would have reminded about it.
 
-     The assignee is told, for `updateTaskUrgency`'s reason exactly: the dates
-     are an OOO task's deadline, the assignee is the person covering the desk
-     through them, and a coverage window that moves under a quietly re-rendered
-     card is the failure this avoids. Silent when nobody has claimed it. No
-     channel post either way (ADR-0002). */
+     The assignee is told — not because these dates are a deadline, which is
+     exactly what ADR-0008 rule 8 says a return date is not. A return date is a
+     scheduled action. The reason is simpler: the assignee is the person
+     covering the desk across this window, and the window just moved. A
+     coverage span that changes under a quietly re-rendered card is the failure
+     this avoids. Silent when nobody has claimed it. No channel post either way
+     (ADR-0002). */
   async updateTaskOooDates(
     taskId: string,
     startDate: string,
@@ -609,9 +613,8 @@ export class TaskService {
 
     const nextStart = startDate.trim();
     const nextReturn = returnDate.trim();
-    const rangeRefusal = oooDateRangeRefusal(nextStart, nextReturn);
-    if (rangeRefusal) {
-      throw new Error(rangeRefusal);
+    if (oooDatesOutOfOrder(nextStart, nextReturn)) {
+      throw new Error(OOO_DATE_RANGE_REFUSAL);
     }
     if (nextStart === task.startDate && nextReturn === task.returnDate) {
       return task;

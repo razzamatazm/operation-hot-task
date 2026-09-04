@@ -74,8 +74,9 @@ and goes to `PATCH /api/loans/:loanId`, below.
   - Both dates go in **one** call, because they are one range: the rule is that
     the start is on or before the return, and that cannot be checked against
     half of it. Sending either sends both, and the history entry names all four
-    values. The range rule itself is the shared `oooDateRangeRefusal`, which
-    filing asks too — one sentence, not two copies.
+    values. The range rule itself is shared with filing — one rule, not two
+    copies. What each surface *says* when it refuses stays its own: filing's
+    request check speaks in field names, the rest in English.
   - The new return date re-derives `dueAt` through the same shared computation
     filing uses, so everything hanging off the dates is recomputed: the
     auto-completion, the overdue arithmetic, the ordering, the `Returns` line
@@ -90,8 +91,9 @@ and goes to `PATCH /api/loans/:loanId`, below.
   cards in place through the silent card-sync path, so no surface quotes a
   stale value. On top of that:
   - **An urgency change DMs the assignee** when there is one — their deadline
-    moved. **A date change does too**, for the same reason: the dates are an
-    OOO task's deadline and the assignee is covering the desk through them.
+    moved. **A date change does too**, for a related but distinct reason: an OOO
+    task's dates are a scheduled action rather than a deadline, but they are the
+    window the assignee is covering the desk across, and it just moved.
   - **A change to an LOI's terms DMs the checker holding it**, unless the
     checker is the one who made the change — the terms are what they are
     checking against, so a change to them is the amendment most likely to make

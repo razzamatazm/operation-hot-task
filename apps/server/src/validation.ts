@@ -1,4 +1,4 @@
-import { oooDateRangeRefusal } from "@loan-tasks/shared";
+import { oooDatesOutOfOrder } from "@loan-tasks/shared";
 import { z } from "zod";
 
 const SCHEME_PREFIX_RE = /^[a-z][a-z0-9+.-]*:/i;
@@ -80,13 +80,13 @@ export const createTaskSchema = z.object({
     }
     // The range rule is the shared one the edit path asks too (#264), not a
     // third copy of it: filing and correcting must agree on what a valid pair
-    // of dates is, right down to the sentence a refusal shows.
-    const rangeRefusal =
-      value.startDate && value.returnDate ? oooDateRangeRefusal(value.startDate, value.returnDate) : undefined;
-    if (rangeRefusal) {
+    // of dates is. The sentence stays this schema's own — it speaks in field
+    // names like the messages either side of it, and neither #261 nor #264
+    // asked to reword what somebody filing a backwards vacation sees.
+    if (value.startDate && value.returnDate && oooDatesOutOfOrder(value.startDate, value.returnDate)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: rangeRefusal
+        message: "startDate must be on or before returnDate"
       });
     }
     if (value.urgency) {
@@ -159,10 +159,10 @@ export const updatePointsSchema = z.object({
   points: z.number().int().min(0).max(5)
 });
 
-/* Amending the ask (ADR-0006, extended by ADR-0008 rule 8). Three focused
-   schemas, one per operation, each accepting exactly its own field — there is
-   deliberately no `dueAt` anywhere: the deadline is derived from urgency
-   server-side and is never an input. */
+/* Amending the ask (ADR-0006, extended by ADR-0008 rule 8). Four focused
+   schemas, counting the points one above — one per operation, each accepting
+   exactly its own field. There is deliberately no `dueAt` anywhere: the
+   deadline is derived from urgency server-side and is never an input. */
 export const amendNotesSchema = z.object({
   notes: z.string().min(1)
 });
@@ -183,7 +183,7 @@ export const amendFolderNameSchema = z.object({
    and a start is only valid against the return it is checked with — sending
    half of it would validate against a value the caller never saw.
 
-   Shape only. Whether the range makes sense is `oooDateRangeRefusal` in shared,
+   Shape only. Whether the range makes sense is `oooDatesOutOfOrder` in shared,
    which filing asks the same question of, and nothing here rejects a date in
    the past: correcting a vacation that has already ended is the case the edit
    exists for (ADR-0008 rule 8). */
