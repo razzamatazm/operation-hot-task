@@ -8,8 +8,11 @@
  * of the six types. The final section covers what ADR-0008 widened: an LOI's
  * request field is the loan's *terms*, and either party may correct them.
  *
- * Two focused operations, never a generic patch: `updateTaskNotes` and
- * `updateTaskUrgency`. This drives the real TaskService against a real
+ * Focused operations, never a generic patch: `updateTaskNotes`,
+ * `updateTaskUrgency`, and — since #262 / ADR-0008 rule 7 —
+ * `updateTaskFolderName`, which is OOO-only because every other type's folder
+ * name is its LOAN's name and is edited on the shared Loan record instead.
+ * This drives the real TaskService against a real
  * (temp-file) TaskStore with a mock notifier and asserts the SERVER behaviour:
  *   - The creator may amend notes, and urgency on a non-OOO task, while the
  *     task is active.
@@ -193,6 +196,84 @@ await check("an urgency edit on an OOO task is refused", async () => {
   // Its notes are still the creator's to correct.
   const updated = await service.updateTaskNotes(id, "back on the 4th, not the 3rd", CREATOR);
   assert.equal(updated.notes, "back on the 4th, not the 3rd");
+});
+
+/* ── An OOO task's vacation description (#262, ADR-0008 rule 7) ──────────
+   The third focused operation, and the one that is OOO-only. Every other type's
+   folder name is its LOAN's name — shared by every task on that loan and edited
+   through the loan — so writing it on a single task is refused outright rather
+   than quietly putting that task's copy out of step with its siblings. */
+
+await check("the creator rewrites an OOO task's description, on the task", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  const updated = await service.updateTaskFolderName(id, "Ski trip, not a conference", CREATOR);
+  assert.equal(updated.folderName, "Ski trip, not a conference");
+  assert.equal(updated.loanName, "Ski trip, not a conference", "the alias field moves with it");
+  const reloaded = await store.findTask(id);
+  assert.equal(reloaded.folderName, "Ski trip, not a conference", "visible on reload");
+  assert.equal(reloaded.loanId, undefined, "an OOO task still has no loan");
+});
+
+await check("every other type's folder name is refused — it belongs to the loan", async () => {
+  const { service, store } = await setup();
+  for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS"]) {
+    const id = await makeTask(service, { taskType });
+    await rejects(
+      () => service.updateTaskFolderName(id, "Renamed On One Task Only", CREATOR),
+      /loan/i,
+      `${taskType} folder name refused`
+    );
+    assert.equal((await store.findTask(id)).folderName, "Amend Sim", `${taskType} name untouched`);
+  }
+});
+
+await check("the description follows the same rule as the rest of the ask", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  await rejects(
+    () => service.updateTaskFolderName(id, "Nice try", ASSIGNEE),
+    /creator/i,
+    "a non-creator is refused"
+  );
+  await rejects(
+    () => service.updateTaskFolderName(id, "Nice try", ADMIN),
+    /creator/i,
+    "and so is an admin"
+  );
+  await rejects(() => service.updateTaskFolderName(id, "   ", CREATOR), /empt/i, "emptying it is refused");
+  assert.equal((await store.findTask(id)).folderName, "Amend Sim", "none of that landed");
+
+  await service.transitionStatus(id, "CANCELLED", CREATOR);
+  await rejects(
+    () => service.updateTaskFolderName(id, "Too late", CREATOR),
+    /closed task/i,
+    "a closed task is frozen"
+  );
+});
+
+await check("a description edit is silent, lands in history, and no-ops cleanly", async () => {
+  const { service, store, events } = await setup();
+  const id = await makeTask(service, { taskType: "OOO" });
+  await drain(service, events);
+
+  await service.updateTaskFolderName(id, "Amend Sim", CREATOR);
+  await service.settleBackgroundWork();
+  assert.equal((await store.allHistoryForTask(id)).filter((e) => e.action === "TASK_FOLDER_NAME_AMENDED").length, 0,
+    "setting it to what it already says writes no history");
+  assert.equal(events.length, 0, "and notifies nobody");
+
+  await service.updateTaskFolderName(id, "Paternity leave", CREATOR);
+  await service.settleBackgroundWork();
+  const event = (await store.allHistoryForTask(id)).find((e) => e.action === "TASK_FOLDER_NAME_AMENDED");
+  assert.ok(event, "an applied edit is in history");
+  assert.match(event.detail, /Amend Sim/, "old value");
+  assert.match(event.detail, /Paternity leave/, "new value");
+  assert.equal(event.by.id, CREATOR.id);
+  assert.ok(
+    events.every((e) => e.type !== "channel"),
+    "nothing goes to the channel"
+  );
 });
 
 await check("a no-op edit writes no history and notifies nobody", async () => {

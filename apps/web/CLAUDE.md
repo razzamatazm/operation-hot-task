@@ -798,7 +798,7 @@ is why one predicate can gate the whole door. When they join it (#261) they
 bring their own gating rather than widening this one, because the app must
 never draw a control the server would refuse.
 
-Edit mode differs in four ways and no others:
+Edit mode differs in five ways and no others:
 
 - it opens preloaded from the task (`editFormValues` in
   [src/create-form-state.ts](src/create-form-state.ts)),
@@ -809,7 +809,31 @@ Edit mode differs in four ways and no others:
   rather than hidden: a form that dropped the type would read as one that lost
   track of what it is editing, and a control that silently refuses clicks is
   the version people file bugs about,
+- the folder name and the Humperdink link move to sit **side by side**
+  (`.task-form-loan`, its own 2-column grid inside the form's four), because the
+  one muted line under them is about both. Filing leaves them where they were,
+  at opposite ends of the form. The folder name loses its typeahead here — see
+  below,
 - the submit button reads `Save` / `Saving…`.
+
+**The folder name and the link write the shared loan record** (#262, ADR-0008
+rule 7), not the task, so correcting either fixes it on every task for that
+loan, finished ones included. Three consequences the markup carries:
+
+- **No typeahead in edit mode.** The create form's combobox picks an *existing*
+  loan to file a new task against; on a filed task, typing renames the loan it
+  is already on, and a suggestion list offering a different one is repointing
+  the task wearing a rename's clothes. Edit mode gets a plain text box.
+- **One muted line beneath the pair** (`.task-form-shared-loan`), not one per
+  field, appearing only once a value has actually moved — `touchesSharedLoan` in
+  `create-form-state.ts` is the only thing that reveals it. Never on focus:
+  clicking a field to read it warns about nothing. Never a dialog, banner or
+  toast; it is prose in the same muted register as `.task-form-locked`, because
+  nothing has gone wrong. Two nodes for one sentence, the sr-only live region
+  idiom used by the sole-checker warning above it.
+- **Never on an out-of-office task.** It has no loan: its folder name is a
+  vacation description that saves on the task, it has no link field, and there
+  is no shared record to warn about.
 
 **A Save sends only what moved.** `taskEdit` diffs the task against the form
 and returns the changed fields; App turns that into one call per field, on the
@@ -823,10 +847,10 @@ a node script, and `scripts/edit-task-form-sim-test.mjs` renders the form and
 reads the markup back. `CheckIcon` / `TrashIcon` moved to
 [src/icons.tsx](src/icons.tsx) so the card and the form can both draw them.
 
-Urgency, poop points, folder name, Humperdink link and the OOO dates are
-create-only for now; each lands on this form in its own ticket (#261–#264).
-Urgency stays the creator's in all of them — an assignee who can extend their
-own deadline is not accepting a deal (ADR-0008 rule 5).
+Urgency, poop points and the OOO dates are create-only for now; each lands on
+this form in its own ticket (#261, #264). Urgency stays the creator's in all of
+them — an assignee who can extend their own deadline is not accepting a deal
+(ADR-0008 rule 5).
 
 ## When Adding UI
 

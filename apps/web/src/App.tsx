@@ -1140,6 +1140,13 @@ const TwoExitPanel = ({
 export interface AmendApi {
   setNotes: (taskId: string, notes: string) => Promise<void>;
   setUrgency: (taskId: string, urgency: UrgencyLevel) => Promise<void>;
+  /* An OOO task's vacation description (#262). OOO only, and the server refuses
+     anything else: every other type's folder name is its *loan's* name, held on
+     the shared Loan record, and correcting it goes to `PATCH /loans/:loanId`
+     instead so the fix lands on every task for that loan at once. There is
+     therefore no member here for the folder name in general — the two fields
+     have different owners, not one field with a special case. */
+  setFolderName: (taskId: string, folderName: string) => Promise<void>;
 }
 
 /* Reading a task's history (#166). One member, because the web app wants one
@@ -3945,9 +3952,14 @@ export const App = () => {
       );
       setLoanFilterId(loan.id);
       setError(null);
-      // ADR-0001: a shared Humperdink link auto-merges the two loans; surface
-      // that so the edit doesn't silently fold this record into another. The
-      // notice is a transient auto-dismiss toast (ADR-0001 addendum 2026-07-31).
+      // ADR-0001: a shared Humperdink link merges the two loans; surface that so
+      // the edit doesn't silently fold this record into another. The notice is a
+      // transient auto-dismiss toast (ADR-0001 addendum 2026-07-31).
+      //
+      // Since #262 the server refuses that merge on an edit rather than doing
+      // it, so this branch is unreachable today and a colliding link surfaces as
+      // the error toast below instead. Kept, not deleted: #265 adds the confirm
+      // that lets a merge through again, and this is the notice it needs.
       if (merged) {
         showToast(
           `Merged with "${merged.intoLoanName}", an existing loan sharing this Humperdink link.`,
@@ -4000,9 +4012,8 @@ export const App = () => {
      draft, so a refused save has to leave it open with the text still in it
      rather than swallow the rejection and close over the creator's typing.
 
-     `setUrgency` has no caller while #261 is unbuilt — the edit form carries
-     the request field alone for now (#260). Kept rather than deleted and
-     re-added: the route, the rule and the toast are all still exactly right,
+     `setUrgency` has no caller while #261 is unbuilt. Kept rather than deleted
+     and re-added: the route, the rule and the toast are all still exactly right,
      and urgency comes back onto this same form next. */
   const amendApi = useMemo<AmendApi>(() => ({
     setNotes: async (taskId, notes) => {
@@ -4022,26 +4033,99 @@ export const App = () => {
         showToast(err instanceof Error ? err.message : "Failed to update urgency", { variant: "error" });
         throw err;
       }
+    },
+    setFolderName: async (taskId, folderName) => {
+      try {
+        await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/folder-name`, { method: "POST", body: JSON.stringify({ folderName }) }, user);
+        await refresh();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to update the description", { variant: "error" });
+        throw err;
+      }
     }
   }), [user, refresh, showToast]);
+
+  /* Write the shared Loan record from the edit form (#262, ADR-0008 rule 7).
+
+     Deliberately not `onSaveLoan`, which serves the loan-filter header: that one
+     switches the list over to the edited loan when it saves, which is right when
+     you are standing in that loan's filtered view and wrong when you are
+     correcting one task and expect to land back where you were.
+
+     The server pushes the new name and link onto every task on the loan, so the
+     refresh below is what makes the whole list agree — not just the task the
+     form was open on. A refusal (a link already on another loan, #262's 409) is
+     toasted and rethrown, so the form stays open with the typing still in it. */
+  const saveLoanFields = useCallback(async (loanId: string, fields: { name?: string; humperdinkLink?: string }): Promise<void> => {
+    const link = fields.humperdinkLink?.trim();
+    try {
+      await apiRequest<{ loan: Loan }>(
+        `/loans/${loanId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...(fields.name !== undefined ? { name: fields.name.trim() } : {}),
+            // Saved straight from the keyboard, the field's own blur-time
+            // prefixing may never have run. Normalized here so a bare host isn't
+            // stored as a relative link.
+            ...(fields.humperdinkLink !== undefined
+              ? { humperdinkLink: link && !/^https?:\/\//i.test(link) ? `https://${link}` : link }
+              : {})
+          })
+        },
+        user
+      );
+      await refresh();
+      await loadLoans();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to update the loan", { variant: "error" });
+      throw err;
+    }
+  }, [user, refresh, loadLoans, showToast]);
 
   /* Open the edit form (#260). `useCallback` because every card holds this and
      a fresh literal per render would defeat TaskCard's memo across the list. */
   const onEditTask = useCallback((taskId: string): void => setEditingTaskId(taskId), []);
 
-  /* Save an edit (#260). One focused route per field, chosen from what the form
-     says actually moved — there is deliberately no endpoint that takes a
+  /* Save an edit (#260, #262). A focused route per field, chosen from what the
+     form says actually moved — there is deliberately no endpoint that takes a
      task-shaped body (ADR-0008 rule 4, inherited from ADR-0006), so this is a
-     dispatch rather than a payload, and it grows a line per field as #261–#264
-     land rather than growing a schema.
+     dispatch rather than a payload, and it grows a branch per field as #261 and
+     #264 land rather than growing a schema.
+
+     Which record each field lands on is decided here, and it is not the same
+     record for all of them: the request field is the task's, and the folder name
+     and link are the loan's on every type but OOO.
 
      The form never calls it with an empty edit, so a save that changed nothing
      makes no request at all: no history entry and no DM. Rejects on failure,
      after the api layer has toasted, so the form stays open with the creator's
      typing still in it. */
-  const onSaveEdit = useCallback(async (taskId: string, edit: TaskEdit): Promise<void> => {
-    if (edit.notes !== undefined) await amendApi.setNotes(taskId, edit.notes);
-  }, [amendApi]);
+  const onSaveEdit = useCallback(async (task: LoanTask, edit: TaskEdit): Promise<void> => {
+    if (edit.notes !== undefined) await amendApi.setNotes(task.id, edit.notes);
+
+    /* An OOO task has no loan, so its description is its own and goes to its own
+       focused route on the task (#262). */
+    if (task.taskType === "OOO") {
+      if (edit.folderName !== undefined) await amendApi.setFolderName(task.id, edit.folderName);
+      return;
+    }
+
+    /* Everything else's folder name and link belong to the shared Loan record,
+       so the two travel as ONE call to the loan rather than two calls to the
+       task — they land on one record, and a rename that succeeded beside a link
+       change that was refused is a half-applied edit nobody asked for. */
+    if (edit.folderName === undefined && edit.humperdinkLink === undefined) return;
+    if (!task.loanId) {
+      const message = "This task isn't linked to a loan yet, so its name can't be corrected here.";
+      showToast(message, { variant: "error" });
+      throw new Error(message);
+    }
+    await saveLoanFields(task.loanId, {
+      ...(edit.folderName !== undefined ? { name: edit.folderName } : {}),
+      ...(edit.humperdinkLink !== undefined ? { humperdinkLink: edit.humperdinkLink } : {})
+    });
+  }, [amendApi, saveLoanFields, showToast]);
 
   /* The task the edit form is open on, resolved fresh out of the list every
      render. `tasks` is the whole store — both the active view and the admin
@@ -4375,7 +4459,7 @@ export const App = () => {
           tasks={tasks}
           onClose={() => setEditingTaskId(null)}
           onCreate={onCreate}
-          edit={{ task: editingTask, onSave: (edit) => onSaveEdit(editingTask.id, edit) }}
+          edit={{ task: editingTask, onSave: (edit) => onSaveEdit(editingTask, edit) }}
         />
       )}
 

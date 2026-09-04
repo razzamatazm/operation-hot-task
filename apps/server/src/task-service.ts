@@ -415,6 +415,70 @@ export class TaskService {
     return updated;
   }
 
+  /* Correct an out-of-office task's description (#262, ADR-0008 rule 7).
+
+     OOO only, and that is the whole point of the route. Every other type's
+     folder name is the *loan's* name, held on the shared Loan record and pushed
+     down onto each linked task (ADR-0001's live reference) — writing it on one
+     task would put that task's copy out of step with the loan and with every
+     sibling task, which is precisely the drift the Loan entity removed. Those
+     edits go to `PATCH /loans/:loanId`. An OOO task has no loan, so its
+     description has nowhere else to live.
+
+     The creator's, on a task that isn't closed — the existing shared amend
+     rule, unchanged and not re-stated here. A vacation description is the
+     creator's own words about their own situation (ADR-0008 rule 2's reasoning)
+     and rule 8 already gives them the dates it sits beside.
+
+     Silent, like the notes amendment: an OOO task usually has nobody else on
+     it, and a DM for a reworded vacation note is the noise that trains people to
+     ignore the DMs that matter. Existing cards are still re-rendered, because
+     they quote the folder name. */
+  async updateTaskFolderName(taskId: string, folderName: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    /* Wrong-door before wrong-person: on any other type this route is simply
+       the wrong one, and answering "only the creator can change its
+       description" would send a checker looking for a permission they were
+       never missing. */
+    if (task.taskType !== "OOO") {
+      throw new Error("This task's folder name is its loan's name — edit the loan instead");
+    }
+
+    this.assertCanAmend(task, user, "description");
+
+    const next = folderName.trim();
+    if (next.length === 0) {
+      throw new Error("Description cannot be emptied");
+    }
+    if (next === task.folderName) {
+      return task;
+    }
+
+    const now = new Date();
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_FOLDER_NAME_AMENDED",
+      `Description changed from "${task.folderName}" to "${next}"`,
+      now
+    );
+    /* `loanName` moves with it. It is the deprecated alias for the same string
+       (AGENTS.md) and every task carries both; leaving one behind would have two
+       surfaces reading the same field disagree. */
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: { ...current, folderName: next, loanName: next, updatedAt: now.toISOString() },
+      event
+    }));
+
+    this.background(
+      () => this.emitCardSync(updated, [], now),
+      { method: "updateTaskFolderName", taskId: updated.id }
+    );
+
+    return updated;
+  }
+
   /* Correct the timing. `dueAt` is DERIVED from the new urgency through the
      same shared computation creation uses, evaluated now — it is never accepted
      from a caller, because due date is backend-only and a raw date would let the

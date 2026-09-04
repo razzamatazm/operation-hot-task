@@ -148,6 +148,14 @@ export const amendUrgencySchema = z.object({
   urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"])
 });
 
+/* An out-of-office task's description (#262). Its own schema and its own route
+   for the same reason the two above have theirs: the URL names the field, so
+   the rule that refuses is the rule the route is about. Non-OOO folder names
+   are never accepted here — they belong to the shared Loan record. */
+export const amendFolderNameSchema = z.object({
+  folderName: z.string().min(1)
+});
+
 export const transitionSchema = z.object({
   status: z.enum(["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "AWAITING_ITEMS", "PENDING_APPROVAL", "COMPLETED", "CANCELLED", "ARCHIVED"]),
   reviewNotes: z.string().min(1).max(1000).optional()

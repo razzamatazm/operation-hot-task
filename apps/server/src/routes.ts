@@ -9,8 +9,9 @@ import { UserStore } from "./user-store.js";
 import { TeamsBotClient } from "./bot.js";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { SettingsStore } from "./settings-store.js";
-import { LoanService } from "./loan-service.js";
+import { LoanLinkCollisionError, LoanService } from "./loan-service.js";
 import {
+  amendFolderNameSchema,
   amendNotesSchema,
   amendUrgencySchema,
   assignSchema,
@@ -32,6 +33,14 @@ const ALLOWED_ROLES: UserRole[] = ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"];
 const sendError = (res: Response, error: unknown, fallback: string): void => {
   if (error instanceof AuthError) {
     res.status(error.status).json({ error: error.message });
+    return;
+  }
+  /* A loan edit refused because the link belongs to another loan (#262). 409,
+     not 400: the request is well-formed and the caller is not at fault — another
+     record is in the way. The other loan rides along so #265's confirm has
+     something to name, and nothing has been written either way. */
+  if (error instanceof LoanLinkCollisionError) {
+    res.status(409).json({ error: error.message, collision: error.collision });
     return;
   }
   res.status(400).json({ error: error instanceof Error ? error.message : fallback });
@@ -378,12 +387,21 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
 
   router.patch("/loans/:loanId", async (req, res) => {
     try {
-      await getActor(req);
+      /* Who is editing, threaded through: a loan edit rewrites what every task
+         on that loan displays, so each of them earns a history row naming the
+         person and both values (ADR-0008 rule 9, #262). Still open to any
+         authenticated user, unchanged — narrowing it to the two parties is
+         separate work. */
+      const actor = await getActor(req);
       const input = updateLoanSchema.parse(req.body);
-      const result = await loanService.update(req.params.loanId, {
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.humperdinkLink !== undefined ? { humperdinkLink: input.humperdinkLink } : {})
-      });
+      const result = await loanService.update(
+        req.params.loanId,
+        {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.humperdinkLink !== undefined ? { humperdinkLink: input.humperdinkLink } : {})
+        },
+        { actor }
+      );
       res.json({ loan: result.loan, ...(result.merged ? { merged: result.merged } : {}) });
     } catch (error) {
       sendError(res, error, "Failed to update loan");
@@ -557,6 +575,22 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to update urgency");
+    }
+  });
+
+  /* An OOO task's vacation description (#262, ADR-0008 rule 7). Third focused
+     route, same shape as the two above. Every other type's folder name is the
+     shared Loan record's name and is edited through `PATCH /loans/:loanId`; the
+     service refuses this route for them rather than quietly writing one task's
+     copy out of step with its loan. */
+  router.post("/tasks/:taskId/folder-name", async (req, res) => {
+    try {
+      const { folderName } = amendFolderNameSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.updateTaskFolderName(req.params.taskId, folderName, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to update description");
     }
   });
 

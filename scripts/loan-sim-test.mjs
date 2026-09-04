@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 /* Sim test for the Loan entity (ADR-0001): the pure fuzzy-match/dedup helpers
-   plus the file-backed LoanService (create/dedupe, edit propagation, canonical
-   -link auto-merge, and the one-time migration). Mirrors the harness style of
-   scheduler-sim-test.mjs — imports compiled dist, runs against temp files. */
+   plus the file-backed LoanService (create/dedupe, edit propagation, the
+   canonical-link merge and the refusal that now guards it, and the one-time
+   migration). Mirrors the harness style of scheduler-sim-test.mjs — imports
+   compiled dist, runs against temp files.
+
+   Since #262 / ADR-0008 rule 7 a link edit that would fold this loan into
+   another one is REFUSED rather than done, with neither record changing;
+   merging is still built and still fires at task creation, and the edit path
+   reaches it only with an explicit confirmation, which is #265's flow. */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -189,7 +195,110 @@ const run = async () => {
     pass("editing a loan propagates name + link to every linked task");
   });
 
-  // ── Canonical-link auto-merge ────────────────────────────
+  /* #262 / ADR-0008 rule 7: the whole reason the edit form offers these two
+     fields is that a name wrong on one task is wrong on all of them. "Every
+     task" includes the finished ones — the muted line in the form says so — and
+     it stops at the tasks on some OTHER loan. */
+  await withTempDir(async ({ service, taskStore }) => {
+    const loan = await service.create({ name: "Wrong Name" });
+    const other = await service.create({ name: "Somebody Else's Loan" });
+    const open = makeTask({ loanId: loan.id, folderName: "Wrong Name", loanName: "Wrong Name" });
+    const archived = makeTask({ loanId: loan.id, folderName: "Wrong Name", loanName: "Wrong Name", status: "ARCHIVED" });
+    const unrelated = makeTask({ loanId: other.id, folderName: "Somebody Else's Loan" });
+    await taskStore.upsertTask(open);
+    await taskStore.upsertTask(archived);
+    await taskStore.upsertTask(unrelated);
+
+    await service.update(loan.id, { name: "Right Name", humperdinkLink: "https://h.example/right" });
+
+    for (const id of [open.id, archived.id]) {
+      const after = await taskStore.findTask(id);
+      assert.equal(after.folderName, "Right Name", `task ${id} shows the corrected name`);
+      assert.equal(after.loanName, "Right Name", `task ${id} keeps its alias field in step`);
+      assert.equal(after.humperdinkLink, "https://h.example/right", `task ${id} shows the corrected link`);
+    }
+    const untouched = await taskStore.findTask(unrelated.id);
+    assert.equal(untouched.folderName, "Somebody Else's Loan", "another loan's task is untouched");
+    pass("one loan edit corrects every task on that loan, finished ones included");
+  });
+
+  /* ADR-0008 rule 9, extended to these two fields: every applied edit is in the
+     task's history with both values. A loan edit reaches many tasks, so each of
+     them earns the row — it is the only place that records who renamed the loan
+     under them and what it used to say. */
+  await withTempDir(async ({ service, taskStore }) => {
+    const actor = { id: "u-editor", displayName: "Casey Checker" };
+    const loan = await service.create({ name: "Wrong Name", humperdinkLink: "https://h.example/old" });
+    const a = makeTask({ loanId: loan.id, folderName: "Wrong Name" });
+    const b = makeTask({ loanId: loan.id, folderName: "Wrong Name" });
+    await taskStore.upsertTask(a);
+    await taskStore.upsertTask(b);
+
+    await service.update(loan.id, { name: "Right Name", humperdinkLink: "https://h.example/new" }, { actor });
+
+    for (const id of [a.id, b.id]) {
+      const history = await taskStore.allHistoryForTask(id);
+      const renamed = history.find((e) => e.action === "TASK_LOAN_NAME_AMENDED");
+      assert.ok(renamed, `task ${id} records the rename`);
+      assert.ok(renamed.detail.includes("Wrong Name") && renamed.detail.includes("Right Name"), "with both values");
+      assert.equal(renamed.by.id, actor.id, "and who did it");
+      const relinked = history.find((e) => e.action === "TASK_LOAN_LINK_AMENDED");
+      assert.ok(relinked, `task ${id} records the link change`);
+      assert.ok(relinked.detail.includes("h.example/old") && relinked.detail.includes("h.example/new"), "with both values");
+    }
+
+    // A field that did not move earns no row, and neither does a save that
+    // changed nothing at all.
+    await service.update(loan.id, { name: "Right Name" }, { actor });
+    const after = await taskStore.allHistoryForTask(a.id);
+    assert.equal(after.filter((e) => e.action === "TASK_LOAN_NAME_AMENDED").length, 1, "a no-op rename writes nothing");
+    assert.equal(after.filter((e) => e.action === "TASK_LOAN_LINK_AMENDED").length, 1, "and touches no other field");
+    pass("a loan edit lands in every affected task's history with both values");
+  });
+
+  // ── A link edit onto another loan's link is refused (#262) ─
+  await withTempDir(async ({ service, taskStore, loanStore }) => {
+    const older = await service.create({ name: "First Record", humperdinkLink: "https://h.example/dup" });
+    const newer = await service.create({ name: "Second Record" });
+    const t2 = makeTask({ loanId: newer.id, folderName: "Second Record" });
+    await taskStore.upsertTask(t2);
+
+    await assert.rejects(
+      () => service.update(newer.id, { name: "Renamed Too", humperdinkLink: "https://h.example/dup" }),
+      (err) => {
+        assert.equal(err.name, "LoanLinkCollisionError", "refused with the collision error");
+        assert.equal(err.collision.loanId, older.id, "and it names the loan in the way");
+        assert.ok(err.message.includes("First Record"), "by name, in the sentence the user reads");
+        return true;
+      }
+    );
+
+    const loans = await loanStore.all();
+    assert.equal(loans.length, 2, "neither record was absorbed");
+    const stillNewer = await loanStore.find(newer.id);
+    assert.equal(stillNewer.name, "Second Record", "the refused rename did not land");
+    assert.equal(stillNewer.humperdinkLink, undefined, "and neither did the refused link");
+    const stillOlder = await loanStore.find(older.id);
+    assert.equal(stillOlder.humperdinkLink, "https://h.example/dup", "the other loan is untouched");
+    const task = await taskStore.findTask(t2.id);
+    assert.equal(task.loanId, newer.id, "the task did not repoint");
+    assert.equal(task.folderName, "Second Record", "and shows no half-applied rename");
+    pass("a link edit that would merge two loans is refused, and nothing changes");
+  });
+
+  /* The refusal is about a link that MOVES onto another loan's. Renaming, or
+     re-saving the link the loan already has, must still go through. */
+  await withTempDir(async ({ service }) => {
+    await service.create({ name: "First Record", humperdinkLink: "https://h.example/dup" });
+    const mine = await service.create({ name: "Mine", humperdinkLink: "https://h.example/mine" });
+    const renamed = await service.update(mine.id, { name: "Mine, Corrected" });
+    assert.equal(renamed.loan.name, "Mine, Corrected", "a rename with no link change is never refused");
+    const resaved = await service.update(mine.id, { name: "Mine Again", humperdinkLink: "https://h.example/mine" });
+    assert.equal(resaved.loan.name, "Mine Again", "re-saving a loan's own link is not a collision with itself");
+    pass("only a link edit that lands on ANOTHER loan's link is refused");
+  });
+
+  // ── Canonical-link merge, once it is confirmed (#262) ────
   await withTempDir(async ({ service, taskStore, loanStore }) => {
     const older = await service.create({ name: "First Record", humperdinkLink: "https://h.example/dup" });
     // Force a distinct newer loan with no link yet, then give it the same link.
@@ -198,7 +307,7 @@ const run = async () => {
     const t2 = makeTask({ loanId: newer.id, folderName: "Second Record" });
     await taskStore.upsertTask(t1);
     await taskStore.upsertTask(t2);
-    const res = await service.update(newer.id, { humperdinkLink: "https://h.example/dup" });
+    const res = await service.update(newer.id, { humperdinkLink: "https://h.example/dup" }, { confirmMerge: true });
     assert.ok(res.merged, "update reports a merge notice");
     assert.equal(res.merged.intoLoanId, older.id, "newer merges into the older original");
     const remaining = await loanStore.all();
@@ -207,7 +316,7 @@ const run = async () => {
     const t2After = await taskStore.findTask(t2.id);
     assert.equal(t2After.loanId, older.id, "the duplicate's task repoints to the survivor");
     assert.equal(t2After.folderName, "First Record", "repointed task shows the survivor's name");
-    pass("shared Humperdink link auto-merges loans and repoints tasks");
+    pass("a confirmed merge folds the loans together and repoints tasks");
   });
 
   // ── One-time migration (+ idempotency) ───────────────────
