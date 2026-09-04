@@ -319,6 +319,23 @@ place, so a card's buttons always show the step that is actually next.
   enforced at transition time (toast on failure), because a card in somebody's
   chat is a copy that can go stale. A failed tap also kicks off a card re-sync —
   see [DM Card Sync](#dm-card-sync).
+- **A step button carries the text typed in the card's box** (#250). Any card tap
+  arriving with non-empty text in the conversation box posts that text as a note
+  first — through the same path the **Reply** button uses, so it is an ordinary
+  note, attributed to the tapper, DMed to the counterpart, and routed to the
+  completed-note call on a completed task — and only then takes the step. The
+  rule is uniform rather than per-button, so a step button added to a card later
+  inherits it. Order is note-then-step, so the caveat reaches the counterpart
+  ahead of the notice it qualifies. A note that can't be posted aborts the step
+  and the tap returns the note's own error sentence, plus a card re-sync — notes
+  are closed only on statuses whose card carries neither a box nor a step button,
+  so a carried note refused is a stale card by definition (a refused **Reply** is
+  unchanged and gets no re-sync). The confirmation card gains
+  a sentence ("Note posted. Smith-1042 is now merge approved.") and nothing else;
+  it carries no box, so there is nothing to double-post. Whitespace-only counts
+  as empty, and an empty box behaves exactly as it always did. The note-required
+  fraud moves keep their own box: both sentences are honoured, and identical text
+  in both produces one note.
 - **Fraud two-phase buttons** are the exception — see
   [fraud-workflow.md](fraud-workflow.md#fraud-card-buttons).
 - Copy is intentionally personable/casual (e.g. "tossed a new file check on the

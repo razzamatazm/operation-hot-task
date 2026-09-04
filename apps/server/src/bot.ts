@@ -904,7 +904,7 @@ class LoanTasksBot extends ActivityHandler {
        claim. Returns a normalized outcome the bot renders back into the card. */
     private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>,
     /* Resolve a reply submitted from a note DM card into a new review note. */
-    private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined) => Promise<NoteReplyOutcome>,
+    private readonly onNoteReply: (taskId: string, text: string, aadObjectId: string | undefined, carried?: boolean) => Promise<NoteReplyOutcome>,
     /* Resolve an advance/complete button into a status transition. `reviewNotes`
        rides along for note-required fraud moves (Send Outstanding Items / Send
        Back) and is ignored by plain transitions. */
@@ -944,6 +944,42 @@ class LoanTasksBot extends ActivityHandler {
     const taskId = typeof data.taskId === "string" ? data.taskId : undefined;
     const from = context.activity.from;
 
+    /* Whatever is in the card's conversation box travels with the button (#250).
+       The rule is deliberately uniform rather than per-button: any tap arriving
+       with non-empty text posts it as a note through the same path the Reply
+       button uses, *before* the button's own action runs, so a step button added
+       to a card later inherits this without a second change.
+
+       Order matters twice over. The caveat has to reach the counterpart ahead of
+       the notice it qualifies, or a conditional approval reads as an
+       unconditional one with an afterthought; and notes are closed on a
+       cancelled or archived task, so posting first means the note lands while
+       the status still accepts it.
+
+       Two verbs are excluded. `replyNote` *is* the note path and posts the text
+       itself. `refreshTaskCard` is Teams fetching a user-specific view, not a
+       person tapping a step. */
+    const isButtonTap = verb !== "replyNote" && verb !== "refreshTaskCard";
+    const carriedNote = isButtonTap && typeof data.replyText === "string" ? data.replyText.trim() : "";
+    /* A note-required fraud move's own box is a separate sentence and both are
+       honoured — unless the tapper typed the same thing twice, in which case one
+       note is the honest result. */
+    const duplicatesFraudNote = verb === "transitionWithNote" && typeof data.fraudNote === "string" && data.fraudNote.trim() === carriedNote;
+    let notePosted = false;
+    if (carriedNote && taskId && !duplicatesFraudNote) {
+      const noteOutcome = await this.onNoteReply(taskId, carriedNote, from?.aadObjectId, true);
+      if (!noteOutcome.ok) {
+        // A note that can't be posted aborts the step. Taking the step and
+        // dropping the words would be the reported bug with an extra message.
+        return cardMessageResponse(noteOutcome.message);
+      }
+      notePosted = true;
+    }
+    /* The confirmation gains a sentence, not a layout, so the tapper can see the
+       text landed instead of having to trust the other person's chat. */
+    const confirmWithNote = (confirm: ConfirmData): ConfirmData =>
+      notePosted ? { ...confirm, message: `Note posted. ${confirm.message}` } : confirm;
+
     if (verb === "claimTask") {
       if (!taskId) {
         return cardMessageResponse("Sorry, I couldn't tell which task that was.");
@@ -955,7 +991,11 @@ class LoanTasksBot extends ActivityHandler {
       // Same builder, same facts as the channel-wide edit: a card-tap claim and
       // a web claim have to render the identical body (#193).
       return cardRefreshResponse(
-        claimedCard({ message: outcome.message, context: outcome.context, ...(outcome.openUrl ? { openUrl: outcome.openUrl } : {}) })
+        claimedCard({
+          message: notePosted ? `Note posted. ${outcome.message}` : outcome.message,
+          context: outcome.context,
+          ...(outcome.openUrl ? { openUrl: outcome.openUrl } : {})
+        })
       );
     }
 
@@ -985,7 +1025,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "transitionWithNote") {
@@ -1004,7 +1044,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "releaseTask") {
@@ -1015,7 +1055,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "cancelTask") {
@@ -1027,7 +1067,7 @@ class LoanTasksBot extends ActivityHandler {
       if (!outcome.ok || !outcome.confirm) {
         return cardMessageResponse(outcome.message);
       }
-      return cardRefreshResponse(transitionConfirmCard(outcome.confirm));
+      return cardRefreshResponse(transitionConfirmCard(confirmWithNote(outcome.confirm)));
     }
 
     if (verb === "refreshTaskCard") {
@@ -1653,7 +1693,7 @@ export class TeamsBotClient {
           return this.taskCreator(input, user);
         },
         async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName),
-        async (taskId, text, aadObjectId) => this.handleNoteReply(taskId, text, aadObjectId),
+        async (taskId, text, aadObjectId, carried) => this.handleNoteReply(taskId, text, aadObjectId, carried),
         async (taskId, targetStatus, aadObjectId, reviewNotes) => this.handleTransition(taskId, targetStatus, aadObjectId, reviewNotes),
         async (taskId, aadObjectId) => this.handleRelease(taskId, aadObjectId),
         async (taskId, aadObjectId) => this.handleRefreshCard(taskId, aadObjectId)
@@ -1718,7 +1758,12 @@ export class TeamsBotClient {
     this.taskReleaser = release;
   }
 
-  private async handleNoteReply(taskId: string, text: string, aadObjectId: string | undefined): Promise<NoteReplyOutcome> {
+  /* `carried` marks a note that rode in on a step button rather than on Reply
+     (#250). Notes are closed only on statuses whose card carries neither a box
+     nor a step button, so a carried note that gets refused can only have come
+     from a card whose in-place edit was dropped — the stale-card case. It gets
+     the same self-repair every other refused tap gets. */
+  private async handleNoteReply(taskId: string, text: string, aadObjectId: string | undefined, carried = false): Promise<NoteReplyOutcome> {
     if (!this.noteAdder || !this.userResolver) {
       return { ok: false, message: "Replies aren't wired up on the server yet." };
     }
@@ -1733,6 +1778,9 @@ export class TeamsBotClient {
       const task = await this.noteAdder(taskId, text, user);
       return { ok: true, message: "Reply posted.", note: noteCardDataFromTask(task, user) };
     } catch (error) {
+      if (carried) {
+        return { ok: false, message: this.staleTapOutcome(taskId, error, "Couldn't post that note.").message };
+      }
       return { ok: false, message: error instanceof Error ? error.message : "Couldn't post that reply." };
     }
   }
