@@ -1,5 +1,3 @@
-import { ReactNode } from "react";
-
 import { LoanTask, UserIdentity, getNotesFieldLabel, standingTermsFor } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
@@ -12,10 +10,10 @@ import { bylineOf, initialsOf } from "./format";
    promise nothing can check. `scripts/loi-terms-section-sim-test.mjs` renders
    both components and reads the markup back.
  *
- * Only the read-only halves moved. The amend block, the reply composer, the
- * scroll ref and every piece of card state stay in App.tsx; what a viewer may
- * do to a task is not this file's business. The section's action slot is a
- * `ReactNode` prop for exactly that reason. */
+ * Only the read-only halves moved. The reply composer, the scroll ref and
+ * every piece of card state stay in App.tsx; what a viewer may do to a task is
+ * not this file's business, and since #260 the only door onto this field is
+ * `Edit Task` in the row's hamburger. */
 
 /* Small neutral avatar. Mono treatment: initials in a neutral circle, no
    per-user color. Since the thread dropped its author/timestamp row (#165)
@@ -45,17 +43,14 @@ export const threadHeadLabel = (task: Pick<LoanTask, "taskType" | "notes">): str
  * empty inputs would buy formatting nobody asked for, and structured terms
  * wait for the direct import that would populate them.
  *
- * `action` is whatever door the card wants to give the viewer onto the field.
- * ADR-0008 rule 4 makes that `Edit Task` in the hamburger and exactly one
- * door; until #260 builds it, App.tsx passes the existing amend button through
- * here so the LOI's only edit affordance sits with the field it edits instead
- * of on a conversation it no longer writes to. */
+ * No edit affordance here, deliberately (#260). ADR-0008 rule 4 makes `Edit
+ * Task` in the hamburger the one door onto this field; a second entrance on
+ * the box is fewer clicks from where the error is spotted, at the cost of two
+ * surfaces that have to be kept in agreement. This section displays. */
 export const TermsSection = ({
-  task,
-  action
+  task
 }: {
   task: Pick<LoanTask, "taskType" | "notes">;
-  action?: ReactNode;
 }) => {
   const terms = standingTermsFor(task);
   if (terms === undefined) return null;
@@ -65,7 +60,6 @@ export const TermsSection = ({
     <section className="loi-terms">
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
-        {action}
       </div>
       <div className="loi-terms-body">{terms}</div>
     </section>
