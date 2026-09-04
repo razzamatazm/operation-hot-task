@@ -605,11 +605,16 @@ export class TaskService {
     user: UserIdentity
   ): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    this.assertCanAmend(task, user, "dates");
 
+    /* Wrong door before wrong person, as on the folder-name route: on any other
+       type there are no dates to change, and answering "only the creator can
+       change its dates" would send somebody looking for a permission that was
+       never the problem. */
     if (task.taskType !== "OOO") {
       throw new Error("Only an out of office task has start and return dates");
     }
+
+    this.assertCanAmend(task, user, "dates");
 
     const nextStart = startDate.trim();
     const nextReturn = returnDate.trim();

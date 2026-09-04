@@ -664,8 +664,14 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             case this exists for, and a return date in the past auto-completes
             the task on the next maintenance pass. The due date remains the
             thing nobody ever types: it is derived, here from the return date
-            and everywhere else from the urgency band. */}
-        {form.taskType === "OOO" && (
+            and everywhere else from the urgency band.
+
+            Gated on `creatorOnlyFields` like the other two creator-only
+            controls. An OOO task has no assignee, so today the door already
+            answers this — but a control that leans on who was let in rather
+            than on its own rule is the one that goes wrong when the door
+            widens. */}
+        {form.taskType === "OOO" && creatorOnlyFields && (
           <>
             <label>
               Start Date
