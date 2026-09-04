@@ -82,19 +82,30 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
 
    The task the form edits, as far as this module is concerned. A `LoanTask`
    satisfies it; the narrow shape is what keeps the tests from having to build
-   a whole task to ask a question about two fields. */
-export type EditableTask = Pick<LoanTask, "taskType" | "notes" | "folderName" | "humperdinkLink">;
+   a whole task to ask a question about the handful of fields a Save can move.
 
-/* What edit mode opens with. The task's type, its request field and — since
-   #262 — the two loan fields the row displays, plus the blank form's values for
-   everything else. Urgency, poop points and the OOO dates are still later
-   tickets (#261, #264); until they land, edit mode neither shows them nor
-   carries them, so there is nothing half-loaded for a Save to write back.
+   `createdBy` earns its place here without being editable: urgency and poop
+   points are permanently the creator's, so the form has to know whose task this
+   is before it can decide whether to draw them (#261, #263). */
+export type EditableTask = Pick<
+  LoanTask,
+  "taskType" | "notes" | "folderName" | "humperdinkLink" | "urgency" | "points" | "createdBy"
+>;
+
+/* What edit mode opens with. The task's type, its request field, the two loan
+   fields the row displays (#262), and its urgency and poop points (#261), plus
+   the blank form's values for everything else. The OOO dates are a later ticket
+   (#264); until they land, edit mode neither shows them nor carries them, so
+   there is nothing half-loaded for a Save to write back.
 
    The folder name and the link are loaded from the task rather than from the
    Loan record because the task already carries the loan's current values — the
    server pushes them onto every linked task on every loan edit (ADR-0001's live
    reference), so the task IS the loan's copy and reading it needs no lookup.
+
+   Urgency and points are preloaded rather than defaulted (#261). A select
+   sitting on GREEN while the task is RED is a control that lies about the task,
+   and saving the form would silently push the deadline out.
 
    The type is loaded even though nobody may change it: the form shows it,
    disabled, because "what kind of task am I editing" is the first thing a
@@ -105,7 +116,9 @@ export const editFormValues = (task: EditableTask): CreateFormValues => ({
   taskType: task.taskType,
   notes: task.notes ?? "",
   folderName: task.folderName ?? "",
-  humperdinkLink: task.taskType === "OOO" ? "" : task.humperdinkLink ?? ""
+  humperdinkLink: task.taskType === "OOO" ? "" : task.humperdinkLink ?? "",
+  urgency: task.urgency,
+  points: task.points
 });
 
 /* Everything a Save may change, and nothing else. Optional throughout: an
@@ -116,7 +129,9 @@ export const editFormValues = (task: EditableTask): CreateFormValues => ({
    appear is a single object posted at a catch-all `PATCH /tasks/:id` (ADR-0008
    rule 4, inherited from ADR-0006). The two loan fields are not an exception:
    they travel together because they land on one record, but that record is the
-   Loan's own `PATCH /loans/:loanId`, not the task's.
+   Loan's own `PATCH /loans/:loanId`, not the task's. There is deliberately no
+   `dueAt` and never will be: the due date is derived from the urgency band, and
+   no route accepts one.
 
    `humperdinkLink` is the one key whose empty string means something. A link is
    optional, so clearing it is a real edit; the folder name and the request
@@ -125,6 +140,8 @@ export interface TaskEdit {
   notes?: string;
   folderName?: string;
   humperdinkLink?: string;
+  urgency?: UrgencyLevel;
+  points?: number;
 }
 
 /* What actually moved. Compared trimmed on both sides, so re-saving a field
@@ -138,7 +155,15 @@ export interface TaskEdit {
    nothing is worse than an uncorrected one — and so is the folder name, which
    is the loan's name on every task that points at it. The form blocks both
    submits, so this is the second lock on the same door rather than the message
-   a person sees. A cleared Humperdink link is a genuine edit and does go. */
+   a person sees. A cleared Humperdink link is a genuine edit and does go.
+
+   Urgency and points (#261) are plain equality — a select and a five-way picker
+   can only hold values that came out of them, so there is no whitespace or
+   emptiness to normalise. Zero poops is a real rating ("not rated"), so clearing
+   the track is a change to send rather than a falsy nothing. Neither needs a
+   creator check here: the form draws both only for the creator, and everyone
+   else's form opens on the task's own values, so there is nothing for a
+   non-creator's Save to move. */
 export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit => {
   const edit: TaskEdit = {};
 
@@ -155,6 +180,13 @@ export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit
     const humperdinkLink = values.humperdinkLink.trim();
     if (humperdinkLink !== (task.humperdinkLink ?? "").trim()) edit.humperdinkLink = humperdinkLink;
   }
+
+  /* An OOO task has no urgency to change: its timing is its start and return
+     dates, the server refuses the urgency route outright, and the form draws no
+     control. Excluded here as well, so a value that somehow moved can never
+     become a request the server will reject. */
+  if (task.taskType !== "OOO" && values.urgency !== task.urgency) edit.urgency = values.urgency;
+  if (values.points !== task.points) edit.points = values.points;
 
   return edit;
 };

@@ -171,6 +171,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      Save sends are two halves of one rule, and a lock the submit path could not
      see would be a lock with a way round it. */
   const loanLocked = editing && form.taskType !== "OOO" && edit?.loanRefusal !== undefined;
+  /* Urgency and poop points are permanently the creator's (ADR-0008 rule 5), so
+     edit mode draws them only for the creator: a checker correcting an LOI's
+     terms is never shown a control the server would refuse them (#261, #263).
+     Filing is always your own task, so the create form always shows both. */
+  const creatorOnlyFields = !editing || edit?.task.createdBy?.id === user.id;
 
   /* What a locked box shows. The lock is recomputed live from the task, so it
      can close over a half-typed draft — a handoff mid-edit is the case — and a
@@ -280,7 +285,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     }
   }, [recipientCandidates, form.recipientUserId]);
 
-  /* Save an edit (#260). Only what moved, and nothing at all when nothing did:
+  /* Save an edit (#260, #261). Only what moved, and nothing at all when nothing did:
      `taskEdit` answers that, and an empty answer closes the form without a
      request — so the server records no history and DMs nobody about a save
      that changed the task not at all.
@@ -647,11 +652,14 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             A task&rsquo;s type can&rsquo;t be changed. If this one is wrong, cancel and refile it.
           </p>
         )}
-        {/* Timing and poop points are filing-time only for now. Editing them is
-            #261 and #264, each landing on this form on top of this one; until
-            then edit mode carries no control for them, so there is no
-            half-loaded value for a Save to write back. */}
-        {!editing && (form.taskType === "OOO" ? (
+        {/* The OOO dates are filing-time only, until #264. Which is why the two
+            timing controls are split rather than one either/or: urgency is
+            editable now (#261) and the dates are not, so an OOO task in edit
+            mode shows neither — its timing is its dates, and the server refuses
+            an urgency on it outright (ADR-0008 rule 5). No date input is drawn
+            in edit mode at all, which is also the rule for the due date
+            permanently: it is derived from the band, never typed. */}
+        {!editing && form.taskType === "OOO" && (
           <>
             <label>
               Start Date
@@ -673,13 +681,17 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
               />
             </label>
           </>
-        ) : (
+        )}
+        {form.taskType !== "OOO" && creatorOnlyFields && (
           <label>
             Urgency
             <UrgencySelect value={form.urgency} onChange={(urgency) => setForm((c) => ({ ...c, urgency }))} />
           </label>
-        ))}
-        {!editing && (
+        )}
+        {/* Poop points, on both forms (#261). The collapsed row keeps its own
+            click-to-rate track — two paths to one number, deliberately
+            (ADR-0008 rule 4). */}
+        {creatorOnlyFields && (
           <label>
             How Bad?
             <span
@@ -779,7 +791,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             </div>
           </div>
         )}
-        {/* The request itself — the one field edit mode carries. `required` in
+        {/* The request itself. `required` in
             both modes: terms are required at filing and stay required on edit
             (ADR-0008 rule 1), because an LOI whose terms say nothing is worse
             than one with a typo in them. */}

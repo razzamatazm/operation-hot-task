@@ -293,14 +293,32 @@ export class TaskService {
     if (task.createdBy.id !== user.id) {
       throw new Error("Only the task creator can change poops");
     }
-    if (!ACTIVE_STATUSES.includes(task.status)) {
+    // Closed means closed — completed, cancelled, archived (ADR-0008 rule 6).
+    // This used to gate on the local ACTIVE_STATUSES, which is the reminder
+    // engine's list and excludes AWAITING_ITEMS for a scheduling reason that
+    // says nothing about permission. The amend routes already reasoned their
+    // way to CLOSED_STATUSES for exactly this; #261 put the poops on the same
+    // edit form, so the two had to agree or a task parked on its requester
+    // would have had its poops refused as "closed" while its notes went
+    // through.
+    if (CLOSED_STATUSES.includes(task.status)) {
       throw new Error("Poops cannot be changed on a closed task");
     }
     const next = clampPoints(points);
     if (next === task.points) {
       return task;
     }
-    const event = this.makeHistory(task.id, user, "TASK_POINTS_UPDATED", `Poops set to ${next}`);
+    // Both values, like every other amended field (ADR-0008 rule 9). This read
+    // "set to N" while the rating lived only on the collapsed row; #261 put it
+    // on the same form as the notes, the urgency and the OOO dates, and a
+    // history where one of the four records half of what it did is a history
+    // that has to be read twice.
+    const event = this.makeHistory(
+      task.id,
+      user,
+      "TASK_POINTS_UPDATED",
+      `Poops changed from ${task.points} to ${next}`
+    );
     return this.writeTask(task.id, (current) => ({
       task: { ...current, points: next, updatedAt: new Date().toISOString() },
       event

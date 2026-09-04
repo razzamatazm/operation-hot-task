@@ -62,6 +62,9 @@ const loiTask = (over = {}) => ({
   loanId: "loan-1",
   folderName: "Whitfield 4471",
   humperdinkLink: "https://h.example/whitfield-4471",
+  urgency: "GREEN",
+  points: 2,
+  createdBy: { id: "creator-1", displayName: "Dana Requester" },
   ...over
 });
 
@@ -72,6 +75,9 @@ const oooTask = (over = {}) => ({
   taskType: "OOO",
   notes: "back on the 4th",
   folderName: "Two weeks in Lisbon",
+  urgency: "GREEN",
+  points: 2,
+  createdBy: { id: "creator-1", displayName: "Dana Requester" },
   ...over
 });
 
@@ -111,14 +117,27 @@ test("a loan with no link yet opens with an empty link box, not undefined", () =
   assert.equal(values.humperdinkLink, "");
 });
 
-/* Urgency, points and the OOO dates are still later tickets, so edit mode opens
-   with the blank form's values for them and never renders them — nothing in the
-   form can move them, and `taskEdit` below refuses to send them even if
-   something did. */
+/* #261 put urgency and poop points on the form beside the request field. They
+   preload from the task, not from the blank form's defaults — an urgency select
+   sitting on GREEN when the task is RED is a control that lies, and saving it
+   would quietly downgrade the deadline. */
+test("edit mode preloads the task's urgency and points", () => {
+  const values = editFormValues(loiTask({ urgency: "RED", points: 4 }));
+  assert.equal(values.urgency, "RED");
+  assert.equal(values.points, 4);
+});
+
+test("an unrated task preloads no poops rather than the blank form's default", () => {
+  assert.equal(editFormValues(loiTask({ points: 0 })).points, 0);
+});
+
+/* The OOO dates are still a later ticket (#264), so edit mode opens with the
+   blank form's values for them and never renders them — nothing in the form can
+   move them, and `taskEdit` below refuses to send them even if something did. */
 test("edit mode carries no other field into the form", () => {
   const values = editFormValues(loiTask());
-  assert.equal(values.points, BLANK_CREATE_FORM.points);
-  assert.equal(values.urgency, BLANK_CREATE_FORM.urgency);
+  assert.equal(values.startDate, BLANK_CREATE_FORM.startDate);
+  assert.equal(values.returnDate, BLANK_CREATE_FORM.returnDate);
   assert.equal(values.loanId, BLANK_CREATE_FORM.loanId);
   assert.equal(values.recipientUserId, BLANK_CREATE_FORM.recipientUserId);
   assert.deepEqual(values.initialItems, []);
@@ -201,9 +220,46 @@ test("real terms are not refused, whatever whitespace surrounds them", () => {
   assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "  Rate: 9.25%\n" }), null);
 });
 
+/* ── Urgency and points (#261) ──────────────────────────── */
+
+test("a changed urgency is sent on its own", () => {
+  const task = loiTask();
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), urgency: "RED" }), { urgency: "RED" });
+});
+
+test("changed points are sent on their own", () => {
+  const task = loiTask();
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), points: 5 }), { points: 5 });
+});
+
+test("clearing the poops sends the zero rather than nothing", () => {
+  const task = loiTask({ points: 3 });
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), points: 0 }), { points: 0 });
+});
+
+test("changing terms, urgency and points in one save sends all three", () => {
+  const task = loiTask();
+  const values = { ...editFormValues(task), notes: "Rate: 9.25%", urgency: "YELLOW", points: 5 };
+  assert.deepEqual(taskEdit(task, values), { notes: "Rate: 9.25%", urgency: "YELLOW", points: 5 });
+});
+
+test("changing nothing sends nothing", () => {
+  const task = loiTask();
+  assert.deepEqual(taskEdit(task, editFormValues(task)), {});
+});
+
+/* An OOO task's timing is its start and return dates, not an urgency — the
+   server refuses the route outright — so the form neither shows the control nor
+   lets a stale value leak into a save. */
+test("an OOO task never sends an urgency", () => {
+  const task = oooTask({ urgency: "GREEN" });
+  const values = { ...editFormValues(task), urgency: "RED", points: 4 };
+  assert.deepEqual(taskEdit(task, values), { points: 4 });
+});
+
 /* The guard against a catch-all update creeping in: even a form whose every
-   other value has moved sends only the three fields this form actually offers.
-   Urgency, points, the OOO dates and the task type are not among them. */
+   other value has moved sends only the fields this form actually offers. The
+   OOO dates and the task type are not among them. */
 test("only the fields the form offers are ever sent, whatever else moved", () => {
   const task = loiTask();
   const values = {
@@ -211,8 +267,6 @@ test("only the fields the form offers are ever sent, whatever else moved", () =>
     notes: "Rate: 9.25%",
     folderName: "Some Other Loan",
     humperdinkLink: "https://example.test/other",
-    points: 5,
-    urgency: "RED",
     startDate: "2026-01-01",
     returnDate: "2026-01-08",
     initialItems: ["appraisal"],
@@ -440,19 +494,50 @@ test("the task type is shown, disabled, with a reason", () => {
   assert.ok(/cancel/i.test(html) && /refile/i.test(html), "and says to cancel and refile");
 });
 
-/* The later tickets' fields (#261, #264). Kept out rather than shown disabled:
-   a control nobody can move is noise, and the type is disabled only because a
-   form that hid it would read as having lost the task's type. */
-test("edit mode still carries no timing and no poop points", () => {
+/* The one field still to come is the OOO dates (#264). Kept out rather than
+   shown disabled: a control nobody can move is noise, and the type is disabled
+   only because a form that hid it would read as having lost the task's type. */
+test("the creator's edit form carries urgency and the poop picker", () => {
   const html = editing();
-  assert.ok(!html.includes("How Bad?"));
-  assert.ok(!html.includes("Urgency"));
+  assert.ok(html.includes("How Bad?"), "the poop picker is on the form");
+  assert.ok(html.includes("Urgency"), "and so is urgency");
 });
 
-/* #263's second half: the form a checker opens must offer nothing the server
-   would refuse them. Urgency and poop points are the creator's on every type,
-   and the form carries neither — so what the holder of an LOI sees is the one
-   field they may write, with its terms in it. */
+/* #261. Both preloaded, so the form opens saying what the task says. */
+test("urgency opens on the task's band, not the blank form's", () => {
+  const html = editing(loiTask({ urgency: "RED" }));
+  assert.match(html, /<option [^>]*value="RED"[^>]*selected/, "RED is the selected option");
+});
+
+test("the poop picker opens on the task's rating", () => {
+  const html = editing(loiTask({ points: 4 }));
+  assert.equal((html.match(/aria-pressed="true"/g) ?? []).length, 4);
+});
+
+/* ADR-0008 rule 5: urgency is permanently the creator's, and on an OOO task it
+   is not a field at all — the timing is the start and return dates, which the
+   server refuses to express as an urgency. */
+test("an OOO task's edit form has no urgency control", () => {
+  const html = editing(loiTask({ taskType: "OOO", notes: "back on the 9th" }));
+  assert.ok(!html.includes("Urgency"), "no urgency on an OOO task");
+  assert.ok(html.includes("How Bad?"), "but the poops are still there");
+});
+
+/* The due date is derived from the band, never typed (docs/product/
+   due-date-urgency.md). The OOO dates are #264; until then, nothing in edit
+   mode is a date at all. */
+test("no date input exists in the edit form", () => {
+  for (const task of [loiTask(), loiTask({ taskType: "OOO", notes: "back on the 9th" })]) {
+    assert.ok(!/type="date"/.test(editing(task)), task.taskType);
+  }
+  assert.ok(!editing().includes("Due"), "and nothing offers to set a due date");
+});
+
+/* #263's second half, and the clause that decides who #261's two controls are
+   drawn for. The form a checker opens must offer nothing the server would
+   refuse them: urgency and poop points are the creator's on every type, so the
+   holder of an LOI is shown the one field they may write, with its terms in
+   it, and neither of the creator's controls. */
 test("the checker holding an LOI gets the terms box and no creator-only control", () => {
   const html = render({
     user: { ...ASSIGNEE, roles: ["FILE_CHECKER"] },
@@ -462,6 +547,16 @@ test("the checker holding an LOI gets the terms box and no creator-only control"
   assert.ok(html.includes("Loan Amount: $2,340,000"), "with the terms in it");
   assert.ok(!html.includes("Urgency"), "no urgency control");
   assert.ok(!html.includes("How Bad?"), "no poop points control");
+});
+
+/* The other half of the same promise: not drawing the controls is only half a
+   guarantee if a stale value could still ride out on the save. It cannot — the
+   form opens on the task's own urgency and rating, so with nothing to move
+   them there is nothing for a checker's Save to send. */
+test("a checker's save carries no urgency and no rating, only the terms", () => {
+  const task = loiTask();
+  const values = { ...editFormValues(task), notes: "Rate: 9.25%" };
+  assert.deepEqual(taskEdit(task, values), { notes: "Rate: 9.25%" });
 });
 
 /* ── The loan fields in edit mode (#262) ────────────────── */
@@ -703,6 +798,8 @@ test("no catch-all update route was introduced", () => {
   assert.ok(!/router\.(patch|put)\("\/tasks/.test(routes), "no PATCH or PUT on a task");
   assert.ok(routes.includes('router.post("/tasks/:taskId/notes"'), "the focused notes route is still the way in");
   assert.ok(routes.includes('router.post("/tasks/:taskId/folder-name"'), "and the OOO description has its own");
+  assert.ok(routes.includes('router.post("/tasks/:taskId/urgency"'), "and urgency has its own");
+  assert.ok(routes.includes('router.post("/tasks/:taskId/points"'), "and so do the poops");
 });
 
 /* Where each field lands (#262, ADR-0008 rule 7). The loan fields go to the
@@ -769,4 +866,37 @@ test("the loan-filter header no longer edits anything", () => {
   assert.match(header, /href=\{loan\.humperdinkLink\}/, "still linking out to Humperdink");
   /* And App no longer carries the save that served it. */
   assert.ok(!/const onSaveLoan = /.test(app), "the header's save is gone from App too");
+});
+
+/* The due date is derived from the urgency band at the moment of the edit, the
+   same computation filing uses. Nothing on the edit path may carry one — not
+   the payload type, not the form. (`toCreateInput` still passes a `dueAt`
+   through on *creation*; that is a separate, older surface and not this
+   ticket's.) */
+test("nothing on the edit path can express a due date", () => {
+  const state = readFileSync(join(REPO, "apps/web/src/create-form-state.ts"), "utf8");
+  const form = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+  /* A member or an assignment, not the word — both files talk about `dueAt` in
+     their comments precisely to say they don't carry one. */
+  const carriesADueDate = /dueAt\s*[?:=]/;
+  assert.ok(!carriesADueDate.test(state), "the edit payload has no due date");
+  assert.ok(!carriesADueDate.test(form), "and neither does the form");
+});
+
+/* A save is a dispatch across the focused routes, one line per field — the
+   thing that must never appear is one request carrying a task-shaped body. */
+test("the save dispatches each field to its own route", () => {
+  const dispatch = /const onSaveEdit = useCallback\([\s\S]*?\n  \}, \[amendApi[^\]]*\]\);/.exec(app);
+  assert.ok(dispatch, "onSaveEdit is still a dispatch over the edit");
+  assert.match(dispatch[0], /edit\.notes !== undefined.*setNotes/);
+  assert.match(dispatch[0], /edit\.urgency !== undefined.*setUrgency/);
+  assert.match(dispatch[0], /edit\.points !== undefined.*setPoints/);
+  /* And the list is refetched once for the whole save, not once per field. */
+  assert.equal((dispatch[0].match(/refresh\(\)/g) ?? []).length, 1);
+});
+
+/* ADR-0008 rule 4: two paths to one number is worth more than the tidiness of
+   removing the fast one. The collapsed row keeps its click-to-rate track. */
+test("the poop track on the row still works", () => {
+  assert.match(app, /onChange=\{\(n\) => \{ void onUpdatePoints\(task\.id, n\); \}\}/);
 });

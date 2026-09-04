@@ -80,7 +80,9 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/return-to-pool` — the creator puts a `CLAIMED` task
     back in the pool: `OPEN`, unassigned, re-posted to the channel (#208).
   - `POST /api/tasks/:taskId/transition`
-  - `POST /api/tasks/:taskId/points`
+  - `POST /api/tasks/:taskId/points` — set the poops. Body `{ points }`, `0`-`5`.
+    Creator only, non-closed statuses only. Silent. Two surfaces reach it: the
+    click-to-rate track on the collapsed row, and the `Edit Task` form (#261).
   - `POST /api/tasks/:taskId/notes` — amend the task's request field. Body
     `{ notes }`. Creator only on five types; on an `LOI`, where the field holds
     the loan's terms, either party — creator or current assignee (ADR-0008
