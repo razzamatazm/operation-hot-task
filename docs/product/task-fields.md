@@ -28,11 +28,16 @@ the web alike.
 | Notes (other five types) | yes | creator | any non-closed status |
 | Urgency | yes, except on `OOO` | creator | any non-closed status |
 | Poop points | yes | creator | while the task is active (not `AWAITING_ITEMS`) |
+| Folder name / Humperdink link (non-`OOO`) | yes — **on the loan**, not the task | any authenticated user | any status |
+| Vacation description (`OOO` folder name) | yes, on the task | creator | any non-closed status |
 | Due date | **never directly** — derived from urgency | — | — |
-| Task type, linked loan, creator, assignee, OOO dates | no | — | — |
+| Task type, which loan a task is on, creator, assignee, OOO dates | no | — | — |
 
-Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
-`POST /api/tasks/:id/urgency`. Each refuses with the rule that refused it.
+Focused operations, never a generic patch: `POST /api/tasks/:id/notes`,
+`POST /api/tasks/:id/urgency` and `POST /api/tasks/:id/folder-name`. Each
+refuses with the rule that refused it. The folder-name route is `OOO`-only and
+says so — every other type's folder name belongs to the shared Loan record and
+goes to `PATCH /api/loans/:loanId`, below.
 
 - **Due date is derived, never set.** Changing the urgency re-derives `dueAt`
   from the new band at the moment of the edit, through the same computation
@@ -72,7 +77,8 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
   its next reminder immediately (see
   [reminders-retention.md](reminders-retention.md)).
 - **Every applied edit is in the task's history**, with the field and both
-  values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED`).
+  values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED` /
+  `TASK_FOLDER_NAME_AMENDED`).
 - **In the web app**, whoever may edit an active task gets `Edit Task` in the
   row's hamburger — its creator, plus the assignee on an LOI — and that is the
   only way in (ADR-0008 rule 4); the old `Edit request` button on the thread
@@ -80,11 +86,52 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
   server's refusal is written from, so no surface offers an edit the server
   would turn away. It opens the same form the task was filed with, preloaded,
   with the task type shown disabled and a reason, and `Save` in place of
-  `Create Task`. Today it carries the request field alone — which is exactly the
-  field a non-creator party may write, so a checker is never shown a control
-  they cannot use. Urgency, poop points, the loan fields and the OOO dates land
-  on it in later work and bring their own gating. A save that changed nothing
-  sends nothing.
+  `Create Task`. Today it carries the request field, the folder name and the
+  Humperdink link — the request field being exactly the field a non-creator
+  party may write, so a checker is never shown a control they cannot use.
+  Urgency, poop points and the OOO dates land on it in later work and bring
+  their own gating. A save that changed nothing sends nothing.
+
+## Correcting the folder name and the Humperdink link
+
+Those two are not the task's own. They belong to the **loan**, which every
+non-OOO task points at, and the task carries a copy the server keeps in step
+([ADR-0001](../adr/0001-loan-entity.md)'s live reference). So an edit writes the
+loan, and the correction lands on **every task for that loan, finished ones
+included** — which is the case that motivates the edit: a name wrong on one task
+is wrong on all of them.
+
+- **In the edit form** the two sit side by side. The folder name is a plain
+  text box there, not the create form's loan typeahead: on a task that already
+  exists, typing here renames the loan it is on, and offering to pick a
+  different existing loan would be repointing the task, which is a different
+  move nobody asked for.
+- **One muted line beneath the pair**, covering both, appearing only once a
+  value has actually changed — never on focus, and never as a popup, banner,
+  dialog or toast. Clicking a field to read it warns about nothing. It says that
+  saving updates the name and link on every task for this loan, including
+  finished ones ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md)
+  rule 7).
+- **A link edit that would collide with another loan is refused.** Two loans
+  sharing a Humperdink link would merge — one absorbs the other's tasks — and
+  that is too large a consequence to fall out of fixing a URL. The server answers
+  `409` naming the other loan, **neither record changes**, and the form stays
+  open with the typing in it. Merging is still what happens at task *creation*,
+  where it stops a duplicate record being minted in the first place; turning the
+  edit-time refusal into a confirm-then-merge is separate work.
+- **Every affected task records it.** A loan edit writes a history row on each
+  task the loan reaches — `TASK_LOAN_NAME_AMENDED` and/or
+  `TASK_LOAN_LINK_AMENDED`, naming who did it and both values
+  ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 9). It is
+  the only place that says who renamed the loan under a task and what it used to
+  say. A field that didn't move earns no row.
+- **An out-of-office task has no loan.** Its folder name is a vacation
+  description, it edits on the task through `POST /api/tasks/:id/folder-name`
+  (creator only, non-closed only, silent, in history with both values), it has
+  no Humperdink link field at all, and it shows no shared-record line — there is
+  no shared record.
+- **Who may edit the loan** is unchanged: any authenticated user, as it has been
+  since ADR-0001. ADR-0008 rule 5 narrows it to the two parties in separate work.
 
 ## Create Task Fields
 

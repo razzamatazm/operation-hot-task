@@ -19,10 +19,16 @@
    surfaces that file and correct the same fields are two surfaces that drift.
    What it changes: it opens preloaded, it hides the two controls that only
    mean something at filing time (the person picker and the outstanding-items
-   seeder), it shows the task type disabled with the reason, and it saves. */
+   seeder), it shows the task type disabled with the reason, and it saves.
+
+   Since #262 it also carries the folder name and the Humperdink link, drawn as
+   a pair under one muted line, because those two write the shared Loan record
+   rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
+   in edit mode — picking a different existing loan is repointing the task, not
+   correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, editRefusal, initialCreateForm, taskEdit } from "./create-form-state";
+import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, editRefusal, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { TrashIcon } from "./icons";
 import { useToast } from "./toast";
 
@@ -88,9 +94,12 @@ interface TaskFormProps {
 export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, initialValues, edit }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
-  /* The request box, so a save can hang its refusal on the field the browser
-     would hang "please fill out this field" on. */
+  /* The two required boxes, so a save can hang its refusal on the field the
+     browser would hang "please fill out this field" on. The folder name joined
+     them in edit mode with #262; in create mode it is the typeahead's input and
+     the ref simply goes unused, because nothing refuses a create here. */
   const notesRef = useRef<HTMLTextAreaElement>(null);
+  const folderNameRef = useRef<HTMLInputElement>(null);
   /* Lazy initializer, so re-renders don't rebuild the state and a changing
      `initialValues` identity can't reset a half-typed draft: the values seed
      the form once, at open. Reopening the form remounts this component, which
@@ -244,13 +253,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     if (!edit) return;
     /* A box wiped to whitespace passes `required` but means the same thing as
        an empty one, and `taskEdit` would read it as "nothing moved" — closing
-       the form silently on someone who thinks they just cleared the terms.
-       Refuse it where the browser refuses an empty box, on the field itself.
-       Terms are required on edit (ADR-0008 rule 1). */
+       the form silently on someone who thinks they just cleared the terms, or
+       (since #262) the loan's name. Refuse it where the browser refuses an empty
+       box, on the field the refusal is about. Terms are required on edit
+       (ADR-0008 rule 1), and so is the folder name. */
     const refusal = editRefusal(form);
     if (refusal) {
-      notesRef.current?.setCustomValidity(refusal);
-      notesRef.current?.reportValidity();
+      const field = refusal.field === "notes" ? notesRef.current : folderNameRef.current;
+      field?.setCustomValidity(refusal.message);
+      field?.reportValidity();
       return;
     }
     const changed = taskEdit(edit.task, form);
@@ -335,6 +346,138 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     }
   };
 
+  /* Folder Name, in whichever of its two jobs this task gives it (#262).
+     Extracted rather than written inline because edit mode puts it and the
+     Humperdink Link side by side under one shared warning, and filing leaves
+     them where they have always been, at opposite ends of the form.
+
+     Edit mode gets a plain text box, never the typeahead. The typeahead is a
+     filing-time affordance for picking an EXISTING loan to file against; on a
+     task that is already filed, typing here renames the loan it is already on,
+     and a suggestion list offering to repoint it at a different one is a
+     different move wearing this one's clothes. */
+  const folderNameField = (
+    <label>
+      {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
+      {form.taskType === "OOO" || editing ? (
+        <input
+          ref={folderNameRef}
+          value={form.folderName}
+          onChange={(e) => {
+            /* Clear a refusal the moment they start fixing it, so the box isn't
+               stuck invalid on the next submit — same as the request field. */
+            e.target.setCustomValidity("");
+            setForm((c) => ({ ...c, folderName: e.target.value }));
+          }}
+          required
+        />
+      ) : (
+        <span className="loan-typeahead">
+          <input
+            value={form.folderName}
+            autoComplete="off"
+            placeholder="Search existing loans or type a new name"
+            role="combobox"
+            aria-expanded={loanSuggestOpen && loanMatches.length > 0}
+            aria-autocomplete="list"
+            aria-activedescendant={loanHighlight >= 0 ? `loan-opt-${loanHighlight}` : undefined}
+            onChange={(e) => {
+              const v = e.target.value;
+              // Typing diverges from any prior selection → treat as a new
+              // loan, and re-scope the match list to the typed query.
+              setForm((c) => ({ ...c, folderName: v, loanId: "" }));
+              setLoanQuery(v);
+              setLoanSuggestOpen(true);
+              setLoanHighlight(-1);
+            }}
+            onFocus={() => { setLoanQuery(form.folderName); setLoanSuggestOpen(true); setLoanHighlight(-1); }}
+            onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                if (loanMatches.length === 0) return;
+                e.preventDefault();
+                if (!loanSuggestOpen) setLoanSuggestOpen(true);
+                const next = nextHighlightIndex(loanHighlight, e.key === "ArrowDown" ? 1 : -1, loanMatches.length);
+                setLoanHighlight(next);
+                // Autofill the field with the highlighted loan's name;
+                // selection (link + toast) waits for Enter.
+                const preview = loanMatches[next];
+                if (preview) setForm((c) => ({ ...c, folderName: preview.loan.name, loanId: "" }));
+              } else if (e.key === "Enter" && loanSuggestOpen && loanHighlight >= 0 && loanMatches[loanHighlight]) {
+                e.preventDefault();
+                selectLoan(loanMatches[loanHighlight]!.loan);
+              } else if (e.key === "Escape" && loanSuggestOpen) {
+                e.preventDefault();
+                e.stopPropagation();
+                setLoanSuggestOpen(false);
+                setLoanHighlight(-1);
+              }
+            }}
+            required
+          />
+          {loanSuggestOpen && loanMatches.length > 0 && (
+            <ul className="loan-typeahead-list" role="listbox">
+              {loanMatches.map((m, i) => (
+                <li key={m.loan.id}>
+                  <button
+                    type="button"
+                    id={`loan-opt-${i}`}
+                    role="option"
+                    aria-selected={i === loanHighlight}
+                    className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
+                    onMouseEnter={() => setLoanHighlight(i)}
+                    // onMouseDown fires before the input's onBlur so the pick registers.
+                    onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
+                  >
+                    <span className="loan-typeahead-name">{m.loan.name}</span>
+                    {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </span>
+      )}
+    </label>
+  );
+
+  /* The Humperdink Link. Full width while filing, where it sits alone below the
+     request field; half of the loan pair in edit mode, beside the folder name
+     the warning below them both is about. */
+  const humperdinkLinkField = (
+    <label className={editing ? undefined : "span-full"}>
+      Humperdink Link
+      <input
+        type="text"
+        inputMode="url"
+        placeholder="Optional"
+        value={form.humperdinkLink}
+        onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
+        onBlur={(e) => {
+          const v = e.target.value.trim();
+          if (v && !/^https?:\/\//i.test(v)) {
+            setForm((c) => ({ ...c, humperdinkLink: `https://${v}` }));
+          }
+        }}
+      />
+    </label>
+  );
+
+  /* ADR-0008 rule 7, the quiet half. Both fields write the shared Loan record,
+     so correcting either one corrects it on every task pointing at that loan —
+     which is the case that motivates the edit, and also a bigger consequence
+     than "I am fixing a typo in a box" looks like.
+
+     One line for the pair, not one each, and only once a value has actually
+     moved: `touchesSharedLoan` asks the same trimmed question the save asks, so
+     the line cannot appear over an edit that would send nothing. Nothing here
+     keys off focus — clicking a field to read it warns about nothing — and it
+     is a line of text under the fields rather than a dialog, a banner or a
+     toast. Never on OOO, which has no loan to share. */
+  const sharedLoanWarning = editing && edit ? touchesSharedLoan(edit.task, form) : false;
+  const sharedLoanCopy =
+    "Heads up: this loan's name and link are shared. Saving updates them on every task for this loan, including finished ones.";
+
   return (
     /* The backdrop is deliberately inert (#114): a stray click here used to
        call onClose, which unmounts this component and silently destroys the
@@ -385,79 +528,31 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             </button>
           </div>
         )}
-        {!editing && (
-          <label>
-            {form.taskType === "OOO" ? "Vacation Description" : "Folder Name"}
-            {form.taskType === "OOO" ? (
-              <input value={form.folderName} onChange={(e) => setForm((c) => ({ ...c, folderName: e.target.value }))} required />
-            ) : (
-              <span className="loan-typeahead">
-                <input
-                  value={form.folderName}
-                  autoComplete="off"
-                  placeholder="Search existing loans or type a new name"
-                  role="combobox"
-                  aria-expanded={loanSuggestOpen && loanMatches.length > 0}
-                  aria-autocomplete="list"
-                  aria-activedescendant={loanHighlight >= 0 ? `loan-opt-${loanHighlight}` : undefined}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    // Typing diverges from any prior selection → treat as a new
-                    // loan, and re-scope the match list to the typed query.
-                    setForm((c) => ({ ...c, folderName: v, loanId: "" }));
-                    setLoanQuery(v);
-                    setLoanSuggestOpen(true);
-                    setLoanHighlight(-1);
-                  }}
-                  onFocus={() => { setLoanQuery(form.folderName); setLoanSuggestOpen(true); setLoanHighlight(-1); }}
-                  onBlur={() => { window.setTimeout(() => setLoanSuggestOpen(false), 120); }}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                      if (loanMatches.length === 0) return;
-                      e.preventDefault();
-                      if (!loanSuggestOpen) setLoanSuggestOpen(true);
-                      const next = nextHighlightIndex(loanHighlight, e.key === "ArrowDown" ? 1 : -1, loanMatches.length);
-                      setLoanHighlight(next);
-                      // Autofill the field with the highlighted loan's name;
-                      // selection (link + toast) waits for Enter.
-                      const preview = loanMatches[next];
-                      if (preview) setForm((c) => ({ ...c, folderName: preview.loan.name, loanId: "" }));
-                    } else if (e.key === "Enter" && loanSuggestOpen && loanHighlight >= 0 && loanMatches[loanHighlight]) {
-                      e.preventDefault();
-                      selectLoan(loanMatches[loanHighlight]!.loan);
-                    } else if (e.key === "Escape" && loanSuggestOpen) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setLoanSuggestOpen(false);
-                      setLoanHighlight(-1);
-                    }
-                  }}
-                  required
-                />
-                {loanSuggestOpen && loanMatches.length > 0 && (
-                  <ul className="loan-typeahead-list" role="listbox">
-                    {loanMatches.map((m, i) => (
-                      <li key={m.loan.id}>
-                        <button
-                          type="button"
-                          id={`loan-opt-${i}`}
-                          role="option"
-                          aria-selected={i === loanHighlight}
-                          className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
-                          onMouseEnter={() => setLoanHighlight(i)}
-                          // onMouseDown fires before the input's onBlur so the pick registers.
-                          onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
-                        >
-                          <span className="loan-typeahead-name">{m.loan.name}</span>
-                          {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </span>
+        {/* The two loan fields (#262). Filing keeps them where they were — the
+            folder name here, the link down below the request field. Editing
+            pulls them together into one block, because the sentence underneath
+            covers both of them and a warning half a form away from one of the
+            fields it is about is a warning about nothing.
+
+            An OOO task has neither: its folder name is a vacation description
+            that lives on the task, and it has no Humperdink link at all, so it
+            renders the bare field and no warning. */}
+        {editing && form.taskType !== "OOO" ? (
+          <div className="span-full task-form-loan">
+            {folderNameField}
+            {humperdinkLinkField}
+            {/* Two nodes for one sentence, the same way the sole-checker warning
+                below does it and for the same reason: a live region only
+                announces changes made INSIDE it, so the region is always mounted
+                and only its text changes, while the visible copy is hidden from
+                the reader so it isn't said twice. */}
+            <p className="sr-only" role="status">{sharedLoanWarning ? sharedLoanCopy : ""}</p>
+            {sharedLoanWarning && (
+              <p className="task-form-shared-loan" aria-hidden="true">{sharedLoanCopy}</p>
             )}
-          </label>
+          </div>
+        ) : (
+          folderNameField
         )}
         {/* Type is shown in edit mode and locked (ADR-0008 rule 4): nobody may
             change it, but a form that hid it would read as one that lost track
@@ -485,10 +580,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             A task&rsquo;s type can&rsquo;t be changed. If this one is wrong, cancel and refile it.
           </p>
         )}
-        {/* Timing, poop points and the loan fields are filing-time only for now.
-            Editing them is #261–#264, each landing on this form on top of this
-            one; until then edit mode carries the request field alone, so there
-            is no half-loaded control for a Save to write back. */}
+        {/* Timing and poop points are filing-time only for now. Editing them is
+            #261 and #264, each landing on this form on top of this one; until
+            then edit mode carries no control for them, so there is no
+            half-loaded value for a Save to write back. */}
         {!editing && (form.taskType === "OOO" ? (
           <>
             <label>
@@ -639,24 +734,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             required
           />
         </label>
-        {!editing && form.taskType !== "OOO" && (
-          <label className="span-full">
-            Humperdink Link
-            <input
-              type="text"
-              inputMode="url"
-              placeholder="Optional"
-              value={form.humperdinkLink}
-              onChange={(e) => setForm((c) => ({ ...c, humperdinkLink: e.target.value }))}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && !/^https?:\/\//i.test(v)) {
-                  setForm((c) => ({ ...c, humperdinkLink: `https://${v}` }));
-                }
-              }}
-            />
-          </label>
-        )}
+        {/* Filing only, at its long-standing spot. In edit mode this field has
+            already been drawn beside the folder name, above. */}
+        {!editing && form.taskType !== "OOO" && humperdinkLinkField}
         {/* One person, one of two things to do with them (issue #46 +
             ADR-0002). Share = "make sure they see this", task stays in the
             pool. Assign = hand it to them, task is born CLAIMED. The picker

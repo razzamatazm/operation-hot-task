@@ -3,7 +3,9 @@ import {
   Loan,
   LoanMatch,
   LoanTask,
+  TaskHistoryEvent,
   UpdateLoanInput,
+  UserIdentity,
   clusterLoanNames,
   findLoanForCreate,
   normalizeLinkKey,
@@ -13,15 +15,67 @@ import { v4 as uuid } from "uuid";
 import { LoanStore, TaskStore } from "./store.js";
 import { SseHub } from "./sse.js";
 
+/* Which of a loan's two displayed fields an edit moved, and what each said
+   either side of it — the "both values" ADR-0008 rule 9 asks every history row
+   to carry. Absent means that field did not move. */
+interface LoanFieldChanges {
+  name?: { from: string; to: string };
+  link?: { from: string; to: string };
+}
+
 export interface LoanMergeNotice {
   intoLoanId: string;
   intoLoanName: string;
   mergedName: string;
 }
 
+/* A link edit that would fold this loan into another one (#262, ADR-0008
+   rule 7). Editing a Humperdink link used to merge the two records on the spot;
+   absorbing another loan's tasks is too large a consequence to fall out of
+   fixing a URL unannounced, so the edit is refused instead and **neither record
+   changes**.
+
+   It names the other loan, because "that link is taken" without saying by what
+   leaves the person with nowhere to go. Its own error type rather than a bare
+   `Error` so the route can answer 409 rather than the blanket 400 — a refusal
+   about the state of another record is not a malformed request — and so #265
+   has the other loan's identity to hand when it turns this into a
+   confirm-then-merge.
+
+   Merges at task CREATION are untouched: `create`/`resolveForTask` fold a new
+   record into an existing one through `findLoanForCreate`, which is the dedupe
+   that stops duplicates being minted in the first place and absorbs nobody's
+   work. This is only about editing a loan that already has tasks on it. */
+export class LoanLinkCollisionError extends Error {
+  constructor(readonly collision: { loanId: string; loanName: string }) {
+    super(
+      `That Humperdink link is already on "${collision.loanName}". Saving it here would merge the two loans into one.`
+    );
+    this.name = "LoanLinkCollisionError";
+  }
+}
+
+/* How far a loan edit is allowed to go. Empty — the only thing any caller
+   passes today — means "refuse a merge". #265 adds the confirm that sets the
+   flag; the merge itself is already built and stays exactly as it was, so that
+   ticket adds a door rather than reopening this decision. */
+export interface UpdateLoanOptions {
+  confirmMerge?: boolean;
+  /* Who is making the edit, so every task the edit reaches gets a history row
+     naming them and both values (ADR-0008 rule 9, extended to these two fields
+     by #262). Optional because the migration and the create-time dedupe write
+     loans with no human behind them; where there is nobody to name, no row is
+     written rather than one attributed to nobody. */
+  actor?: UserIdentity;
+}
+
 /* Owns the Loan entity (ADR-0001): CRUD, the create-time dedupe/link, the
-   canonical-link auto-merge, and propagation of name/link edits to every
-   linked task (the "live reference" the ADR requires). */
+   canonical-link merge, and propagation of name/link edits to every linked task
+   (the "live reference" the ADR requires).
+
+   The merge fires by itself at creation, where it stops a duplicate record
+   being minted, and is refused on an edit unless the caller confirms it (#262,
+   ADR-0008 rule 7) — see `LoanLinkCollisionError`. */
 export class LoanService {
   constructor(
     private readonly loans: LoanStore,
@@ -88,36 +142,59 @@ export class LoanService {
     return this.create({ name: params.name, ...(params.humperdinkLink ? { humperdinkLink: params.humperdinkLink } : {}) });
   }
 
-  async update(loanId: string, input: UpdateLoanInput): Promise<{ loan: Loan; merged?: LoanMergeNotice }> {
+  /* Edit a loan's name and/or link, which is to say edit what every task on
+     that loan displays (ADR-0001's live reference).
+
+     The collision check runs BEFORE anything is written, deliberately. It used
+     to run after: the record was updated, the clash noticed, and the two loans
+     merged. Refusing after the write would leave the loan renamed and the link
+     changed on a save the caller was told failed, so the question "would this
+     land on another loan's link" is now answered while both records are still
+     untouched. */
+  async update(
+    loanId: string,
+    input: UpdateLoanInput,
+    options: UpdateLoanOptions = {}
+  ): Promise<{ loan: Loan; merged?: LoanMergeNotice }> {
     const loan = await this.loans.find(loanId);
     if (!loan) {
       throw new Error("Loan not found");
     }
-    const updated = await this.applyUpdate(loan, input);
 
-    // Canonical-key auto-merge: if the new link now collides with another
-    // loan, fold this record into the older original.
-    const linkKey = normalizeLinkKey(updated.humperdinkLink);
-    if (linkKey) {
-      const all = await this.loans.all();
-      const collision = all.find(
-        (other) => other.id !== updated.id && normalizeLinkKey(other.humperdinkLink) === linkKey
-      );
-      if (collision) {
-        const [original, duplicate] =
-          collision.createdAt <= updated.createdAt ? [collision, updated] : [updated, collision];
-        const merged = await this.mergeInto(original, duplicate);
-        return {
-          loan: merged,
-          merged: { intoLoanId: original.id, intoLoanName: original.name, mergedName: duplicate.name }
-        };
-      }
+    /* Only a link that is actually MOVING can collide. A rename that leaves the
+       link alone is never refused, and neither is re-saving the link the loan
+       already has — a loan colliding with itself is the same record. */
+    const nextKey = input.humperdinkLink !== undefined ? normalizeLinkKey(input.humperdinkLink) : undefined;
+    const collision =
+      nextKey && nextKey !== normalizeLinkKey(loan.humperdinkLink)
+        ? (await this.loans.all()).find(
+            (other) => other.id !== loan.id && normalizeLinkKey(other.humperdinkLink) === nextKey
+          )
+        : undefined;
+
+    if (collision && !options.confirmMerge) {
+      throw new LoanLinkCollisionError({ loanId: collision.id, loanName: collision.name });
+    }
+
+    const updated = await this.applyUpdate(loan, input, options.actor);
+
+    // Canonical-key merge: fold this record into the older original. Only
+    // reachable with an explicit confirmation (#262); the flow that asks for one
+    // is #265.
+    if (collision) {
+      const [original, duplicate] =
+        collision.createdAt <= updated.createdAt ? [collision, updated] : [updated, collision];
+      const merged = await this.mergeInto(original, duplicate);
+      return {
+        loan: merged,
+        merged: { intoLoanId: original.id, intoLoanName: original.name, mergedName: duplicate.name }
+      };
     }
     return { loan: updated };
   }
 
   /* Apply name/link changes to a loan and propagate to every linked task. */
-  private async applyUpdate(loan: Loan, input: UpdateLoanInput): Promise<Loan> {
+  private async applyUpdate(loan: Loan, input: UpdateLoanInput, actor?: UserIdentity): Promise<Loan> {
     const name = input.name?.trim();
     const linkProvided = input.humperdinkLink !== undefined;
     const link = input.humperdinkLink?.trim();
@@ -134,8 +211,45 @@ export class LoanService {
       }
     }
     await this.loans.upsert(next);
-    await this.propagateToTasks(next);
+    /* What actually moved, so the history rows below describe the edit rather
+       than every field the request happened to carry. Compared against the loan
+       as it was a moment ago, which is why this is computed here and not from
+       the input. */
+    await this.propagateToTasks(next, actor, {
+      ...(next.name !== loan.name ? { name: { from: loan.name, to: next.name } } : {}),
+      ...(next.humperdinkLink !== loan.humperdinkLink
+        ? { link: { from: loan.humperdinkLink ?? "", to: next.humperdinkLink ?? "" } }
+        : {})
+    });
     return next;
+  }
+
+  /* One history row per field that moved, on one task (ADR-0008 rule 9). Written
+     onto every task the loan reaches, because a loan edit changes what each of
+     them displays and the row is the only place that says who did it and what it
+     used to say. */
+  private loanEditHistory(taskId: string, actor: UserIdentity, changed: LoanFieldChanges, at: Date): TaskHistoryEvent[] {
+    const rows: TaskHistoryEvent[] = [];
+    const row = (action: string, detail: string): TaskHistoryEvent => ({
+      id: uuid(),
+      taskId,
+      action,
+      detail,
+      at: at.toISOString(),
+      by: { id: actor.id, displayName: actor.displayName }
+    });
+    if (changed.name) {
+      rows.push(row("TASK_LOAN_NAME_AMENDED", `Loan name changed from "${changed.name.from}" to "${changed.name.to}"`));
+    }
+    if (changed.link) {
+      rows.push(
+        row(
+          "TASK_LOAN_LINK_AMENDED",
+          `Humperdink link changed from "${changed.link.from || "none"}" to "${changed.link.to || "none"}"`
+        )
+      );
+    }
+    return rows;
   }
 
   /* Fold `duplicate` into `original`: repoint tasks, keep the duplicate's name
@@ -172,14 +286,22 @@ export class LoanService {
   }
 
   /* Push a loan's current name/link onto every task that references it, so
-     the denormalized display cache stays consistent with the live loan. */
-  private async propagateToTasks(loan: Loan): Promise<void> {
+     the denormalized display cache stays consistent with the live loan.
+
+     When a human made the edit and something actually moved, each task also
+     earns its history rows in the SAME write as the value it is about — passing
+     them to `updateTask` rather than appending afterwards is what stops a task
+     ending up renamed with no record of who renamed it. */
+  private async propagateToTasks(loan: Loan, actor?: UserIdentity, changed?: LoanFieldChanges): Promise<void> {
     const tasks = await this.tasks.allTasks();
+    const at = new Date();
+    const moved = Boolean(changed && (changed.name || changed.link));
     for (const task of tasks) {
       if (task.loanId !== loan.id) continue;
-      const next = await this.tasks.updateTask(task.id, (current) => ({
-        task: this.applyLoanToTask(current, loan)
-      }));
+      const next = await this.tasks.updateTask(task.id, (current) => {
+        const event = actor && moved ? this.loanEditHistory(task.id, actor, changed!, at) : undefined;
+        return { task: this.applyLoanToTask(current, loan), ...(event ? { event } : {}) };
+      });
       if (next) {
         this.events.broadcast({ type: "task.changed", payload: next });
       }

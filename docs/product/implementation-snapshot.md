@@ -40,8 +40,9 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `GET /api/loans` (list; `?q=` fuzzy search for the create-form typeahead)
   - `POST /api/loans` (create; dedupes by canonical link / normalized name)
   - `GET /api/loans/:loanId`
-  - `PATCH /api/loans/:loanId` (edit name/link; propagates to linked tasks;
-    auto-merges on a shared Humperdink link)
+  - `PATCH /api/loans/:loanId` (edit name/link; propagates to every linked task;
+    **409** if the new link is already on another loan, naming it — merging two
+    loans is refused here rather than done, and nothing is written, #262)
 - Tasks:
   - `GET /api/tasks`
   - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or
@@ -77,6 +78,12 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     leaves this clause of ADR-0006 standing — non-closed statuses only, and
     rejected outright on an `OOO` task. DMs the assignee when there is one; no
     channel post. **There is no route that accepts a `dueAt`.**
+  - `POST /api/tasks/:taskId/folder-name` — amend an **`OOO`** task's vacation
+    description. Body `{ folderName }`. Creator only, non-closed statuses only,
+    silent, in history with both values. Refused on every other type: their
+    folder name is the loan's name and is edited through
+    `PATCH /api/loans/:loanId` so the correction reaches every task on that loan
+    (#262, ADR-0008 rule 7).
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)
   - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
     without reopening it — creator/assignee; the card's "Add a note"

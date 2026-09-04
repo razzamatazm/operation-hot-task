@@ -421,6 +421,29 @@ h1, h2, h3, h4 {
   line-height: 1.35;
 }
 
+/* The two loan fields, paired in edit mode only (#262, ADR-0008 rule 7). They
+   sit side by side so the one muted line beneath can cover both without being
+   half a form away from either. Its own grid rather than the form's, because
+   the form's four columns would strand the pair at a third of the width. */
+.task-form-loan {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* "Saving this changes it everywhere." Muted prose in the same register as
+   .task-form-locked, deliberately: nothing has gone wrong, and this is not a
+   warning to be dismissed. It appears only once a value has actually moved, and
+   it is a line of text under the fields — never a dialog, a banner or a toast.
+   Spans the pair because it is one sentence about both of them. */
+.task-form-shared-loan {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
 /* FRAUD outstanding-items seeder on the create form (#69). A non-label field so
    the heading never steals focus to one of the remove buttons; mirrors the
    label heading style and reuses the card checklist's add row. */

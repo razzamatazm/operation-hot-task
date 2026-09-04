@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-/* Issue #260 / ADR-0008 rule 4 — `Edit Task` opens the create form in edit
- * mode, and saves one field.
+/* Issues #260 and #262 / ADR-0008 rules 4 and 7 — `Edit Task` opens the create
+ * form in edit mode, and saves the request field, the folder name and the
+ * Humperdink link.
  *
  * Two halves, because the ticket makes two different kinds of promise.
  *
@@ -17,9 +18,17 @@
  * and renders it through `react-dom/server`, the way the terms section is
  * tested in `loi-terms-section-sim-test.mjs`.
  *
- * Two source checks at the end cover what neither half can: the hamburger is
- * the only door (`Edit Task` in the menu), and the old `Edit request` button is
- * gone from the terms head and the conversation head alike.
+ * Source checks at the end cover what neither half can: the hamburger is the
+ * only door (`Edit Task` in the menu), the old `Edit request` button is gone
+ * from the terms head and the conversation head alike, each field lands on the
+ * record that owns it, and a link edit that would fold two loans together is
+ * refused by the server rather than merged.
+ *
+ * One thing this file cannot do: type into the form. There is no DOM harness
+ * here, and the form seeds itself from the task, so its first paint is always
+ * the unchanged one. WHEN the shared-record line appears is therefore tested as
+ * the pure predicate `touchesSharedLoan`, and what the form does with that
+ * answer is read out of the source.
  *
  * Run: `node --test scripts/edit-task-form-sim-test.mjs`. */
 import assert from "node:assert/strict";
@@ -38,7 +47,8 @@ import {
   editFormValues,
   editRefusal,
   initialCreateForm,
-  taskEdit
+  taskEdit,
+  touchesSharedLoan
 } from "../apps/web/src/create-form-state.ts";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
@@ -49,6 +59,19 @@ const loiTask = (over = {}) => ({
   id: "task-1",
   taskType: "LOI",
   notes: TERMS,
+  loanId: "loan-1",
+  folderName: "Whitfield 4471",
+  humperdinkLink: "https://h.example/whitfield-4471",
+  ...over
+});
+
+/* An out-of-office task: no loan, so its folder name is a vacation description
+   that lives on the task, and there is no Humperdink link at all. */
+const oooTask = (over = {}) => ({
+  id: "task-ooo",
+  taskType: "OOO",
+  notes: "back on the 4th",
+  folderName: "Two weeks in Lisbon",
   ...over
 });
 
@@ -68,16 +91,35 @@ test("edit mode preloads the equivalent field on the other five types", () => {
   }
 });
 
-/* This ticket deliberately carries one editable field. Urgency, points and the
-   loan fields are later tickets, so edit mode opens with the blank form's
-   values for them and never renders them — nothing in the form can move them,
-   and `taskEdit` below refuses to send them even if something did. */
+/* The loan fields open preloaded too (#262), read off the task — the server
+   pushes the loan's current name and link onto every linked task, so the task
+   already IS the loan's copy and nothing has to be looked up. */
+test("edit mode opens preloaded with the loan's name and link", () => {
+  const values = editFormValues(loiTask());
+  assert.equal(values.folderName, "Whitfield 4471");
+  assert.equal(values.humperdinkLink, "https://h.example/whitfield-4471");
+});
+
+test("an OOO task preloads its vacation description and no link", () => {
+  const values = editFormValues(oooTask());
+  assert.equal(values.folderName, "Two weeks in Lisbon");
+  assert.equal(values.humperdinkLink, "");
+});
+
+test("a loan with no link yet opens with an empty link box, not undefined", () => {
+  const values = editFormValues(loiTask({ humperdinkLink: undefined }));
+  assert.equal(values.humperdinkLink, "");
+});
+
+/* Urgency, points and the OOO dates are still later tickets, so edit mode opens
+   with the blank form's values for them and never renders them — nothing in the
+   form can move them, and `taskEdit` below refuses to send them even if
+   something did. */
 test("edit mode carries no other field into the form", () => {
   const values = editFormValues(loiTask());
-  assert.equal(values.folderName, BLANK_CREATE_FORM.folderName);
-  assert.equal(values.humperdinkLink, BLANK_CREATE_FORM.humperdinkLink);
   assert.equal(values.points, BLANK_CREATE_FORM.points);
   assert.equal(values.urgency, BLANK_CREATE_FORM.urgency);
+  assert.equal(values.loanId, BLANK_CREATE_FORM.loanId);
   assert.equal(values.recipientUserId, BLANK_CREATE_FORM.recipientUserId);
   assert.deepEqual(values.initialItems, []);
 });
@@ -123,13 +165,35 @@ test("an emptied request field is refused rather than saved", () => {
 test("wiping the request field to whitespace is refused with a reason", () => {
   for (const wiped of [" ", "   ", "\n", " \n\t "]) {
     const refusal = editRefusal({ ...editFormValues(loiTask()), notes: wiped });
-    assert.equal(typeof refusal, "string", `"${wiped}" should be refused`);
-    assert.ok(refusal.length > 0);
+    assert.equal(refusal?.field, "notes", `"${wiped}" should be refused, on the request box`);
+    assert.ok(refusal.message.length > 0);
   }
 });
 
 test("a box emptied outright is refused the same way", () => {
-  assert.equal(typeof editRefusal({ ...editFormValues(loiTask()), notes: "" }), "string");
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "" })?.field, "notes");
+});
+
+/* #262: the folder name is the loan's name on every task pointing at it, so a
+   blank one is a mistake rather than an instruction — refused like the terms,
+   and named separately so the message lands on the box it is about. */
+test("wiping the folder name is refused too, and says so on that box", () => {
+  for (const wiped of ["", " ", "  \n "]) {
+    const refusal = editRefusal({ ...editFormValues(loiTask()), folderName: wiped });
+    assert.equal(refusal?.field, "folderName", `"${wiped}" should be refused, on the folder name`);
+    assert.ok(refusal.message.length > 0);
+  }
+});
+
+/* The link is optional. Clearing it is a real edit, not a mistake. */
+test("clearing the Humperdink link is never refused", () => {
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), humperdinkLink: "" }), null);
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), humperdinkLink: "   " }), null);
+});
+
+test("an OOO task's description is refused when wiped, like any folder name", () => {
+  assert.equal(editRefusal({ ...editFormValues(oooTask()), folderName: " " })?.field, "folderName");
+  assert.equal(editRefusal(editFormValues(oooTask())), null);
 });
 
 test("real terms are not refused, whatever whitespace surrounds them", () => {
@@ -138,8 +202,9 @@ test("real terms are not refused, whatever whitespace surrounds them", () => {
 });
 
 /* The guard against a catch-all update creeping in: even a form whose every
-   other value has moved sends the request field alone. */
-test("only the request field is ever sent, whatever else moved", () => {
+   other value has moved sends only the three fields this form actually offers.
+   Urgency, points, the OOO dates and the task type are not among them. */
+test("only the fields the form offers are ever sent, whatever else moved", () => {
   const task = loiTask();
   const values = {
     ...editFormValues(task),
@@ -154,7 +219,81 @@ test("only the request field is ever sent, whatever else moved", () => {
     recipientUserId: "someone",
     taskType: "FRAUD"
   };
-  assert.deepEqual(taskEdit(task, values), { notes: "Rate: 9.25%" });
+  assert.deepEqual(taskEdit(task, values), {
+    notes: "Rate: 9.25%",
+    folderName: "Some Other Loan",
+    humperdinkLink: "https://example.test/other"
+  });
+});
+
+/* ── What a save sends for the loan fields (#262) ────────── */
+
+test("a corrected folder name is sent on its own", () => {
+  const task = loiTask();
+  const values = { ...editFormValues(task), folderName: "Whitfield 4417" };
+  assert.deepEqual(taskEdit(task, values), { folderName: "Whitfield 4417" });
+});
+
+test("a corrected link is sent on its own", () => {
+  const task = loiTask();
+  const values = { ...editFormValues(task), humperdinkLink: "https://h.example/whitfield-4417" };
+  assert.deepEqual(taskEdit(task, values), { humperdinkLink: "https://h.example/whitfield-4417" });
+});
+
+test("unchanged loan fields send nothing, whitespace included", () => {
+  const task = loiTask();
+  const values = { ...editFormValues(task), folderName: "  Whitfield 4471 ", humperdinkLink: " https://h.example/whitfield-4471 " };
+  assert.deepEqual(taskEdit(task, values), {});
+});
+
+/* The folder name is the loan's name on every task pointing at it, so an
+   emptied box is a mistake rather than an instruction. The link is optional, so
+   clearing it is a real edit and does go. */
+test("an emptied folder name is refused, an emptied link is a real edit", () => {
+  const task = loiTask();
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), folderName: "   " }), {});
+  assert.deepEqual(taskEdit(task, { ...editFormValues(task), humperdinkLink: "" }), { humperdinkLink: "" });
+});
+
+/* An OOO task has no loan, so nothing may ever produce a link for one — a stray
+   value in the form state must not be posted at a Loan record that isn't there. */
+test("an OOO task sends its description and never a link", () => {
+  const task = oooTask();
+  const values = { ...editFormValues(task), folderName: "Three weeks in Lisbon", humperdinkLink: "https://h.example/nope" };
+  assert.deepEqual(taskEdit(task, values), { folderName: "Three weeks in Lisbon" });
+});
+
+/* ── When the shared-record line appears (ADR-0008 rule 7) ─ */
+
+test("the shared-loan line stays away until a value actually moves", () => {
+  const task = loiTask();
+  assert.equal(touchesSharedLoan(task, editFormValues(task)), false, "an untouched form warns about nothing");
+  assert.equal(
+    touchesSharedLoan(task, { ...editFormValues(task), notes: "Rate: 9.25%" }),
+    false,
+    "correcting the terms is not a shared-record edit"
+  );
+  assert.equal(
+    touchesSharedLoan(task, { ...editFormValues(task), folderName: "  Whitfield 4471 " }),
+    false,
+    "and neither is retyping the same name with different whitespace"
+  );
+});
+
+test("the shared-loan line appears for either field, and is one line for both", () => {
+  const task = loiTask();
+  assert.equal(touchesSharedLoan(task, { ...editFormValues(task), folderName: "Whitfield 4417" }), true);
+  assert.equal(touchesSharedLoan(task, { ...editFormValues(task), humperdinkLink: "https://h.example/x" }), true);
+  assert.equal(
+    touchesSharedLoan(task, { ...editFormValues(task), folderName: "Whitfield 4417", humperdinkLink: "https://h.example/x" }),
+    true,
+    "both moving is still the one answer, and the form draws one line from it"
+  );
+});
+
+test("an OOO task never shows it — there is no shared record", () => {
+  const task = oooTask();
+  assert.equal(touchesSharedLoan(task, { ...editFormValues(task), folderName: "Somewhere else entirely" }), false);
 });
 
 /* ── Who is offered the door ────────────────────────────── */
@@ -301,13 +440,11 @@ test("the task type is shown, disabled, with a reason", () => {
   assert.ok(/cancel/i.test(html) && /refile/i.test(html), "and says to cancel and refile");
 });
 
-/* The later tickets' fields (#261–#264). Kept out rather than shown disabled:
+/* The later tickets' fields (#261, #264). Kept out rather than shown disabled:
    a control nobody can move is noise, and the type is disabled only because a
    form that hid it would read as having lost the task's type. */
-test("edit mode carries the request field and nothing else", () => {
+test("edit mode still carries no timing and no poop points", () => {
   const html = editing();
-  assert.ok(!html.includes("Folder Name"));
-  assert.ok(!html.includes("Humperdink"));
   assert.ok(!html.includes("How Bad?"));
   assert.ok(!html.includes("Urgency"));
 });
@@ -325,6 +462,96 @@ test("the checker holding an LOI gets the terms box and no creator-only control"
   assert.ok(html.includes("Loan Amount: $2,340,000"), "with the terms in it");
   assert.ok(!html.includes("Urgency"), "no urgency control");
   assert.ok(!html.includes("How Bad?"), "no poop points control");
+});
+
+/* ── The loan fields in edit mode (#262) ────────────────── */
+
+test("both loan fields are in the form, filled in from the task", () => {
+  const html = editing();
+  assert.ok(html.includes("Folder Name"), "the folder name is editable");
+  assert.ok(html.includes("Humperdink Link"), "and so is the link");
+  assert.ok(html.includes('value="Whitfield 4471"'), "the name is preloaded");
+  assert.ok(html.includes('value="https://h.example/whitfield-4471"'), "and so is the link");
+});
+
+/* The typeahead picks an EXISTING loan to file a NEW task against. On a task
+   that is already filed, typing here renames the loan it is already on, and a
+   suggestion list offering to repoint it elsewhere is a different move wearing
+   this one's clothes. */
+test("edit mode offers a plain box, never the loan typeahead", () => {
+  const html = editing();
+  assert.ok(!html.includes("loan-typeahead"), "no typeahead wrapper");
+  assert.ok(!html.includes('role="combobox"'), "and no combobox");
+  assert.ok(!html.includes("Search existing loans"), "and none of its placeholder");
+});
+
+test("an OOO task edits a vacation description, and has no link field", () => {
+  const html = editing(oooTask());
+  assert.ok(html.includes("Vacation Description"));
+  assert.ok(html.includes('value="Two weeks in Lisbon"'));
+  assert.ok(!html.includes("Humperdink"), "a vacation has no loan and no link");
+});
+
+/* ── The muted shared-record line (ADR-0008 rule 7) ─────── */
+
+const SHARED_LINE = /Saving updates them on every task for this loan/;
+
+test("nothing warns about the shared record until a value has changed", () => {
+  const html = editing();
+  assert.ok(!SHARED_LINE.test(html), "an untouched form says nothing");
+  assert.ok(!html.includes("task-form-shared-loan"), "and draws no line at all");
+});
+
+/* The form is rendered here without a browser, so nobody can type into it and
+   the changed state can't be reached by rendering — the form seeds itself from
+   the task, so its first paint is always the unchanged one. WHEN the line
+   appears is therefore the pure predicate above, exercised exhaustively; what
+   the form does with that answer is read out of the source. Between them:
+   one line for the pair, drawn from `touchesSharedLoan` and from nothing else,
+   with no focus handler anywhere near it. */
+const formSource = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+
+test("the line is drawn from the changed-value predicate, never from focus", () => {
+  assert.match(
+    formSource,
+    /const sharedLoanWarning = editing && edit \? touchesSharedLoan\(edit\.task, form\) : false;/,
+    "the only thing that reveals it is a value having moved"
+  );
+  assert.equal(
+    (formSource.match(/sharedLoanWarning &&/g) ?? []).length,
+    1,
+    "and it is drawn once — one line for the pair, not one per field"
+  );
+  assert.ok(
+    !/onFocus[\s\S]{0,400}sharedLoan/.test(formSource),
+    "no focus handler goes anywhere near it"
+  );
+});
+
+/* Prose under the fields, not a dialog, a banner or a toast — the person is
+   fixing a typo, not opening a negotiation. */
+test("the line is a paragraph inside the form, in its own muted style", () => {
+  assert.match(formSource, /<p className="task-form-shared-loan" aria-hidden="true">\{sharedLoanCopy\}<\/p>/);
+  assert.ok(!/showToast\([^)]*sharedLoanCopy/.test(formSource), "it is never toasted");
+  // Two nodes for one sentence: the visible copy is hidden from a screen
+  // reader, and an always-mounted live region carries it instead.
+  assert.match(formSource, /<p className="sr-only" role="status">\{sharedLoanWarning \? sharedLoanCopy : ""\}<\/p>/);
+  const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
+  assert.match(css, /\.task-form-shared-loan \{[^}]*color: var\(--muted\)/, "muted, through the theme token");
+});
+
+test("the copy says what saving does, in plain words", () => {
+  assert.match(formSource, SHARED_LINE);
+  assert.ok(/every task for this loan, including finished ones/.test(formSource));
+});
+
+/* An OOO task has no shared record, so the whole block — both fields and the
+   line — is absent, and the bare description field is drawn instead. */
+test("an OOO task is never told about a shared record", () => {
+  const html = editing(oooTask());
+  assert.ok(!SHARED_LINE.test(html));
+  assert.ok(!html.includes("task-form-shared-loan"));
+  assert.ok(!html.includes("task-form-loan"), "and gets no paired block at all");
 });
 
 test("the field keeps the label its task type gives it", () => {
@@ -363,16 +590,35 @@ test("the Edit request button is gone from the terms head and the thread head", 
 /* The refusal is only worth anything if the save path asks for it, and asks
    before it can mistake a wiped box for an untouched one and close. */
 test("the save path asks for the refusal before deciding nothing moved", () => {
-  const form = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
-  const save = form.slice(form.indexOf("const handleSave"));
+  const save = formSource.slice(formSource.indexOf("const handleSave"));
   const refusalAt = save.indexOf("editRefusal(");
   const changedAt = save.indexOf("taskEdit(");
   assert.ok(refusalAt >= 0, "handleSave consults editRefusal");
   assert.ok(refusalAt < changedAt, "and does so before working out what moved");
 });
 
+const routes = readFileSync(join(REPO, "apps/server/src/routes.ts"), "utf8");
+
 test("no catch-all update route was introduced", () => {
-  const routes = readFileSync(join(REPO, "apps/server/src/routes.ts"), "utf8");
   assert.ok(!/router\.(patch|put)\("\/tasks/.test(routes), "no PATCH or PUT on a task");
   assert.ok(routes.includes('router.post("/tasks/:taskId/notes"'), "the focused notes route is still the way in");
+  assert.ok(routes.includes('router.post("/tasks/:taskId/folder-name"'), "and the OOO description has its own");
+});
+
+/* Where each field lands (#262, ADR-0008 rule 7). The loan fields go to the
+   LOAN, in one call, so the correction reaches every task on that loan; only an
+   OOO task's description is written on the task itself. */
+test("the loan fields save to the loan record, and OOO's to the task", () => {
+  assert.match(app, /if \(task\.taskType === "OOO"\) \{\s*\n\s*if \(edit\.folderName !== undefined\) await amendApi\.setFolderName/);
+  assert.match(app, /await saveLoanFields\(task\.loanId, \{/, "everything else goes to the loan");
+  assert.match(app, /`\/loans\/\$\{loanId\}`,\s*\n\s*\{\s*\n\s*method: "PATCH"/, "through the existing loan route");
+});
+
+/* A link edit that would fold two loans together is refused rather than done,
+   and the refusal names the other loan (#262). #265 turns it into a confirm. */
+test("a colliding link is refused by the server, not silently merged", () => {
+  const loanService = readFileSync(join(REPO, "apps/server/src/loan-service.ts"), "utf8");
+  assert.match(loanService, /export class LoanLinkCollisionError extends Error/);
+  assert.match(loanService, /if \(collision && !options\.confirmMerge\) \{\s*\n\s*throw new LoanLinkCollisionError/);
+  assert.match(routes, /error instanceof LoanLinkCollisionError[\s\S]{0,120}status\(409\)/, "answered as a 409");
 });

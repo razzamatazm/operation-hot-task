@@ -83,13 +83,18 @@ export const initialCreateForm = (initial?: CreateFormInitialValues): CreateForm
    The task the form edits, as far as this module is concerned. A `LoanTask`
    satisfies it; the narrow shape is what keeps the tests from having to build
    a whole task to ask a question about two fields. */
-export type EditableTask = Pick<LoanTask, "taskType" | "notes">;
+export type EditableTask = Pick<LoanTask, "taskType" | "notes" | "folderName" | "humperdinkLink">;
 
-/* What edit mode opens with. The task's type and its request field, and the
-   blank form's values for everything else — deliberately. Urgency, poop
-   points, the folder name, the Humperdink link and the OOO dates are later
-   tickets (#261–#264); until they land, edit mode neither shows them nor
+/* What edit mode opens with. The task's type, its request field and — since
+   #262 — the two loan fields the row displays, plus the blank form's values for
+   everything else. Urgency, poop points and the OOO dates are still later
+   tickets (#261, #264); until they land, edit mode neither shows them nor
    carries them, so there is nothing half-loaded for a Save to write back.
+
+   The folder name and the link are loaded from the task rather than from the
+   Loan record because the task already carries the loan's current values — the
+   server pushes them onto every linked task on every loan edit (ADR-0001's live
+   reference), so the task IS the loan's copy and reading it needs no lookup.
 
    The type is loaded even though nobody may change it: the form shows it,
    disabled, because "what kind of task am I editing" is the first thing a
@@ -98,19 +103,28 @@ export const editFormValues = (task: EditableTask): CreateFormValues => ({
   ...BLANK_CREATE_FORM,
   initialItems: [],
   taskType: task.taskType,
-  notes: task.notes ?? ""
+  notes: task.notes ?? "",
+  folderName: task.folderName ?? "",
+  humperdinkLink: task.taskType === "OOO" ? "" : task.humperdinkLink ?? ""
 });
 
 /* Everything a Save may change, and nothing else. Optional throughout: an
    absent key means "this did not move", which is what the caller turns into
    "make no request at all".
 
-   One key today. It is an interface rather than a bare string because the
-   later tickets add their fields here, each still going to its own focused
-   route — the shape that must never appear is a single object posted at a
-   catch-all `PATCH /tasks/:id` (ADR-0008 rule 4, inherited from ADR-0006). */
+   Each key still goes to its own focused route — the shape that must never
+   appear is a single object posted at a catch-all `PATCH /tasks/:id` (ADR-0008
+   rule 4, inherited from ADR-0006). The two loan fields are not an exception:
+   they travel together because they land on one record, but that record is the
+   Loan's own `PATCH /loans/:loanId`, not the task's.
+
+   `humperdinkLink` is the one key whose empty string means something. A link is
+   optional, so clearing it is a real edit; the folder name and the request
+   field are both required, and an emptied one is never sent. */
 export interface TaskEdit {
   notes?: string;
+  folderName?: string;
+  humperdinkLink?: string;
 }
 
 /* What actually moved. Compared trimmed on both sides, so re-saving a field
@@ -119,25 +133,73 @@ export interface TaskEdit {
    write it into the task's history with both values, and tell the assignee
    their terms changed.
 
-   An emptied field is a no-change rather than an empty write. Terms are
-   required on edit (ADR-0008 rule 1) — a checked LOI whose terms say nothing
-   is worse than an uncorrected one — and the form blocks the submit, so this
-   is the second lock on the same door rather than the message a person sees. */
+   An emptied *required* field is a no-change rather than an empty write. Terms
+   are required on edit (ADR-0008 rule 1) — a checked LOI whose terms say
+   nothing is worse than an uncorrected one — and so is the folder name, which
+   is the loan's name on every task that points at it. The form blocks both
+   submits, so this is the second lock on the same door rather than the message
+   a person sees. A cleared Humperdink link is a genuine edit and does go. */
 export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit => {
+  const edit: TaskEdit = {};
+
   const notes = values.notes.trim();
-  if (!notes || notes === (task.notes ?? "").trim()) return {};
-  return { notes };
+  if (notes && notes !== (task.notes ?? "").trim()) edit.notes = notes;
+
+  const folderName = values.folderName.trim();
+  if (folderName && folderName !== (task.folderName ?? "").trim()) edit.folderName = folderName;
+
+  /* An OOO task has no loan and no link field on the form, so nothing here may
+     ever produce one for it — a stray value in the state would otherwise be
+     posted at a Loan record that doesn't exist. */
+  if (task.taskType !== "OOO") {
+    const humperdinkLink = values.humperdinkLink.trim();
+    if (humperdinkLink !== (task.humperdinkLink ?? "").trim()) edit.humperdinkLink = humperdinkLink;
+  }
+
+  return edit;
 };
 
-/* Why a Save can't go through, or `null` when it can.
+/* Is the form about to rewrite the loan record everyone else is reading?
+
+   The one thing the muted warning line is allowed to key off (#262, ADR-0008
+   rule 7). It asks the same trimmed question `taskEdit` asks, so the line
+   cannot appear over an edit that would send nothing, and it says nothing about
+   focus: clicking a field to read it warns about nothing.
+
+   False on OOO throughout — a vacation description is the creator's own words
+   on their own task, and there is no shared record to warn about. */
+export const touchesSharedLoan = (task: EditableTask, values: CreateFormValues): boolean => {
+  if (task.taskType === "OOO") return false;
+  const { folderName, humperdinkLink } = taskEdit(task, values);
+  return folderName !== undefined || humperdinkLink !== undefined;
+};
+
+/* Why a Save can't go through and which box is at fault, or `null` when it can.
 
    The browser's own `required` catches a box a person emptied completely, but
    a single space satisfies it. Without this, `taskEdit` reads a wiped field as
    "nothing moved", the form closes, and the person walks away believing they
    cleared the terms when nothing was saved and nothing said so. Worded like the
-   browser's own message, because the form shows it in the same place. */
-export const editRefusal = (values: CreateFormValues): string | null =>
-  values.notes.trim() ? null : "Please fill this in — spaces alone don't count.";
+   browser's own message, because the form shows it in the same place.
+
+   Two required boxes since #262: the request field, and the folder name — which
+   is the loan's name on every task pointing at it, so a blank one is a mistake
+   rather than an instruction. The field is named because the message is shown on
+   the box it is about, and a refusal about the folder name hung on the terms is
+   worse than no refusal at all. The Humperdink link is optional and is never
+   refused; clearing it is a real edit. */
+export interface EditRefusal {
+  field: "notes" | "folderName";
+  message: string;
+}
+
+const WIPED = "Please fill this in — spaces alone don't count.";
+
+export const editRefusal = (values: CreateFormValues): EditRefusal | null => {
+  if (!values.notes.trim()) return { field: "notes", message: WIPED };
+  if (!values.folderName.trim()) return { field: "folderName", message: WIPED };
+  return null;
+};
 
 /* The note text an import writes, and the one the last import wrote.
 
