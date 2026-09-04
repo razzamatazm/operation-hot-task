@@ -151,10 +151,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      own block rather than stacking a second copy of the terms under the first.
      Whatever the filer typed around it is theirs and survives either way. */
   const [importedNote, setImportedNote] = useState("");
-  /* Ties the disabled type select to the sentence explaining why it's disabled.
+  /* Ties the locked type chip to the sentence explaining why it's locked.
      Described-by rather than inside the <label>, so the reason is announced
      after the field's name instead of becoming part of it. */
   const typeLockedId = useId();
+  /* Whether that sentence is showing. It is a popover on the chip rather than a
+     line under the row: it answers a question nobody has until they reach for
+     the control, and a permanent line spends a row of the form saying so to
+     everybody who never did. Hover reveals it too, in CSS — this flag is the
+     click and keyboard path, which is the one a touch screen has. */
+  const [typeNoteOpen, setTypeNoteOpen] = useState(false);
   /* The same trick for the loan pair's refusal (#266). One id for both boxes:
      it is one sentence about both of them, exactly like the muted shared-record
      line it stands in for. */
@@ -578,14 +584,45 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
               a disabled select — a select that cannot be opened still invites
               the click, and the row beside it is three live controls, so the one
               dead one should not be wearing their clothes. The reason and the
-              way out sit under the row. */}
+              way out are a popover on the chip, not a line under the row — see
+              below. */}
           {editing ? (
-            <div className="task-form-field">
+            <div className="task-form-field task-form-type-field">
               <span className="task-form-field-head">Type</span>
-              <div className="task-form-type-locked" aria-describedby={typeLockedId}>
+              {/* A button, though it changes nothing: the chip sits where a
+                  control sits and people reach for it, so the reach has to land
+                  somewhere. It lands on the explanation. Keyboard-reachable for
+                  the same reason a hover-only affordance is no affordance. */}
+              <button
+                type="button"
+                className="task-form-type-locked"
+                aria-describedby={typeLockedId}
+                aria-expanded={typeNoteOpen}
+                onClick={() => setTypeNoteOpen((open) => !open)}
+                onBlur={() => setTypeNoteOpen(false)}
+                onKeyDown={(e) => {
+                  /* Escape shuts the popover and nothing else. Without the stop
+                     it reaches the overlay's handler, which closes the whole
+                     form and takes the draft with it. */
+                  if (e.key === "Escape" && typeNoteOpen) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setTypeNoteOpen(false);
+                  }
+                }}
+              >
                 <LockIcon />
                 {TASK_TYPE_LABELS[form.taskType]}
-              </div>
+              </button>
+              {/* Always mounted, shown by hover, focus or a click. Mounted
+                  rather than conditional because `aria-describedby` above has to
+                  resolve to something at all times — an explanation that exists
+                  only while a pointer is over it is an explanation a screen
+                  reader never gets. Absolutely positioned, so revealing it moves
+                  nothing on the form. */}
+              <p id={typeLockedId} className={`task-form-type-note${typeNoteOpen ? " task-form-type-note-open" : ""}`}>
+                A task&rsquo;s type can&rsquo;t be changed. If this one is wrong, cancel and refile it.
+              </p>
             </div>
           ) : (
             <label>
@@ -685,11 +722,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             </label>
           )}
         </div>
-        {editing && (
-          <p id={typeLockedId} className="span-full task-form-locked">
-            A task&rsquo;s type can&rsquo;t be changed. If this one is wrong, cancel and refile it.
-          </p>
-        )}
         {/* Two nodes for one sentence, on purpose. A live region only announces
             changes made INSIDE it, so one that appears with its text already in
             place is usually read out by nobody — and this warning is the whole

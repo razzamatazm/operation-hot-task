@@ -454,26 +454,83 @@ h1, h2, h3, h4 {
 /* The task type in edit mode (#260, ADR-0008 rule 4): shown, padlocked, and not
    a control. A disabled select still invites the click and still wears the
    clothes of the three live controls beside it; a chip says "this is what it
-   is" and lets the line beneath say why. Dashed border, recessed fill — the
-   same "you can read this, you can't change it" language as a read-only box. */
+   is" and hands the explanation to the popover below. Dashed border, recessed
+   fill — the same "you can read this, you can't change it" language as a
+   read-only box.
+
+   It IS a <button>, so it takes the fill through --btn-bg the way every button
+   in this app does (never a `background` on :hover — see the Buttons section of
+   apps/web/CLAUDE.md). Same value on both tokens: pressing it changes nothing
+   about the task, so it gets no pressed-looking affordance, only the popover.
+   `cursor: help` rather than `pointer` for the same reason. */
+.task-form-type-field {
+  position: relative;
+}
 .task-form-type-locked {
+  --btn-bg: var(--bg-soft);
+  --btn-bg-hover: var(--bg-soft);
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 7px;
+  width: 100%;
   min-height: 34px;
   padding: 7px 9px;
   border: 1px dashed var(--line);
   border-radius: 5px;
-  background: var(--bg-soft);
   color: var(--ink);
   font-size: 0.85rem;
   font-weight: 600;
+  text-align: left;
   text-transform: none;
   letter-spacing: 0;
+  cursor: help;
 }
 .task-form-type-locked svg {
   flex: none;
   color: var(--muted);
+}
+
+/* Why the chip is locked, revealed on hover, focus or a click. A popover rather
+   than a line under the row: it answers a question nobody has until they reach
+   for the control, and a permanent line spends a row of the form telling
+   everybody who never did.
+
+   Always in the DOM — `aria-describedby` on the chip has to resolve to
+   something at all times, and `display: none` would take it out of the
+   accessibility tree. Hidden by `visibility` instead, which keeps it out of the
+   pointer's way and out of the tab order while leaving it readable to a screen
+   reader. Absolutely positioned, so revealing it moves nothing on the form. */
+.task-form-type-note {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  /* Wider than its column — the sentence is two lines at the chip's width and
+     the column is one of four. Clamped so it can't run off a narrow panel. */
+  width: max(100%, 230px);
+  max-width: min(320px, 78vw);
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+  color: var(--ink-secondary);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+}
+.task-form-type-locked:hover + .task-form-type-note,
+.task-form-type-locked:focus-visible + .task-form-type-note,
+.task-form-type-note-open {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Muted "(optional)" hint inside a form label (issue #46). */
@@ -564,13 +621,14 @@ h1, h2, h3, h4 {
   line-height: 1.35;
 }
 
-/* Why the task type is greyed out in edit mode (#260, ADR-0008 rule 4). Muted
-   prose sitting directly under the disabled select, not a warning: nothing has
-   gone wrong, the form is answering the question a disabled control provokes.
-   The negative top margin pulls it up under the select it explains, out of the
-   form grid's row gap. */
+/* The register a "you can't move this, and here's why" sentence is written in:
+   muted prose, not a warning, because nothing has gone wrong — the form is
+   answering the question a shut control provokes. It began under the locked
+   type select (#260, ADR-0008 rule 4), which is now a chip with its own
+   popover; today the loan refusal in the footer is what wears it. No margin of
+   its own: both places that use it are laid out by their container. */
 .task-form-locked {
-  margin: -8px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
@@ -592,10 +650,10 @@ h1, h2, h3, h4 {
 
 /* Why the two loan boxes are read-only, for anyone who is not a party to this
    task (#266, ADR-0008 rule 5). Takes .task-form-locked's muted register and
-   drops its negative top margin, which exists to tuck the type note under the
-   row above it — this one sits in the footer's own flex line. */
+   adds only what the footer's flex line needs: permission to wrap rather than
+   push the buttons off the end. */
 .task-form-loan-locked {
-  margin: 0;
+  min-width: 0;
 }
 
 /* A read-only box should not look like an empty one waiting for typing. Same

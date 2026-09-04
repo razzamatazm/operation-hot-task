@@ -822,6 +822,24 @@ Humperdink copies a term sheet, and an LOI Check is the only type whose request
 field is one — on the other five the paste box and its button took a paste
 nobody has. Not disabled and not left to fail on the parse: not drawn.
 
+**The locked type's popover** (`.task-form-type-note`) is revealed by hover,
+`:focus-visible` and a click, and three things keep it honest:
+
+- **Always in the DOM.** The chip's `aria-describedby` has to resolve at all
+  times; an explanation only a pointer can reach is not one.
+- **Hidden by `visibility`, never `display: none`**, which would take it out of
+  the accessibility tree along with the layout — the same reasoning as
+  `.sr-only` above.
+- **Out of flow** (`position: absolute`), so revealing it moves nothing.
+
+The chip is a real `<button>`: hover is no affordance on a touch screen, and it
+sits where a control sits, so people press it and the press has to land
+somewhere. Being a button, it takes its fill through `--btn-bg` like every other
+button here, with the same value on both tokens — pressing it changes nothing
+about the task, so it gets no pressed-looking affordance. It swallows Escape
+while the popover is open; unstopped, Escape reaches the overlay's handler and
+closes the whole form, taking the draft with it.
+
 **Every control in the top row is told to fill its column**, and to be allowed
 to shrink below its natural width. Both halves matter and neither is the
 default: a `<select>`'s natural width is its *longest option* (which is what put
@@ -849,13 +867,15 @@ Edit mode differs in eight ways and no others:
   task** (`creatorOnlyFields`) — see above; everyone else who may edit is a
   checker correcting terms, and neither control is theirs to move,
 - the task type is a **padlocked chip** (`.task-form-type-locked`) where the
-  select sits while filing, with a muted `.task-form-locked` line beneath the
-  row saying it can't change and to cancel and refile. Shown rather than
+  select sits while filing, and the reason it can't change is a **popover on the
+  chip** (`.task-form-type-note`), not a line under the row. Shown rather than
   hidden: a form that dropped the type would read as one that lost track of what
   it is editing. A chip rather than a disabled `<select>`: a select that won't
   open still invites the click and still wears the clothes of the three live
-  controls beside it in that row. The chip is not a form control, so the
-  sentence reaches a screen reader by `aria-describedby` on the chip itself,
+  controls beside it in that row. The popover rather than a permanent line: it
+  answers a question nobody has until they reach for the control, and a line
+  spends a row of the form telling everybody who never did. Three things make
+  that a reveal and not a hiding place — see below,
 - the folder name loses its typeahead — see below,
 - the request field goes tall (`.task-form-terms`), and on an **LOI** also
   takes the mono face (`.task-form-terms-mono`). That is the one place the

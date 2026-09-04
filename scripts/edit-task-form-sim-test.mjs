@@ -565,22 +565,47 @@ test("the task type is shown, locked, with a reason", () => {
   const html = editing();
   assert.match(html, /class="task-form-type-locked"[^>]*>[\s\S]*?LOI Check/, "the type reads off the chip");
   assert.ok(!/<select[^>]*value="LOI"/.test(html), "and there is no type control to change it with");
-  assert.match(html, /class="[^"]*task-form-locked"/);
   assert.ok(/can(’|')t be changed/.test(html), "the reason says the type can't change");
   assert.ok(/cancel/i.test(html) && /refile/i.test(html), "and says to cancel and refile");
 });
 
-/* The reason is attached to the chip, not merely drawn under it — the chip is
-   not a form control, so `aria-describedby` is the only thing carrying the
-   explanation to somebody who cannot see the padlock. */
-test("the locked type points at the sentence explaining it", () => {
+/* The sentence is a popover on the chip rather than a line under the row: it
+   answers a question nobody has until they reach for the control. Three things
+   have to hold for that to be an improvement rather than a hiding place.
+
+   It is always in the DOM, so `aria-describedby` resolves at all times and the
+   explanation is not something only a pointer can reach. It is hidden by
+   `visibility`, not `display: none`, which would take it out of the
+   accessibility tree along with the layout. And it is positioned out of flow,
+   so revealing it moves nothing on the form. */
+test("the reason is a popover on the chip, and always reachable", () => {
   const html = editing();
   const chip = html.match(/class="task-form-type-locked" aria-describedby="([^"]+)"/);
   assert.ok(chip, "the chip names a description");
   assert.ok(
-    html.includes(`<p id="${chip[1]}" class="span-full task-form-locked">`),
-    "and it is the can't-be-changed line"
+    html.includes(`<p id="${chip[1]}" class="task-form-type-note">`),
+    "and it is the can't-be-changed popover, mounted with the form"
   );
+  assert.ok(!html.includes("span-full task-form-locked"), "no permanent line under the row");
+
+  const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
+  const note = css.match(/\.task-form-type-note \{([^}]*)\}/);
+  assert.ok(note, "the popover has its own rule");
+  assert.match(note[1], /position: absolute/, "out of flow, so revealing it reflows nothing");
+  assert.match(note[1], /visibility: hidden/, "hidden by visibility");
+  assert.ok(!/display: none/.test(note[1]), "never display:none — that takes it out of the a11y tree too");
+  assert.match(css, /\.task-form-type-locked:hover \+ \.task-form-type-note/, "hover reveals it");
+  assert.match(css, /\.task-form-type-locked:focus-visible \+ \.task-form-type-note/, "and so does the keyboard");
+});
+
+/* Hover alone is no affordance on a touch screen, and the chip sits where a
+   control sits, so people press it. The press has to land somewhere. */
+test("the chip is a real button, and Escape closes only the popover", () => {
+  assert.match(editing(), /<button type="button" class="task-form-type-locked"/, "reachable by pointer and keyboard");
+  const chip = formSource.slice(formSource.indexOf('className="task-form-type-locked"'));
+  const escape = chip.slice(0, chip.indexOf("</button>"));
+  assert.match(escape, /e\.key === "Escape"/, "Escape is handled on the chip");
+  assert.match(escape, /e\.stopPropagation\(\)/, "and stopped, or the overlay closes the form and eats the draft");
 });
 
 /* What edit mode draws. Anything a viewer may not move is kept out rather than
