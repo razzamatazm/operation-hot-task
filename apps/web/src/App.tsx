@@ -4087,7 +4087,10 @@ export const App = () => {
           ? { humperdinkLink: link && !/^https?:\/\//i.test(link) ? `https://${link}` : link }
           : {})
       });
-      await refresh();
+      /* The task list is refetched by the caller, once for the whole save
+         (#261) — refetching it here as well would fetch it twice for any save
+         that touched the loan fields. The loan list is this step's own and has
+         no other refresher. */
       await loadLoans();
     } catch (err) {
       /* A declined merge is not a failure — nothing was sent — so it gets no
@@ -4098,7 +4101,7 @@ export const App = () => {
       }
       throw err;
     }
-  }, [patchLoan, refresh, loadLoans, showToast]);
+  }, [patchLoan, loadLoans, showToast]);
 
   /* Open the edit form (#260). `useCallback` because every card holds this and
      a fresh literal per render would defeat TaskCard's memo across the list. */

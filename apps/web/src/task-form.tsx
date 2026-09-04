@@ -692,30 +692,30 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             click-to-rate track — two paths to one number, deliberately
             (ADR-0008 rule 4). */}
         {creatorOnlyFields && (
-        <label>
-          How Bad?
-          <span
-            className="poop-picker poop-picker-form"
-            onMouseLeave={() => setNamvarHover(null)}
-          >
-            {[1, 2, 3, 4, 5].map((n) => {
-              const active = n <= (namvarHover ?? form.points);
-              return (
-                <button
-                  key={n}
-                  type="button"
-                  className={`poop-pick${active ? " poop-pick-on" : ""}`}
-                  onMouseEnter={() => setNamvarHover(n)}
-                  onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
-                  aria-label={`${n} poop${n === 1 ? "" : "s"}`}
-                  aria-pressed={n <= form.points}
-                >
-                  💩
-                </button>
-              );
-            })}
-          </span>
-        </label>
+          <label>
+            How Bad?
+            <span
+              className="poop-picker poop-picker-form"
+              onMouseLeave={() => setNamvarHover(null)}
+            >
+              {[1, 2, 3, 4, 5].map((n) => {
+                const active = n <= (namvarHover ?? form.points);
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`poop-pick${active ? " poop-pick-on" : ""}`}
+                    onMouseEnter={() => setNamvarHover(n)}
+                    onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
+                    aria-label={`${n} poop${n === 1 ? "" : "s"}`}
+                    aria-pressed={n <= form.points}
+                  >
+                    💩
+                  </button>
+                );
+              })}
+            </span>
+          </label>
         )}
         {/* Two nodes for one sentence, on purpose. A live region only announces
             changes made INSIDE it, so one that appears with its text already in
