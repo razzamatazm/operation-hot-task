@@ -790,6 +790,14 @@ new task is the default; passing an `edit` prop turns it into the edit mode
 `Edit Task` opens (#260, ADR-0008 rule 4). Two surfaces that write the same
 fields are two surfaces that drift, so there is deliberately no second form.
 
+**Who is offered the door** is shared `canAmendTask`, never a local check —
+the creator of an active task on any type, plus the assignee of an LOI, whose
+request field holds the loan's terms (ADR-0008 rule 5, #263). Urgency and poop
+points stay the creator's on every type; the form carries neither today, which
+is why one predicate can gate the whole door. When they join it (#261) they
+bring their own gating rather than widening this one, because the app must
+never draw a control the server would refuse.
+
 Edit mode differs in four ways and no others:
 
 - it opens preloaded from the task (`editFormValues` in

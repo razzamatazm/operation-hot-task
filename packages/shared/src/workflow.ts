@@ -1,6 +1,7 @@
 import { submitBlockReason } from "./checklist.js";
 import { ACTION_LABELS } from "./labels.js";
-import { AppConfig, CLOSED_STATUSES, isSystemActor, LoanTask, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
+import { isTaskParty } from "./parties.js";
+import { AppConfig, CLOSED_STATUSES, isSystemActor, LoanTask, requestFieldNoun, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -773,35 +774,76 @@ export const returnToPoolRefusal = (task: LoanTask, user: UserIdentity): string 
 export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean =>
   returnToPoolRefusal(task, user) === undefined;
 
-/* Amending the ask (ADR-0006): correcting a task's notes, or its urgency, after
-   it was filed. Two rules, and the refusal names whichever one refused, because
-   "you can't do that" tells the creator of a cancelled task nothing.
+/* Which field an amendment is about. A closed set rather than a free string,
+   because the answer to "who may?" is now *per field* and a caller that could
+   invent a field name could invent one nobody has a rule for. */
+export type AmendableField = "notes" | "urgency";
 
-   The creator's alone — the ask is theirs. The assignee is often the person who
-   *discovers* the urgency is wrong and they have the notes thread to say so;
-   ADMIN confers nothing, per ADR-0003. And a closed task is a record, not an
-   ask, so the freeze is the same one the checklist has. `field` only ever names
-   the field in the sentence.
+/* Amending the ask (ADR-0006, widened by ADR-0008 rule 5): correcting a task's
+   request field, or its urgency, after it was filed. The refusal names whichever
+   rule refused, because "you can't do that" tells the creator of a cancelled
+   task nothing.
+
+   Two different owners, and which one applies is the whole reason `field` is
+   here:
+
+   **Urgency is the creator's, on every type.** It sets the deadline, the
+   assignee is the person under it, and an assignee who can extend their own
+   deadline is not accepting a deal — it also destroys the only signal that a
+   task ran long. This is the one clause of ADR-0006 that ADR-0008 leaves
+   standing, and it is not a formality: a checker who thinks the timing is wrong
+   says so in the thread.
+
+   **The request field is the creator's too, except on an LOI.** On five types
+   it holds the creator's own words about their own situation and there is
+   nothing in it for a second person to verify. On an LOI it holds the loan's
+   *terms* — facts the checker is checking against — and the checker is the
+   person reading them closely enough to notice a transposed digit. So either
+   party may correct them, and the sentence calls the field what the app calls
+   it there.
+
+   Both rules stop at the two parties. An observer, a file checker who has not
+   claimed the task and an admin are all outside it; back-end access confers
+   nothing over other people's work (ADR-0003).
+
+   **A closed task is a record, not an ask**, so the freeze applies to everyone,
+   parties included (ADR-0008 rule 6). Reopening is the route to a genuine late
+   correction. The gate is the shared CLOSED_STATUSES, so `AWAITING_ITEMS` — a
+   check parked on its requester, and the ask most likely to need correcting —
+   stays amendable.
 
    Lives here rather than in the service because the web gates its edit
    affordance on exactly this question, and two copies of a permission rule is
    what shipped #116's family of bugs. */
 export const amendRefusal = (
-  task: Pick<LoanTask, "createdBy" | "status">,
+  task: Pick<LoanTask, "createdBy" | "assignee" | "status" | "taskType">,
   user: Pick<UserIdentity, "id">,
-  field: string
+  field: AmendableField
 ): string | undefined => {
-  if (task.createdBy.id !== user.id) {
-    return `Only the task creator can change its ${field}`;
+  const isTerms = field === "notes" && task.taskType === "LOI";
+  const fieldName = field === "notes" ? requestFieldNoun(task.taskType) : field;
+
+  if (isTerms) {
+    if (!isTaskParty(task, user)) {
+      return "Only the person who filed this LOI or the checker holding it can change its terms";
+    }
+  } else if (task.createdBy.id !== user.id) {
+    return `Only the task creator can change its ${fieldName}`;
   }
+
   if (CLOSED_STATUSES.includes(task.status)) {
-    return `The ${field} cannot be changed on a closed task`;
+    return `The ${fieldName} cannot be changed on a closed task`;
   }
   return undefined;
 };
 
+/* May this person open `Edit Task` at all? Asked of the request field, because
+   that is the only field the edit form carries today — and it is the widest of
+   the two rules, so anyone the form would have something for gets in. Urgency
+   and poop points join the form in #261 and bring their own gating with them;
+   this predicate answers the door, not what is behind it. */
 export const canAmendTask = (
-  task: Pick<LoanTask, "createdBy" | "status">,
+  task: Pick<LoanTask, "createdBy" | "assignee" | "status" | "taskType">,
   user: Pick<UserIdentity, "id">
 ): boolean => amendRefusal(task, user, "notes") === undefined;
 

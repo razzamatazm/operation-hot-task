@@ -2216,10 +2216,17 @@ const TaskCard = memo(({
      expanded body is gone.
 
      Gated on the shared predicate the server's own refusal is written from, so
-     a row can't offer an edit the server would turn away: the creator, on a
-     task that isn't closed. A closed task is a record rather than an ask, and
-     re-opening is the route to a genuine late correction (ADR-0008 rule 6).
-     Widening this to both parties is #263, not this ticket.
+     a row can't offer an edit the server would turn away. Since #263 that is
+     the creator on any type, plus the checker holding an LOI — its terms are
+     facts they are verifying, and they are the person who spots a wrong one
+     (ADR-0008 rule 5). Never an observer, an unclaimed file checker or an
+     admin. A closed task is a record rather than an ask, and re-opening is the
+     route to a genuine late correction (ADR-0008 rule 6).
+
+     The form behind the door carries the request field alone today, which is
+     exactly the field this predicate asks about. Urgency and poop points join
+     it in #261 and stay the creator's, so that ticket gates them individually
+     rather than widening this.
 
      First in the panel, above the status ladder. It is not a move through the
      workflow — it changes what the task says, not where it is — and the thing

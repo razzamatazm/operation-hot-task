@@ -3,19 +3,31 @@
 ## Amending a task after it is filed
 
 A task's **creator** may correct the ask while the task is **active** — its
-notes, and (on a non-OOO task) its urgency. Nobody else may, at any status:
-not the assignee, who has the notes thread for "this needs longer", and not an
+request field, and (on a non-OOO task) its urgency. On an **LOI Check** the
+request field holds the loan's terms, and the **current assignee** may correct
+those too: they are facts the checker is checking against, and the checker is
+the person reading them closely enough to notice a wrong figure.
+
+Editing stops at the task's two parties, its creator and whoever currently holds
+it. Not an observer, not a file checker who has not claimed the task, and not an
 admin, whose back-end access confers nothing over other people's work. Closed
-tasks — `COMPLETED`, `CANCELLED`, `ARCHIVED` — are frozen; every other status is
-amendable, `AWAITING_ITEMS` included (a check parked on its requester is
-waiting, not finished). The rule is
-[ADR-0006](../adr/0006-amend-task-ask.md), and one shared predicate
-(`canAmendTask` / `amendRefusal`) answers it for the server and the web alike.
+tasks — `COMPLETED`, `CANCELLED`, `ARCHIVED` — are frozen for everyone,
+parties included; every other status is amendable, `AWAITING_ITEMS` and
+`NEEDS_REVIEW` included (a check parked on its requester, or an LOI in
+corrections, is waiting rather than finished — and on an LOI in corrections the
+checker is still the assignee).
+
+The rule is [ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md)
+rules 5 and 6, superseding [ADR-0006](../adr/0006-amend-task-ask.md), and one
+shared predicate (`canAmendTask` / `amendRefusal`) answers it for the server and
+the web alike.
 
 | Field | Amendable | By whom | When |
 |---|---|---|---|
-| Notes | yes | creator | any non-closed status |
+| Terms (`LOI`) | yes | creator **or** current assignee | any non-closed status |
+| Notes (other five types) | yes | creator | any non-closed status |
 | Urgency | yes, except on `OOO` | creator | any non-closed status |
+| Poop points | yes | creator | while the task is active (not `AWAITING_ITEMS`) |
 | Due date | **never directly** — derived from urgency | — | — |
 | Task type, linked loan, creator, assignee, OOO dates | no | — | — |
 
@@ -30,6 +42,14 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
 - **`OOO` urgency is refused.** An OOO task's `dueAt` is the person's return
   date and the maintenance pass auto-completes on it, so it is a scheduled
   action rather than a deadline. Its notes are still amendable.
+- **The request field cannot be emptied.** On an LOI that is ADR-0008 rule 1 —
+  a checked LOI that says nothing about what was checked is worse than one that
+  is slightly wrong.
+- **Refusals name the rule.** "Only the person who filed this LOI or the checker
+  holding it can change its terms", "Only the task creator can change its
+  urgency", "The terms cannot be changed on a closed task" — never a generic
+  denial, and on an LOI the field is called *terms* in the sentence, in the
+  history entry, and in the box.
 - **A no-op is a no-op.** Setting a field to the value it already has writes no
   history event and notifies nobody.
 - **What the other party sees.** Both edits re-render the task's existing DM
@@ -43,13 +63,18 @@ Two focused operations, never a generic patch: `POST /api/tasks/:id/notes` and
   [reminders-retention.md](reminders-retention.md)).
 - **Every applied edit is in the task's history**, with the field and both
   values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED`).
-- **In the web app**, the creator of an active task gets `Edit Task` in the
-  row's hamburger, and that is the only way in (ADR-0008 rule 4) — the old
-  `Edit request` button on the thread head is gone. It opens the same form the
-  task was filed with, preloaded, with the task type shown disabled and a
-  reason, and `Save` in place of `Create Task`. Today it carries the request
-  field alone; urgency, poop points, the loan fields and the OOO dates land on
-  it in later work. A save that changed nothing sends nothing.
+- **In the web app**, whoever may edit an active task gets `Edit Task` in the
+  row's hamburger — its creator, plus the assignee on an LOI — and that is the
+  only way in (ADR-0008 rule 4); the old `Edit request` button on the thread
+  head is gone. The menu item is drawn from the same shared predicate the
+  server's refusal is written from, so no surface offers an edit the server
+  would turn away. It opens the same form the task was filed with, preloaded,
+  with the task type shown disabled and a reason, and `Save` in place of
+  `Create Task`. Today it carries the request field alone — which is exactly the
+  field a non-creator party may write, so a checker is never shown a control
+  they cannot use. Urgency, poop points, the loan fields and the OOO dates land
+  on it in later work and bring their own gating. A save that changed nothing
+  sends nothing.
 
 ## Create Task Fields
 

@@ -66,12 +66,15 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     back in the pool: `OPEN`, unassigned, re-posted to the channel (#208).
   - `POST /api/tasks/:taskId/transition`
   - `POST /api/tasks/:taskId/points`
-  - `POST /api/tasks/:taskId/notes` — amend the task's notes. Body `{ notes }`.
-    Creator only, non-closed statuses only (ADR-0006). Silent: no DM, no channel
-    post; the existing DM cards are re-rendered in place.
+  - `POST /api/tasks/:taskId/notes` — amend the task's request field. Body
+    `{ notes }`. Creator only on five types; on an `LOI`, where the field holds
+    the loan's terms, either party — creator or current assignee (ADR-0008
+    rule 5). Non-closed statuses only, for everyone. Cannot be emptied. Silent:
+    no DM, no channel post; the existing DM cards are re-rendered in place.
   - `POST /api/tasks/:taskId/urgency` — amend the task's urgency. Body
     `{ urgency }`; `dueAt` is re-derived server-side from the new band and the
-    last-reminder stamp is cleared. Creator only, non-closed statuses only, and
+    last-reminder stamp is cleared. Creator only on every type — ADR-0008 rule 5
+    leaves this clause of ADR-0006 standing — non-closed statuses only, and
     rejected outright on an `OOO` task. DMs the assignee when there is one; no
     channel post. **There is no route that accepts a `dueAt`.**
   - `POST /api/tasks/:taskId/review-note` (active tasks only — blocked once closed)

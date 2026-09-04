@@ -18,7 +18,8 @@
  */
 import assert from "node:assert/strict";
 
-import { hasUnreadNoteForViewer, isTaskParty, unreadNoteFor } from "../packages/shared/dist/notes.js";
+import { hasUnreadNoteForViewer, unreadNoteFor } from "../packages/shared/dist/notes.js";
+import { isTaskParty } from "../packages/shared/dist/parties.js";
 
 const CREATOR = { id: "creator-1", displayName: "Dana Requester" };
 const ASSIGNEE = { id: "assignee-1", displayName: "Casey Checker" };

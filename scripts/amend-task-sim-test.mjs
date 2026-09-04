@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /*
- * Issue #160 / ADR-0006 — a task's ask is amendable by its creator, and only
- * its ask.
+ * Issue #160 / ADR-0006, extended by #263 / ADR-0008 rule 5 — a task's ask is
+ * amendable by the people with a stake in it, and only its ask.
+ *
+ * ADR-0006's original rule (creator-only, notes and urgency) is asserted first
+ * and still holds for urgency on every type and for the request field on five
+ * of the six types. The final section covers what ADR-0008 widened: an LOI's
+ * request field is the loan's *terms*, and either party may correct them.
  *
  * Two focused operations, never a generic patch: `updateTaskNotes` and
  * `updateTaskUrgency`. This drives the real TaskService against a real
@@ -11,8 +16,10 @@
  *   - Setting the urgency re-derives `dueAt` through the SHARED computation at
  *     the moment of the edit, and clears the last-reminder stamp so the cadence
  *     restarts against the new deadline.
- *   - Nobody but the creator may amend — assignee, admin and outsider are all
- *     refused, with a message naming the rule. ADMIN confers nothing.
+ *   - Nobody but the creator may amend a non-LOI task — assignee, admin and
+ *     outsider are all refused, with a message naming the rule, and ADMIN
+ *     confers nothing. On an LOI the checker holding it may correct the terms,
+ *     and still nobody else may.
  *   - Closed tasks are frozen; an OOO task's urgency is not amendable at all.
  *   - A no-op edit writes no history and notifies nobody.
  *   - An urgency change DMs the assignee when there is one; a notes change is
@@ -60,14 +67,14 @@ const isoDay = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toIS
 
 /* A plain active task filed by CREATOR. `claimed` puts ASSIGNEE on it, which is
    the only difference the urgency DM cares about. */
-const makeTask = async (service, { taskType = "VALUE", claimed = false, urgency = "GREEN", notes = "original ask" } = {}) => {
+const makeTask = async (service, { taskType = "VALUE", claimed = false, holder = ASSIGNEE, urgency = "GREEN", notes = "original ask" } = {}) => {
   const oooDates = taskType === "OOO" ? { startDate: isoDay(1), returnDate: isoDay(3) } : {};
   const task = await service.createTask(
     { folderName: "Amend Sim", taskType, notes, ...(taskType === "OOO" ? {} : { urgency }), ...oooDates },
     CREATOR
   );
   if (claimed) {
-    await service.claimTask(task.id, ASSIGNEE);
+    await service.claimTask(task.id, holder);
   }
   await service.settleBackgroundWork();
   return task.id;
@@ -345,6 +352,201 @@ await check("neither edit disturbs the thread, checklist, seats or status", asyn
   assert.deepEqual(after.assignee, before.assignee, "the assignee is untouched");
   assert.deepEqual(after.createdBy, before.createdBy, "the creator is untouched");
   assert.equal(after.status, before.status, "the status is untouched");
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   #263 / ADR-0008 rule 5 — whoever holds an LOI may correct its terms.
+
+   ADR-0006's creator-only rule survives in exactly one clause (urgency) and on
+   exactly five task types. On an LOI the request field is the loan's *terms*:
+   facts a second person is verifying, and the checker is the one reading them
+   closely enough to spot a transposed digit. So both parties may correct them,
+   at any open status, and nobody else may — not an observer, not a file checker
+   who has not claimed it, not an admin (ADR-0003).
+
+   Everything below is asked of the real TaskService, because the ADR's promise
+   is about what the server accepts, not about what a form draws.
+   ────────────────────────────────────────────────────────────────────────── */
+
+await check("the checker holding an LOI corrects its terms", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  const updated = await service.updateTaskNotes(id, "Rate: 9.57%", CHECKER);
+  assert.equal(updated.notes, "Rate: 9.57%");
+  assert.equal((await store.findTask(id)).notes, "Rate: 9.57%", "visible on reload");
+});
+
+await check("the creator of an LOI still corrects its terms", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  assert.equal((await service.updateTaskNotes(id, "Rate: 9.57%", CREATOR)).notes, "Rate: 9.57%");
+});
+
+/* Still correctable while the ball is in the creator's court. `NEEDS_REVIEW`
+   moves whose turn it is, not who holds the task — `task.assignee` is
+   unchanged — and a checker who spots the typo that caused the corrections
+   round is exactly the person this rule is for. */
+await check("an LOI in the corrections state is still correctable by both parties", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  await service.transitionStatus(id, "NEEDS_REVIEW", CHECKER, "the rate looks wrong");
+  await service.settleBackgroundWork();
+  assert.equal((await service.getTask(id)).status, "NEEDS_REVIEW");
+
+  assert.equal((await service.updateTaskNotes(id, "Rate: 9.57%", CHECKER)).notes, "Rate: 9.57%");
+  assert.equal((await service.updateTaskNotes(id, "Rate: 9.50%", CREATOR)).notes, "Rate: 9.50%");
+});
+
+await check("nobody outside the two parties may touch an LOI's terms", async () => {
+  // Unclaimed, then claimed. CHECKER on the unclaimed pass is the case the
+  // ticket names: a file checker who COULD take the task is still an outsider
+  // until they do. On the claimed pass CHECKER holds it, so the outsiders are
+  // the observer and the admin — back-end access confers nothing (ADR-0003).
+  for (const [claimed, actors] of [[false, [OUTSIDER, ADMIN, CHECKER]], [true, [OUTSIDER, ADMIN]]]) {
+    for (const actor of actors) {
+      const { service } = await setup();
+      const id = await makeTask(service, { taskType: "LOI", claimed, holder: CHECKER, notes: "Rate: 9.75%" });
+      await rejects(
+        () => service.updateTaskNotes(id, "not mine to correct", actor),
+        /terms/i,
+        `LOI terms refused for ${actor.displayName} on a ${claimed ? "claimed" : "unclaimed"} LOI`
+      );
+    }
+  }
+});
+
+/* All six types, because "on any type" is the acceptance criterion. OOO is the
+   odd one out only in what the creator hears: its timing is a pair of dates, so
+   even the creator is refused — and the permission check runs first, so a
+   non-creator still hears the rule that actually refused them. */
+await check("urgency stays the creator's on every type, holder or not", async () => {
+  for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
+    const { service } = await setup();
+    const id = await makeTask(service, { taskType, claimed: true, holder: CHECKER });
+    await rejects(
+      () => service.updateTaskUrgency(id, "RED", CHECKER),
+      /creator/i,
+      `${taskType} urgency refused for its holder`
+    );
+    await rejects(
+      () => service.updateTaskUrgency(id, "RED", OUTSIDER),
+      /creator/i,
+      `${taskType} urgency refused for an observer`
+    );
+    await rejects(
+      () => service.updateTaskUrgency(id, "RED", ADMIN),
+      /creator/i,
+      `${taskType} urgency refused for an admin`
+    );
+    if (taskType === "OOO") {
+      await rejects(() => service.updateTaskUrgency(id, "RED", CREATOR), /OOO/i, "OOO has no urgency to set");
+    } else {
+      assert.equal((await service.updateTaskUrgency(id, "RED", CREATOR)).urgency, "RED", `${taskType} creator may`);
+    }
+  }
+});
+
+await check("the other five types' request fields stay creator-only", async () => {
+  for (const taskType of ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
+    const { service } = await setup();
+    const id = await makeTask(service, { taskType, claimed: true, holder: CHECKER, notes: "my own words" });
+    for (const actor of [CHECKER, OUTSIDER, ADMIN]) {
+      await rejects(
+        () => service.updateTaskNotes(id, "reworded by someone else", actor),
+        /creator/i,
+        `${taskType} notes refused for ${actor.displayName}`
+      );
+    }
+    assert.equal((await service.updateTaskNotes(id, "my own words, fixed", CREATOR)).notes, "my own words, fixed");
+  }
+});
+
+await check("a closed LOI refuses every edit, including from both parties", async () => {
+  for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    const { service } = await setup();
+    const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+    if (status === "ARCHIVED") {
+      await service.transitionStatus(id, "COMPLETED", CHECKER);
+      await service.transitionStatus(id, "ARCHIVED", CREATOR);
+    } else {
+      await service.transitionStatus(id, status, status === "COMPLETED" ? CHECKER : CREATOR);
+    }
+    await service.settleBackgroundWork();
+    for (const actor of [CREATOR, CHECKER]) {
+      await rejects(
+        () => service.updateTaskNotes(id, "too late", actor),
+        /closed/i,
+        `LOI terms refused at ${status} for ${actor.displayName}`
+      );
+    }
+  }
+});
+
+/* The refusal names the rule that refused, not a generic denial — the same
+   convention every other refusal in this file is asserted against. On an LOI
+   the field is called what the app calls it. */
+await check("the LOI refusals name the rule and the field by its own name", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER });
+  await rejects(
+    () => service.updateTaskNotes(id, "nope", OUTSIDER),
+    /^Only the person who filed this LOI or the checker holding it can change its terms$/,
+    "outsider hears who may"
+  );
+  await rejects(
+    () => service.updateTaskUrgency(id, "RED", CHECKER),
+    /^Only the task creator can change its urgency$/,
+    "the holder hears the urgency rule by name"
+  );
+
+  await service.transitionStatus(id, "COMPLETED", CHECKER);
+  await service.settleBackgroundWork();
+  await rejects(
+    () => service.updateTaskNotes(id, "nope", CREATOR),
+    /^The terms cannot be changed on a closed task$/,
+    "a closed LOI says terms, not notes"
+  );
+});
+
+/* One noun for the field, everywhere a sentence names it. A reader told "the
+   terms cannot be changed on a closed task" and then shown a history line
+   reading "Notes changed" is reading about two different fields. */
+await check("an LOI calls the field terms in the history and in the empty refusal", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER, notes: "Rate: 9.75%" });
+  await service.updateTaskNotes(id, "Rate: 9.57%", CHECKER);
+  const event = (await store.allHistoryForTask(id)).find((e) => e.action === "TASK_NOTES_AMENDED");
+  assert.match(event.detail, /^Terms changed from/, "the history entry says Terms");
+
+  await rejects(
+    () => service.updateTaskNotes(id, "   ", CREATOR),
+    /^The terms cannot be emptied$/,
+    "and so does the required-field refusal"
+  );
+
+  const other = await setup();
+  const plain = await makeTask(other.service, { taskType: "VALUE", notes: "the ask" });
+  await rejects(
+    () => other.service.updateTaskNotes(plain, "  ", CREATOR),
+    /^The notes cannot be emptied$/,
+    "the other five types still say notes"
+  );
+});
+
+/* Poop points are the creator's on every type, ADR-0008 rule 4 — the number
+   says what the *creator* thinks the ask is worth. Unchanged by this ticket,
+   asserted here so widening the terms rule can't quietly widen this one. */
+await check("poop points stay the creator's, holder or not", async () => {
+  const { service } = await setup();
+  const id = await makeTask(service, { taskType: "LOI", claimed: true, holder: CHECKER });
+  for (const actor of [CHECKER, OUTSIDER, ADMIN]) {
+    await rejects(
+      () => service.updateTaskPoints(id, 4, actor),
+      /creator/i,
+      `points refused for ${actor.displayName}`
+    );
+  }
+  assert.equal((await service.updateTaskPoints(id, 4, CREATOR)).points, 4);
 });
 
 console.log(`\n${passed} checks passed.`);

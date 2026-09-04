@@ -160,28 +160,68 @@ test("only the request field is ever sent, whatever else moved", () => {
 /* ── Who is offered the door ────────────────────────────── */
 
 /* The menu item asks the shared predicate the server's own refusal is written
-   from, so an `Edit Task` the server would turn away cannot be drawn. This
-   ticket changes nothing about who that is: the creator, on a task that isn't
-   closed. Widening it to both parties is #263. */
+   from, so an `Edit Task` the server would turn away cannot be drawn — and,
+   since #263, so an edit the server WOULD take is not hidden either.
+
+   Who that is: the creator on any type, plus the checker holding an LOI, whose
+   request field holds the loan's terms (ADR-0008 rule 5). Never an observer,
+   never an unclaimed file checker, never on a closed task.
+
+   Asserted here as well as in `amend-task-sim-test.mjs` because these two
+   files are the comparison the ticket asks for — the server's answer and the
+   surface's answer to the same question — and they only mean something read
+   against each other. */
 const CREATOR = { id: "creator-1", displayName: "Dana Requester" };
 const ASSIGNEE = { id: "assignee-1", displayName: "Casey Checker" };
 const OBSERVER = { id: "observer-1", displayName: "Sam Bystander" };
-const owned = (status) => ({ createdBy: CREATOR, status });
+const OTHER_TYPES = ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"];
+const owned = (status, over = {}) => ({ createdBy: CREATOR, status, taskType: "VALUE", ...over });
+const heldLoi = (status) => owned(status, { taskType: "LOI", assignee: ASSIGNEE });
 
-test("the creator of an open task is offered Edit Task", () => {
+test("the creator of an open task is offered Edit Task, on every type", () => {
   for (const status of ["OPEN", "CLAIMED", "NEEDS_REVIEW", "AWAITING_ITEMS", "PENDING_APPROVAL"]) {
-    assert.equal(canAmendTask(owned(status), CREATOR), true, status);
+    for (const taskType of ["LOI", ...OTHER_TYPES]) {
+      assert.equal(canAmendTask(owned(status, { taskType }), CREATOR), true, `${taskType} ${status}`);
+    }
   }
 });
 
-test("nobody else is offered it", () => {
-  assert.equal(canAmendTask(owned("CLAIMED"), ASSIGNEE), false);
-  assert.equal(canAmendTask(owned("CLAIMED"), OBSERVER), false);
+/* CLAIMED and NEEDS_REVIEW are every open status an LOI has — it runs the
+   standard flow plus the corrections side branch, and AWAITING_ITEMS /
+   PENDING_APPROVAL belong to FRAUD. NEEDS_REVIEW matters most: it moves whose
+   turn it is, not who holds the task, so the checker is still the assignee. */
+test("the checker holding an LOI is offered it too, at every open status", () => {
+  for (const status of ["CLAIMED", "NEEDS_REVIEW"]) {
+    assert.equal(canAmendTask(heldLoi(status), ASSIGNEE), true, status);
+  }
 });
 
-test("a closed task offers no Edit Task", () => {
+test("the assignee of any other type is not", () => {
+  for (const taskType of OTHER_TYPES) {
+    assert.equal(
+      canAmendTask(owned("CLAIMED", { taskType, assignee: ASSIGNEE }), ASSIGNEE),
+      false,
+      taskType
+    );
+  }
+});
+
+test("an observer is offered it on nothing, an LOI included", () => {
+  assert.equal(canAmendTask(owned("CLAIMED", { assignee: ASSIGNEE }), OBSERVER), false);
+  assert.equal(canAmendTask(heldLoi("CLAIMED"), OBSERVER), false);
+});
+
+/* A file checker who could take the LOI but hasn't is an observer until they
+   do — the rule is about holding the task, not about being able to. */
+test("an unclaimed LOI offers nothing to the checker who might claim it", () => {
+  assert.equal(canAmendTask(owned("OPEN", { taskType: "LOI" }), ASSIGNEE), false);
+});
+
+test("a closed task offers no Edit Task, to either party", () => {
   for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
     assert.equal(canAmendTask(owned(status), CREATOR), false, status);
+    assert.equal(canAmendTask(heldLoi(status), CREATOR), false, `LOI creator ${status}`);
+    assert.equal(canAmendTask(heldLoi(status), ASSIGNEE), false, `LOI holder ${status}`);
   }
 });
 
@@ -270,6 +310,21 @@ test("edit mode carries the request field and nothing else", () => {
   assert.ok(!html.includes("Humperdink"));
   assert.ok(!html.includes("How Bad?"));
   assert.ok(!html.includes("Urgency"));
+});
+
+/* #263's second half: the form a checker opens must offer nothing the server
+   would refuse them. Urgency and poop points are the creator's on every type,
+   and the form carries neither — so what the holder of an LOI sees is the one
+   field they may write, with its terms in it. */
+test("the checker holding an LOI gets the terms box and no creator-only control", () => {
+  const html = render({
+    user: { ...ASSIGNEE, roles: ["FILE_CHECKER"] },
+    edit: { task: loiTask(), onSave: async () => {} }
+  });
+  assert.ok(html.includes("Loan Terms and Contacts"), "the terms box is there");
+  assert.ok(html.includes("Loan Amount: $2,340,000"), "with the terms in it");
+  assert.ok(!html.includes("Urgency"), "no urgency control");
+  assert.ok(!html.includes("How Bad?"), "no poop points control");
 });
 
 test("the field keeps the label its task type gives it", () => {
