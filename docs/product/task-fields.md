@@ -112,7 +112,9 @@ and goes to `PATCH /api/loans/:loanId`, below.
   OOO task whose return date has passed is completed rather than nagged.
 - **Every applied edit is in the task's history**, with the field and both
   values (`TASK_NOTES_AMENDED` / `TASK_URGENCY_AMENDED` /
-  `TASK_FOLDER_NAME_AMENDED` / `TASK_DATES_AMENDED`).
+  `TASK_FOLDER_NAME_AMENDED` / `TASK_POINTS_UPDATED` / `TASK_DATES_AMENDED`).
+  The points line named only the new rating until #261 put it on the edit form
+  alongside the others.
 - **In the web app**, whoever may edit an active task gets `Edit Task` in the
   row's hamburger — its creator, plus the assignee on an LOI — and that is the
   only way in (ADR-0008 rule 4); the old `Edit request` button on the thread
