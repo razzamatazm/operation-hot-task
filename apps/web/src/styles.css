@@ -506,10 +506,15 @@ h1, h2, h3, h4 {
   top: calc(100% + 6px);
   left: 0;
   z-index: 5;
-  /* Wider than its column — the sentence is two lines at the chip's width and
-     the column is one of four. Clamped so it can't run off a narrow panel. */
-  width: max(100%, 230px);
-  max-width: min(320px, 78vw);
+  /* Wider than its column, which is one of four and far too narrow for a
+     sentence. 300px is two comfortable lines of this one; at the 230px it
+     started on, the last three words fell to a third line on their own.
+     Clamped so it can't run off a narrow panel — it is anchored to the second
+     column, so there is room to its right on any width the form is readable at.
+     `balance` then evens the two lines rather than leaving a short tail. */
+  width: max(100%, 300px);
+  max-width: min(340px, 78vw);
+  text-wrap: balance;
   margin: 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
