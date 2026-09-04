@@ -128,9 +128,19 @@ export const createLoanSchema = z.object({
    `confirmMerge` is an answer, not a field: it says the person has been told
    this link belongs to another loan and has agreed to fold the two together
    (#265, ADR-0008 rule 7). It is not one of the fields the refine below counts,
-   because on its own it changes nothing. */
+   because on its own it changes nothing.
+
+   `taskId` is required (#266, ADR-0008 rule 5): a loan edit is something one of
+   the loan's two parties does from the task they are a party to, so a request
+   naming no task names nobody to check. Typed optional here and enforced in the
+   route rather than by the schema, because a missing one is a refusal a person
+   should be able to read — zod's own message for it arrives as a JSON dump, and
+   the route can answer with `LOAN_EDIT_NEEDS_TASK`, the sentence that names the
+   rule. It is not one of the fields the refine below counts either: it says who
+   is asking, not what to change. */
 export const updateLoanSchema = z
   .object({
+    taskId: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     humperdinkLink: humperdinkLinkSchema,
     confirmMerge: z.boolean().optional()

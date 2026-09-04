@@ -68,3 +68,34 @@ notice" intent to a transient one — a deliberate choice: the merge is
 already reflected in the filtered loan view the user lands on, so the notice
 only needs to explain *why*, not persist. The underlying merge behavior
 (repoint tasks, keep name as alias) is unchanged.
+
+## Addendum (2026-09-04, #266): two of the decisions above are superseded
+
+[ADR-0008](0008-loi-terms-are-a-field-not-a-message.md) rule 5 replaces two
+clauses of this ADR. Recorded here rather than by editing them, so the reasoning
+that produced them stays readable.
+
+**"Any authenticated user can edit a Loan's name/link" is withdrawn.** The
+comparison it rests on — "same trust level as creating a task" — turned out to
+be the wrong one. Filing a task adds a row of your own; renaming a loan rewrites
+the row on every task pointing at it, other people's and finished ones included,
+which this ADR's own Consequences section calls out as the accepted tradeoff.
+The tradeoff is still accepted, but it is now paid by the two people with a stake
+in the task the edit is made from: **the task's creator or its current
+assignee**, at a non-closed status, and nobody else. Not an observer, not an
+unclaimed file checker, and not an admin — ADR-0003's rule holds here as
+everywhere. A loan edit therefore names the task it was made from, and the server
+checks that the task is on that loan and that the caller is a party to it.
+
+**"That filtered view gets a small editable header" is withdrawn too.** The
+header stands outside any task, so under the rule above there is nobody to check,
+and a surface that cannot carry the rule cannot carry the edit. It is now a
+read-only heading with the loan's name and its Humperdink link. The ability went
+rather than the rule being softened for it: the alternative was one editing
+surface with a rule and another without, which is the drift the narrowing exists
+to close. The name and link are still corrected from `Edit Task` on any task on
+the loan — one click from the list directly beneath that header.
+
+Creating a loan is unchanged. Filing a task still mints one, joins an existing
+one by name or link, and fills in a link the loan was missing, for anybody who
+may file a task. The rule is about *changing* an existing loan.

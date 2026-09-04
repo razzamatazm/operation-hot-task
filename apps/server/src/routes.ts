@@ -1,5 +1,5 @@
 import { Request, Response, Router } from "express";
-import { UserIdentity, UserRole, nextFlowStatuses } from "@loan-tasks/shared";
+import { LOAN_EDIT_NEEDS_TASK, LOAN_EDIT_WRONG_LOAN, UserIdentity, UserRole, loanEditRefusal, nextFlowStatuses } from "@loan-tasks/shared";
 import { AuthError, authenticate } from "./auth.js";
 import { resolveUserByEmail } from "./graph-users.js";
 import { config } from "./config.js";
@@ -346,9 +346,12 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   });
 
   /* Loans (ADR-0001). Search powers the create-form typeahead; create/get
-     back it; PATCH is the Loan-scoped edit surface (name + link). Any
-     authenticated user may create/edit a loan — same trust as creating a
-     task. */
+     back it; PATCH is the Loan-scoped edit surface (name + link).
+
+     Creating is still open to any authenticated user — filing a task mints or
+     joins a loan, and that is the same trust as filing the task. *Changing* one
+     is not: since #266 a PATCH has to name a task on the loan and the caller has
+     to be a party to it (ADR-0008 rule 5). */
   router.get("/loans", async (req, res) => {
     try {
       if (req.query.q !== undefined) {
@@ -390,11 +393,46 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     try {
       /* Who is editing, threaded through: a loan edit rewrites what every task
          on that loan displays, so each of them earns a history row naming the
-         person and both values (ADR-0008 rule 9, #262). Still open to any
-         authenticated user, unchanged — narrowing it to the two parties is
-         separate work. */
+         person and both values (ADR-0008 rule 9, #262) — and, since #266,
+         decides whether the edit happens at all. */
       const actor = await getActor(req);
       const input = updateLoanSchema.parse(req.body);
+
+      /* The permission gate, and the whole of #266 on the server side.
+
+         It runs on EVERY patch, including the one a confirmed merge re-sends
+         (#265): the confirm posts the identical body a second time, so a check
+         that only guarded the first would let a refusal be dodged by answering
+         a dialog. The rule is asked once, here, before anything is written.
+
+         `isTaskParty` and the sentences both come from `@loan-tasks/shared`, so
+         the box the web greys out and the request the server refuses are the
+         same rule rather than two that agree today. Nothing below consults
+         roles: an admin is not a party, and ADR-0003 is explicit that back-end
+         access confers nothing over other people's work. */
+      if (!input.taskId) {
+        throw new Error(LOAN_EDIT_NEEDS_TASK);
+      }
+      const editedFrom = await service.getTask(input.taskId);
+      if (!editedFrom) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+      /* 403, not 400. A well-formed request naming a task on somebody else's
+         loan is not a malformed body — it is the party refusal wearing a
+         disguise, and answering it as a bad request would let a caller tell
+         "I typed this wrong" apart from "I have no standing here" by reading
+         the status. Being a party to task A confers nothing over loan B. */
+      if (editedFrom.loanId !== req.params.loanId) {
+        res.status(403).json({ error: LOAN_EDIT_WRONG_LOAN });
+        return;
+      }
+      const refusal = loanEditRefusal(editedFrom, actor);
+      if (refusal) {
+        res.status(403).json({ error: refusal });
+        return;
+      }
+
       const result = await loanService.update(
         req.params.loanId,
         {

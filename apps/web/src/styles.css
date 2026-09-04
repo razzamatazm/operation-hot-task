@@ -498,6 +498,25 @@ h1, h2, h3, h4 {
   line-height: 1.35;
 }
 
+/* Why the pair above is read-only, for anyone who is not a party to this task
+   (#266, ADR-0008 rule 5). Takes .task-form-locked's muted register and adds
+   only the span, because it is one sentence about both boxes — the same
+   arrangement as the shared-record line it replaces. */
+.task-form-loan-locked {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+}
+
+/* A read-only box should not look like an empty one waiting for typing. Same
+   recessed fill the disabled type select gets, so "you can read this, you
+   can't change it" reads off the control itself rather than only off the
+   sentence beneath. */
+.task-form-loan input[readonly] {
+  background: var(--bg-soft);
+  color: var(--ink-secondary);
+  cursor: default;
+}
+
 /* FRAUD outstanding-items seeder on the create form (#69). A non-label field so
    the heading never steals focus to one of the remove buttons; mirrors the
    label heading style and reuses the card checklist's add row. */
@@ -1050,8 +1069,11 @@ button.btn-good:hover {
   margin-bottom: 2px;
 }
 
-.loan-header-view,
-.loan-header-edit {
+/* Read-only since #266 — the header stands outside any task, so it has no two
+   parties and carries no edit. `.loan-header-edit` and the two input rules that
+   used to sit below went with the affordance rather than being left behind for
+   a later reader to wonder about. */
+.loan-header-view {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1071,21 +1093,6 @@ button.btn-good:hover {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--brand);
-}
-
-.loan-header-name-input,
-.loan-header-link-input {
-  font-family: "DM Sans", sans-serif;
-  font-size: 0.85rem;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg-soft);
-  color: var(--ink);
-}
-
-.loan-header-link-input {
-  min-width: 220px;
 }
 
 .loan-header-meta {

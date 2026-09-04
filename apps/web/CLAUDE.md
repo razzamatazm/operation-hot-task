@@ -835,6 +835,39 @@ loan, finished ones included. Three consequences the markup carries:
   vacation description that saves on the task, it has no link field, and there
   is no shared record to warn about.
 
+### Only the two parties get the loan pair (#266)
+
+ADR-0008 rule 5 narrows a loan edit to the task's creator or current assignee,
+at a non-closed status. The form is handed the server's own refusal sentence as
+`edit.loanRefusal` — resolved in `App.tsx` from shared `loanEditRefusal`, the
+same function the route runs — and when it is present both boxes render
+`readOnly` with the sentence beneath them (`.task-form-loan-locked`,
+`.task-form-locked`'s muted register plus the pair's column span).
+
+- **Read-only, not hidden and not merely un-submittable.** They are the loan's
+  name and link on the task being edited, so a form that dropped them would read
+  as one that lost them; a box that takes typing and then refuses it is the
+  version people file bugs about. `input[readonly]` inside `.task-form-loan`
+  takes the recessed fill so the state reads off the control, not only off the
+  sentence.
+- **One `aria-describedby` id for both**, exactly like the muted line it stands
+  in for: it is one sentence about both boxes.
+- **The shared-record line is unreachable while locked** — `sharedLoanWarning`
+  is `&& !loanLocked`. Read-only boxes cannot move, so it would be false anyway;
+  the explicit term is there so the two can never both appear.
+- **Never on OOO.** Its "folder name" is a vacation description on the task,
+  governed by the creator-only amend rule, not this one.
+- **`Edit Task` itself is not gated by this.** The entry belongs to another
+  ticket's rule; what this shuts is the two loan fields inside the form.
+
+`LoanFilterHeader` used to be the app's other loan-editing surface and is now a
+read-only heading — name, Humperdink link, no `Edit`. It sits outside any task,
+so it has no two parties to check; the ability went rather than the rule being
+softened for it. `onSaveLoan` went with it, leaving `patchLoan` with a single
+caller (`saveLoanFields`). Every body through `patchLoan` carries its `taskId`,
+which is what makes the confirmed merge re-send take the same check as the save
+that asked — a refusal must never be reachable only after a dialog.
+
 ### The one confirmation dialog (#265)
 
 A link edit that lands on another loan's link would fold the two records
@@ -862,9 +895,10 @@ one asks a question, and a toast cannot ask a question (ADR-0008 rule 7).
 - **Two-step round trip, not an optimistic merge.** The first save posts as it
   always did and the server refuses with a 409 naming the collision, having
   written nothing; only a yes re-sends the identical body with `confirmMerge`.
-  `patchLoan` in `App.tsx` is that whole dance, and it is the single path both
-  editing surfaces — the form and `LoanFilterHeader` — save through, so there is
-  one confirmation rather than two.
+  `patchLoan` in `App.tsx` is that whole dance, and it is the single path every
+  loan save goes through, so there is one confirmation rather than one per
+  surface. It served two surfaces when it was built; #266 took the loan-filter
+  header's edit away and left it with one, and the door stays a door.
 - **A decline is not an error.** It rejects with `MergeDeclined`, which nobody
   toasts: nothing was sent, and the rejection exists only to leave the form open
   with the typing in it. What *did* happen still gets said — a merge that ran
