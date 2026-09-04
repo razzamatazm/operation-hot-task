@@ -555,18 +555,38 @@ test("the outstanding-items seeder is hidden in edit mode, even on a Fraud Check
   assert.ok(!html.includes("Add an item"));
 });
 
-test("the task type is shown, disabled, with a reason", () => {
+/* The type is shown and cannot be changed. It used to be a disabled <select>;
+   it is now a padlocked chip, which keeps the promise and drops the invitation
+   — a select that will not open still looks like the three live controls beside
+   it in the top row. What is pinned is the promise, not the widget: the type is
+   readable, there is no control offering to change it, and the reason and the
+   way out are on the page and attached to the chip. */
+test("the task type is shown, locked, with a reason", () => {
   const html = editing();
-  assert.match(html, /<select[^>]*disabled[^>]*>[\s\S]*?LOI Check/);
+  assert.match(html, /class="task-form-type-locked"[^>]*>[\s\S]*?LOI Check/, "the type reads off the chip");
+  assert.ok(!/<select[^>]*value="LOI"/.test(html), "and there is no type control to change it with");
   assert.match(html, /class="[^"]*task-form-locked"/);
   assert.ok(/can(’|')t be changed/.test(html), "the reason says the type can't change");
   assert.ok(/cancel/i.test(html) && /refile/i.test(html), "and says to cancel and refile");
 });
 
+/* The reason is attached to the chip, not merely drawn under it — the chip is
+   not a form control, so `aria-describedby` is the only thing carrying the
+   explanation to somebody who cannot see the padlock. */
+test("the locked type points at the sentence explaining it", () => {
+  const html = editing();
+  const chip = html.match(/class="task-form-type-locked" aria-describedby="([^"]+)"/);
+  assert.ok(chip, "the chip names a description");
+  assert.ok(
+    html.includes(`<p id="${chip[1]}" class="span-full task-form-locked">`),
+    "and it is the can't-be-changed line"
+  );
+});
+
 /* What edit mode draws. Anything a viewer may not move is kept out rather than
    shown disabled:
-   a control nobody can move is noise, and the type is disabled only because a
-   form that hid it would read as having lost the task's type. */
+   a control nobody can move is noise, and the type is shown at all only because
+   a form that hid it would read as having lost the task's type. */
 test("edit mode carries the request field, urgency and points", () => {
   const html = editing();
   assert.ok(html.includes("How Bad?"), "the poop picker is on the form");
@@ -839,6 +859,55 @@ test("neither date input floors itself at today", () => {
   const html = editing(oooTask());
   const mins = [...html.matchAll(/type="date"[^>]*?\bmin="([^"]*)"/g)].map((m) => m[1]);
   assert.deepEqual(mins, ["2026-03-02"], "the only min is the return date's start-date floor");
+});
+
+/* ── The redesigned layout ──────────────────────────────
+   One form, so the two modes have to be the same shape: the same four controls
+   across the top, the same request field under them, the same footer strip. The
+   things that differ are the things the mode differs about. */
+
+test("both modes open on the same four-across top row", () => {
+  for (const html of [render({}), editing()]) {
+    const row = html.match(/<div class="task-form-quad">([\s\S]*?)<\/div><p|<div class="task-form-quad">([\s\S]*?)<\/div><label class="span-full"/);
+    assert.ok(row, "the top row is drawn");
+    const inner = row[1] ?? row[2];
+    for (const label of ["Folder Name", "Type", "Urgency", "How Bad?"]) {
+      assert.ok(inner.includes(label), `${label} is in the top row`);
+    }
+  }
+});
+
+/* The request field is the only thing on the form that wants vertical room, and
+   in edit mode reading what is already there is the whole job. The mono face is
+   LOI's alone: that box holds a pasted term sheet whose columns only line up in
+   a fixed-width font. Every other type's field is prose. */
+test("the terms box goes tall on edit, and mono only on an LOI", () => {
+  assert.match(editing(), /class="task-form-terms task-form-terms-mono"/, "an LOI's term sheet keeps its columns");
+  const chat = editing(loiTask({ taskType: "BUDDY_CHAT", notes: "n" }));
+  assert.match(chat, /class="task-form-terms"/, "still the tall box");
+  assert.ok(!chat.includes("task-form-terms-mono"), "but prose stays in the body face");
+  assert.ok(!render({}).includes("task-form-terms"), "and filing keeps its short box");
+});
+
+/* The footer strip carries the two exits plus the one thing each mode has to
+   say beside them. Filing: the Humperdink import, which is a shortcut past the
+   form rather than a field in it. Editing: the shared-record line, which is the
+   only place that is genuinely under BOTH loan fields now that they no longer
+   sit side by side. */
+test("the footer holds the exits, and the import belongs to filing alone", () => {
+  const create = render({});
+  const foot = create.slice(create.indexOf('class="task-form-foot"'));
+  assert.ok(foot.includes("Paste what Send to Hot Task copied"), "the paste box is in the footer");
+  assert.ok(foot.includes("Import from Humperdink"), "and so is its button");
+  assert.ok(foot.includes(">Cancel<") && foot.includes(">Create Task<"), "beside the two exits");
+  assert.ok(!editing().includes("Import from Humperdink"), "editing offers no import");
+});
+
+test("the loan fields are no longer paired, and the sentence is in the footer", () => {
+  const html = locked();
+  assert.ok(!html.includes('class="task-form-loan"'), "no paired block");
+  const foot = html.slice(html.indexOf('class="task-form-foot"'));
+  assert.ok(foot.includes(REFUSAL_HTML), "the one sentence about both boxes sits in the footer");
 });
 
 test("the field keeps the label its task type gives it", () => {

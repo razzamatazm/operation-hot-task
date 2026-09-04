@@ -384,6 +384,64 @@ h1, h2, h3, h4 {
   grid-column: 1 / -1;
 }
 
+/* The form's top row: folder name, type, timing, poop rating. Its own grid
+   rather than the form's four equal columns, because these four don't want
+   equal shares — the folder name takes about twice the type's width, the
+   urgency select needs room for `Within 24 Hours`, and the poop tray is
+   content-sized and should not be stretched to a quarter of the panel.
+
+   An OOO task drops two date fields into the timing slot, making five children;
+   the fifth wraps onto a second line, which is the only shape this row takes
+   that isn't a single line. Two columns from tablet width, one from phone. */
+.task-form-quad {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.9fr) minmax(0, 1.05fr) minmax(0, 1.3fr) auto;
+  gap: 10px 12px;
+  align-items: end;
+}
+
+/* A form field whose control isn't a control — today only the locked type
+   chip. Mirrors `.task-form label` so it reads as one of the row's fields, but
+   is a plain block: a <label> around static text has nothing to focus, and
+   clicking it would look broken. */
+.task-form-field {
+  display: grid;
+  gap: 4px;
+}
+.task-form-field-head {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* The task type in edit mode (#260, ADR-0008 rule 4): shown, padlocked, and not
+   a control. A disabled select still invites the click and still wears the
+   clothes of the three live controls beside it; a chip says "this is what it
+   is" and lets the line beneath say why. Dashed border, recessed fill — the
+   same "you can read this, you can't change it" language as a read-only box. */
+.task-form-type-locked {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+  background: var(--bg-soft);
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.task-form-type-locked svg {
+  flex: none;
+  color: var(--muted);
+}
+
 /* Muted "(optional)" hint inside a form label (issue #46). */
 .form-label-optional {
   color: var(--muted);
@@ -429,13 +487,22 @@ h1, h2, h3, h4 {
 }
 
 /* Humperdink import row on the create form (#194): a paste target and the
-   button that takes it. A non-label wrapper because the row holds a labelled
-   field AND a button — a <label> around both would hand a click on the heading
-   to the button. The field takes the slack; the button never resizes, so
-   "Imported" lands where "Import from Humperdink" was. */
+   button that takes it. It lives in the footer beside Cancel and Create Task —
+   it is a shortcut past the whole form rather than a field in it, and at the
+   top of the body it read as the first thing to fill in. Its heading went with
+   the move: the placeholder says what to paste, and the button says what the
+   paste is for, so a third label was only shouting. The heading survives for a
+   screen reader as an `.sr-only` span inside the label.
+
+   A non-label wrapper because the row holds a labelled field AND a button — a
+   <label> around both would hand a click on the heading to the button. The
+   field takes the slack; the button never resizes, so "Imported" lands where
+   "Import from Humperdink" was. */
 .task-form-import {
+  flex: 1 1 260px;
+  min-width: 0;
   display: flex;
-  align-items: end;
+  align-items: center;
   gap: 8px;
 }
 .task-form-import-field {
@@ -475,46 +542,54 @@ h1, h2, h3, h4 {
   line-height: 1.35;
 }
 
-/* The two loan fields, paired in edit mode only (#262, ADR-0008 rule 7). They
-   sit side by side so the one muted line beneath can cover both without being
-   half a form away from either. Its own grid rather than the form's, because
-   the form's four columns would strand the pair at a third of the width. */
-.task-form-loan {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
 /* "Saving this changes it everywhere." Muted prose in the same register as
    .task-form-locked, deliberately: nothing has gone wrong, and this is not a
    warning to be dismissed. It appears only once a value has actually moved, and
-   it is a line of text under the fields — never a dialog, a banner or a toast.
-   Spans the pair because it is one sentence about both of them. */
+   it is a line of text — never a dialog, a banner or a toast. It sits in the
+   footer rather than under one of the two fields it is about: the folder name
+   heads the form and the link sits below the request field, so the only place
+   that is genuinely under both of them is the bottom of the panel. */
 .task-form-shared-loan {
-  grid-column: 1 / -1;
-  margin: -2px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
 }
 
-/* Why the pair above is read-only, for anyone who is not a party to this task
-   (#266, ADR-0008 rule 5). Takes .task-form-locked's muted register and adds
-   only the span, because it is one sentence about both boxes — the same
-   arrangement as the shared-record line it replaces. */
+/* Why the two loan boxes are read-only, for anyone who is not a party to this
+   task (#266, ADR-0008 rule 5). Takes .task-form-locked's muted register and
+   drops its negative top margin, which exists to tuck the type note under the
+   row above it — this one sits in the footer's own flex line. */
 .task-form-loan-locked {
-  grid-column: 1 / -1;
-  margin: -2px 0 0;
+  margin: 0;
 }
 
 /* A read-only box should not look like an empty one waiting for typing. Same
-   recessed fill the disabled type select gets, so "you can read this, you
-   can't change it" reads off the control itself rather than only off the
-   sentence beneath. */
-.task-form-loan input[readonly] {
+   recessed fill the locked type chip gets, so "you can read this, you can't
+   change it" reads off the control itself rather than only off the sentence in
+   the footer. */
+.task-form input[readonly] {
   background: var(--bg-soft);
   color: var(--ink-secondary);
   cursor: default;
+}
+
+/* The request field in edit mode. Filing gets two rows because the terms are
+   usually pasted in one go and the form has five other things to show; editing
+   gets a tall box because reading what is already there is the whole job.
+
+   On an LOI it also takes the mono face. That is the one place the "mono is for
+   non-prose" rule bends, and it bends for the reason the rule exists: the box
+   is holding a pasted term sheet, and its columns only line up in a fixed-width
+   font. Every other type's field is prose and keeps the body face. */
+.task-form-terms {
+  min-height: 190px;
+  line-height: 1.5;
+}
+.task-form-terms-mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8rem;
+  line-height: 1.55;
 }
 
 /* FRAUD outstanding-items seeder on the create form (#69). A non-label field so
@@ -562,12 +637,52 @@ h1, h2, h3, h4 {
   grid-column: span 2;
 }
 
-.form-actions {
+/* The form's footer strip. A tinted band across the full width of the panel,
+   divided from the body by a hairline, holding the two exits on the right and
+   whatever each mode has to say beside them on the left — the Humperdink import
+   while filing, the shared-record line while editing.
+
+   The negative margins bleed it out through .form-panel's padding to the
+   panel's own edge; the bottom radius is the panel's 10px less its 2px border.
+   Any change to .form-panel's padding has to be mirrored here and in the
+   480px block below, which is the price of a full-bleed footer inside a padded
+   panel and is cheaper than restructuring the panel around it. */
+.task-form-foot {
   grid-column: 1 / -1;
+  margin: 8px -20px -18px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0 0 8px 8px;
+  background: var(--bg-soft);
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 8px;
-  padding-top: 4px;
+  flex-wrap: wrap;
+}
+
+/* Pushed right by the left-hand content when there is any, and by its own auto
+   margin when there isn't — an OOO create form has neither an import row nor a
+   shared-record line, and the buttons still belong at the right edge. */
+.task-form-foot-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* The one sentence the footer can carry: the shared-record line, or the refusal
+   that stands in its place. Icon plus prose, taking the slack so the buttons
+   keep their size. */
+.task-form-foot-note {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--muted);
+}
+.task-form-foot-note svg {
+  flex: none;
+  margin-top: 1px;
 }
 
 /* ── Shared input styles ──────────────────────────────────── */
@@ -2360,6 +2475,12 @@ button.btn-good:hover {
     grid-template-columns: 1fr;
   }
 
+  /* The top row gives up its four-across at tablet width: the folder name and
+     the urgency select both stop being readable long before the panel does. */
+  .task-form-quad {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
   .user-picker select {
     min-width: 200px;
   }
@@ -2402,10 +2523,25 @@ button.btn-good:hover {
     padding: 14px 14px;
     border-radius: 8px;
   }
-  .form-actions {
+  .task-form-quad {
+    grid-template-columns: 1fr;
+  }
+
+  /* Mirrors .form-panel's tightened padding above, so the footer still bleeds
+     to the panel edge rather than overhanging it. */
+  .task-form-foot {
+    margin: 8px -14px -14px;
+    padding: 12px 14px;
+    border-radius: 0 0 6px 6px;
+  }
+  .task-form-import {
+    flex-basis: 100%;
+  }
+  .task-form-foot-actions {
+    width: 100%;
     flex-direction: column-reverse;
   }
-  .form-actions button {
+  .task-form-foot-actions button {
     width: 100%;
   }
 

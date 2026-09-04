@@ -17,6 +17,11 @@ think bookkeeping pad with sharp typography.
 Mono is reserved for non-prose: dates, counts, type labels, section
 counts. Prose stays in DM Sans. Don't mix.
 
+One exception, and it proves the rule: the edit form's request field on an
+**LOI** (`.task-form-terms-mono`). That box holds a pasted term sheet — tabular
+matter, not sentences — whose columns only line up in a fixed-width font. Every
+other type's field is prose and stays in the body face.
+
 ## Theme Tokens
 
 All color goes through CSS custom properties on `:root` in
@@ -803,7 +808,20 @@ to cover them: the app must never draw a control the server would refuse, and
 "may this person edit anything here" and "may they move this field" are two
 rules that happen to coincide for one viewer.
 
-Edit mode differs in seven ways and no others:
+**The two modes are one shape** (2026-09-04 redesign). Four controls across the
+top — folder name, type, timing, poop rating — in `.task-form-quad`, its own
+grid rather than the form's four equal columns, because those four don't want
+equal shares. Under them the request field, which is the only thing on the form
+that wants vertical room, then the Humperdink link. Across the bottom,
+`.task-form-foot`: a tinted strip bled out through the panel's padding to its
+own edge, holding the two exits on the right and the one thing each mode has to
+say beside them on the left. Two columns from 980px, one from 480px.
+
+The footer's negative margins are tied to `.form-panel`'s padding and are
+restated in the 480px block where that padding tightens. That is the price of a
+full-bleed footer inside a padded panel; change one and change the other.
+
+Edit mode differs in eight ways and no others:
 
 - it opens preloaded from the task (`editFormValues` in
   [src/create-form-state.ts](src/create-form-state.ts)),
@@ -817,16 +835,21 @@ Edit mode differs in seven ways and no others:
 - urgency and the poop picker are drawn **only for the person who filed the
   task** (`creatorOnlyFields`) — see above; everyone else who may edit is a
   checker correcting terms, and neither control is theirs to move,
-- the task type is rendered **disabled**, with a muted `.task-form-locked`
-  line beneath it saying it can't change and to cancel and refile. Disabled
-  rather than hidden: a form that dropped the type would read as one that lost
-  track of what it is editing, and a control that silently refuses clicks is
-  the version people file bugs about,
-- the folder name and the Humperdink link move to sit **side by side**
-  (`.task-form-loan`, its own 2-column grid inside the form's four), because the
-  one muted line under them is about both. Filing leaves them where they were,
-  at opposite ends of the form. The folder name loses its typeahead here — see
-  below,
+- the task type is a **padlocked chip** (`.task-form-type-locked`) where the
+  select sits while filing, with a muted `.task-form-locked` line beneath the
+  row saying it can't change and to cancel and refile. Shown rather than
+  hidden: a form that dropped the type would read as one that lost track of what
+  it is editing. A chip rather than a disabled `<select>`: a select that won't
+  open still invites the click and still wears the clothes of the three live
+  controls beside it in that row. The chip is not a form control, so the
+  sentence reaches a screen reader by `aria-describedby` on the chip itself,
+- the folder name loses its typeahead — see below,
+- the request field goes tall (`.task-form-terms`), and on an **LOI** also
+  takes the mono face (`.task-form-terms-mono`). That is the one place the
+  "mono is for non-prose" rule bends, and it bends for the reason the rule
+  exists: the box is holding a pasted term sheet, and its columns only line up
+  in a fixed-width font. Every other type's field is prose and keeps the body
+  face; filing keeps its two-row box either way,
 - the submit button reads `Save` / `Saving…`.
 
 **The folder name and the link write the shared loan record** (#262, ADR-0008
@@ -837,13 +860,17 @@ loan, finished ones included. Three consequences the markup carries:
   loan to file a new task against; on a filed task, typing renames the loan it
   is already on, and a suggestion list offering a different one is repointing
   the task wearing a rename's clothes. Edit mode gets a plain text box.
-- **One muted line beneath the pair** (`.task-form-shared-loan`), not one per
+- **One muted line in the footer** (`.task-form-shared-loan`), not one per
   field, appearing only once a value has actually moved — `touchesSharedLoan` in
-  `create-form-state.ts` is the only thing that reveals it. Never on focus:
-  clicking a field to read it warns about nothing. Never a dialog, banner or
-  toast; it is prose in the same muted register as `.task-form-locked`, because
-  nothing has gone wrong. Two nodes for one sentence, the sr-only live region
-  idiom used by the sole-checker warning above it.
+  `create-form-state.ts` is the only thing that reveals it. It sits in
+  `.task-form-foot` rather than under either box: the folder name heads the form
+  and the link sits below the request field, so the only place genuinely under
+  both of them is the bottom of the panel. (Before the redesign the two fields
+  were pulled together into a `.task-form-loan` pair so the line could sit under
+  them; that block is gone.) Never on focus: clicking a field to read it warns
+  about nothing. Never a dialog, banner or toast; it is prose in the same muted
+  register as `.task-form-locked`, because nothing has gone wrong. Two nodes for
+  one sentence, the sr-only live region idiom used by the sole-checker warning.
 - **Never on an out-of-office task.** It has no loan: its folder name is a
   vacation description that saves on the task, it has no link field, and there
   is no shared record to warn about.
@@ -854,15 +881,18 @@ ADR-0008 rule 5 narrows a loan edit to the task's creator or current assignee,
 at a non-closed status. The form is handed the server's own refusal sentence as
 `edit.loanRefusal` — resolved in `App.tsx` from shared `loanEditRefusal`, the
 same function the route runs — and when it is present both boxes render
-`readOnly` with the sentence beneath them (`.task-form-loan-locked`,
-`.task-form-locked`'s muted register plus the pair's column span).
+`readOnly` with the sentence in the footer (`.task-form-loan-locked`,
+`.task-form-locked`'s muted register without its tuck-up margin). It takes the
+shared-record line's slot, because both are one sentence about both boxes and
+they are mutually exclusive by construction; a slot that could hold both would
+be a design that let them collide.
 
 - **Read-only, not hidden and not merely un-submittable.** They are the loan's
   name and link on the task being edited, so a form that dropped them would read
   as one that lost them; a box that takes typing and then refuses it is the
-  version people file bugs about. `input[readonly]` inside `.task-form-loan`
-  takes the recessed fill so the state reads off the control, not only off the
-  sentence.
+  version people file bugs about. `.task-form input[readonly]` takes the same
+  recessed fill as the locked type chip, so the state reads off the control and
+  not only off the sentence in the footer.
 - **One `aria-describedby` id for both**, exactly like the muted line it stands
   in for: it is one sentence about both boxes.
 - **The shared-record line is unreachable while locked** — `sharedLoanWarning`

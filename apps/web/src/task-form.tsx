@@ -26,10 +26,10 @@
    rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
-import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, editRefusal, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
-import { TrashIcon } from "./icons";
+import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { useToast } from "./toast";
 
 /* Someone the app could point a task at. Roles ride along because the handoff
@@ -498,11 +498,13 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     </label>
   );
 
-  /* The Humperdink Link. Full width while filing, where it sits alone below the
-     request field; half of the loan pair in edit mode, beside the folder name
-     the warning below them both is about. */
+  /* The Humperdink Link, in the same place in both modes: full width, alone,
+     directly under the request field. It used to move up beside the folder name
+     in edit mode so the one muted line could sit under both; the line now lives
+     in the form's footer, which is under both of them wherever they are, so the
+     field stays put and the two modes read as one form. */
   const humperdinkLinkField = (
-    <label className={editing ? undefined : "span-full"}>
+    <label className="span-full">
       Humperdink Link
       <input
         type="text"
@@ -553,181 +555,132 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     >
       <div className="form-panel">
       <form className="task-form" onSubmit={handleSubmit}>
-        {/* Humperdink import (#194). Above Folder Name because it fills Folder
-            Name — the shortcut sits where the typing it saves would start.
-            Hidden for OOO: a vacation has no loan and no Humperdink link. And
-            hidden in edit mode, where it would rewrite fields this ticket
-            deliberately doesn't offer. */}
-        {!editing && form.taskType !== "OOO" && (
-          <div className="span-full task-form-import">
-            <label className="task-form-import-field">
-              Paste from Humperdink
-              <input
-                type="text"
-                autoComplete="off"
-                placeholder="Paste what Send to Hot Task copied"
-                value={importText}
-                onChange={(e) => {
-                  setImportText(e.target.value);
-                  setImported(false);
-                }}
-                onKeyDown={(e) => {
-                  // Enter in this field means "import", not "create the task" —
-                  // the form's implicit submit would file a half-filled task
-                  // out from under a paste.
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    importFromHumperdink();
-                  }
-                }}
-              />
-            </label>
-            <button type="button" className="btn-ghost btn-sm" onClick={importFromHumperdink}>
-              {imported ? "Imported" : "Import from Humperdink"}
-            </button>
-          </div>
-        )}
-        {/* The two loan fields (#262). Filing keeps them where they were — the
-            folder name here, the link down below the request field. Editing
-            pulls them together into one block, because the sentence underneath
-            covers both of them and a warning half a form away from one of the
-            fields it is about is a warning about nothing.
+        {/* The top row, in both modes: what the task is about, what kind it is,
+            when it's wanted, and how bad it is. Four controls on one line
+            rather than four rows, because together they are the one-glance
+            answer to "what am I filing" — and because the request field below
+            them is the only thing on the form that wants vertical room.
 
-            An OOO task has neither: its folder name is a vacation description
-            that lives on the task, and it has no Humperdink link at all, so it
-            renders the bare field and no warning. */}
-        {editing && form.taskType !== "OOO" ? (
-          <div className="span-full task-form-loan">
-            {folderNameField}
-            {humperdinkLinkField}
-            {/* Two nodes for one sentence, the same way the sole-checker warning
-                below does it and for the same reason: a live region only
-                announces changes made INSIDE it, so the region is always mounted
-                and only its text changes, while the visible copy is hidden from
-                the reader so it isn't said twice. */}
-            <p className="sr-only" role="status">{sharedLoanWarning ? sharedLoanCopy : ""}</p>
-            {sharedLoanWarning && (
-              <p className="task-form-shared-loan" aria-hidden="true">{sharedLoanCopy}</p>
-            )}
-            {/* The refusal takes that line's place rather than sitting beside it
-                (#266). They are mutually exclusive by construction: read-only
-                boxes cannot move, so `touchesSharedLoan` is false here anyway,
-                and the sentence a locked-out viewer needs is why the boxes are
-                shut — not a warning about a save they cannot make. Muted prose
-                in the same register as `.task-form-locked`, because nothing has
-                gone wrong; they are simply not one of the two people this is
-                for. */}
-            {loanLocked && (
-              <p id={loanLockedId} className="task-form-locked task-form-loan-locked">
-                {edit?.loanRefusal}
-              </p>
-            )}
-          </div>
-        ) : (
-          folderNameField
-        )}
-        {/* Type is shown in edit mode and locked (ADR-0008 rule 4): nobody may
-            change it, but a form that hid it would read as one that lost track
-            of what it is editing. Disabled rather than absent, with the reason
-            and the way out beside it — a control that simply refuses clicks is
-            the version people file bugs about. */}
-        <label>
-          Type
-          <select
-            value={form.taskType}
-            disabled={editing}
-            {...(editing ? { "aria-describedby": typeLockedId } : {})}
-            onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}
-          >
-            <option value="LOI">LOI Check</option>
-            <option value="BUDDY_CHAT">Buddy Chat</option>
-            <option value="VALUE">Value Check</option>
-            <option value="FRAUD">Fraud Check</option>
-            <option value="LOAN_DOCS">Loan Docs</option>
-            <option value="OOO">OOO - Out of Office</option>
-          </select>
-        </label>
+            Its own grid rather than the form's four equal columns: the folder
+            name needs roughly twice the width of the type, and the poop tray is
+            content-sized. An OOO task puts its two dates in the timing slot,
+            which makes five children and wraps the tray onto a second line —
+            fine, and the only shape this row takes that isn't one line. */}
+        <div className="task-form-quad">
+          {folderNameField}
+          {/* Type is shown in edit mode and locked (ADR-0008 rule 4): nobody may
+              change it, but a form that hid it would read as one that lost track
+              of what it is editing. It is drawn as a padlocked chip rather than
+              a disabled select — a select that cannot be opened still invites
+              the click, and the row beside it is three live controls, so the one
+              dead one should not be wearing their clothes. The reason and the
+              way out sit under the row. */}
+          {editing ? (
+            <div className="task-form-field">
+              <span className="task-form-field-head">Type</span>
+              <div className="task-form-type-locked" aria-describedby={typeLockedId}>
+                <LockIcon />
+                {TASK_TYPE_LABELS[form.taskType]}
+              </div>
+            </div>
+          ) : (
+            <label>
+              Type
+              <select
+                value={form.taskType}
+                onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}
+              >
+                <option value="LOI">LOI Check</option>
+                <option value="BUDDY_CHAT">Buddy Chat</option>
+                <option value="VALUE">Value Check</option>
+                <option value="FRAUD">Fraud Check</option>
+                <option value="LOAN_DOCS">Loan Docs</option>
+                <option value="OOO">OOO - Out of Office</option>
+              </select>
+            </label>
+          )}
+          {/* An OOO task's two dates are editable (#264, ADR-0008 rule 8), so
+              this pair is the one part of the form that is NOT `!editing`. The
+              two timing controls stay split rather than becoming one either/or:
+              an OOO task shows its dates and no urgency, every other type shows
+              its urgency and no dates, and the server refuses each the other's
+              (ADR-0008 rule 5).
+
+              No `min` of today on either input. Any date is accepted, including
+              one already gone — somebody back early correcting the record is the
+              case this exists for, and a return date in the past auto-completes
+              the task on the next maintenance pass. The due date remains the
+              thing nobody ever types: it is derived, here from the return date
+              and everywhere else from the urgency band.
+
+              Gated on `creatorOnlyFields` like the other two creator-only
+              controls. An OOO task has no assignee, so today the door already
+              answers this — but a control that leans on who was let in rather
+              than on its own rule is the one that goes wrong when the door
+              widens. */}
+          {form.taskType === "OOO" && creatorOnlyFields && (
+            <>
+              <label>
+                Start Date
+                <input
+                  type="date"
+                  value={form.startDate}
+                  onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Return Date
+                <input
+                  type="date"
+                  value={form.returnDate}
+                  min={form.startDate || undefined}
+                  onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
+                  required
+                />
+              </label>
+            </>
+          )}
+          {form.taskType !== "OOO" && creatorOnlyFields && (
+            <label>
+              Urgency
+              <UrgencySelect value={form.urgency} onChange={(urgency) => setForm((c) => ({ ...c, urgency }))} />
+            </label>
+          )}
+          {/* Poop points, on both forms (#261). The collapsed row keeps its own
+              click-to-rate track — two paths to one number, deliberately
+              (ADR-0008 rule 4). */}
+          {creatorOnlyFields && (
+            <label>
+              How Bad?
+              <span
+                className="poop-picker poop-picker-form"
+                onMouseLeave={() => setNamvarHover(null)}
+              >
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const active = n <= (namvarHover ?? form.points);
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`poop-pick${active ? " poop-pick-on" : ""}`}
+                      onMouseEnter={() => setNamvarHover(n)}
+                      onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
+                      aria-label={`${n} poop${n === 1 ? "" : "s"}`}
+                      aria-pressed={n <= form.points}
+                    >
+                      💩
+                    </button>
+                  );
+                })}
+              </span>
+            </label>
+          )}
+        </div>
         {editing && (
           <p id={typeLockedId} className="span-full task-form-locked">
             A task&rsquo;s type can&rsquo;t be changed. If this one is wrong, cancel and refile it.
           </p>
-        )}
-        {/* An OOO task's two dates are editable (#264, ADR-0008 rule 8), so
-            this pair is the one part of the form that is NOT `!editing`. The
-            two timing controls stay split rather than becoming one either/or:
-            an OOO task shows its dates and no urgency, every other type shows
-            its urgency and no dates, and the server refuses each the other's
-            (ADR-0008 rule 5).
-
-            No `min` of today on either input. Any date is accepted, including
-            one already gone — somebody back early correcting the record is the
-            case this exists for, and a return date in the past auto-completes
-            the task on the next maintenance pass. The due date remains the
-            thing nobody ever types: it is derived, here from the return date
-            and everywhere else from the urgency band.
-
-            Gated on `creatorOnlyFields` like the other two creator-only
-            controls. An OOO task has no assignee, so today the door already
-            answers this — but a control that leans on who was let in rather
-            than on its own rule is the one that goes wrong when the door
-            widens. */}
-        {form.taskType === "OOO" && creatorOnlyFields && (
-          <>
-            <label>
-              Start Date
-              <input
-                type="date"
-                value={form.startDate}
-                onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              Return Date
-              <input
-                type="date"
-                value={form.returnDate}
-                min={form.startDate || undefined}
-                onChange={(e) => setForm((c) => ({ ...c, returnDate: e.target.value }))}
-                required
-              />
-            </label>
-          </>
-        )}
-        {form.taskType !== "OOO" && creatorOnlyFields && (
-          <label>
-            Urgency
-            <UrgencySelect value={form.urgency} onChange={(urgency) => setForm((c) => ({ ...c, urgency }))} />
-          </label>
-        )}
-        {/* Poop points, on both forms (#261). The collapsed row keeps its own
-            click-to-rate track — two paths to one number, deliberately
-            (ADR-0008 rule 4). */}
-        {creatorOnlyFields && (
-          <label>
-            How Bad?
-            <span
-              className="poop-picker poop-picker-form"
-              onMouseLeave={() => setNamvarHover(null)}
-            >
-              {[1, 2, 3, 4, 5].map((n) => {
-                const active = n <= (namvarHover ?? form.points);
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    className={`poop-pick${active ? " poop-pick-on" : ""}`}
-                    onMouseEnter={() => setNamvarHover(n)}
-                    onClick={() => setForm((c) => ({ ...c, points: c.points === n ? 0 : n }))}
-                    aria-label={`${n} poop${n === 1 ? "" : "s"}`}
-                    aria-pressed={n <= form.points}
-                  >
-                    💩
-                  </button>
-                );
-              })}
-            </span>
-          </label>
         )}
         {/* Two nodes for one sentence, on purpose. A live region only announces
             changes made INSIDE it, so one that appears with its text already in
@@ -806,7 +759,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
         {/* The request itself. `required` in
             both modes: terms are required at filing and stay required on edit
             (ADR-0008 rule 1), because an LOI whose terms say nothing is worse
-            than one with a typo in them. */}
+            than one with a typo in them.
+
+            Edit mode gives it far more room than filing does, and on an LOI
+            draws it in the mono face: the box is holding a term sheet somebody
+            pasted, and the columns in it only line up in a fixed-width font.
+            That is the one place the "mono is for non-prose" rule bends, and it
+            bends for the reason the rule exists — this is tabular matter, not
+            sentences. Every other type's field is prose and stays in the body
+            face. */}
         <label className="span-full">
           {/* FRAUD's free-text field is now a general discussion seed, so it
               gets a purpose-built "Notes" label (#69); the shared
@@ -814,6 +775,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
           {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
           <textarea
             ref={notesRef}
+            className={editing ? (form.taskType === "LOI" ? "task-form-terms task-form-terms-mono" : "task-form-terms") : undefined}
             rows={editing ? 8 : 2}
             value={form.notes}
             onChange={(e) => {
@@ -825,9 +787,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             required
           />
         </label>
-        {/* Filing only, at its long-standing spot. In edit mode this field has
-            already been drawn beside the folder name, above. */}
-        {!editing && form.taskType !== "OOO" && humperdinkLinkField}
+        {/* An OOO task has no loan and so no link: its folder name is a vacation
+            description that lives on the task itself. */}
+        {form.taskType !== "OOO" && humperdinkLinkField}
         {/* One person, one of two things to do with them (issue #46 +
             ADR-0002). Share = "make sure they see this", task stays in the
             pool. Assign = hand it to them, task is born CLAIMED. The picker
@@ -884,11 +846,92 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
             )}
           </div>
         )}
-        <div className="form-actions">
-          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={submitting}>
-            {editing ? (submitting ? "Saving…" : "Save") : (submitting ? "Creating…" : "Create Task")}
-          </button>
+        {/* The footer: a tinted strip across the bottom of the panel holding the
+            two exits and, to their left, the one thing each mode has to say
+            beside them. Filing puts the Humperdink import here — it is a
+            shortcut past the whole form rather than a field in it, and sitting
+            above Folder Name it read as the first thing to fill in. Editing puts
+            the shared-record line here, where it is genuinely under both of the
+            fields it is about rather than under one of them. */}
+        <div className="task-form-foot">
+          {/* Humperdink import (#194). The paste target and the button that
+              takes it; the human presses paste, the app never reads the
+              clipboard itself. Hidden for OOO: a vacation has no loan and no
+              Humperdink link. And hidden in edit mode, where it would rewrite
+              fields this ticket deliberately doesn't offer. */}
+          {!editing && form.taskType !== "OOO" && (
+            <div className="task-form-import">
+              <label className="task-form-import-field">
+                <span className="sr-only">Paste from Humperdink</span>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  placeholder="Paste what Send to Hot Task copied"
+                  value={importText}
+                  onChange={(e) => {
+                    setImportText(e.target.value);
+                    setImported(false);
+                  }}
+                  onKeyDown={(e) => {
+                    // Enter in this field means "import", not "create the task" —
+                    // the form's implicit submit would file a half-filled task
+                    // out from under a paste.
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      importFromHumperdink();
+                    }
+                  }}
+                />
+              </label>
+              <button type="button" className="btn-ghost btn-sm" onClick={importFromHumperdink}>
+                {imported ? "Imported" : "Import from Humperdink"}
+              </button>
+            </div>
+          )}
+          {/* ADR-0008 rule 7, the quiet half — and #266's lock, which takes its
+              place. Both are one sentence about both loan fields, so both live
+              in the one slot: they are mutually exclusive by construction and a
+              slot that could hold both would be a design that let them collide.
+
+              The shared-record line appears only once a value has actually
+              moved: `touchesSharedLoan` asks the same trimmed question the save
+              asks, so it cannot appear over an edit that would send nothing.
+              Nothing here keys off focus — clicking a field to read it warns
+              about nothing — and it is a line of text, never a dialog, a banner
+              or a toast. Never on OOO, which has no loan to share. */}
+          {editing && form.taskType !== "OOO" && (
+            <div className="task-form-foot-note">
+              {/* Two nodes for one sentence, the same way the sole-checker
+                  warning above does it and for the same reason: a live region
+                  only announces changes made INSIDE it, so the region is always
+                  mounted and only its text changes, while the visible copy is
+                  hidden from the reader so it isn't said twice. */}
+              <p className="sr-only" role="status">{sharedLoanWarning ? sharedLoanCopy : ""}</p>
+              {sharedLoanWarning && (
+                <>
+                  <InfoIcon />
+                  <p className="task-form-shared-loan" aria-hidden="true">{sharedLoanCopy}</p>
+                </>
+              )}
+              {/* Muted prose in the same register as `.task-form-locked`,
+                  because nothing has gone wrong; they are simply not one of the
+                  two people this is for. */}
+              {loanLocked && (
+                <>
+                  <InfoIcon />
+                  <p id={loanLockedId} className="task-form-locked task-form-loan-locked">
+                    {edit?.loanRefusal}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+          <div className="task-form-foot-actions">
+            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" disabled={submitting}>
+              {editing ? (submitting ? "Saving…" : "Save") : (submitting ? "Creating…" : "Create Task")}
+            </button>
+          </div>
         </div>
       </form>
       </div>
