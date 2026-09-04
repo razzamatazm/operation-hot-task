@@ -792,18 +792,30 @@ fields are two surfaces that drift, so there is deliberately no second form.
 
 **Who is offered the door** is shared `canAmendTask`, never a local check —
 the creator of an active task on any type, plus the assignee of an LOI, whose
-request field holds the loan's terms (ADR-0008 rule 5, #263). Urgency and poop
-points stay the creator's on every type; the form carries neither today, which
-is why one predicate can gate the whole door. When they join it (#261) they
-bring their own gating rather than widening this one, because the app must
-never draw a control the server would refuse.
+request field holds the loan's terms (ADR-0008 rule 5, #263).
 
-Edit mode differs in five ways and no others:
+**What is behind the door is a second question.** Urgency and poop points stay
+the creator's on every type, so `creatorOnlyFields` in
+[src/task-form.tsx](src/task-form.tsx) draws that pair only when the viewer
+filed the task (#261 answering #263). Filing is always your own task, so the
+create form always shows both. The door predicate is deliberately not widened
+to cover them: the app must never draw a control the server would refuse, and
+"may this person edit anything here" and "may they move this field" are two
+rules that happen to coincide for one viewer.
+
+Edit mode differs in seven ways and no others:
 
 - it opens preloaded from the task (`editFormValues` in
   [src/create-form-state.ts](src/create-form-state.ts)),
 - the person picker, the Humperdink import and the outstanding-items seeder
   are gone — all three only mean something at filing time,
+- the OOO start/return dates are gone, until #264 lands them. Which is why **no
+  date input is drawn in edit mode at all**, and why an `OOO` task in edit mode
+  shows no timing control: its timing is its dates, and the server refuses an
+  urgency on it outright,
+- urgency and the poop picker are drawn **only for the person who filed the
+  task** (`creatorOnlyFields`) — see above; everyone else who may edit is a
+  checker correcting terms, and neither control is theirs to move,
 - the task type is rendered **disabled**, with a muted `.task-form-locked`
   line beneath it saying it can't change and to cancel and refile. Disabled
   rather than hidden: a form that dropped the type would read as one that lost
@@ -918,10 +930,16 @@ a node script, and `scripts/edit-task-form-sim-test.mjs` renders the form and
 reads the markup back. `CheckIcon` / `TrashIcon` moved to
 [src/icons.tsx](src/icons.tsx) so the card and the form can both draw them.
 
-Urgency, poop points and the OOO dates are create-only for now; each lands on
-this form in its own ticket (#261, #264). Urgency stays the creator's in all of
-them — an assignee who can extend their own deadline is not accepting a deal
-(ADR-0008 rule 5).
+**Urgency and poop points are on the form** (#261), preloaded from the task —
+a select sitting on GREEN while the task is RED is a control that lies. No date
+input appears: changing the urgency re-derives `dueAt` server-side from the
+moment of the edit, the same computation filing uses. The collapsed row keeps
+its click-to-rate poop track; two ways to one number is intended. Both are drawn
+for the filer alone (`creatorOnlyFields`) — urgency stays the creator's, because
+an assignee who can extend their own deadline is not accepting a deal (ADR-0008
+rule 5), and the poops say what the creator thinks the ask is worth.
+
+The OOO dates are create-only for now; they land on this form in #264.
 
 ## When Adding UI
 

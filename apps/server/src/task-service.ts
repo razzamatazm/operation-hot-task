@@ -293,7 +293,15 @@ export class TaskService {
     if (task.createdBy.id !== user.id) {
       throw new Error("Only the task creator can change poops");
     }
-    if (!ACTIVE_STATUSES.includes(task.status)) {
+    // Closed means closed — completed, cancelled, archived (ADR-0008 rule 6).
+    // This used to gate on the local ACTIVE_STATUSES, which is the reminder
+    // engine's list and excludes AWAITING_ITEMS for a scheduling reason that
+    // says nothing about permission. The amend routes already reasoned their
+    // way to CLOSED_STATUSES for exactly this; #261 put the poops on the same
+    // edit form, so the two had to agree or a task parked on its requester
+    // would have had its poops refused as "closed" while its notes went
+    // through.
+    if (CLOSED_STATUSES.includes(task.status)) {
       throw new Error("Poops cannot be changed on a closed task");
     }
     const next = clampPoints(points);

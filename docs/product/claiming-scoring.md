@@ -21,8 +21,12 @@
 - The create-task form uses a 5-emoji left-to-right picker:
   - Inactive slots are monochrome poop emoji styling
   - Active slots are full-color poop emojis
-- Poop points are only set at task creation time
-- Poop points cannot be edited after a task is created
+- The **creator** may change the points after filing, on any non-closed task,
+  through `POST /api/tasks/:id/points`. Two ways in, deliberately (ADR-0008
+  rule 4): the click-to-rate track on the collapsed row, and the `Edit Task`
+  form (see [task-fields.md](task-fields.md)). A points change is silent — it
+  is recorded in the task's history and DMs nobody.
+- Nobody else may, at any status, and nobody may on a closed task
 - Legacy tasks missing points are backfilled to `1`
 
 ## Claims Leaderboard (Metrics Panel)

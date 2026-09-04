@@ -27,21 +27,21 @@ the web alike.
 | Terms (`LOI`) | yes | creator **or** current assignee | any non-closed status |
 | Notes (other five types) | yes | creator | any non-closed status |
 | Urgency | yes, except on `OOO` | creator | any non-closed status |
-<<<<<<< HEAD
-| Poop points | yes | creator | while the task is active (not `AWAITING_ITEMS`) |
-| Folder name / Humperdink link (non-`OOO`) | yes — **on the loan**, not the task | any authenticated user | any status |
-=======
+| Poop points | yes | creator | any non-closed status |
 | Folder name / Humperdink link (non-`OOO`) | yes — **on the loan**, not the task | the task's creator or its current assignee, and only from that task | any non-closed status |
->>>>>>> 520f19b (Only a task's two parties can change its loan (#266))
 | Vacation description (`OOO` folder name) | yes, on the task | creator | any non-closed status |
 | Due date | **never directly** — derived from urgency | — | — |
 | Task type, which loan a task is on, creator, assignee, OOO dates | no | — | — |
 
+Poop points are the creator's too, on the same terms, and have their own
+`POST /api/tasks/:id/points` — see
+[claiming-scoring.md](claiming-scoring.md#poop-points-rules).
+
 Focused operations, never a generic patch: `POST /api/tasks/:id/notes`,
-`POST /api/tasks/:id/urgency` and `POST /api/tasks/:id/folder-name`. Each
-refuses with the rule that refused it. The folder-name route is `OOO`-only and
-says so — every other type's folder name belongs to the shared Loan record and
-goes to `PATCH /api/loans/:loanId`, below.
+`POST /api/tasks/:id/urgency`, `POST /api/tasks/:id/points` and
+`POST /api/tasks/:id/folder-name`. Each refuses with the rule that refused it.
+The folder-name route is `OOO`-only and says so — every other type's folder name
+belongs to the shared Loan record and goes to `PATCH /api/loans/:loanId`, below.
 
 - **Due date is derived, never set.** Changing the urgency re-derives `dueAt`
   from the new band at the moment of the edit, through the same computation
@@ -74,7 +74,8 @@ goes to `PATCH /api/loans/:loanId`, below.
     says to check the terms; it does not quote them, because the terms are a
     block and a DM you have to scroll is one people stop reading. Nobody else
     hears — a checker correcting a transposed digit does not DM the creator.
-  - **A notes change on the other five types is silent**, claimed or not.
+  - **A notes change on the other five types is silent**, claimed or not, and
+    so is a points change.
   Nothing posts to the channel.
 - **The reminder cadence restarts.** Moving `dueAt` clears the task's
   last-reminder stamp, so a task made newly overdue by the edit is eligible for
@@ -90,11 +91,16 @@ goes to `PATCH /api/loans/:loanId`, below.
   server's refusal is written from, so no surface offers an edit the server
   would turn away. It opens the same form the task was filed with, preloaded,
   with the task type shown disabled and a reason, and `Save` in place of
-  `Create Task`. Today it carries the request field, the folder name and the
-  Humperdink link — the request field being exactly the field a non-creator
-  party may write, so a checker is never shown a control they cannot use.
-  Urgency, poop points and the OOO dates land on it in later work and bring
-  their own gating. A save that changed nothing sends nothing.
+  `Create Task`. It carries the request field, the folder name, the Humperdink
+  link, **urgency** and **poop points**; the OOO dates land on it in later work.
+  Urgency and the poops are drawn **only for the person who filed the task**,
+  because they are permanently the creator's — a checker correcting an LOI's
+  terms is never shown a control the server would refuse them, and is left with
+  the one field they may write. Urgency is absent on an `OOO` task too, whose
+  timing is its dates. A save that changed nothing sends nothing, and a save
+  that changed two things makes two focused calls — there is no request that
+  carries a task-shaped body. The row's click-to-rate poop track still works:
+  two ways to one number is intended (ADR-0008 rule 4).
 
 ## Correcting the folder name and the Humperdink link
 

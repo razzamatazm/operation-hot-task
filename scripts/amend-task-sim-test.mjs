@@ -162,7 +162,7 @@ await check("a non-creator is refused on both operations, with a message naming 
   }
 });
 
-await check("both operations are refused on a closed task", async () => {
+await check("all three operations are refused on a closed task", async () => {
   for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
     const { service } = await setup();
     const id = await makeTask(service, { claimed: true });
@@ -181,6 +181,13 @@ await check("both operations are refused on a closed task", async () => {
       () => service.updateTaskUrgency(id, "RED", CREATOR),
       /closed/i,
       `urgency refused at ${status}`
+    );
+    // The other half of the gate #261 rewrote: widening it to every non-closed
+    // status must not have widened it past closed.
+    await rejects(
+      () => service.updateTaskPoints(id, 5, CREATOR),
+      /closed/i,
+      `poops refused at ${status}`
     );
   }
 });
@@ -307,6 +314,25 @@ await check("an urgency change DMs the assignee, and stays off the channel", asy
   assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
 });
 
+/* #261 put the poops on the same edit form as the urgency, so what each one
+   says out loud is now a choice a person makes in one place. They differ: the
+   urgency moved somebody's deadline, a rating did not. */
+await check("a points change is silent, even on a claimed task", async () => {
+  const { service, store, events } = await setup();
+  const id = await makeTask(service, { claimed: true });
+  await drain(service, events);
+  const before = await store.findTask(id);
+
+  const updated = await service.updateTaskPoints(id, 5, CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(updated.points, 5, "the rating changed");
+  assert.equal(events.length, 0, "and nobody was told, by any route");
+  assert.equal(updated.dueAt, before.dueAt, "the deadline is untouched");
+  const history = await store.allHistoryForTask(id);
+  assert.ok(history.some((e) => e.action === "TASK_POINTS_UPDATED"), "but it is in the history");
+});
+
 await check("an urgency change on an unclaimed task DMs nobody, but still syncs cards", async () => {
   const { service, events } = await setup();
   const id = await makeTask(service);
@@ -375,6 +401,13 @@ await check("an AWAITING_ITEMS task is still amendable — it is waiting, not cl
   const updated = await service.updateTaskNotes(task.id, "check this, and the second file", CREATOR);
   assert.equal(updated.notes, "check this, and the second file");
   assert.equal((await service.updateTaskUrgency(task.id, "RED", CREATOR)).urgency, "RED");
+
+  // Points too (#261). They used to be gated on the reminder engine's
+  // ACTIVE_STATUSES, which excludes AWAITING_ITEMS for a scheduling reason that
+  // has nothing to do with permission — so the one edit form that now offers
+  // all three fields would have had its poops refused as "closed" on a task
+  // plainly not closed.
+  assert.equal((await service.updateTaskPoints(task.id, 4, CREATOR)).points, 4);
 });
 
 await check("each applied edit lands in history with the field and both values", async () => {
