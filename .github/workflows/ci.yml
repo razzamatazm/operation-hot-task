@@ -28,6 +28,9 @@ jobs:
       - name: Lint (TypeScript)
         run: npm run lint
 
+      - name: Import cycles (packages/shared)
+        run: npm run check:import-cycles
+
       - name: Build
         run: npm run build
 
