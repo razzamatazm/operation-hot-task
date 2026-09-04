@@ -20,3 +20,20 @@ export const TrashIcon = () => (
     <path d="M3 4.5h10M6.5 4.5V3.2a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.3M5 4.5l.6 8a1 1 0 0 0 1 .95h2.8a1 1 0 0 0 1-.95l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
+
+/* The padlock on the locked task type, and the (i) beside the form footer's
+   one-line notice. Both sit next to text that already says the whole thing, so
+   like the two above they are decorative and hidden from a screen reader. */
+export const LockIcon = () => (
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+    <rect x="3" y="7" width="10" height="7" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M5.6 7V4.9a2.4 2.4 0 0 1 4.8 0V7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
+export const InfoIcon = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+    <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M8 5.1h.01M8 7.4v3.6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);

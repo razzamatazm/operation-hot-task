@@ -11,6 +11,11 @@ apps/server/data/*.db
 # The glob above stops at the data dir itself, and these are the same local
 # task data one level down.
 apps/server/data/backups/
+# Any other store one level down. Running a second dev server against an
+# isolated DATA_FILE is the normal way to look at a branch without touching
+# your own data, and it lands a whole store in a subdirectory here — which the
+# two globs above do not reach, so a `git add -A` swept one into a commit.
+apps/server/data/*/
 npm-debug.log*
 yarn-error.log*
 pnpm-lock.yaml
