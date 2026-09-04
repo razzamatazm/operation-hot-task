@@ -549,6 +549,16 @@ test("the checker holding an LOI gets the terms box and no creator-only control"
   assert.ok(!html.includes("How Bad?"), "no poop points control");
 });
 
+/* The other half of the same promise: not drawing the controls is only half a
+   guarantee if a stale value could still ride out on the save. It cannot — the
+   form opens on the task's own urgency and rating, so with nothing to move
+   them there is nothing for a checker's Save to send. */
+test("a checker's save carries no urgency and no rating, only the terms", () => {
+  const task = loiTask();
+  const values = { ...editFormValues(task), notes: "Rate: 9.25%" };
+  assert.deepEqual(taskEdit(task, values), { notes: "Rate: 9.25%" });
+});
+
 /* ── The loan fields in edit mode (#262) ────────────────── */
 
 test("both loan fields are in the form, filled in from the task", () => {
