@@ -21,8 +21,8 @@
    mean something at filing time (the person picker and the outstanding-items
    seeder), it shows the task type disabled with the reason, and it saves. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
-import { FormEvent, useEffect, useId, useMemo, useState } from "react";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, initialCreateForm, taskEdit } from "./create-form-state";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, editRefusal, initialCreateForm, taskEdit } from "./create-form-state";
 import { TrashIcon } from "./icons";
 import { useToast } from "./toast";
 
@@ -88,6 +88,9 @@ interface TaskFormProps {
 export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, initialValues, edit }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
+  /* The request box, so a save can hang its refusal on the field the browser
+     would hang "please fill out this field" on. */
+  const notesRef = useRef<HTMLTextAreaElement>(null);
   /* Lazy initializer, so re-renders don't rebuild the state and a changing
      `initialValues` identity can't reset a half-typed draft: the values seed
      the form once, at open. Reopening the form remounts this component, which
@@ -239,6 +242,17 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      open with the draft intact, the same way a failed create does. */
   const handleSave = async (): Promise<void> => {
     if (!edit) return;
+    /* A box wiped to whitespace passes `required` but means the same thing as
+       an empty one, and `taskEdit` would read it as "nothing moved" — closing
+       the form silently on someone who thinks they just cleared the terms.
+       Refuse it where the browser refuses an empty box, on the field itself.
+       Terms are required on edit (ADR-0008 rule 1). */
+    const refusal = editRefusal(form);
+    if (refusal) {
+      notesRef.current?.setCustomValidity(refusal);
+      notesRef.current?.reportValidity();
+      return;
+    }
     const changed = taskEdit(edit.task, form);
     if (Object.keys(changed).length === 0) {
       onClose();
@@ -612,7 +626,18 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
               gets a purpose-built "Notes" label (#69); the shared
               NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
           {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
-          <textarea rows={editing ? 8 : 2} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} required />
+          <textarea
+            ref={notesRef}
+            rows={editing ? 8 : 2}
+            value={form.notes}
+            onChange={(e) => {
+              /* Clear a refusal the moment they start fixing it, so the box
+                 isn't stuck invalid on the next submit. */
+              e.target.setCustomValidity("");
+              setForm((c) => ({ ...c, notes: e.target.value }));
+            }}
+            required
+          />
         </label>
         {!editing && form.taskType !== "OOO" && (
           <label className="span-full">

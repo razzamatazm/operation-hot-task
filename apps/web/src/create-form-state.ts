@@ -129,6 +129,16 @@ export const taskEdit = (task: EditableTask, values: CreateFormValues): TaskEdit
   return { notes };
 };
 
+/* Why a Save can't go through, or `null` when it can.
+
+   The browser's own `required` catches a box a person emptied completely, but
+   a single space satisfies it. Without this, `taskEdit` reads a wiped field as
+   "nothing moved", the form closes, and the person walks away believing they
+   cleared the terms when nothing was saved and nothing said so. Worded like the
+   browser's own message, because the form shows it in the same place. */
+export const editRefusal = (values: CreateFormValues): string | null =>
+  values.notes.trim() ? null : "Please fill this in — spaces alone don't count.";
+
 /* The note text an import writes, and the one the last import wrote.
 
    Passed in rather than computed here: rendering the note is

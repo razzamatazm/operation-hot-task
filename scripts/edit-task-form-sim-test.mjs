@@ -36,6 +36,7 @@ import { canAmendTask } from "../packages/shared/dist/workflow.js";
 import {
   BLANK_CREATE_FORM,
   editFormValues,
+  editRefusal,
   initialCreateForm,
   taskEdit
 } from "../apps/web/src/create-form-state.ts";
@@ -113,6 +114,27 @@ test("an emptied request field is refused rather than saved", () => {
   const task = loiTask();
   const values = { ...editFormValues(task), notes: "   " };
   assert.deepEqual(taskEdit(task, values), {});
+});
+
+/* …and the person has to be told. `taskEdit` returning nothing is
+   indistinguishable from "you changed nothing", which closes the form without a
+   word. The browser's `required` catches a box emptied to "", but a single
+   space satisfies it, so the refusal is decided here and shown on the field. */
+test("wiping the request field to whitespace is refused with a reason", () => {
+  for (const wiped of [" ", "   ", "\n", " \n\t "]) {
+    const refusal = editRefusal({ ...editFormValues(loiTask()), notes: wiped });
+    assert.equal(typeof refusal, "string", `"${wiped}" should be refused`);
+    assert.ok(refusal.length > 0);
+  }
+});
+
+test("a box emptied outright is refused the same way", () => {
+  assert.equal(typeof editRefusal({ ...editFormValues(loiTask()), notes: "" }), "string");
+});
+
+test("real terms are not refused, whatever whitespace surrounds them", () => {
+  assert.equal(editRefusal(editFormValues(loiTask())), null);
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "  Rate: 9.25%\n" }), null);
 });
 
 /* The guard against a catch-all update creeping in: even a form whose every
@@ -281,6 +303,17 @@ test("the hamburger carries Edit Task, gated on the shared predicate", () => {
 test("the Edit request button is gone from the terms head and the thread head", () => {
   assert.ok(!/>\s*Edit request\s*</.test(app), "App.tsx no longer draws it");
   assert.ok(!/action\?:/.test(thread), "and the terms section has no action slot left");
+});
+
+/* The refusal is only worth anything if the save path asks for it, and asks
+   before it can mistake a wiped box for an untouched one and close. */
+test("the save path asks for the refusal before deciding nothing moved", () => {
+  const form = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+  const save = form.slice(form.indexOf("const handleSave"));
+  const refusalAt = save.indexOf("editRefusal(");
+  const changedAt = save.indexOf("taskEdit(");
+  assert.ok(refusalAt >= 0, "handleSave consults editRefusal");
+  assert.ok(refusalAt < changedAt, "and does so before working out what moved");
 });
 
 test("no catch-all update route was introduced", () => {
