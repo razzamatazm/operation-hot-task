@@ -140,7 +140,19 @@ export const NOTE_LABELS: readonly string[] = Array.from(
    sees. Asserted against `needsFixesNote`, which is how the prefix was written
    before it was a label: the two must produce the same sentence. */
 export const noteBodyText = (note: Pick<ReviewNote, "label" | "text">): string =>
-  note.label ? `${note.label}${LABEL_SEPARATOR}${note.text}` : note.text;
+  `${noteLabelPrefix(note)}${note.text}`;
+
+/* The app's half of the sentence, ending in its separator, or an empty string
+   on a message the app has nothing to say about.
+
+   Split out of `noteBodyText` for the edit box (#287): the box holds the
+   author's `text` alone, because rule 5 says the prefix is not theirs to
+   change, and the surface still has to show them the row will keep reading
+   `Needs fixes: ...`. Drawing that prefix means writing the separator, and a
+   separator written twice is two ideas of what a labelled message looks like.
+   So it is written once, here, and `noteBodyText` is stated in terms of it. */
+export const noteLabelPrefix = (note: Pick<ReviewNote, "label">): string =>
+  note.label ? `${note.label}${LABEL_SEPARATOR}` : "";
 
 /* One stored message brought up to date, or the same object when it already
    is. Two independent repairs, because a message can need either or both: an
@@ -199,3 +211,105 @@ export const migrateTaskMessages = (
   const changed = migrated.some((note, i) => note !== notes[i]);
   return changed ? { task: { ...task, reviewNotes: migrated }, changed } : { task, changed };
 };
+
+/* ── Correcting a message you posted (#287, ADR-0009) ────────────────────── */
+
+/* What an edited message says, and the whole of it (rule 3). A constant rather
+   than a literal in the renderer because the sim test asserting the marker and
+   the thread drawing it have to be the same string, and because the words are
+   the product's, not a component's. */
+export const MESSAGE_EDITED_MARKER = "(edited)";
+
+/* Why this person may not edit this message, or `undefined` when they may.
+
+   A refusal string rather than a boolean, for the same reason `amendRefusal` is
+   one: the server throws it and the web can show it, so there is one sentence
+   for one rule instead of a predicate here and copy somewhere else.
+
+   Two clauses and no more.
+
+   **The author, and only the author** (rule 1). Not the other party, not an
+   observer, not an admin — narrower than ADR-0008's field rules, which admit
+   both parties, because a fact is a thing about the loan that either party can
+   see is wrong and a message is a thing one person said. Note that this asks
+   nothing about seats: someone who wrote a message and then handed the task on
+   still wrote it.
+
+   **Until the task is archived** (rule 2), and no time window. Not
+   `CLOSED_STATUSES`: the conversation deliberately stays open on a COMPLETED
+   task — `addCompletedNote` exists precisely so people can keep talking about
+   finished work — and letting somebody post a brand new message to a completed
+   task while refusing them a typo fix in it is not a defensible pair of rules.
+   Archival is where the conversation itself closes, so it is where corrections
+   close too.
+
+   Noted honestly: that leaves `CANCELLED` editable, and a cancelled task does
+   refuse new messages — so on that one status the rule's letter and the
+   reasoning behind it point different ways. The letter is what is written down,
+   in the ADR and in #287's criteria both ("allowed at any status up to
+   archival"), and a cancelled task is not a status anybody is having a
+   conversation on. If it is ever decided the other way, this is the line that
+   changes and nothing else.
+
+   Takes the two fields it reads rather than a whole task, so the thread — which
+   holds a narrow `Pick` — can ask it without widening itself. */
+export const messageEditRefusal = (
+  task: Pick<LoanTask, "status">,
+  note: Pick<ReviewNote, "by">,
+  user: Pick<UserIdentity, "id">
+): string | undefined => {
+  if (note.by.id !== user.id) return "Only the person who wrote a message can edit it";
+  if (task.status === "ARCHIVED") return "Messages cannot be edited on an archived task";
+  return undefined;
+};
+
+/* The same question as a predicate, for the thread deciding whether to draw the
+   menu on a row. The server asks for the sentence; the UI only needs the
+   yes/no, and both come off the one rule above — hiding the control is a
+   courtesy, the refusal is the enforcement. */
+export const canEditMessage = (
+  task: Pick<LoanTask, "status">,
+  note: Pick<ReviewNote, "by">,
+  user: Pick<UserIdentity, "id">
+): boolean => messageEditRefusal(task, note, user) === undefined;
+
+/* An edit may not empty a message (rule 4). Deletion is its own action, with
+   its own tombstone; an edit box that can be emptied is deletion by the back
+   door. The Save button reads this and the server enforces it, so the two
+   cannot disagree about what "blank" means — trimmed, so a box holding only
+   spaces is as empty as one holding nothing. */
+export const EMPTY_MESSAGE_REFUSAL = "A message cannot be emptied";
+
+export const isEmptyMessageText = (text: string): boolean => text.trim().length === 0;
+
+/* One message in a thread corrected, and every other message returned as-is.
+
+   Pure, and the one place the edit's *shape* is decided, so no caller has to
+   remember what an edit leaves alone. It rewrites `text` and sets `edited`. It
+   does not touch `at`, `by`, `label` or `id`: rule 6 needs the timestamp frozen,
+   rule 5 needs the label untouched, and the identifier is what addressed the
+   row in the first place.
+
+   Idempotent on the marker — an already-edited message stays edited rather than
+   accumulating anything — and a no-op edit returns the same objects, which is
+   what lets the caller skip the write and the history row entirely.
+
+   Takes and returns the whole list rather than the one message so the server can
+   run it inside `updateTask`'s closure against the thread as it is at write
+   time (`docs/agents/code-guardrails.md`): a reply that landed while the edit
+   was being checked survives. */
+export const editMessageInThread = (
+  notes: readonly ReviewNote[],
+  messageId: string,
+  text: string
+): ReviewNote[] =>
+  notes.map((note) => (note.id === messageId && note.text !== text ? { ...note, text, edited: true } : note));
+
+/* The message this identifier names, or `undefined` when the thread has no such
+   row. Named rather than inlined because three callers need it — the route's
+   404, the permission check, and the history detail's "before" — and a message
+   found three ways is a message three callers can disagree about. */
+export const findMessageInThread = (
+  task: Pick<LoanTask, "reviewNotes">,
+  messageId: string
+): ReviewNote | undefined => (task.reviewNotes ?? []).find((note) => note.id === messageId);

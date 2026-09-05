@@ -613,6 +613,37 @@ nested card chrome, in this order:
    `Edit Task` the one door, so a second entrance beside the field is gone
    rather than duplicated.
 
+   **A message, though, carries its own menu** (#287,
+   [ADR-0009](../../docs/adr/0009-messages-are-editable-by-their-author.md) rule
+   9) — the one sanctioned exception to that single door, because the hamburger
+   belongs to the task and cannot know which of a dozen messages is meant. A
+   `⋯` trigger sits at the top-right of the row's text cell
+   (`.msg-menu-trigger`), `opacity: 0` until the row is hovered or the trigger
+   is tabbed to, and `display: none` under `@media (hover: none)` where a
+   long-press on the row opens the menu instead. It renders **only on the
+   viewer's own messages**, and whether it renders at all is the shared
+   `canEditMessage` — the same function the server throws from — so the menu
+   can never appear on a message the API would refuse, and never on the
+   originating field, which is the task's ask and not a message.
+
+   The panel (`.msg-menu-panel`) stays **in the row's flow** — the one panel in
+   the app that does. Every other one escapes its container through
+   `useAnchoredPanel`; this one can't, because `thread.tsx` is deliberately
+   importable by a node script and `App.tsx` is not. Taken out of flow it would
+   be clipped by the 178px `.msgs` box on exactly the message people edit most,
+   the last one, so instead the row grows by a two-entry menu and the thread
+   scrolls, which it already does. `Edit` today, `Delete` beside it in #288.
+
+   `Edit` swaps the row's text for a textarea in place (`.msg-edit`) with
+   `Save` / `Cancel`, Enter to save and Shift+Enter for a newline, the same
+   idiom as every other composer here. The box holds the author's own words and
+   nothing else: an app-written prefix renders beside it as static
+   `.msg-edit-label` text, drawn from shared `noteLabelPrefix`, because the
+   label is the app's and survives the edit. A saved message renders a muted
+   `(edited)` (`.msg-edited`, body face — it is a word, not a badge) running on
+   from its last line, with no edit time and no route back to the previous
+   wording; that lives in the task's history.
+
 The body **ends on the notes thread**. It used to close with a compact
 Created / Due meta row; that moved into the hamburger in #166 — reference
 detail nobody reads on the way through a task, costing a full row plus its

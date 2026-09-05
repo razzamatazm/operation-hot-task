@@ -7,6 +7,12 @@ import {
   NotificationEvent,
   TASK_ARCHIVED_ACTION,
   TASK_COMPLETED_ACTION,
+  REVIEW_NOTE_EDITED_ACTION,
+  EMPTY_MESSAGE_REFUSAL,
+  editMessageInThread,
+  findMessageInThread,
+  isEmptyMessageText,
+  messageEditRefusal,
   closureActionFor,
   completionTargetStatus,
   isConfirmingLook,
@@ -1579,6 +1585,75 @@ export class TaskService {
     }
 
     return this.appendReviewNote(task, text, user);
+  }
+
+  /* Correct a message you posted (#287, ADR-0009). The whole of the edit path,
+     and deliberately the narrowest write in this file: it changes one message's
+     `text`, sets its `edited` marker, and records one history row. It touches
+     no status, no `completedAt`, no notification fan-out, and — uniquely — no
+     `updatedAt`.
+
+     That omission is the carve-out in ADR-0009 rule 6, and it is the one thing
+     here that looks like an oversight and is not. Every other write in this
+     file stamps `updatedAt`; the done list and the archive sort by it, so a
+     typo fixed on a task finished three weeks ago would otherwise jump above
+     work genuinely finished yesterday. A correction is not activity.
+
+     Neither is it news: no DM, no activity-feed ping, no channel post, and `at`
+     is left exactly where it was, so a message does not re-raise as unread at
+     somebody who has already read it. The one thing that does go out is a
+     silent card resync — a delivered DM card quotes the last few messages, so
+     without it the card sitting in somebody's chat is the last surface still
+     showing the typo. That is the path a FRAUD checklist write already uses
+     (`persistChecklist`); it creates nothing and pings nobody.
+
+     The guards run outside the write closure, per the guardrail: they answer
+     "may this person edit this message", which a concurrent reply does not
+     change. The value written is built inside it, by the shared
+     `editMessageInThread` against the thread as it is at write time, so a reply
+     that landed while we were checking survives (#158). */
+  async editReviewNote(taskId: string, messageId: string, text: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    const note = findMessageInThread(task, messageId);
+    if (!note) {
+      throw new Error("Message not found");
+    }
+
+    const refusal = messageEditRefusal(task, note, user);
+    if (refusal) {
+      throw new Error(refusal);
+    }
+
+    const next = text.trim();
+    if (isEmptyMessageText(next)) {
+      throw new Error(EMPTY_MESSAGE_REFUSAL);
+    }
+    /* Nothing changed, so nothing happened: no history row claiming an edit
+       that reads identically on both sides, and no resync for a card that
+       already says this. */
+    if (next === note.text) {
+      return task;
+    }
+
+    /* Both sides of the change, which is what ADR-0009 rule 7 asks history to
+       carry and what lets rule 3 keep the previous wording out of the thread.
+       The author's words only: the app's label is not theirs to change and is
+       not in the edit box, so quoting it here would suggest it was. */
+    const event = this.makeHistory(
+      task.id,
+      user,
+      REVIEW_NOTE_EDITED_ACTION,
+      `Message changed from "${note.text}" to "${next}"`
+    );
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: { ...current, reviewNotes: editMessageInThread(current.reviewNotes ?? [], messageId, next) },
+      event
+    }));
+
+    this.background(() => this.resyncTaskCards(updated.id), { method: "editReviewNote", taskId: updated.id });
+
+    return updated;
   }
 
   /* ------------------------------------------------------------------------

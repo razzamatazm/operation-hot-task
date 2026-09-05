@@ -21,6 +21,7 @@ import {
   checklistItemTextSchema,
   createLoanSchema,
   createTaskSchema,
+  messageEditSchema,
   reviewNoteSchema,
   transitionSchema,
   updateLoanSchema,
@@ -675,6 +676,27 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task });
     } catch (error) {
       sendError(res, error, "Failed to add note");
+    }
+  });
+
+  /* Correct a message you posted (#287, ADR-0009). Addressed by the message's
+     own identifier, which is what #286 gave it — its timestamp could not do the
+     job, because rule 6 freezes that across an edit.
+
+     Shaped after the checklist item's text endpoint rather than as a PATCH on
+     the message, so that #288's `DELETE /tasks/:taskId/messages/:messageId` can
+     sit beside it on the same noun without either reshaping the other. The
+     author-only rule and the archived gate are enforced in the service off the
+     shared `messageEditRefusal`; hiding the menu in the web app is a courtesy,
+     not the enforcement. */
+  router.post("/tasks/:taskId/messages/:messageId/text", async (req, res) => {
+    try {
+      const { text } = messageEditSchema.parse(req.body);
+      const user = await getActor(req);
+      const task = await service.editReviewNote(req.params.taskId, req.params.messageId, text, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to edit the message");
     }
   });
 

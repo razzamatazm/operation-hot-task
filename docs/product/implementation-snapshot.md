@@ -113,6 +113,20 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/completed-note` (append a note to a COMPLETED task
     without reopening it — creator/assignee; the card's "Add a note"
     affordance)
+  - `POST /api/tasks/:taskId/messages/:messageId/text` — correct a message you
+    posted (#287, [ADR-0009](../adr/0009-messages-are-editable-by-their-author.md)).
+    **Author only**, enforced here and not merely by the web hiding the control:
+    the other party, an observer and an admin are all refused. No time window —
+    the only status gate is archival, so a completed task's messages are still
+    editable because a new one can still be posted to it. The body cannot be
+    empty or whitespace-only; deletion is a separate action. The edited message
+    keeps its `id`, its `at` and its app-written label, and gains a plain
+    `(edited)` marker. **Silent by design**: no DM, no activity-feed ping, no
+    channel post, and the task's `updatedAt` does not move — a deliberate
+    carve-out from every other write, so a correction can't drag an old task to
+    the top of the done list or the archive. Existing DM cards refresh in place
+    through the same silent sync a checklist write uses. Every applied edit
+    writes a `REVIEW_NOTE_EDITED` history row carrying the text on both sides.
   - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
     endpoints, each server-enforcing the two permission rules + gated-deletion /
     checked-stale invariants:

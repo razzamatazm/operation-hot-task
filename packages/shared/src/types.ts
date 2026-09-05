@@ -320,13 +320,28 @@ export interface UserIdentity {
    characters at the front of `text`, indistinguishable from anything a person
    typed. Held separately it can survive an edit that rewrites `text` and a
    delete that removes it. Absent on an ordinary reply. Never rendered on its
-   own — `noteBodyText` is the one place label and text are put back together. */
+   own — `noteBodyText` is the one place label and text are put back together.
+
+   `edited` is set the first time the author corrects their own words (#287,
+   ADR-0009 rule 3), and is the whole of what the thread says about it: a plain
+   `(edited)`, with no edit time and no previous version. Rule 3 rejected both —
+   a second timestamp beside the message's own invites "so which one is this",
+   and an expandable previous version is the affordance that makes people
+   hesitate before fixing a typo. Whoever needs to know what changed reads the
+   task's history, which carries the text on both sides of every edit.
+
+   Note what an edit does NOT move: `at` is not re-stamped and `label` is not
+   touched. The first is rule 6 — `at` is the value the unread comparison reads,
+   so moving it would re-raise a corrected message at somebody who had already
+   read it. The second is rule 5 — the author owns their words, the app owns the
+   label saying why the row exists. */
 export interface ReviewNote {
   id: string;
   label?: string;
   text: string;
   by: Pick<UserIdentity, "id" | "displayName">;
   at: string;
+  edited?: boolean;
 }
 
 /* A message as it may still be sitting in the store: a `ReviewNote` whose

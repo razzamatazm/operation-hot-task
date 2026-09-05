@@ -1,4 +1,16 @@
-import { LoanTask, StoredReviewNote, getNotesFieldLabel, noteBodyText, standingTermsFor } from "@loan-tasks/shared";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  LoanTask,
+  MESSAGE_EDITED_MARKER,
+  StoredReviewNote,
+  canEditMessage,
+  getNotesFieldLabel,
+  isEmptyMessageText,
+  noteBodyText,
+  noteLabelPrefix,
+  standingTermsFor
+} from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
 
@@ -80,14 +92,250 @@ export const TermsSection = ({
  * the terms and the composer reads as something failing to load. It invites a
  * reply only when the viewer has a composer — an Observer, or anyone looking at
  * a task with no reply box, has nothing below to start. */
+/* How long a finger has to stay down before the menu opens on a touch screen.
+   Long enough not to fire on a tap that was meant to scroll the thread, short
+   enough that nobody wonders whether it worked. */
+const LONG_PRESS_MS = 500;
+
+/* One reply row, and the only stateful thing in this file.
+ *
+ * It is a component rather than markup inside the map because the edit box is
+ * per-message state (#287): a draft, an open menu, and an in-flight save belong
+ * to the row being edited, and hoisting them into `ThreadMessages` would mean
+ * one "which message" variable that every row has to test itself against.
+ *
+ * `onEdit` absent means the surface offers no editing at all — which is how the
+ * sim tests and any future read-only renderer get the thread exactly as it was.
+ * When it is present, whether THIS row offers it is the shared
+ * `canEditMessage`, never a local `note.by.id === viewerId`: the server asks the
+ * same function, so the menu cannot appear on a message the API would refuse.
+ * Hiding it is a courtesy; the refusal is the enforcement. */
+const MessageRow = ({
+  note,
+  task,
+  viewerId,
+  onEdit
+}: {
+  note: StoredReviewNote;
+  task: Pick<LoanTask, "status">;
+  viewerId: string;
+  onEdit?: (messageId: string, text: string) => Promise<void>;
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  /* `undefined` is "not editing". An empty string is a real draft — the author
+     has cleared the box — and the Save button refuses it, so the two states
+     cannot be the same value. */
+  const [draft, setDraft] = useState<string | undefined>(undefined);
+  const [saving, setSaving] = useState(false);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  /* A press anywhere else closes the menu. Not a nicety: on a touch screen the
+     trigger is `display: none` and the menu is opened by a long press, so
+     without this the only way out of an opened menu is to choose something from
+     it. On a pointer device it is also what stops every row's menu standing
+     open at once, since an open one pins its trigger visible.
+     Capture phase, like the card's own panels, so the close lands before
+     whatever was clicked acts on it. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: globalThis.PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [menuOpen]);
+
+  /* A message the store has not backfilled an identifier onto cannot be
+     addressed, so it cannot be edited — the `StoredReviewNote` case #286 left
+     open. The store migrates at start-up, so this is a belt, not a road. */
+  const editable =
+    onEdit !== undefined && note.id !== undefined && canEditMessage(task, note, { id: viewerId });
+
+  const cancelPress = (): void => {
+    if (pressTimer.current !== undefined) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = undefined;
+    }
+  };
+
+  /* Tap-and-hold, the touch half of ADR-0009 rule 9. A touch screen has no
+     hover, so the trigger this reveals is invisible there and the press has to
+     open the menu itself. Pointer events rather than touch events so one
+     handler covers a pen as well, and `pointerType` keeps it off the mouse,
+     where a slow click must stay a click. */
+  const onPointerDown = (event: { pointerType: string }): void => {
+    if (!editable || event.pointerType === "mouse") return;
+    cancelPress();
+    pressTimer.current = setTimeout(() => setMenuOpen(true), LONG_PRESS_MS);
+  };
+
+  const startEditing = (): void => {
+    setMenuOpen(false);
+    /* The author's own words and nothing else. The app's label is not in the
+       box because rule 5 says it is not theirs to change — it is drawn beside
+       the box instead, so they can see the row will still read `Needs
+       fixes: ...` when they save. */
+    setDraft(note.text);
+  };
+
+  const stopEditing = (): void => {
+    setDraft(undefined);
+    setSaving(false);
+  };
+
+  const save = async (): Promise<void> => {
+    if (draft === undefined || note.id === undefined || isEmptyMessageText(draft) || saving) return;
+    setSaving(true);
+    try {
+      await onEdit?.(note.id, draft);
+      stopEditing();
+    } catch {
+      /* The box stays open with the typing still in it. The caller has already
+         said why in a toast, and closing on a refusal would throw away the
+         author's words along with it — which on the one refusal a person can
+         actually hit (somebody archived the task while they were typing) is the
+         worst possible moment to lose them. */
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editing = draft !== undefined;
+  const byline = bylineOf(note.by.displayName, note.at);
+  return (
+    <div
+      className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`}
+      title={byline}
+      onPointerDown={onPointerDown}
+      onPointerUp={cancelPress}
+      onPointerMove={cancelPress}
+      onPointerCancel={cancelPress}
+      onPointerLeave={cancelPress}
+    >
+      <ExpandAvatar name={note.by.displayName} />
+      <div className="msg-body">
+        <span className="sr-only">{byline}</span>
+        {editing ? (
+          <div className="msg-edit">
+            <label className="sr-only" htmlFor={`msg-edit-${note.id}`}>
+              Edit your message
+            </label>
+            <div className="msg-edit-field">
+              {/* The label, shown and not editable — the evidence that the
+                  prefix survives an edit it cannot be reached from. */}
+              {note.label && <span className="msg-edit-label">{noteLabelPrefix(note)}</span>}
+              <textarea
+                id={`msg-edit-${note.id}`}
+                rows={2}
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    stopEditing();
+                  }
+                  /* Enter saves, Shift+Enter takes a newline — the same idiom as
+                     every other composer in the app. `preventDefault` runs even
+                     on an empty box, so a refused save leaves no stray newline
+                     behind. */
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void save();
+                  }
+                }}
+              />
+            </div>
+            <div className="msg-edit-actions">
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={isEmptyMessageText(draft) || saving}
+                onClick={() => void save()}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+              <button type="button" className="btn-sm btn-ghost" onClick={stopEditing} disabled={saving}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="msg-text">
+            {noteBodyText(note)}
+            {/* Rule 3, and the whole of what the thread says about an edit: no
+                time, and no route back to the previous wording. That lives in
+                the task's history. */}
+            {note.edited && <span className="msg-edited"> {MESSAGE_EDITED_MARKER}</span>}
+          </div>
+        )}
+        {editable && !editing && (
+          <div
+            ref={menuRef}
+            className="msg-menu"
+            /* Escape closes the menu, and stops there: focus is inside this
+               wrapper whenever the menu is open, so nothing else needs to hear
+               it — and the card's own Escape handlers must not also fire and
+               take the whole row down with it. */
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && menuOpen) {
+                e.stopPropagation();
+                setMenuOpen(false);
+              }
+            }}
+          >
+            <button
+              type="button"
+              className="msg-menu-trigger"
+              aria-label="Message menu"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="12" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="19" cy="12" r="2" />
+              </svg>
+            </button>
+            {/* Opens in the row's own flow rather than as a portaled panel, the
+                one panel in this app that does. The thread is a 178px scrolling
+                box, so a panel taken out of flow is clipped by its own
+                container on exactly the message people edit most — the last one
+                — and escaping the box the way the card's menus do means the
+                placement machinery in `App.tsx`, which this file deliberately
+                cannot import. A two-entry menu is small enough to sit in the
+                row instead; #288's `Delete` joins it here. */}
+            {menuOpen && (
+              <div className="msg-menu-panel" role="menu">
+                <button type="button" role="menuitem" onClick={startEditing}>
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const ThreadMessages = ({
   task,
   viewerId,
-  canReply
+  canReply,
+  onEditMessage
 }: {
-  task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "createdAt" | "reviewNotes">;
+  task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "createdAt" | "reviewNotes" | "status">;
   viewerId: string;
   canReply: boolean;
+  /* The one write this file can make (#287). Optional so a renderer with
+     nothing to save to — a test, a future read-only view — gets the thread
+     exactly as it was before the edit path existed. */
+  onEditMessage?: (messageId: string, text: string) => Promise<void>;
 }) => {
   const opensWithOriginatingNote = standingTermsFor(task) === undefined;
   const replies = Array.isArray(task.reviewNotes) ? task.reviewNotes : [];
@@ -103,29 +351,29 @@ export const ThreadMessages = ({
       {opensWithOriginatingNote && (
         <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
           <ExpandAvatar name={task.createdBy.displayName} />
-          <div>
+          <div className="msg-body">
             <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
             <div className="msg-text">{task.notes}</div>
           </div>
         </div>
       )}
+      {/* The originating row above carries no menu, deliberately: it is the
+          task's request field, not a message, and its one door is `Edit Task`
+          in the hamburger (ADR-0008 rule 4). Only the replies below are
+          messages somebody posted. */}
       {replies.map((note: StoredReviewNote, i: number) => (
-        <div
+        <MessageRow
           /* The message's own identifier since #286, which is what makes a row
              addressable rather than merely positional. The fallback to position
              is not dead: this renders whatever the API hands it, and a message
              the store has not backfilled yet is exactly the `StoredReviewNote`
              case — the same index this list keyed in full before #286. */
           key={note.id ?? i}
-          className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`}
-          title={bylineOf(note.by.displayName, note.at)}
-        >
-          <ExpandAvatar name={note.by.displayName} />
-          <div>
-            <span className="sr-only">{bylineOf(note.by.displayName, note.at)}</span>
-            <div className="msg-text">{noteBodyText(note)}</div>
-          </div>
-        </div>
+          note={note}
+          task={task}
+          viewerId={viewerId}
+          {...(onEditMessage ? { onEdit: onEditMessage } : {})}
+        />
       ))}
     </>
   );
