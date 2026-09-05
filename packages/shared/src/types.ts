@@ -83,6 +83,18 @@ export const requestFieldNoun = (taskType: TaskType): string =>
 export const instructionsFieldPhrase = (taskType: TaskType): string =>
   taskType === "LOI" ? "terms" : NOTES_FIELD_LABELS[taskType].toLowerCase();
 
+/* What an emptied request field is told (ADR-0008 rule 1, ADR-0010 rule 4).
+
+   The sentence the server has always thrown, promoted to shared because it now
+   has a second reader. The inline box editor (#303) has to refuse an emptied
+   box on the spot rather than let a person press Save and wait for a round trip
+   to tell them, and the box saying one thing while the route says another is
+   two sentences for one rule — the exact drift `requestFieldNoun` exists to
+   prevent. The server still throws it; the box just no longer has to guess what
+   it would say. */
+export const emptyRequestFieldRefusal = (taskType: TaskType): string =>
+  `The ${requestFieldNoun(taskType)} cannot be emptied`;
+
 /* Human, creator-perspective phrase per task type for the "New Task" headline,
    e.g. "Tyler needs a set of loan docs done". OOO isn't a request, so it reads
    as a status instead. */

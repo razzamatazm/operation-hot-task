@@ -61,6 +61,7 @@ import {
   formatOooHeadline,
   formatWallDate,
   ACTION_LABELS,
+  emptyRequestFieldRefusal,
   NEEDS_FIXES_NOTE_REQUIRED,
   oooDatesOutOfOrder,
   OOO_DATE_RANGE_REFUSAL,
@@ -404,7 +405,9 @@ export class TaskService {
 
     const next = notes.trim();
     if (next.length === 0) {
-      throw new Error(`The ${requestFieldNoun(task.taskType)} cannot be emptied`);
+      /* The sentence is shared since #303: the box's own editor refuses an
+         emptied field before it sends, and the two have to be one sentence. */
+      throw new Error(emptyRequestFieldRefusal(task.taskType));
     }
     if (next === task.notes) {
       return task;

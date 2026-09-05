@@ -2229,6 +2229,77 @@ button.btn-good:hover {
   max-height: 260px;
   overflow-y: auto;
 }
+/* A box you can hold (#303). Same opt-outs as `.msg-bubble-holdable` and for
+   the same reason: the callout, the selection and the magnifier all fire on a
+   long press otherwise, which on a phone turns the gesture into a fight with
+   the OS. `pan-y` keeps the box's own overflow scrollable through the same
+   finger. */
+.loi-terms-holdable {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y;
+  cursor: default;
+}
+/* Held. The bubble's ring, inset rather than outset — the box already sits
+   inside a bordered panel, and an outline outside its own edge would land on
+   top of the panel's border rather than beside it. */
+.loi-terms-held {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+/* The box's menu, in the head's reserved right-hand slot rather than over the
+   text. It borrows `.msg-menu-panel` outright — one visual shell for one
+   gesture, which is the half of the message editor this deliberately copies —
+   and only drops the fixed `--msg-menu-w`, sized for a two-entry strip inside a
+   118px thread column. This menu has one entry and a whole card's width beside
+   it. */
+.loi-terms-menu {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+/* The box turned into a field in place (#303, ADR-0010 rule 4). Same face and
+   size as the text it replaces, so the section does not jump when it opens. */
+.loi-terms-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.loi-terms-edit-field {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  resize: vertical;
+  /* Body face on every type, exactly as the read view is. The fixed-width
+     exception stays the edit form's LOI field alone — swapping the face when
+     the box opens would reflow a term sheet the moment somebody went to correct
+     it. */
+}
+/* The emptied-box refusal, said where the person is looking. The sentence
+   itself comes from shared, so it is the route's sentence and not a second one
+   written here. */
+.loi-terms-refusal {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--bad);
+}
+.loi-terms-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The discard question, in the action row the buttons were in rather than in a
+   dialog over the card. The row is already wide enough to hold it, and a modal
+   for one question costs more than it prevents — the same call the thread's
+   two-step `Delete` makes. */
+.loi-terms-discard-question {
+  font-size: 0.82rem;
+  color: var(--ink-secondary);
+  margin-right: auto;
+}
 
 /* ── Conversation thread ──────────────────────────────────── */
 /* A genuine empty state, which only exists since #258: an LOI's terms left the

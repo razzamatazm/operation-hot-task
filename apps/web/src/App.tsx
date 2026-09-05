@@ -11,7 +11,7 @@ import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn }
 import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
-import { InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
+import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -1472,6 +1472,7 @@ const TaskCard = memo(({
   onAddReviewNote,
   onEditMessage,
   onDeleteMessage,
+  onSaveInstructions,
   onAddCompletedNote,
   onUpdatePoints,
   onEditTask,
@@ -1506,6 +1507,10 @@ const TaskCard = memo(({
      payload: the thread hands back the identifier it was given, and the server
      decides whether the author may. */
   onDeleteMessage: (taskId: string, messageId: string) => Promise<void>;
+  /* Save the Instructions box from the box itself (#303, ADR-0010 rule 4). The
+     same route the edit form's save reaches, so the two doors onto this one
+     field cannot produce different results. */
+  onSaveInstructions: (taskId: string, text: string) => Promise<void>;
   /* Append a note to an already-COMPLETED task (#45). Server keeps the task
      COMPLETED — no visible reopen. */
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
@@ -1762,6 +1767,14 @@ const TaskCard = memo(({
   const deleteMessage = useCallback(
     (messageId: string): Promise<void> => onDeleteMessage(task.id, messageId),
     [onDeleteMessage, task.id]
+  );
+
+  /* And the Instructions box's save (#303), bound the same way. No
+     `acknowledgeUnread`: correcting the ask you filed is not reading somebody
+     else's message. */
+  const saveInstructions = useCallback(
+    (text: string): Promise<void> => onSaveInstructions(task.id, text),
+    [onSaveInstructions, task.id]
   );
 
   /* Share: point one person at this task. Candidates exclude the current user
@@ -2432,13 +2445,14 @@ const TaskCard = memo(({
      before — its standing ask is the outstanding-items list further up this
      same body, so a prose box above it would say the same thing twice.
 
-     Neither carries an edit button yet (#260, ADR-0008 rule 4). ADR-0010 rule 4
-     gives the box a press-and-hold editor, which is #303's work; until then the
-     hamburger's `Edit Task` is the one door. */
+     The box is held to edit since #303 (ADR-0010 rule 4) — the second door onto
+     the field, beside the hamburger's `Edit Task`, which keeps it. Whether the
+     box answers a hold at all is the shared `canAmendTask`, asked inside the
+     section; nothing about who may correct what is decided here. */
   const fieldIsInThread = standingInstructionsFor(task) === undefined;
   const instructionsBlock = fieldIsInThread ? null : (
     <div className="task-card-terms">
-      <InstructionsSection task={task} />
+      <InstructionsSection task={task} viewerId={user.id} onSave={saveInstructions} />
     </div>
   );
   const notesBlock = (
@@ -2482,14 +2496,20 @@ const TaskCard = memo(({
      is what the conversation below it is about, so it reads in that order, and
      it is the last thing before the replies rather than the first thing in the
      body — the timeline still answers "where is this" first. */
+  /* One menu open at a time across the whole body, counting the box's and the
+     thread's alike (#303). The provider is what makes that one variable rather
+     than two — see `CardMenuScopeProvider` in `thread.tsx`. Per card, so two
+     expanded cards do not close each other's menus. */
   const renderExpanded = () => (
-    <div className="task-card-expanded">
-      <Timeline task={task} />
-      {fraudActionsBlock}
-      {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
-      {instructionsBlock}
-      <div className="thread">{notesBlock}</div>
-    </div>
+    <CardMenuScopeProvider>
+      <div className="task-card-expanded">
+        <Timeline task={task} />
+        {fraudActionsBlock}
+        {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
+        {instructionsBlock}
+        <div className="thread">{notesBlock}</div>
+      </div>
+    </CardMenuScopeProvider>
   );
 
   /* Grouped-row people values: Assignee = assignee (or "Unclaimed"), Assigner =
@@ -2691,6 +2711,7 @@ const CardList = ({
   onAddReviewNote,
   onEditMessage,
   onDeleteMessage,
+  onSaveInstructions,
   onAddCompletedNote,
   onUpdatePoints,
   onEditTask,
@@ -2726,6 +2747,10 @@ const CardList = ({
      payload: the thread hands back the identifier it was given, and the server
      decides whether the author may. */
   onDeleteMessage: (taskId: string, messageId: string) => Promise<void>;
+  /* Save the Instructions box from the box itself (#303, ADR-0010 rule 4). The
+     same route the edit form's save reaches, so the two doors onto this one
+     field cannot produce different results. */
+  onSaveInstructions: (taskId: string, text: string) => Promise<void>;
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   /* Open the edit form on this task (#260). App owns the form and the save, so
@@ -2770,6 +2795,7 @@ const CardList = ({
           onAddReviewNote={onAddReviewNote}
           onEditMessage={onEditMessage}
           onDeleteMessage={onDeleteMessage}
+          onSaveInstructions={onSaveInstructions}
           onAddCompletedNote={onAddCompletedNote}
           onUpdatePoints={onUpdatePoints}
           onEditTask={onEditTask}
@@ -4160,6 +4186,25 @@ export const App = () => {
     };
   }, [user, showToast]);
 
+  /* Save the Instructions box from the box itself (#303, ADR-0010 rule 4).
+
+     The second door onto the field, and deliberately the same route as the
+     first: `amendApi.setNotes` is what the edit form's save reaches through
+     `saveTaskEdit`, so one press here and one press there produce the same
+     write, the same history entry and the same DM. Two doors onto one field was
+     the risk ADR-0008 rule 4 refused; sharing the route — and the one shared
+     permission rule both surfaces gate on — is how ADR-0010 accepts it.
+
+     `amendApi` toasts and rethrows already. The refresh is added here because
+     unlike the form's save — which refetches once for a save that may have
+     touched four fields — this one writes exactly one field and has no other
+     step to hang the refetch on. It rethrows, so the box stays open with the
+     rewrite still in it when the write is refused. */
+  const onSaveInstructions = useCallback(async (taskId: string, text: string): Promise<void> => {
+    await amendApi.setNotes(taskId, text);
+    await refresh();
+  }, [amendApi, refresh]);
+
   /* Write the shared Loan record from the edit form (#262, ADR-0008 rule 7).
 
      The task it was edited from travels with it (#266): the server's permission
@@ -4402,6 +4447,7 @@ export const App = () => {
       onAddReviewNote,
       onEditMessage,
       onDeleteMessage,
+      onSaveInstructions,
       onAddCompletedNote,
       onUpdatePoints,
       onEditTask,
