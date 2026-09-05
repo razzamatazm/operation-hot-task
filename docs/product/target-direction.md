@@ -6,6 +6,13 @@ Not yet implemented — do not present as current state. Everything else under
 - **Relational DB (expected Azure SQL)** for task state and audit history.
   Persistence today is JSON files under `apps/server/data/` — see
   [implementation-snapshot.md](implementation-snapshot.md).
+- **An Instructions box on every task type but a Fraud Check**, holding the
+  standing ask above the conversation and editable in place by holding or
+  right-clicking it. Today only an LOI has the box; the other five render the
+  creator's field as the thread's first message. Also retitles four boxes,
+  makes a Fraud Check's note optional where it carries at least one outstanding
+  item, and tells the holder about a change on every type rather than the LOI
+  alone. See [ADR-0010](../adr/0010-every-task-has-an-instructions-box.md).
 - **A real inbound task-creation API** for the in-house web app — a `POST` that
   creates a task headlessly, needing a per-user credential on staff machines.
   Only worth building if the volume ever justifies it. What exists today is the

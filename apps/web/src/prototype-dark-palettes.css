@@ -1,0 +1,263 @@
+/* PROTOTYPE — throwaway. Five candidate dark palettes, switchable via
+   ?palette=a..e (see prototype-palette-switcher.tsx). Question being
+   answered: "which dark palette should this app wear?"
+
+   Each block re-declares the full dark token set from styles.css so the
+   whole app repaints — nothing here is structural, only colour.
+   Delete this file (and the switcher) once a palette wins; fold the
+   winner into the real :root[data-theme="dark"] block. */
+
+/* ── A — Indigo Ledger (Tyler's reference palette, literal) ─────────
+   #1a1a40 / #3f3f70 / #7070a3 / #d3d3e6 / #f5f5ff, expanded to the
+   full token set. Everything is one hue family; accents are the only
+   thing allowed off-hue. */
+:root[data-theme="dark"][data-palette="a"] {
+  --bg: #14143a;
+  --bg-soft: #1a1a40;
+  --panel: #23234f;
+  --ink: #f5f5ff;
+  --ink-secondary: #d3d3e6;
+  --muted: #a9a9c8;
+  --line: #7070a3;
+  --line-soft: #6d6d98;
+  --brand: #aeaef0;
+  --brand-hover: #c8c8ff;
+  --brand-soft: #2b2b60;
+  --on-accent: #14143a;
+  --good: #6fd3a0;
+  --good-bg: #1a3348;
+  --warn: #e5c264;
+  --warn-bg: #2e2c4a;
+  --hot: #f0a06a;
+  --hot-bg: #322648;
+  --bad: #f08a92;
+  --bad-bg: #331f45;
+  --row-alt: rgba(255, 255, 255, 0.02);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --focus-ring: 0 0 0 2px rgba(174, 174, 240, 0.45);
+  --avatar-1: #e5c264;
+  --avatar-2: #8fa8f0;
+  --avatar-3: #5ec8c0;
+  --avatar-4: #c091e8;
+  --avatar-5: #ef8f78;
+  --avatar-6: #a4cc70;
+  --avatar-7: #9aa6d8;
+  --avatar-8: #e58ac0;
+  --avatar-ink: #14143a;
+}
+
+/* ── B — Warm Ink ──────────────────────────────────────────────────
+   The light theme's "warm ledger" identity taken all the way down:
+   brown-black paper, cream ink, the existing gold stamp accent.
+   The conservative option — closest to what's shipping now. */
+:root[data-theme="dark"][data-palette="b"] {
+  --bg: #14120f;
+  --bg-soft: #1d1a16;
+  --panel: #23201b;
+  --ink: #f2ede4;
+  --ink-secondary: #c9c0b0;
+  --muted: #b2aa9d;
+  --line: #918879;
+  --line-soft: #7f7669;
+  --brand: #e0a94f;
+  --brand-hover: #f2c37b;
+  --brand-soft: #33280f;
+  --on-accent: #14120f;
+  --good: #7fc98a;
+  --good-bg: #1c2c1e;
+  --warn: #e5c05a;
+  --warn-bg: #2f2914;
+  --hot: #ec9a55;
+  --hot-bg: #2f2214;
+  --bad: #ef8080;
+  --bad-bg: #2f1c1c;
+  --row-alt: rgba(255, 255, 255, 0.018);
+  --row-hover: rgba(255, 255, 255, 0.04);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 2px rgba(224, 169, 79, 0.4);
+  --avatar-1: #e0a94f;
+  --avatar-2: #8bb0d8;
+  --avatar-3: #5cc0aa;
+  --avatar-4: #b98ec9;
+  --avatar-5: #e08a63;
+  --avatar-6: #a8c46a;
+  --avatar-7: #9aa6bc;
+  --avatar-8: #dc86ad;
+  --avatar-ink: #14120f;
+}
+
+/* ── C — Graphite ──────────────────────────────────────────────────
+   Zero hue in the neutrals. All the colour budget goes to one loud
+   signal accent (rust orange) plus the status hues. The "get out of
+   the way" option. */
+:root[data-theme="dark"][data-palette="c"] {
+  --bg: #131517;
+  --bg-soft: #1c1f22;
+  --panel: #24272a;
+  --ink: #edeff1;
+  --ink-secondary: #c2c6ca;
+  --muted: #a9aeb3;
+  --line: #8d9399;
+  --line-soft: #787e84;
+  --brand: #ff7d5c;
+  --brand-hover: #ff9d82;
+  --brand-soft: #331a13;
+  --on-accent: #131517;
+  --good: #6fce89;
+  --good-bg: #172b1d;
+  --warn: #e3c257;
+  --warn-bg: #2b2714;
+  --hot: #f0a15c;
+  --hot-bg: #2d2116;
+  --bad: #f28585;
+  --bad-bg: #2d1b1b;
+  --row-alt: rgba(255, 255, 255, 0.02);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --control-hover: rgba(255, 255, 255, 0.11);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 2px rgba(255, 125, 92, 0.4);
+  --avatar-1: #e3c257;
+  --avatar-2: #86b2e0;
+  --avatar-3: #55c6b4;
+  --avatar-4: #b48ed4;
+  --avatar-5: #ef8a68;
+  --avatar-6: #a4c96b;
+  --avatar-7: #97a4b8;
+  --avatar-8: #e087b4;
+  --avatar-ink: #131517;
+}
+
+/* ── D — Deep Teal ─────────────────────────────────────────────────
+   Oxidised green-black with a sand accent. Cool ground, warm signal —
+   urgency reads loudest here because nothing else in the frame is warm. */
+:root[data-theme="dark"][data-palette="d"] {
+  --bg: #0e1a1a;
+  --bg-soft: #142524;
+  --panel: #1a2e2c;
+  --ink: #e9f2ef;
+  --ink-secondary: #bacbc6;
+  --muted: #a6bab5;
+  --line: #7f9c97;
+  --line-soft: #6d8682;
+  --brand: #f0c46e;
+  --brand-hover: #ffd894;
+  --brand-soft: #2e2814;
+  --on-accent: #0e1a1a;
+  --good: #6fd6a0;
+  --good-bg: #16302a;
+  --warn: #e8c65e;
+  --warn-bg: #2b2a16;
+  --hot: #f2a468;
+  --hot-bg: #2d2418;
+  --bad: #f28c8c;
+  --bad-bg: #2e1e1e;
+  --row-alt: rgba(255, 255, 255, 0.02);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 2px rgba(240, 196, 110, 0.4);
+  --avatar-1: #f0c46e;
+  --avatar-2: #86b6dc;
+  --avatar-3: #5cc9b6;
+  --avatar-4: #b596cf;
+  --avatar-5: #ef9370;
+  --avatar-6: #a8cc72;
+  --avatar-7: #96acb8;
+  --avatar-8: #e08eb2;
+  --avatar-ink: #0e1a1a;
+}
+
+/* ── E — Plum Noir ─────────────────────────────────────────────────
+   A's violet idea, but the ground drops to near-black instead of
+   staying mid-indigo, and the accent goes hot pink. Same family as the
+   reference palette, much more contrast between paper and ink. */
+:root[data-theme="dark"][data-palette="e"] {
+  --bg: #110f16;
+  --bg-soft: #1a1722;
+  --panel: #221e2c;
+  --ink: #f3eff8;
+  --ink-secondary: #c9c1d6;
+  --muted: #b1a9c0;
+  --line: #8f86a2;
+  --line-soft: #79708a;
+  --brand: #e58ac9;
+  --brand-hover: #f4a9dc;
+  --brand-soft: #2e1a2b;
+  --on-accent: #110f16;
+  --good: #74d29c;
+  --good-bg: #182c26;
+  --warn: #e4c469;
+  --warn-bg: #2a2519;
+  --hot: #f1a066;
+  --hot-bg: #2b1f1c;
+  --bad: #f08a94;
+  --bad-bg: #2c1a21;
+  --row-alt: rgba(255, 255, 255, 0.022);
+  --row-hover: rgba(255, 255, 255, 0.05);
+  --control-hover: rgba(255, 255, 255, 0.11);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.55);
+  --focus-ring: 0 0 0 2px rgba(229, 138, 201, 0.42);
+  --avatar-1: #e4c469;
+  --avatar-2: #8fabe8;
+  --avatar-3: #5ec9bd;
+  --avatar-4: #bf93de;
+  --avatar-5: #ef8f7c;
+  --avatar-6: #a8cb74;
+  --avatar-7: #9aa4c4;
+  --avatar-8: #e88ac1;
+  --avatar-ink: #110f16;
+}
+
+/* ── The switcher bar itself ───────────────────────────────────────
+   Deliberately ugly-neutral so it never reads as part of the palette
+   being judged. */
+.proto-palette-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  border: 2px solid #111111;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+.proto-palette-bar button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #111111;
+  border-radius: 999px;
+  padding: 5px 10px;
+  line-height: 1;
+}
+.proto-palette-bar button:hover { background: rgba(0, 0, 0, 0.09); }
+.proto-palette-label {
+  padding: 0 10px;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.proto-palette-swatches { display: flex; gap: 3px; padding-right: 6px; }
+.proto-palette-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
