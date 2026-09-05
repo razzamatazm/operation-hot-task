@@ -184,6 +184,19 @@ is wrong on all of them.
   ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 9). It is
   the only place that says who renamed the loan under a task and what it used to
   say. A field that didn't move earns no row.
+- **The cards already posted to Teams are corrected too.** A loan's name shows
+  on the channel card announcing each of its tasks, on the details card sent to
+  whoever claimed one, and on the conversation cards in those people's chats.
+  Each of those messages is **edited where it sits**: the card keeps its place
+  in the channel and in every chat, keeps whatever state it was already in — up
+  for grabs, claimed, completed, cancelled — and gains no button it did not
+  have. Nothing new is posted and nobody is notified a second time; renaming a
+  loan is not an event anyone needs telling about. A card that can no longer be
+  reached (its message deleted, say) is left alone rather than reposted, and
+  never holds up the rename or the other tasks. The correction runs in the
+  background, so saving returns straight away however many tasks the loan has.
+  The **Open in Hot Task** button keeps the address it was posted with — it
+  still opens the right task.
 - **An out-of-office task has no loan.** Its folder name is a vacation
   description, it edits on the task through `POST /api/tasks/:id/folder-name`
   (creator only, non-closed only, silent, in history with both values), it has
