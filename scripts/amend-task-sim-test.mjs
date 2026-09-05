@@ -29,8 +29,11 @@
  *     section at the foot of this file.
  *   - A no-op edit writes no history and notifies nobody.
  *   - An urgency change DMs the assignee when there is one. So does a change to
- *     an LOI's terms, unless the holder made it themselves (#267, rule 9); a
- *     notes change on the other five types is silent. Nothing posts to the
+ *     the instructions on any type that draws them as a box — every type but a
+ *     Fraud Check, whose ask stays in the thread (#304, ADR-0010 rule 7,
+ *     widening ADR-0008 rule 9's LOI-only version). Silent while unclaimed,
+ *     never to the person who made the change, and the sentence names the box
+ *     by its own heading without quoting the new text. Nothing posts to the
  *     channel, and every applied edit re-renders existing cards through the
  *     silent card-sync path.
  *   - Every applied edit lands in history with both values.
@@ -374,7 +377,7 @@ await check("an urgency change on an unclaimed task DMs nobody, but still syncs 
   assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
 });
 
-await check("a notes change DMs nobody, and still syncs cards", async () => {
+await check("a notes change DMs the holder, and still syncs cards", async () => {
   const { service, events } = await setup();
   const id = await makeTask(service, { claimed: true });
   await drain(service, events);
@@ -382,8 +385,11 @@ await check("a notes change DMs nobody, and still syncs cards", async () => {
   await service.updateTaskNotes(id, "actually it's the second file", CREATOR);
   await service.settleBackgroundWork();
 
-  assert.equal(events.filter((e) => e.target !== "DM_CARD_SYNC").length, 0, "silent apart from the sync");
+  const dms = events.filter((e) => e.target === "DM");
+  assert.equal(dms.length, 1, "the person holding a Value Check is told its brief moved");
+  assert.deepEqual(dms[0].recipientUserIds, [ASSIGNEE.id], "and only them");
   assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are re-rendered");
+  assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
 });
 
 await check("an urgency change clears the last-reminder stamp", async () => {
@@ -740,21 +746,110 @@ await check("the holder correcting the terms themselves is told nothing, and nei
   assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are re-rendered");
 });
 
-await check("the other five types' request field stays silent even when claimed", async () => {
-  for (const taskType of ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
-    const { service, events } = await setup();
+/* #304 / ADR-0010 rule 7 — what the LOI has done since #267, now on every type
+   that draws its ask as a box. The field stopped being a wording fix buried in
+   a thread the moment it became the standing instructions somebody works from,
+   so the reason the LOI was noisy generalises.
+
+   The sentence names the box by its own heading rather than saying "the notes
+   changed", because a message about a box headed `Extras and Edits` that calls
+   it notes is the drift the shared heading table exists to prevent. It still
+   quotes none of the new text: a long brief arriving as a notification is one
+   nobody reads. */
+await check("an instructions change on a claimed box-carrying task DMs the holder, naming its heading", async () => {
+  const cases = [
+    { taskType: "BUDDY_CHAT", phrase: "concerns" },
+    { taskType: "VALUE", phrase: "things to look out for" },
+    { taskType: "LOAN_DOCS", phrase: "extras and edits" },
+    { taskType: "OOO", phrase: "coverage notes" }
+  ];
+  for (const { taskType, phrase } of cases) {
+    const { service, store, events } = await setup();
     const id = await makeTask(service, { taskType, claimed: true, holder: CHECKER, notes: "the original ask" });
+    assert.equal((await store.findTask(id)).assignee?.id, CHECKER.id, `${taskType}: somebody is actually holding it`);
     await drain(service, events);
 
-    await service.updateTaskNotes(id, "the reworded ask", CREATOR);
+    await service.updateTaskNotes(id, "the reworded ask, mentioning shibboleth", CREATOR);
     await service.settleBackgroundWork();
 
+    const dms = events.filter((e) => e.target === "DM");
+    assert.equal(dms.length, 1, `${taskType}: exactly one plain DM`);
+    assert.deepEqual(dms[0].recipientUserIds, [CHECKER.id], `${taskType}: it goes to whoever is holding it`);
     assert.equal(
-      events.filter((e) => e.target !== "DM_CARD_SYNC").length,
-      0,
-      `${taskType}: a wording fix is still silent`
+      dms[0].message,
+      `Dana changed the ${phrase} on Amend Sim — check them before you carry on`,
+      `${taskType}: the sentence names the box by its own heading`
     );
+    assert.doesNotMatch(dms[0].message, /shibboleth/, `${taskType}: the DM is a nudge, not a copy of the brief`);
+
+    /* The DM says only that it moved, so the history is where both wordings
+       live — on every type, not just the two the older sections cover. */
+    const entry = (await store.allHistoryForTask(id)).find((e) => e.action === "TASK_NOTES_AMENDED");
+    assert.ok(entry, `${taskType}: the change is in the history`);
+    assert.match(entry.detail, /the original ask/, `${taskType}: with the old wording`);
+    assert.match(entry.detail, /shibboleth/, `${taskType}: and the new`);
+
+    assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, `${taskType}: nothing posted to the channel`);
+    assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, `${taskType}: cards are re-rendered`);
   }
+});
+
+/* The one type with no box. A Fraud Check's ask is the outstanding-items list
+   at the top of its card and its note stays a member of the thread, so there is
+   no box to say has changed (ADR-0010 rule 1). */
+await check("a Fraud Check's note change stays silent", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "FRAUD", claimed: true, holder: CHECKER, notes: "the original ask" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "the reworded ask", CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.filter((e) => e.target !== "DM_CARD_SYNC").length, 0, "silent apart from the sync");
+  assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are re-rendered");
+});
+
+/* Telling the holder must not also move the task under them. Nothing an
+   ordering key reads changes, so a corrected brief does not shuffle a list. */
+await check("an instructions change disturbs nothing else on the task", async () => {
+  const { service, store } = await setup();
+  const id = await makeTask(service, { taskType: "VALUE", claimed: true, holder: CHECKER, notes: "the original ask" });
+  await service.addReviewNote(id, "on it", CHECKER);
+  await service.settleBackgroundWork();
+  const before = await store.findTask(id);
+
+  const after = await service.updateTaskNotes(id, "the reworded ask", CREATOR);
+
+  assert.equal(after.status, before.status, "the status is untouched");
+  assert.deepEqual(after.assignee, before.assignee, "the assignee is untouched");
+  assert.equal(after.claimedAt, before.claimedAt, "the claim stamp is untouched");
+  assert.equal(after.dueAt, before.dueAt, "the deadline is untouched");
+  assert.equal(after.awaitingItemsSince, before.awaitingItemsSince, "the hand-off stamp is untouched");
+  assert.deepEqual(after.reviewNotes, before.reviewNotes, "the conversation is untouched");
+});
+
+await check("an instructions change on an unclaimed Value Check DMs nobody, but still syncs cards", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "VALUE", notes: "the original ask" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "the reworded ask", CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.filter((e) => e.target === "DM").length, 0, "there is nobody holding it to tell");
+  assert.equal(events.filter((e) => e.target.startsWith("CHANNEL")).length, 0, "nothing posted to the channel");
+  assert.equal(events.filter((e) => e.target === "DM_CARD_SYNC").length, 1, "cards are still re-rendered");
+});
+
+await check("a no-op instructions save on a claimed Value Check notifies nobody", async () => {
+  const { service, events } = await setup();
+  const id = await makeTask(service, { taskType: "VALUE", claimed: true, holder: CHECKER, notes: "the original ask" });
+  await drain(service, events);
+
+  await service.updateTaskNotes(id, "  the original ask  ", CREATOR);
+  await service.settleBackgroundWork();
+
+  assert.equal(events.length, 0, "no notification of any kind, not even a card sync");
 });
 
 await check("a no-op terms save on a claimed LOI notifies nobody", async () => {

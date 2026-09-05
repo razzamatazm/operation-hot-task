@@ -67,7 +67,9 @@ import {
   isWithinBusinessHours,
   isOverdue,
   isSystemActor,
+  instructionsFieldPhrase,
   requestFieldNoun,
+  standingInstructionsFor,
   submitBlockReason,
   shouldPurgeArchived,
   shouldSendReminder,
@@ -380,21 +382,22 @@ export class TaskService {
     }
   }
 
-  /* Correct the free-text description of the request — an LOI's terms, or the
-     notes on any other type. Silent on the other five types: a DM for every
-     wording fix is the noise that trains people to ignore the DMs that matter.
-     The existing cards are re-rendered either way so no surface quotes a stale
-     ask.
+  /* Correct the standing instructions — an LOI's terms, or the request field on
+     any other type. Whoever is holding the task is told, on every type that
+     draws the field as a box (#304, ADR-0010 rule 7). While it is unclaimed
+     there is nobody to tell. The existing cards are re-rendered either way so
+     no surface quotes a stale ask.
 
-     An LOI is the exception, per ADR-0008 rule 9 (#267). The terms are what the
-     checker is checking *against*, so changing them under a working checker is
-     the one amendment likely to make somebody's work wrong — which is exactly
-     what the silent-wording-fix rule is not about. Whoever is holding the task
-     is told; while it is unclaimed there is nobody to tell.
+     This was LOI-only under ADR-0008 rule 9 (#267), on the grounds that the
+     terms are what the checker is checking *against* while the other five held
+     a wording fix buried in a thread, where a DM per typo is the noise that
+     trains people to ignore the DMs that matter. ADR-0010 withdrew the second
+     half: the field is now the instructions somebody is working from, so the
+     reason the LOI was noisy applies wherever there is a box.
 
      Required either way, per ADR-0008 rule 1 — an edit that could empty the
-     terms would leave a checked LOI saying nothing about what was checked. The
-     sentence calls the field what the reader's task calls it. */
+     brief would leave a completed check saying nothing about what was checked.
+     The sentence calls the field what the reader's task calls it. */
   async updateTaskNotes(taskId: string, notes: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
     this.assertCanAmend(task, user, "notes");
@@ -421,20 +424,30 @@ export class TaskService {
     }));
 
     this.background(async () => {
-      /* Only the party who did NOT make the change, which since #263 is a real
-         distinction: the holder may correct the terms themselves, and DMing a
-         checker about their own typo fix is the noise this rule exists to
-         avoid. And only the assignee — a checker correcting the terms tells the
-         creator nothing, because rule 9 names the assignee and stops there. */
-      const holder = updated.taskType === "LOI" ? updated.assignee : undefined;
+      /* Which types have somebody to tell is the same question the renderer
+         asks — "does this type draw its ask as a box?" — and deliberately not a
+         second `taskType` test of its own. A surface that answers it separately
+         is how the box and the message about the box end up disagreeing
+         (ADR-0010 rule 1, which makes `standingInstructionsFor` the single
+         place that answer lives). A Fraud Check's ask lives in the thread, so
+         there is no box to say has moved and it stays silent.
+
+         Only the party who did NOT make the change, which since #263 is a real
+         distinction: on an LOI the holder may correct the terms themselves, and
+         DMing a checker about their own typo fix is the noise this rule exists
+         to avoid. And only the assignee — a checker correcting the terms tells
+         the creator nothing, because the rule names whoever is holding the task
+         and stops there. */
+      const holder = standingInstructionsFor(updated) !== undefined ? updated.assignee : undefined;
       if (holder && holder.id !== user.id) {
         await this.notify({
           type: "TASK_STATUS_CHANGED",
           task: updated,
           actor: { id: user.id, displayName: user.displayName },
-          // Names the change, not its contents: the terms are a block, and a DM
-          // you have to scroll is one people stop reading (ADR-0008 rule 9).
-          message: `${firstName(user.displayName)} changed the terms on ${updated.folderName} — check them before you carry on`,
+          // Names the box by its own heading, and none of its contents: a brief
+          // is a block, and a DM you have to scroll is one people stop reading
+          // (ADR-0010 rule 7).
+          message: `${firstName(user.displayName)} changed the ${instructionsFieldPhrase(updated.taskType)} on ${updated.folderName} — check them before you carry on`,
           target: "DM",
           recipientUserIds: [holder.id]
         }, now);

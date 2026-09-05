@@ -59,6 +59,30 @@ export const getNotesFieldLabel = (taskType?: TaskType): string => {
 export const requestFieldNoun = (taskType: TaskType): string =>
   taskType === "LOI" ? "terms" : "notes";
 
+/* The instructions box named mid-sentence, for the DM that tells whoever is
+   holding a task that its brief has moved (#304, ADR-0010 rule 7).
+
+   Derived from `NOTES_FIELD_LABELS` rather than written out per type, because
+   the whole point of rule 7 is that the message names the box by its own
+   heading: telling somebody "the notes changed" about a box headed `Extras and
+   Edits` is exactly the drift the heading table exists to stop, and a second
+   hand-written table would drift the moment a heading is reworded. Lowercased
+   because the phrase lands mid-sentence.
+
+   The LOI is the one override, and not an oversight. ADR-0008 rule 9 shipped
+   "changed the terms on…" and #299's user story 7 asks for the type that
+   already worked to be left exactly as it is, so the LOI keeps the short noun
+   its readers know rather than being rewritten to "loan terms and contacts".
+
+   Distinct from `requestFieldNoun` above on purpose. That one feeds the
+   refusals and the history line, where "the notes cannot be emptied" is the
+   right register and the per-type headings would read as shouting; this one
+   feeds the one sentence whose job is to say *which box*. A Fraud Check has no
+   box and never reaches this, but the table is total so that adding a type
+   cannot silently produce an empty phrase. */
+export const instructionsFieldPhrase = (taskType: TaskType): string =>
+  taskType === "LOI" ? "terms" : NOTES_FIELD_LABELS[taskType].toLowerCase();
+
 /* Human, creator-perspective phrase per task type for the "New Task" headline,
    e.g. "Tyler needs a set of loan docs done". OOO isn't a request, so it reads
    as a status instead. */
