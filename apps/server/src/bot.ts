@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, fraudCardActions, getNotesFieldLabel, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -474,9 +474,15 @@ function statusPhrase(task: LoanTask): string {
 export const confirmLine = (task: LoanTask): string => `${task.folderName} is now ${statusPhrase(task)}.`;
 
 /* Last few notes for a card thread, oldest → newest. Exported because every
-   card-sending path in the notification layer needs the same window. */
+   card-sending path in the notification layer needs the same window.
+
+   `noteBodyText` rather than `entry.text`, since #286 moved the app's own
+   prefix off the front of the text and onto the message as a label. The card
+   quotes what the thread says, so it asks the same function the web thread
+   does — a send-back still reads `Needs fixes: ...` here, character for
+   character. */
 export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
-  (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: entry.text }));
+  (task.reviewNotes ?? []).slice(-5).map((entry) => ({ author: entry.by.displayName, text: noteBodyText(entry) }));
 
 /* The forward button a card offers this viewer. Introduced here by #173 for the
    cards the bot builds itself; moved into `packages/shared` by #182 once

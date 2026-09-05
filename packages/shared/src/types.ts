@@ -301,11 +301,45 @@ export interface UserIdentity {
   email?: string;
 }
 
+/* One message in a task's conversation.
+
+   ADR-0009 gives a message two things it did not have. Both are structural and
+   neither is visible: a thread built from these renders exactly as it did
+   before #286.
+
+   `id` is the stable handle. A message used to be identified only by its author
+   and `at`, and ADR-0009 rule 6 freezes `at` across an edit precisely so it
+   stays the value the unread comparison reads — which is what stops it doubling
+   as a version marker, and what leaves anything addressing one message with
+   nothing to point at. Minted at write time; messages stored before #286 are
+   backfilled once at start-up (`migrateTaskMessages`, run by `TaskStore.init`).
+
+   `label` is the app's own words, held apart from the author's (ADR-0009 rule
+   5). When a checker sends work back the reason they typed is filed under a
+   prefix naming the exit that wrote it; that prefix used to be ordinary
+   characters at the front of `text`, indistinguishable from anything a person
+   typed. Held separately it can survive an edit that rewrites `text` and a
+   delete that removes it. Absent on an ordinary reply. Never rendered on its
+   own — `noteBodyText` is the one place label and text are put back together. */
 export interface ReviewNote {
+  id: string;
+  label?: string;
   text: string;
   by: Pick<UserIdentity, "id" | "displayName">;
   at: string;
 }
+
+/* A message as it may still be sitting in the store: a `ReviewNote` whose
+   identifier may be missing, because it was written before #286 gave messages
+   one. The single shape in the codebase that admits that possibility, and it
+   exists so the admission is in one place rather than an optional field
+   everything downstream has to keep re-checking.
+
+   Two callers, both at the boundary: the migration that repairs such a message
+   (`migrateTaskMessages`) and the web thread, which renders whatever the API
+   hands it. Everything else takes a `ReviewNote` and its required `id` — the
+   store backfills at start-up, so by the time anything else looks, it is true. */
+export type StoredReviewNote = Omit<ReviewNote, "id"> & { id?: string };
 
 /* A loan is a first-class, linkable entity (ADR-0001). Name + optional
    Humperdink link live here, not duplicated on every task. The Humperdink

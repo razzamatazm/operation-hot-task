@@ -33,6 +33,7 @@
  * The old tasks.json/loans.json are copied to data/backups/<timestamp>/ before
  * anything is written, so a mistaken run is recoverable.
  */
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -77,7 +78,10 @@ const SUZIE = { id: "loan-officer-1", displayName: "Suzie" };
 const ALEXA = { id: "file-checker-1", displayName: "Alexa" };
 const HEATHER = { id: "new-1", displayName: "Heather Finn" };
 
-const note = (by, text, offsetMs) => ({ text, by, at: at(offsetMs) });
+/* Seeded messages carry an identifier like any other (#286): the store would
+   backfill one at start-up, but seed data that already looks like real data is
+   one less way for a dev store to differ from a live one. */
+const note = (by, text, offsetMs) => ({ id: randomUUID(), text, by, at: at(offsetMs) });
 
 const checklistItem = (id, text, addedBy, extra = {}) => ({
   id,

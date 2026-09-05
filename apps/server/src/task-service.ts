@@ -51,7 +51,7 @@ import {
   formatNewTaskHeadline,
   formatOooHeadline,
   formatWallDate,
-  needsFixesNote,
+  ACTION_LABELS,
   NEEDS_FIXES_NOTE_REQUIRED,
   oooDatesOutOfOrder,
   OOO_DATE_RANGE_REFUSAL,
@@ -1130,16 +1130,22 @@ export class TaskService {
          reason — whether this completion is a checker's clean exit is a
          question about the status being left, and the copy the guards ran
          against can be one move stale. */
-      const threadLines: string[] = [];
+      const threadLines: { text: string; label?: string }[] = [];
       if (outstandingNote) {
         // The outstanding-items note seeds the FRAUD thread (surfaced on the DM
-        // note card below).
-        threadLines.push(outstandingNote);
+        // note card below). No label: the app writes nothing of its own here,
+        // the whole line is the checker's.
+        threadLines.push({ text: outstandingNote });
       }
       if (fixesNote) {
-        // #231: the checker's finding, under the prefix that says which exit
-        // wrote it.
-        threadLines.push(needsFixesNote(fixesNote));
+        /* #231: the checker's finding, under the label that says which exit
+           wrote it. The label is a field on the message rather than characters
+           at the front of it (#286, ADR-0009 rule 5) — the author owns the
+           words, the app owns the label, and holding them apart is what lets an
+           edit reach one and not the other. It renders identically:
+           `noteBodyText` joins them back into what `needsFixesNote` used to
+           store. */
+        threadLines.push({ text: fixesNote, label: ACTION_LABELS.NEEDS_FIXES });
       }
       /* The clean exit writes NOTHING to the thread, by the user's ruling on
          #231 — which overrode that ticket's own acceptance criterion. It used
@@ -1155,7 +1161,12 @@ export class TaskService {
       if (threadLines.length > 0) {
         moved.reviewNotes = [
           ...(current.reviewNotes ?? []),
-          ...threadLines.map((text) => ({ text, by: { id: user.id, displayName: user.displayName }, at: now }))
+          ...threadLines.map((line) => ({
+            id: uuid(),
+            ...line,
+            by: { id: user.id, displayName: user.displayName },
+            at: now
+          }))
         ];
       }
       if (next === "PENDING_APPROVAL") {
@@ -1784,7 +1795,12 @@ export class TaskService {
      participants. Never mutates status, completedAt, or reopenedFrom. */
   private async appendReviewNote(task: LoanTask, text: string, user: UserIdentity): Promise<LoanTask> {
     const now = new Date().toISOString();
-    const note = { text, by: { id: user.id, displayName: user.displayName }, at: now };
+    /* A stable handle of its own (#286, ADR-0009). Minted here rather than
+       derived from `at`, which rule 6 freezes across an edit and which the
+       unread comparison reads — a timestamp cannot be both the handle and the
+       thing that must not move. No label: this is a person replying, and the
+       app has nothing to say about the row. */
+    const note = { id: uuid(), text, by: { id: user.id, displayName: user.displayName }, at: now };
     const event = this.makeHistory(task.id, user, "REVIEW_NOTE_ADDED", `Review note by ${user.displayName}`);
     // Appended to the notes as they are at write time, not as they were when we
     // read the task: two people answering at once would otherwise each write a

@@ -1,4 +1,4 @@
-import { LoanTask, UserIdentity, getNotesFieldLabel, standingTermsFor } from "@loan-tasks/shared";
+import { LoanTask, StoredReviewNote, getNotesFieldLabel, noteBodyText, standingTermsFor } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
 
@@ -109,16 +109,21 @@ export const ThreadMessages = ({
           </div>
         </div>
       )}
-      {replies.map((note: { by: Pick<UserIdentity, "id" | "displayName">; at: string; text: string }, i: number) => (
+      {replies.map((note: StoredReviewNote, i: number) => (
         <div
-          key={i}
+          /* The message's own identifier since #286, which is what makes a row
+             addressable rather than merely positional. The fallback to position
+             is not dead: this renders whatever the API hands it, and a message
+             the store has not backfilled yet is exactly the `StoredReviewNote`
+             case — the same index this list keyed in full before #286. */
+          key={note.id ?? i}
           className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`}
           title={bylineOf(note.by.displayName, note.at)}
         >
           <ExpandAvatar name={note.by.displayName} />
           <div>
             <span className="sr-only">{bylineOf(note.by.displayName, note.at)}</span>
-            <div className="msg-text">{note.text}</div>
+            <div className="msg-text">{noteBodyText(note)}</div>
           </div>
         </div>
       ))}

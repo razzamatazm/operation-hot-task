@@ -50,7 +50,10 @@
     **A note is required to make this move** (#231): the state means the checker
     found something, and a finding nobody had to write down is a state change
     with no content. The server refuses the transition without one, and the note
-    lands in the notes thread as `Needs fixes: <what they wrote>`. The system
+    lands in the notes thread as `Needs fixes: <what they wrote>`. The prefix is
+    stored as the message's `label` rather than inside its text (ADR-0009 rule
+    5), so it belongs to the app and not to the author; it reads the same
+    either way. The system
     actor is exempt — the rule is about people, and nothing the app does on its
     own behalf has a finding to type.
   - `Needs corrections -> Completed` and `Needs corrections -> Claimed` — the
