@@ -14,6 +14,9 @@ import {
 } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
+/* PROTOTYPE (throwaway) — bubble variants for the conversation, gated on
+   `?variant=`. Delete this import and the branch below with the file. */
+import { PrototypeThread, prototypeVariant } from "./thread-bubbles-prototype";
 
 /* ── The expanded card's terms section and its conversation ─────────────── */
 /* Lifted out of App.tsx for the same reason `timeline.tsx` was: this is the
@@ -427,6 +430,21 @@ export const ThreadMessages = ({
   onDeleteMessage?: (messageId: string) => Promise<void>;
 }) => {
   const opensWithOriginatingNote = standingTermsFor(task) === undefined;
+  /* PROTOTYPE (throwaway). With `?variant=A|B|C` in the URL the bubble
+     prototype renders instead of the shipped rows; without it, nothing below
+     changes. Delete with `thread-bubbles-prototype.tsx`. */
+  const protoVariant = prototypeVariant();
+  if (protoVariant !== null) {
+    return (
+      <PrototypeThread
+        variant={protoVariant}
+        task={task}
+        viewerId={viewerId}
+        canReply={canReply}
+        opensWithOriginatingNote={opensWithOriginatingNote}
+      />
+    );
+  }
   /* Tombstones are members of this list like any other message (#288, rule 4),
      which is the whole of what makes the empty state below correct: a thread
      holding only a withdrawn message is not an empty conversation, and saying

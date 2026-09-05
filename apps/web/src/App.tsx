@@ -11,6 +11,8 @@ import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn }
 import { CheckIcon, TrashIcon } from "./icons";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { TermsSection, ThreadMessages, threadHeadLabel } from "./thread";
+/* PROTOTYPE (throwaway) — see `thread-bubbles-prototype.tsx`. */
+import { PrototypeStyles, PrototypeSwitcher } from "./thread-bubbles-prototype";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -4514,6 +4516,12 @@ export const App = () => {
 
   return (
     <main className="app-shell">
+      {/* PROTOTYPE (throwaway) — bubble variants for the conversation. Both
+          render nothing unless `?variant=` is in the URL, and the switcher is
+          stripped from production builds. Delete with
+          `thread-bubbles-prototype.tsx`. */}
+      <PrototypeStyles />
+      <PrototypeSwitcher />
       {/* ── Header ──────────────────────────────────── */}
       {/* Teams already shows "Hot Task" in its own tab, so no brand lockup
           here — that would be pure duplication. New Task lives on the list's
