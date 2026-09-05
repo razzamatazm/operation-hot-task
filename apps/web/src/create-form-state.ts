@@ -349,7 +349,18 @@ export const touchesSharedLoan = (task: EditableTask, values: CreateFormValues):
    rather than an instruction. The field is named because the message is shown on
    the box it is about, and a refusal about the folder name hung on the terms is
    worse than no refusal at all. The Humperdink link is optional and is never
-   refused; clearing it is a real edit. */
+   refused; clearing it is a real edit.
+
+   The request field is judged against the task rather than on its own since
+   #302. A Fraud Check may now be filed on its itemised conditions alone
+   (ADR-0010 rule 3), so its note can be legitimately empty from birth — and a
+   box that was never filled is not a box somebody emptied. Refusing it anyway
+   locked those tasks out of the edit form entirely: their creator could not
+   change the urgency or fix the folder name without inventing a note first,
+   and was told a field "cannot be emptied" about a field nobody ever filled.
+   So the refusal asks what the task carried when the form opened. Every task
+   with a request field still has one after a save, on every type — which is
+   the whole of what ADR-0010 rule 3 left alone. */
 export interface EditRefusal {
   field: "notes" | "folderName";
   message: string;
@@ -357,8 +368,11 @@ export interface EditRefusal {
 
 const WIPED = "Please fill this in — spaces alone don't count.";
 
-export const editRefusal = (values: CreateFormValues): EditRefusal | null => {
-  if (!values.notes.trim()) return { field: "notes", message: WIPED };
+export const editRefusal = (
+  values: CreateFormValues,
+  task: Pick<EditableTask, "notes">
+): EditRefusal | null => {
+  if (!values.notes.trim() && (task.notes ?? "").trim()) return { field: "notes", message: WIPED };
   if (!values.folderName.trim()) return { field: "folderName", message: WIPED };
   return null;
 };

@@ -26,7 +26,7 @@
    rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
-import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
@@ -192,6 +192,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. */
   const [seedDraft, setSeedDraft] = useState("");
+  /* The Fraud filing refusal spans two boxes but is shown on one (#302), so
+     the note's custom validity has to clear when the *other* box moves.
+     Without this, someone refused for saying nothing, who then itemises a
+     condition, is blocked by the browser on a refusal that is no longer true —
+     it validates before `handleSubmit` runs, so the stale message would win.
+     The note's own `onChange` clears it for the other half of the rule. */
+  useEffect(() => {
+    notesRef.current?.setCustomValidity("");
+  }, [form.initialItems, seedDraft]);
   /* Create-form loan typeahead: which suggestion list is open + which loan
      (if any) the typed Folder Name resolved to. */
   const [loanSuggestOpen, setLoanSuggestOpen] = useState(false);
@@ -494,7 +503,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
        (since #262) the loan's name. Refuse it where the browser refuses an empty
        box, on the field the refusal is about. Terms are required on edit
        (ADR-0008 rule 1), and so is the folder name. */
-    const refusal = editRefusal(form);
+    const refusal = editRefusal(form, edit.task);
     if (refusal) {
       const field = refusal.field === "notes" ? notesRef.current : folderNameRef.current;
       field?.setCustomValidity(refusal.message);
@@ -552,6 +561,23 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       form.taskType === "FRAUD"
         ? [...form.initialItems, seedDraft.trim()].map((t) => t.trim()).filter((t) => t.length > 0)
         : [];
+    /* A Fraud Check needs a note or at least one condition (#302, ADR-0010
+       rule 3). The note's own `required` cannot ask this — it sees one field,
+       and the whole rule is that the other one will do instead — so the box
+       carries no `required` on Fraud and this asks the shared rule the server
+       asks. Reported on the note, because that is the box the person can act
+       on if they have nothing to itemise, and because the sentence names the
+       list as the alternative. */
+    const fraudRefusal = fraudFilingRefusal({
+      taskType: form.taskType,
+      notes: form.notes,
+      initialItems: seededItems.map((text) => ({ text }))
+    });
+    if (fraudRefusal) {
+      notesRef.current?.setCustomValidity(fraudRefusal);
+      notesRef.current?.reportValidity();
+      return;
+    }
     const payload: CreateTaskInput = {
       folderName: form.folderName,
       taskType: form.taskType,
@@ -1090,7 +1116,18 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
                 e.target.setCustomValidity("");
                 setForm((c) => ({ ...c, notes: e.target.value }));
               }}
-              required
+              /* Required everywhere except a Fraud Check being filed (#302,
+                 ADR-0010 rule 3), where an itemised condition does instead —
+                 something the browser's own check cannot see. Dropping the
+                 attribute is what lets `handleSubmit` reach the shared rule and
+                 refuse with a sentence that names both halves; leaving it on
+                 would refuse a complete filing with "Please fill out this
+                 field". In edit mode it follows the same question `editRefusal`
+                 asks: a field the task arrived with cannot be wiped, and one it
+                 never had is not being emptied by being left alone — otherwise
+                 a Fraud Check filed on its conditions could not have its
+                 urgency corrected without inventing a note. */
+              required={editing ? Boolean(edit?.task.notes?.trim()) : form.taskType !== "FRAUD"}
             />
           </label>
           {/* An OOO task has no loan and so no link: its folder name is a vacation

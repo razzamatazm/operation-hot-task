@@ -12,7 +12,8 @@ import {
   isEmptyMessageText,
   noteBodyText,
   noteLabelPrefix,
-  standingInstructionsFor
+  standingInstructionsFor,
+  threadOpeningNoteFor
 } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
@@ -836,7 +837,12 @@ export const ThreadMessages = ({
   onEditMessage?: (messageId: string, text: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => Promise<void>;
 }) => {
-  const opensWithOriginatingNote = standingInstructionsFor(task) === undefined;
+  /* The opening row, or nothing. Since #302 "nothing" has two causes and the
+     shared rule holds both: the field is a standing box on five types, and on a
+     Fraud Check filed on its conditions alone there is no note to draw. Either
+     way the conversation below is the whole of the thread. */
+  const originatingNote = threadOpeningNoteFor(task);
+  const opensWithOriginatingNote = originatingNote !== undefined;
   /* One menu and one edit box across the whole thread (#297). This is the
      variable the rows used to each hold a copy of, which is why two boxes could
      stand open at once: a row that only knows about itself cannot close its
@@ -952,7 +958,7 @@ export const ThreadMessages = ({
           <div className="msg-body">
             <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
             <div className="msg-line">
-              <div className="msg-bubble">{task.notes}</div>
+              <div className="msg-bubble">{originatingNote}</div>
             </div>
           </div>
         </div>
