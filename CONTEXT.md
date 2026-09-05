@@ -161,6 +161,25 @@ _Avoid_: "amending a message" (an _Amend_ is a task's facts, and answers "who
 may change this" differently); "removing"/"retracting" a message (the app says
 `Delete` and shows `Message deleted`)
 
+**History**:
+The append-only record of what happened to a task and who did it — every claim,
+handoff, status move, _Amend_, and _Message edit_, each carrying both values
+where something changed. It is what lets the thread and the task's fields stay
+clean: the reason a corrected message shows a bare `(edited)` and a withdrawn
+one shows only a tombstone is that the previous wording is safe here. Readable
+more widely than the conversation it describes, which was accepted knowingly.
+
+**A stored record, not a screen.** No view renders it, by decision rather than
+by omission, and reading one back is an occasional technical act rather than
+something a _Party_ does. The app reads a few specific answers out of it — when
+the current assignee took the task, who completed it, who archived it — and
+shows those as reference detail in the task's menu. Nothing in the product
+points a person at the record itself. See
+[.out-of-scope/task-history-screen.md](.out-of-scope/task-history-screen.md).
+_Avoid_: "the audit trail", "the activity log" (both imply a surface somebody
+opens); "activity" for anything in here (a _Message edit_ is deliberately not
+activity, and does not move the task in any list)
+
 **Back-end access**:
 The whole of what _admin_ means. Managing users and roles, system config, and
 seeing every task. Admin is not a second identity: it confers no power over

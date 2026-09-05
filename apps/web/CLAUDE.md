@@ -683,7 +683,10 @@ nested card chrome, in this order:
    label is the app's and survives the edit. A saved message renders a muted
    `(edited)` (`.msg-edited`, body face — it is a word, not a badge) running on
    from its last line, with no edit time and no route back to the previous
-   wording; that lives in the task's history.
+   wording. The previous wording is kept in the task's history log, which no
+   screen renders and #289 declined to build one for: it is a stored record
+   read back through the API when someone needs it, not a surface this app
+   offers. Do not write UI copy that points a person at it.
 
    `Delete` (#288, rule 4) sits under `Edit` in the bad accent
    (`.msg-menu-danger`) and asks once before it fires: the panel swaps to

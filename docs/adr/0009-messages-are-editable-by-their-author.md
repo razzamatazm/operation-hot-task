@@ -80,7 +80,12 @@ tombstone does not claim to be empty.
 
 **No undo.** An undelete makes the tombstone a maybe, and people treat a maybe
 differently. Somebody who deleted by mistake retypes it. The original text
-survives in the history row for the rare case that matters.
+survives in the history row for the rare case that matters — recoverable, but
+not by the author and not from the app. #289 declined to build a screen over
+the history log, so reading that row back is a technical act performed by
+someone with API access, not something the person who deleted the message can
+do for themselves. Retyping it is the route for everybody else, which is what
+this rule already asks of them.
 
 **An edit may not empty a message.** Deletion has its own action; an edit still
 has to say something.
@@ -137,9 +142,16 @@ what — is worse than not logging it.
 
 Noted honestly: **no screen in the app shows a task's history.** The web app
 reads a couple of specific rows out of it for the hamburger's timestamps and
-nothing else. This ADR therefore writes durable rows that, today, nobody can
-read without calling the API by hand. That is a gap in the history surface, not
-a reason to log less, and it is its own future work.
+nothing else. This ADR therefore writes durable rows that nobody can read
+without calling the API by hand. That is a gap in the history surface, not a
+reason to log less.
+
+**And it stays a gap, deliberately.** This was raised as its own future work,
+grilled in #289, and declined: the history log is a durable record rather than
+a product surface, and reading one back is an occasional technical act. See
+[.out-of-scope/task-history-screen.md](../../.out-of-scope/task-history-screen.md).
+Rules 3 and 4 are unaffected — they lean on the row existing, which it does.
+What they may not do is promise a person they can go and look at it.
 
 **8. In the web app only.**
 
