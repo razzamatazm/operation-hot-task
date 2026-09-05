@@ -107,8 +107,29 @@ where something else carries the ask.
 
 **4. The box is edited where it stands, and in the form.**
 
-Press and hold, or right-click, exactly as on a message: the menu appears beside
-the box and the box becomes an editor in place.
+Press and hold, or right-click, exactly as on a message — and the box becomes an
+editor in place, with the caret in it.
+
+**Amended 2026-09-05 (#318): the hold opens the editor, not a menu.** As first
+built the gesture raised a menu beside the box with a single `Edit` entry in it,
+matching the bubbles below. A bubble's menu earns its place by carrying `Edit`
+and `Delete`; this one could never hold a second entry, because instructions
+cannot be emptied — so it was a step that existed to be dismissed, and
+correcting a wrong figure cost a hold, a read and a click. Settled by driving
+three variants on the real card, branch
+`prototype/instructions-edit-gesture`.
+
+Two things that decision carries with it. **The whole panel is the target** —
+the heading strip and the padding included, because the panel is the thing being
+corrected and a target the size of the sentence is a target people miss. And
+**the panel grows to fit the editor rather than the words shrinking to make room
+for it**: opened at a fixed row count, a full box's text collapses to leave
+space for Save and Cancel, which reads as the panel caving in under the press.
+The read view's height at the moment of the hold is what the editor opens at.
+
+The bubbles keep their menu, which has two entries and needs one. The gesture
+stays a single implementation shared by both surfaces; only what happens at the
+end of it differs.
 
 **It behaves like a field once it is open, not like a message.** Enter makes a
 new line, an explicit save commits, escape cancels. A message editor can take
@@ -242,9 +263,10 @@ a term sheet is tabular matter whose columns only line up in a mono face, and a
 Buddy Chat's concerns are prose.
 
 **A field gets an inline editor for the first time.** The message editor built
-for ADR-0009 is the model for the gesture and the menu, not for the behaviour
-once open, and the two will need to stay recognisably siblings without being
-merged into one component that has to know which it is.
+for ADR-0009 is the model for the gesture, not for the menu and not for the
+behaviour once open — the box has no menu at all since rule 4's amendment — and
+the two will need to stay recognisably siblings without being merged into one
+component that has to know which it is.
 
 **Anything that assumed the thread's first row is the originating note must be
 checked on all five types, not just the LOI.** ADR-0008 flagged this for one

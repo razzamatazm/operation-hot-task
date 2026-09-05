@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-/* Holding the Instructions box edits it in place (#303, ADR-0010 rule 4).
+/* Holding the Instructions box edits it in place (#303, ADR-0010 rule 4),
+ * and since #318 the hold opens the editor rather than a menu with `Edit` in
+ * it — settled on the real card against three variants, branch
+ * `prototype/instructions-edit-gesture`.
  *
  * The box borrows the message editor's gesture (#287, #288, #297) and
  * deliberately disagrees with it about what happens once open. This file is
@@ -14,12 +17,14 @@
  *     creator on all five box types, both parties on an LOI, the assignee on
  *     none of the other four, an observer on none at all, and nobody on a
  *     completed, cancelled or archived task. Reopening gives it back. The same
- *     matrix is then driven through the service, so a box that offers no menu
+ *     matrix is then driven through the service, so a box that answers no hold
  *     is a box the route would refuse anyway.
  *   - **No permission logic is written in the web app.** `thread.tsx` asks
  *     `canAmendTask` and nothing else — asserted as an absence, which is the
  *     only way an absence can be asserted.
- *   - **The menu offers exactly one entry, and it is not Delete.**
+ *   - **There is no menu at all**, and no `Edit` button on the box in any
+ *     state. The hold is the door, the whole panel is its target, and the panel
+ *     opens at the height it already had.
  *   - **Enter is a newline.** The editor's key handler takes Escape and nothing
  *     else, which is the whole of the divergence from the message editor's
  *     Enter-to-save.
@@ -37,7 +42,7 @@
  * What this file cannot assert, and nothing in this repo's harness can: the
  * gesture actually firing. There is no DOM here — `react-dom/server` renders
  * markup and stops — so the hold timer, the swallowed click, the right-click
- * and "one menu open at a time across the card" are asserted as the source
+ * and the measured height are asserted as the source
  * they are built from, exactly as `message-edit-sim-test` asserts the same
  * gesture on the bubbles. Those four want a person.
  *
@@ -262,23 +267,64 @@ test("thread.tsx writes no permission logic of its own", () => {
   assert.ok(!THREAD_SRC.includes("CLOSED_STATUSES"), "the freeze is not restated");
 });
 
-/* ── The menu ─────────────────────────────────────────────────────────────── */
+/* ── No menu ──────────────────────────────────────────────────────────────── */
 
-test("the box's menu offers Edit and nothing else", () => {
-  const menuStart = THREAD_SRC.indexOf('className="msg-menu-panel loi-terms-menu"');
-  const menu = THREAD_SRC.slice(menuStart, THREAD_SRC.indexOf("loi-terms-body", menuStart));
-  assert.ok(menu.length > 0, "the menu block is where this expects it");
-  assert.equal((menu.match(/role="menuitem"/g) ?? []).length, 1, "exactly one entry");
-  assert.ok(menu.includes(">\n              Edit\n"), "and it is Edit");
-  /* ADR-0010 rule 4: instructions cannot be emptied, so a Delete would be a
-     control that is always refused. */
-  assert.ok(!menu.includes("Delete"), "no delete");
-  assert.ok(!menu.includes("msg-menu-danger"), "and nothing wearing the danger accent");
+test("the box carries no menu and no Edit button, in any state", () => {
+  /* #303 put a one-entry menu behind the hold, matching the bubbles. A bubble's
+     menu earns its place by carrying `Edit` and `Delete`; this one could never
+     have a second entry, because instructions cannot be emptied. So it was a
+     step that existed to be dismissed, and #318 took it out. */
+  const box = boxSource();
+  assert.ok(!box.includes('role="menu"'), "no menu panel");
+  assert.ok(!box.includes('role="menuitem"'), "no menu entry");
+  assert.ok(!box.includes("msg-menu-panel"), "not even the shell");
+  assert.ok(!/>\s*Edit\s*</.test(box), "and no Edit button");
 });
 
-test("the box's menu borrows the message menu's shell", () => {
-  assert.ok(THREAD_SRC.includes('"msg-menu-panel loi-terms-menu"'), "same panel class");
-  assert.ok(THREAD_SRC.includes('role="menu"'), "same role");
+test("the hold opens the editor itself", () => {
+  const box = boxSource();
+  assert.ok(box.includes("onOpen: startEditing"), "the gesture's end is the editor");
+  assert.ok(box.includes("setEditing(true)"), "which is what startEditing does");
+});
+
+test("opening the editor closes any open message menu", () => {
+  /* What survives of "one menu at a time across the card": the box has none of
+     its own now, but a bubble's menu standing open while the box turns into an
+     editor is two things claiming the card at once. */
+  const start = boxSource().indexOf("const startEditing");
+  const fn = boxSource().slice(start, boxSource().indexOf("};", start));
+  assert.ok(fn.includes("scope.setOpenId(null)"), "the shared slot is cleared");
+});
+
+test("the whole panel answers the hold, not the sentence inside it", () => {
+  const box = boxSource();
+  /* The heading strip and the panel's own padding are inside the bordered box.
+     A target the size of the text is a target people miss — which is what the
+     prototype was told, in those words. */
+  const section = box.slice(box.indexOf("<section"), box.indexOf("loi-terms-head"));
+  assert.ok(section.includes("{...holdProps}"), "the gesture is on the section");
+  assert.ok(section.includes('data-holdable={editable ? "true" : undefined}'), "and so is the marker");
+  const body = box.slice(box.indexOf('className="loi-terms-body"'));
+  assert.ok(!body.includes("{...holdProps}"), "the text does not carry it separately");
+});
+
+test("the panel grows to fit the editor rather than the words shrinking", () => {
+  /* Opened at a fixed row count, the editor makes a full box's text collapse to
+     make room for Save and Cancel, which reads as the panel caving in under the
+     press. Measured first, the words stay put. */
+  const box = boxSource();
+  assert.ok(box.includes("bodyRef.current?.getBoundingClientRect().height"), "the read view is measured");
+  assert.ok(
+    box.indexOf("setStartHeight") < box.indexOf("setEditing(true)"),
+    "and measured before the editor replaces it"
+  );
+  assert.ok(editorSource().includes("height: `${Math.max(startHeight, 72)}px`"), "the editor opens at it");
+});
+
+test("the press is visible while it is in flight", () => {
+  /* Half a second with no menu at the end of it is half a second of nothing. */
+  assert.ok(boxSource().includes("onPressChange: setPressing"), "the box hears the press");
+  assert.ok(boxSource().includes("loi-terms-held"), "and rings itself while it lasts");
 });
 
 /* ── The gesture, as far as source can carry it ───────────────────────────── */
@@ -295,10 +341,10 @@ test("the box and the bubbles hold through one gesture, not two alike", () => {
   assert.ok(THREAD_SRC.slice(THREAD_SRC.indexOf("const MessageRow")).includes("{...holdProps}"), "so does a bubble");
 });
 
-test("right-click opens a menu immediately and suppresses the OS menu", () => {
+test("right-click opens the editor immediately and suppresses the OS menu", () => {
   const hook = sourceBetween("const useHoldMenu", "/* Small neutral avatar");
   assert.match(hook, /onContextMenu: \(event[\s\S]*?event\.preventDefault\(\);[\s\S]*?onOpen\(\);/);
-  assert.ok(boxSource().includes("onOpen: () => scope.setOpenId(INSTRUCTIONS_MENU_ID)"), "the box's menu is what opens");
+  assert.ok(boxSource().includes("onOpen: startEditing"), "and what opens is the editor");
 });
 
 test("the click a completed hold delivers is swallowed", () => {
@@ -311,27 +357,25 @@ test("a hold on the box stands down while its editor is open", () => {
   assert.ok(boxSource().includes("enabled: editable && !editing"), "the box is the editor then, not a thing to hold");
 });
 
-test("a press outside or Escape closes the menu, and neither touches an open editor", () => {
+test("no outside-press or Escape listener sits over the box at all", () => {
   const box = boxSource();
-  /* Both dismissals are armed on `menuOpen` alone. That is the departure the
-     ticket asks for: the message editor closes on an outside press, and this
-     one must not, because the press is the commonest stray gesture there is. */
-  assert.equal((box.match(/if \(!menuOpen\) return;/g) ?? []).length, 2, "both listeners are menu-only");
-  assert.ok(box.includes('document.addEventListener("pointerdown", onDown, true)'), "outside press, capture phase");
-  assert.ok(box.includes('document.addEventListener("keydown", onKey, true)'), "Escape, capture phase");
-  assert.ok(box.includes("event.stopPropagation();"), "and Escape stops there rather than collapsing the card");
+  /* Both existed to dismiss the menu. With no menu there is nothing for them to
+     close, and the editor deliberately does not answer either: an outside press
+     is the commonest stray gesture there is, and a half-rewritten brief does not
+     go anywhere because somebody clicked the card next to it (ADR-0010 rule 4).
+     The editor's own Escape is the textarea's, which has focus by then. */
+  assert.ok(!box.includes('document.addEventListener("pointerdown"'), "no outside-press listener");
+  assert.ok(!box.includes('document.addEventListener("keydown"'), "no document-level Escape");
 });
 
-test("one menu is open at a time across the card, box and messages alike", () => {
-  /* One variable, one level above both surfaces, and both read it through the
-     same hook. Two ids in two components is the arrangement this replaces. */
+test("one menu is open at a time across the card, and the box can only close it", () => {
+  /* One variable, one level above both surfaces. The box no longer puts
+     anything in it — a hold on the box is the editor — so its only interest is
+     clearing whatever the thread left open. */
   assert.equal((THREAD_SRC.match(/= useCardMenuScope\(\);/g) ?? []).length, 2, "one hook, read by both surfaces");
-  assert.ok(THREAD_SRC.includes("const menuOpen = scope.openId === INSTRUCTIONS_MENU_ID"), "the box reads the shared slot");
-  assert.ok(THREAD_SRC.includes("isMessageMenu(scope.openId)"), "and so does the thread");
-  /* Namespaced, so each surface closes only its own — otherwise the thread's
-     outside-press handler unmounts the box's `Edit` before its click lands. */
-  assert.ok(THREAD_SRC.includes('export const INSTRUCTIONS_MENU_ID = "box"'), "the box's id");
-  assert.ok(THREAD_SRC.includes("`msg:${id}`"), "the messages' ids");
+  assert.ok(THREAD_SRC.includes("isMessageMenu(scope.openId)"), "the thread reads the shared slot");
+  assert.ok(!THREAD_SRC.includes("INSTRUCTIONS_MENU_ID"), "and the box's id is gone with its menu");
+  assert.ok(THREAD_SRC.includes("`msg:${id}`"), "the messages' ids stay namespaced");
   assert.ok(APP_SRC.includes("<CardMenuScopeProvider>"), "and one scope per expanded card");
 });
 

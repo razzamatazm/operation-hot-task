@@ -2234,7 +2234,7 @@ button.btn-good:hover {
    long press otherwise, which on a phone turns the gesture into a fight with
    the OS. `pan-y` keeps the box's own overflow scrollable through the same
    finger. */
-.loi-terms-holdable {
+.loi-terms.loi-terms-holdable {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -2244,22 +2244,10 @@ button.btn-good:hover {
 /* Held. The bubble's ring, inset rather than outset — the box already sits
    inside a bordered panel, and an outline outside its own edge would land on
    top of the panel's border rather than beside it. */
-.loi-terms-held {
+.loi-terms.loi-terms-held {
   outline: 2px solid var(--brand);
   outline-offset: -2px;
-  border-radius: 4px;
 }
-/* The box's menu, in the head's reserved right-hand slot rather than over the
-   text. It borrows `.msg-menu-panel` outright — one visual shell for one
-   gesture, which is the half of the message editor this deliberately copies —
-   and only drops the fixed `--msg-menu-w`, sized for a two-entry strip inside a
-   118px thread column. This menu has one entry and a whole card's width beside
-   it. */
-.loi-terms-menu {
-  flex: 0 0 auto;
-  width: auto;
-}
-
 /* The box turned into a field in place (#303, ADR-0010 rule 4). Same face and
    size as the text it replaces, so the section does not jump when it opens. */
 .loi-terms-edit {
