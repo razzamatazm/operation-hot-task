@@ -887,8 +887,7 @@ draft-saving work hangs "and clear the draft" onto.
 exits the app can see. The one it exists for — the Teams tab that reloads, the
 session that drops — runs nothing on the way out, so the new task form keeps a
 copy of itself in `localStorage` as it is typed into and opens on that copy next
-time. Nothing about it is visible yet; the line saying where the values came
-from and the button to start over are #285.
+time. What that looks like on screen is #285, below.
 
 The rules are [src/create-form-draft.ts](src/create-form-draft.ts) —
 framework-free, storage handed in as three methods, so seven-day expiry and
@@ -930,6 +929,46 @@ The submit path's "only pass a `loanId` that still matches" check was inline in
 that drops an ineligible recipient now waits for a non-empty `directory`: a
 restored draft is the first thing that can open the form with somebody already
 picked, and an unloaded list is not an answer about who is eligible.
+
+**And it says so, once, at the top** (#285). A restored draft with no
+explanation is a small mystery — someone opens New Task expecting an empty form
+and finds Tuesday's abandoned attempt. `.task-form-restored` is one row across
+the top of the form's grid holding the info icon, the sentence
+(`restoredDraftCopy` in [src/create-form-draft.ts](src/create-form-draft.ts),
+a pure function for the reason `discardConfirmCopy` is one) and `Start fresh`
+beside it. What keeps it honest:
+
+- **Quiet, in `.task-form-locked`'s muted register.** No tint, no border, no
+  banner and no toast: the app did what it promised, so this is prose, not an
+  alert. The button is `.btn-sm .btn-ghost` — the primary action on this form is
+  still Create Task.
+- **No live region**, unlike the footer's two lines. Those appear while somebody
+  is working and have a change to announce; this is on screen from the first
+  paint inside a dialog whose contents are read on entry, and a region mounted
+  with its text already in it announces nothing.
+- **Keyed to how the form opened**, never to what is in it now, so editing the
+  restored values does not take it away. It is where `Start fresh` lives and the
+  person who wants that button is a few seconds in, having just realised this is
+  not the task they meant to file.
+- **`Start fresh` asks nothing.** One press empties every field and deletes the
+  saved draft. A confirmation would be a prompt over a form nobody asked for,
+  and a misfire costs one keystroke to start saving again.
+- **It re-points `openedWith` at the blank form**, which is the subtle half.
+  That ref is what Cancel and the save timer measure "has anything happened
+  here" against; left on the restored values, an emptied form would read as
+  heavily changed — Cancel would ask to discard a form with nothing in it, and
+  the timer would immediately write the blank over the draft just deleted. It
+  also clears everything that is a field without being in the values object —
+  the typeahead's three pieces of state, the FRAUD seeder's box, the Humperdink
+  paste box and its "Imported" button — and takes the line down: after `Start
+  fresh` nothing was restored, so there is nothing to say.
+- **Focus moves to the folder name box**, first thing and before those clears.
+  The button unmounts itself, so focus would fall to the document body, outside
+  the dialog — and the overlay's Escape handler only sees keys bubbling from
+  inside it, leaving a keyboard user in a form with no way out. Before the
+  clears because that box's `onFocus` seeds the typeahead from the value it can
+  still see. `folderNameRef` is on the typeahead input for this reason; it used
+  to be an edit-mode-only refusal target.
 
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request

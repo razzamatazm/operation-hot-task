@@ -673,6 +673,41 @@ h1, h2, h3, h4 {
   min-width: 0;
 }
 
+/* "Hot Task saved your progress" — the line a form restored from a draft opens
+   with, and the Start fresh button beside it (#285). One row across the top of
+   the form's grid, above the four controls it is explaining.
+
+   No tint, no border and no icon of its own beyond the same info glyph the
+   footer's notes use: it takes `.task-form-locked`'s muted register because
+   nothing has gone wrong. The app did what it promised and is saying so once.
+   Anything louder here would read as a problem with a form whose values are
+   perfectly fine.
+
+   Flex rather than a grid cell each, so the sentence takes the room it needs
+   and the button stays its own width; it wraps rather than squeezing the button
+   on a narrow panel. */
+.task-form-restored {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.task-form-restored svg {
+  flex: none;
+}
+
+.task-form-restored-note {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.task-form-restored button {
+  flex: none;
+}
+
 /* A read-only box should not look like an empty one waiting for typing. Same
    recessed fill the locked type chip gets, so "you can read this, you can't
    change it" reads off the control itself rather than only off the sentence in
