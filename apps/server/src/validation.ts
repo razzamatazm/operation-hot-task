@@ -79,15 +79,16 @@ export const createTaskSchema = z.object({
      form asks too, not a copy of it living here: a note or at least one
      outstanding item, and the sentence comes with it. Same arrangement as the
      OOO date range below, and for the same reason. */
-  if (value.taskType !== "FRAUD" && value.notes.length < 1) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.too_small,
-      minimum: 1,
-      type: "string",
-      inclusive: true,
-      path: ["notes"],
-      message: "String must contain at least 1 character(s)"
-    });
+  if (value.taskType !== "FRAUD") {
+    /* The same `.min(1)` that used to sit on the field, run down here and its
+       issue forwarded whole. Restating zod's wording by hand would read fine
+       today and drift silently on the next zod bump; asking zod keeps the five
+       types' refusal byte-for-byte what it has always been, which is the only
+       thing this clause promises. */
+    const required = z.string().min(1).safeParse(value.notes);
+    if (!required.success) {
+      for (const issue of required.error.issues) ctx.addIssue({ ...issue, path: ["notes"] });
+    }
   }
   const fraudRefusal = fraudFilingRefusal(value);
   if (fraudRefusal) {

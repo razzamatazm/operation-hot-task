@@ -186,14 +186,14 @@ test("an emptied request field is refused rather than saved", () => {
    space satisfies it, so the refusal is decided here and shown on the field. */
 test("wiping the request field to whitespace is refused with a reason", () => {
   for (const wiped of [" ", "   ", "\n", " \n\t "]) {
-    const refusal = editRefusal({ ...editFormValues(loiTask()), notes: wiped });
+    const refusal = editRefusal({ ...editFormValues(loiTask()), notes: wiped }, loiTask());
     assert.equal(refusal?.field, "notes", `"${wiped}" should be refused, on the request box`);
     assert.ok(refusal.message.length > 0);
   }
 });
 
 test("a box emptied outright is refused the same way", () => {
-  assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "" })?.field, "notes");
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "" }, loiTask())?.field, "notes");
 });
 
 /* #262: the folder name is the loan's name on every task pointing at it, so a
@@ -201,7 +201,7 @@ test("a box emptied outright is refused the same way", () => {
    and named separately so the message lands on the box it is about. */
 test("wiping the folder name is refused too, and says so on that box", () => {
   for (const wiped of ["", " ", "  \n "]) {
-    const refusal = editRefusal({ ...editFormValues(loiTask()), folderName: wiped });
+    const refusal = editRefusal({ ...editFormValues(loiTask()), folderName: wiped }, loiTask());
     assert.equal(refusal?.field, "folderName", `"${wiped}" should be refused, on the folder name`);
     assert.ok(refusal.message.length > 0);
   }
@@ -209,18 +209,18 @@ test("wiping the folder name is refused too, and says so on that box", () => {
 
 /* The link is optional. Clearing it is a real edit, not a mistake. */
 test("clearing the Humperdink link is never refused", () => {
-  assert.equal(editRefusal({ ...editFormValues(loiTask()), humperdinkLink: "" }), null);
-  assert.equal(editRefusal({ ...editFormValues(loiTask()), humperdinkLink: "   " }), null);
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), humperdinkLink: "" }, loiTask()), null);
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), humperdinkLink: "   " }, loiTask()), null);
 });
 
 test("an OOO task's description is refused when wiped, like any folder name", () => {
-  assert.equal(editRefusal({ ...editFormValues(oooTask()), folderName: " " })?.field, "folderName");
-  assert.equal(editRefusal(editFormValues(oooTask())), null);
+  assert.equal(editRefusal({ ...editFormValues(oooTask()), folderName: " " }, oooTask())?.field, "folderName");
+  assert.equal(editRefusal(editFormValues(oooTask()), oooTask()), null);
 });
 
 test("real terms are not refused, whatever whitespace surrounds them", () => {
-  assert.equal(editRefusal(editFormValues(loiTask())), null);
-  assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "  Rate: 9.25%\n" }), null);
+  assert.equal(editRefusal(editFormValues(loiTask()), loiTask()), null);
+  assert.equal(editRefusal({ ...editFormValues(loiTask()), notes: "  Rate: 9.25%\n" }, loiTask()), null);
 });
 
 /* ── Urgency and points (#261) ──────────────────────────── */

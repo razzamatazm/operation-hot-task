@@ -503,7 +503,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
        (since #262) the loan's name. Refuse it where the browser refuses an empty
        box, on the field the refusal is about. Terms are required on edit
        (ADR-0008 rule 1), and so is the folder name. */
-    const refusal = editRefusal(form);
+    const refusal = editRefusal(form, edit.task);
     if (refusal) {
       const field = refusal.field === "notes" ? notesRef.current : folderNameRef.current;
       field?.setCustomValidity(refusal.message);
@@ -1122,9 +1122,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
                  attribute is what lets `handleSubmit` reach the shared rule and
                  refuse with a sentence that names both halves; leaving it on
                  would refuse a complete filing with "Please fill out this
-                 field". Still required on Fraud in edit mode, where a note that
-                 exists cannot be wiped (ADR-0010 rule 3 relaxes filing alone). */
-              required={editing || form.taskType !== "FRAUD"}
+                 field". In edit mode it follows the same question `editRefusal`
+                 asks: a field the task arrived with cannot be wiped, and one it
+                 never had is not being emptied by being left alone — otherwise
+                 a Fraud Check filed on its conditions could not have its
+                 urgency corrected without inventing a note. */
+              required={editing ? Boolean(edit?.task.notes?.trim()) : form.taskType !== "FRAUD"}
             />
           </label>
           {/* An OOO task has no loan and so no link: its folder name is a vacation
