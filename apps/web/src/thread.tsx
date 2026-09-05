@@ -10,18 +10,19 @@ import {
   isEmptyMessageText,
   noteBodyText,
   noteLabelPrefix,
-  standingTermsFor
+  standingInstructionsFor
 } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
 
-/* ── The expanded card's terms section and its conversation ─────────────── */
+/* ── The expanded card's Instructions box and its conversation ──────────── */
 /* Lifted out of App.tsx for the same reason `timeline.tsx` was: this is the
-   surface ADR-0008 makes a promise about — an LOI's terms are drawn as a
-   standing section and are *not* repeated as message number one — and App.tsx
-   cannot be imported into a node script, so a promise left in there is a
-   promise nothing can check. `scripts/loi-terms-section-sim-test.mjs` renders
-   both components and reads the markup back.
+   surface ADR-0008 made a promise about, and ADR-0010 widened — a task's
+   instructions are drawn as a standing box and are *not* repeated as message
+   number one — and App.tsx cannot be imported into a node script, so a promise
+   left in there is a promise nothing can check.
+   `scripts/instructions-box-sim-test.mjs` renders both components and reads the
+   markup back.
  *
  * Only the read-only halves moved. The reply composer, the scroll ref and
  * every piece of card state stay in App.tsx; what a viewer may do to a task is
@@ -36,37 +37,44 @@ export const ExpandAvatar = ({ name }: { name?: string }) => (
   <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
 );
 
-/* What heads the conversation. On the five types whose field is still the
-   thread's first message that is the field's own label — "Concerns", "Notes" —
-   because the label is describing the thing below it. On an LOI the field has
-   moved into its own section above and taken its label with it, so the
-   remaining rows are a conversation and nothing else, and saying
-   "Loan Terms and Contacts" over them would name the box next door. */
+/* What heads the conversation. On a Fraud Check, whose field is still the
+   thread's first message, that is the field's own label — because the label is
+   describing the thing below it. On the five box types the field has moved into
+   its own section above and taken its label with it, so the remaining rows are
+   a conversation and nothing else, and saying "Loan Terms and Contacts" or
+   "Concerns" over them would name the box next door. */
 export const threadHeadLabel = (task: Pick<LoanTask, "taskType" | "notes">): string =>
-  standingTermsFor(task) === undefined ? getNotesFieldLabel(task.taskType) : "Conversation";
+  standingInstructionsFor(task) === undefined ? getNotesFieldLabel(task.taskType) : "Conversation";
 
-/* The standing terms of the loan (ADR-0008 rule 1), or nothing on the five
-   types that have none. A bordered, shadowed panel on the recessed expanded
-   body, with the conversation below it as bare rows: the two are told apart by
-   shape rather than by their headings.
+/* The task's standing instructions (ADR-0010 rule 1, widening ADR-0008 rule 1),
+   or nothing on a Fraud Check, whose ask is its outstanding-items list. A
+   bordered, shadowed panel on the recessed expanded body, with the conversation
+   below it as bare rows: the two are told apart by shape rather than by their
+   headings.
  *
  * Free text, rendered as typed. Line breaks survive via `white-space:
- * pre-wrap` on `.loi-terms-body`, so a typed list of figures reads as a list.
- * No parsing, no label columns, no structured fields — a form of ~25 mostly
- * empty inputs would buy formatting nobody asked for, and structured terms
- * wait for the direct import that would populate them.
+ * pre-wrap` on `.loi-terms-body`, so a typed list of figures reads as a list,
+ * and the box caps its height and scrolls inside itself rather than pushing the
+ * conversation off the card. No parsing, no label columns, no structured
+ * fields — a form of ~25 mostly empty inputs would buy formatting nobody asked
+ * for, and structured terms wait for the direct import that would populate
+ * them.
  *
- * No edit affordance here, deliberately (#260). ADR-0008 rule 4 makes `Edit
- * Task` in the hamburger the one door onto this field; a second entrance on
- * the box is fewer clicks from where the error is spotted, at the cost of two
- * surfaces that have to be kept in agreement. This section displays. */
-export const TermsSection = ({
+ * Body face on every type. The fixed-width exception is the *edit form's* LOI
+ * field alone (`apps/web/CLAUDE.md`), where a pasted term sheet's columns have
+ * to line up; a Buddy Chat's concerns are prose and widening the box must not
+ * drag the exception along with it.
+ *
+ * No edit affordance here yet. ADR-0010 rule 4 gives the box a press-and-hold
+ * editor, which is #303's work; until then `Edit Task` in the hamburger is the
+ * one door onto this field and this section displays. */
+export const InstructionsSection = ({
   task
 }: {
   task: Pick<LoanTask, "taskType" | "notes">;
 }) => {
-  const terms = standingTermsFor(task);
-  if (terms === undefined) return null;
+  const instructions = standingInstructionsFor(task);
+  if (instructions === undefined) return null;
   /* No `aria-label` on the section: the visible mono title already names the
      block, and a label repeating it makes a screen reader say it twice. */
   return (
@@ -74,7 +82,7 @@ export const TermsSection = ({
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
       </div>
-      <div className="loi-terms-body">{terms}</div>
+      <div className="loi-terms-body">{instructions}</div>
     </section>
   );
 };
@@ -84,15 +92,17 @@ export const TermsSection = ({
    the row's `title` and a visually-hidden span.
  *
  * The originating field opens the list only where it is still a thread member,
- * which `standingTermsFor` decides once for this file and the section above.
- * An LOI therefore opens genuinely empty and says so, rather than opening on a
- * copy of its own terms.
+ * which `standingInstructionsFor` decides once for this file and the section
+ * above. Since ADR-0010 that is a Fraud Check alone; the other five open
+ * genuinely empty and say so, rather than opening on a copy of their own
+ * instructions.
  *
  * The empty state is a real row rather than a blank box: an empty conversation
- * on a brand-new task is the normal case now, and an unexplained gap between
- * the terms and the composer reads as something failing to load. It invites a
- * reply only when the viewer has a composer — an Observer, or anyone looking at
- * a task with no reply box, has nothing below to start. */
+ * on a brand-new task is the normal case on five of six types now, and an
+ * unexplained gap between the box and the composer reads as something failing
+ * to load. It invites a reply only when the viewer has a composer — an
+ * Observer, or anyone looking at a task with no reply box, has nothing below
+ * to start. */
 /* How long a press has to last before the menu opens. Long enough not to fire
    on a tap that was meant to scroll the thread, short enough that nobody
    wonders whether it worked.
@@ -465,7 +475,7 @@ export const ThreadMessages = ({
   onEditMessage?: (messageId: string, text: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => Promise<void>;
 }) => {
-  const opensWithOriginatingNote = standingTermsFor(task) === undefined;
+  const opensWithOriginatingNote = standingInstructionsFor(task) === undefined;
   /* One menu and one edit box across the whole thread (#297). This is the
      variable the rows used to each hold a copy of, which is why two boxes could
      stand open at once: a row that only knows about itself cannot close its

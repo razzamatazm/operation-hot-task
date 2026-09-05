@@ -176,7 +176,8 @@ silence.
 
 As with ADR-0008 rule 10 and for the same reason: this is the one required field
 every task has always had, drawn somewhere else. No column is added, no payload
-changes, and no text is parsed or split. `standingTermsFor` is the single place
+changes, and no text is parsed or split. `standingTermsFor` (renamed
+`standingInstructionsFor` when #300 built this rule) is the single place
 the question "is this field in the thread?" is answered, and this decision
 changes that one answer from *LOI* to *anything but a Fraud Check*.
 

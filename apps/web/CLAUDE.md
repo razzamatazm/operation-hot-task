@@ -569,49 +569,66 @@ nested card chrome, in this order:
    viewer's own seat's note field, and a viewer holds one seat or none. An
    existing note drops below the row with the author's full name, not a chip —
    it's a sentence attributed to a person.
-4. **Terms** (`.loi-terms`, LOI only) — the standing description of the loan
-   being checked, out of the conversation and into its own box (#258,
-   [ADR-0008](../../docs/adr/0008-loi-terms-are-a-field-not-a-message.md)). A
+4. **Instructions** (`.loi-terms`, every type but FRAUD) — the standing ask,
+   out of the conversation and into its own box (#258 for the LOI, widened to
+   five types by #300,
+   [ADR-0008](../../docs/adr/0008-loi-terms-are-a-field-not-a-message.md) and
+   [ADR-0010](../../docs/adr/0010-every-task-has-an-instructions-box.md)). A
    bordered, shadowed panel with a 3px brand left edge, raised off the recessed
    expanded body while the thread below it stays bare rows on the background —
    the split is carried by shape, not by shouting in the headings. Free text
    rendered as typed (`white-space: pre-wrap`, body font, 1.4 leading — tighter than the thread’s 1.45) so a
    list of figures reads as a list; no parsing, no label columns, no structured
-   fields until the direct import exists. It is the *same* `notes` field the
-   task has always carried, just drawn here instead of in the thread — nothing
-   was added and nothing migrated. The other five types render no section at
-   all: they have no field a second person verifies, so it would be structure
-   without meaning, and an LOI and a Buddy Chat being laid out differently is
-   deliberate. The panel's own border is the separator, so
-   `.task-card-expanded > .task-card-terms + *` drops the sibling hairline.
+   fields until the direct import exists. Capped at 260px with internal scroll,
+   so a twenty-line term sheet cannot push the conversation off the card. It is
+   the *same* `notes` field the task has always carried, just drawn here instead
+   of in the thread — nothing was added and nothing migrated.
+   **Body face on all five.** The mono exception is the edit form's LOI field
+   and nothing else; widening the box must not drag it along.
+   **A FRAUD task renders no section at all**: its standing ask is the
+   outstanding-items list two blocks up, and a prose box above that list would
+   ask a filer to say the same thing twice in two shapes (ADR-0010 rule 1).
+   The class name is still `.loi-terms` — the box is the one ADR-0008 built,
+   unchanged in shape and placement, and renaming it would churn every rule and
+   test that names it for no visual change. The panel's own border is the
+   separator, so `.task-card-expanded > .task-card-terms + *` drops the sibling
+   hairline.
 5. **Notes** — reply thread + add-note input, all in one avatar + text style: a
    note is a single row, glyph then what they said, with no name/timestamp line
    above it (#165) — the author and the time ride the row's `title` and a
    visually-hidden span instead. Thread caps at 178px (`.msgs` `max-height`)
    with internal scroll and auto-scroll-to-newest on new entries / re-open.
-   On the five types that still carry their field here, the originating note is
+   On a FRAUD task, which still carries its field here, the originating note is
    the first row, in the same style as the replies, and the head reads with the
-   field's label. On an LOI the field has left, so the head reads
-   `Conversation` — naming the box next door would be a lie — and an LOI with
-   no replies renders `.msgs-empty` rather than an unexplained gap. That state
+   field's label. On the other five the field has left, so the head reads
+   `Conversation` — naming the box next door would be a lie — and a task with
+   no replies renders `.msgs-empty` rather than an unexplained gap. Since #300
+   that empty conversation is the normal case rather than the LOI's oddity. It
    invites a reply only when the viewer has a composer; an Observer, or anyone
    on a task with no reply box, is told the conversation is empty and not
    pointed at something that isn't there.
 
-   The terms section and the message list are the one part of the card lifted
+   The instructions box and the message list are the one part of the card lifted
    out of `App.tsx`, into [src/thread.tsx](src/thread.tsx), for the reason
-   `timeline.tsx` was: ADR-0008's promise is about rendered output, App.tsx
+   `timeline.tsx` was: the promise is about rendered output, App.tsx
    can't be imported into a node script, and
-   `scripts/loi-terms-section-sim-test.mjs` renders both and reads the markup
+   `scripts/instructions-box-sim-test.mjs` renders both and reads the markup
    back. Only the read-only halves moved; the composer and all card state
    stayed. Which of the two draws the field is never decided locally — both ask
-   shared `standingTermsFor`, so the section cannot show it while the thread
-   also does.
+   shared `standingInstructionsFor`, so the section cannot show it while the
+   thread also does, and no renderer carries a `taskType` test of its own.
 
-   Neither box carries an edit button (#260). The terms section and the thread
-   head both used to host `Edit request`; ADR-0008 rule 4 makes the hamburger's
-   `Edit Task` the one door, so a second entrance beside the field is gone
-   rather than duplicated.
+   That test file is also where the blast radius is checked. ADR-0008 flagged
+   "anything assuming the thread's first row is the originating note" on one
+   type and ADR-0010 widened it to five, so the unread signal, the rendered
+   reply count and the bot's quoted reply cards are each asserted across every
+   type rather than reasoned about.
+
+   Neither box carries an edit button (#260). The instructions box and the
+   thread head both used to host `Edit request`; ADR-0008 rule 4 made the
+   hamburger's `Edit Task` the one door. ADR-0010 rule 4 reverses that and gives
+   the box a press-and-hold editor of its own — that is #303's work and is not
+   built yet.
 
    **Messages are bubbles** (#297). Each one wraps to its own text rather than
    filling the row — `.msg-bubble`, paper with a hairline for other people's,
