@@ -9,7 +9,7 @@
    Framework-free and pure so both are testable without React; the component
    keeps only the useState around them. Types are imported type-only, so this
    module type-strips straight into a node test with no build. */
-import type { LoanTask, TaskType, UrgencyLevel } from "@loan-tasks/shared";
+import type { Loan, LoanTask, TaskType, UrgencyLevel } from "@loan-tasks/shared";
 import type { HumperdinkPayload } from "@loan-tasks/shared";
 
 export interface CreateFormValues {
@@ -137,6 +137,33 @@ export const formHasChanges = (
     }
     return before !== after;
   });
+};
+
+/* ── Which loan a new task is filed against (ADR-0001) ────────
+   The loan a typeahead pick put in the form, but only while it is still the
+   loan the box describes — otherwise nothing, and the create resolves the typed
+   name and link server-side the way it does for a name somebody typed by hand.
+
+   Three ways the id stops being the answer, and they are one rule rather than
+   three: the text was edited after the pick (they mean a different loan), the
+   task became an OOO (whose "folder name" is a vacation description and has no
+   loan at all), or the loan is no longer in the list. That last one used to be
+   unreachable in one sitting and is the reason this is a function: a saved
+   draft (#284) can be a week old, and in a week a loan can be renamed, merged
+   or removed. A dead id must not be sent — the point of restoring the text is
+   that it resolves like any other typed name, so a loan that moved on produces
+   the same no-match a typo does rather than an error about a record nobody
+   mentioned.
+
+   Trimmed on the form's side only: the name in the box is compared as it will
+   be sent, and the Loan's own name is the stored record. */
+export const createLoanId = (
+  values: Pick<CreateFormValues, "loanId" | "folderName" | "taskType">,
+  loans: Pick<Loan, "id" | "name">[]
+): string | undefined => {
+  if (!values.loanId || values.taskType === "OOO") return undefined;
+  const picked = loans.find((loan) => loan.id === values.loanId);
+  return picked && picked.name === values.folderName.trim() ? picked.id : undefined;
 };
 
 /* ── Edit mode (#260, ADR-0008 rule 4) ────────────────────────

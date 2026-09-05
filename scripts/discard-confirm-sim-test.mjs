@@ -134,10 +134,17 @@ test("the exit asks only when there is something to lose, measured from the open
   assert.match(FORM_SOURCE, /const openedWith = useRef\(form\)/, "the opening values are captured once, at open");
 });
 
-test("saying yes closes the form, and is the one place a later ticket hooks onto", () => {
+/* The yes was a bare `onClose` when this shipped, and #284 hung the saved
+   draft's deliberate deletion on it — Cancel is the one exit that means "forget
+   this task", which is why the prompt shipped first. `confirmDiscard` closes the
+   form exactly as before and forgets the draft on the way; what it clears is
+   asserted in `task-draft-form-sim-test.mjs`. */
+test("saying yes closes the form, and is where the draft is deliberately forgotten", () => {
   const mount = FORM_SOURCE.slice(FORM_SOURCE.indexOf("{discardAsk &&"));
   const line = mount.slice(0, mount.indexOf("\n"));
-  assert.match(line, /onConfirm=\{onClose\}/, "confirming does what closing has always done");
+  assert.match(line, /onConfirm=\{confirmDiscard\}/, "confirming goes through one named function");
+  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
+  assert.match(confirm.slice(0, confirm.indexOf("};")), /onClose\(\);/, "which still does what closing always did");
   assert.match(line, /onCancel=\{\(\) => setDiscardAsk\(false\)\}/, "declining only lowers the prompt");
   assert.doesNotMatch(
     line.slice(line.indexOf("onCancel")),

@@ -28,7 +28,8 @@
    correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
+import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, writeDraft } from "./create-form-draft";
+import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { useToast } from "./toast";
@@ -114,18 +115,65 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      the ref simply goes unused, because nothing refuses a create here. */
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const folderNameRef = useRef<HTMLInputElement>(null);
-  /* Lazy initializer, so re-renders don't rebuild the state and a changing
-     `initialValues` identity can't reset a half-typed draft: the values seed
-     the form once, at open. Reopening the form remounts this component, which
-     is when new initial values take effect. */
-  const [form, setForm] = useState<CreateFormValues>(() =>
-    edit ? editFormValues(edit.task) : initialCreateForm(initialValues)
-  );
+  /* Where this form's saved draft lives (#284), decided once at open and never
+     re-read. Two things are pinned here rather than looked up as needed:
+
+     The storage object, because a locked-down Teams profile can throw on the
+     `window.localStorage` property itself; `browserDraftStorage` turns that into
+     `null`, which every draft function takes as "do nothing, quietly".
+
+     The person, because the mock user picker can switch who is signed in while
+     this form is open. Keying off the live `user.id` would then save what is on
+     screen — which is the first person's typing — under the second person's
+     name, the one thing the per-user key exists to prevent. The draft belongs to
+     whoever opened the form; the other person's own draft is read when they open
+     it themselves, on the next mount.
+
+     Null storage in edit mode is the whole of "edit mode saves no draft": there
+     is nothing to switch off further down, because there is nowhere to write. */
+  const [draftSeat] = useState<{ storage: ReturnType<typeof browserDraftStorage>; userId: string }>(() => ({
+    storage: edit ? null : browserDraftStorage(),
+    userId: user.id
+  }));
+  /* What the form opens with, worked out once. Lazy, so re-renders don't rebuild
+     it and a changing `initialValues` identity can't reset a half-typed form:
+     the values seed the form once, at open. Reopening remounts this component,
+     which is when new initial values — or a newly saved draft — take effect.
+
+     Three ways in. Edit mode takes the task's own values. A create form with a
+     saved draft takes the draft (#284). Anything else opens as it always has.
+
+     `fresh` is what a blank-slate open would have produced, kept because it is
+     the yardstick for "is there a draft worth keeping" — measuring against
+     `openedWith` instead would call a restored draft unchanged and quietly stop
+     saving it. Note it is NOT the yardstick for the discard prompt, which asks
+     whether anything moved since the form opened (#283).
+
+     A form opened with `initialValues` deliberately ignores any draft: those
+     values come from someone asking for a task about a specific loan, and
+     answering that with last Tuesday's half-written task about a different one
+     would be the wrong form entirely. Their draft is left where it is. */
+  const [opening] = useState<{ values: CreateFormValues; fresh: CreateFormValues; fromDraft: boolean }>(() => {
+    if (edit) {
+      const values = editFormValues(edit.task);
+      return { values, fresh: values, fromDraft: false };
+    }
+    const fresh = initialCreateForm(initialValues);
+    const restored = initialValues ? null : readDraft(draftSeat.storage, draftSeat.userId);
+    return { values: restored ?? fresh, fresh, fromDraft: restored !== null };
+  });
+  const [form, setForm] = useState<CreateFormValues>(opening.values);
   /* The form exactly as it opened, kept so closing it can ask whether anything
      has been done to it since (#283). A ref rather than state because it never
      changes while the form is up: the same object the lazy initializer above
      produced, captured on the first render and read on the way out. */
   const openedWith = useRef(form);
+  /* Does this person have a saved draft on disk, as far as this form knows
+     (#284)? True at open when the form was restored from one, and kept honest by
+     the effect below. It is what stops an untouched form clearing a draft it
+     never wrote — and what makes emptying a restored form back out clear the
+     copy behind it rather than leave the old values waiting to reappear. */
+  const draftStored = useRef(opening.fromDraft);
   /* Is the "discard this task?" prompt up (#283)? Set by an exit taken on a
      form that has something in it; see `requestClose` below. */
   const [discardAsk, setDiscardAsk] = useState(false);
@@ -293,12 +341,71 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
 
   /* Switching to Assign, or to a Fraud Check, can make the current pick
      ineligible. Drop it rather than leave a selection showing that the server
-     would reject at submit. */
+     would reject at submit.
+
+     A directory that hasn't arrived yet is not an answer about eligibility, and
+     since #284 the form can open with somebody already picked — a restored draft
+     carries the person it was going to. Without this guard, a form opened in the
+     moment before the directory lands would quietly drop that person and the
+     note written to them, which is the opposite of what a restored draft
+     promises. Same `directory.length` reasoning as the no-checker warning
+     below, for the same reason: don't decide anything on a list that isn't
+     loaded. */
   useEffect(() => {
+    if (directory.length === 0) return;
     if (form.recipientUserId && !recipientCandidates.some((c) => c.id === form.recipientUserId)) {
       setForm((c) => ({ ...c, recipientUserId: "" }));
     }
-  }, [recipientCandidates, form.recipientUserId]);
+  }, [directory.length, recipientCandidates, form.recipientUserId]);
+
+  /* ── Keeping the draft (#284) ───────────────────────────────
+     The form saves itself as it is typed into, settling shortly after the
+     typing stops. Not on unmount and not on `beforeunload`: the case this
+     exists for is the tab that goes away without running anything, so a save
+     that depends on an exit path is a save that isn't there when it matters.
+
+     One timer per change, cancelled by the next one, which makes this a plain
+     trailing debounce — a sentence costs one write rather than forty. The
+     cleanup also runs on unmount, so a create or a discard that clears the
+     draft can never be overwritten a moment later by a keystroke's leftover
+     timer.
+
+     Write, keep or clear is `draftAction`, decided over there rather than in
+     here so the rule — including "opening a draft does not restart its seven
+     days" and "an untouched form never clears one" — can be asked as a truth
+     table instead of by rendering a form and waiting. The two questions it
+     takes are both `formHasChanges` (#283), from two yardsticks: against a
+     blank-slate open, which is what makes a changed task type on its own worth
+     saving, and against the values this form opened with.
+
+     Storage that is missing, locked down or full is handled inside the write
+     and clear themselves, silently — nothing here can throw at a person
+     mid-sentence, and the write reports back whether it actually landed. */
+  useEffect(() => {
+    if (editing) return;
+    const timer = window.setTimeout(() => {
+      const action = draftAction({
+        changedFromBlank: formHasChanges(opening.fresh, form),
+        movedSinceOpen: formHasChanges(openedWith.current, form),
+        onDisk: draftStored.current
+      });
+      if (action === "write") {
+        draftStored.current = writeDraft(draftSeat.storage, draftSeat.userId, form);
+      } else if (action === "clear") {
+        clearDraft(draftSeat.storage, draftSeat.userId);
+        draftStored.current = false;
+      }
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [form, editing, opening.fresh, draftSeat]);
+
+  /* The draft is done with. Both endings a person can mean by it — the task got
+     filed, or they confirmed the discard prompt — go through here, so neither
+     can grow its own idea of what forgetting a draft involves. */
+  const forgetDraft = (): void => {
+    clearDraft(draftSeat.storage, draftSeat.userId);
+    draftStored.current = false;
+  };
 
   /* Save an edit (#260, #261). Only what moved, and nothing at all when nothing did:
      `taskEdit` answers that, and an empty answer closes the form without a
@@ -361,10 +468,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     }
     const rawLink = form.humperdinkLink.trim();
     const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
-    // Only pass loanId when the typed name still matches the selected loan —
-    // editing the text after selecting means the user intends a new loan.
-    const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
-    const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
+    // Which loan this is filed against, or nothing — in which case the server
+    // resolves the typed name and link (ADR-0001). One rule, in
+    // `create-form-state.ts`, because a restored draft (#284) can carry a pick
+    // whose loan has since been renamed or removed.
+    const keepLoanId = createLoanId(form, loans);
     // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
     // ship the outstanding items the creator already knows about.
     const assignAtCreate = Boolean(form.recipientUserId) && form.pickerMode === "assign";
@@ -376,7 +484,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       folderName: form.folderName,
       taskType: form.taskType,
       notes: form.notes,
-      ...(keepLoanId ? { loanId: form.loanId } : {}),
+      ...(keepLoanId ? { loanId: keepLoanId } : {}),
       ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {}),
@@ -405,6 +513,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
         assignAtCreate ? "" : form.recipientUserId,
         form.recipientNote.trim() || undefined
       );
+      /* The task exists now, so the copy of it kept against losing it is over
+         (#284) — the next New Task opens blank. Only on success: a create that
+         failed leaves the form open to retry, and its draft with it. */
+      forgetDraft();
       onClose();
     } catch {
       /* create failed — App surfaced the error; leave the form open to retry */
@@ -572,17 +684,26 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     else onClose();
   };
 
+  /* "Yes, discard it." The deliberate forget, and the reason the prompt shipped
+     before the draft did (#283, #284): Cancel and Escape are the only way to
+     tell the app you are done with this task, so they are the only close that
+     takes the saved copy with it. Declining changes nothing at all — the prompt
+     comes down and the draft stays exactly where it was. */
+  const confirmDiscard = (): void => {
+    forgetDraft();
+    onClose();
+  };
+
   return (
     <>
       {/* Mounted alongside the overlay rather than inside it, so the dialog's
           z-index is measured against the app and not against the inside of a
           modal — it has to clear the form (50) and a toast (60).
 
-          `onClose` is the whole of the yes: the form unmounts and the draft goes,
-          which is what closing has always done. Anything that later needs to
-          happen when someone confirms a discard — the draft-saving work will want
-          to clear the saved draft here — hangs off this one line. */}
-      {discardAsk && <DiscardConfirmDialog onConfirm={onClose} onCancel={() => setDiscardAsk(false)} />}
+          The yes is `confirmDiscard`: it forgets the saved draft (#284) and then
+          closes, which is what closing has always done. The no is only the
+          prompt coming down — it closes nothing and forgets nothing. */}
+      {discardAsk && <DiscardConfirmDialog onConfirm={confirmDiscard} onCancel={() => setDiscardAsk(false)} />}
       {/* The backdrop is deliberately inert (#114): a stray click here used to
           call onClose, which unmounts this component and silently destroys the
           whole draft. It stays inert — clicking it is still not an exit and does

@@ -326,10 +326,16 @@ test("a half-typed outstanding item counts as something to lose", () => {
 /* The form captures its opening values on the first render, so anything that
    rewrites those values without a person doing something would make an untouched
    form look touched. There is exactly one such thing: the effect that clears a
-   picked recipient who turns out to be ineligible. It cannot fire at open while
-   no form can open with a recipient already picked — which is a fact about these
-   two builders, and therefore is asserted here rather than assumed there. */
-test("no form opens with a recipient already picked, so nothing clears one at open", () => {
+   picked recipient who turns out to be ineligible.
+
+   Neither of these two builders can open a form with a recipient in it, which is
+   a fact about them and so is asserted here. A restored draft (#284) is the one
+   thing that can — it carries the person the task was going to — which is why
+   that effect now waits for a directory before deciding anybody is ineligible.
+   Past that point a pick the server would refuse is still dropped, draft or not:
+   an invalid selection left on screen is worse than a form that reads as
+   touched. */
+test("neither builder opens a form with a recipient already picked", () => {
   assert.equal(initialCreateForm().recipientUserId, "");
   assert.equal(initialCreateForm({ folderName: "Adams - Harbor" }).recipientUserId, "");
   assert.equal(
