@@ -25,8 +25,14 @@
  *                       emptied — every entry is keyed by a task id that no
  *                       longer exists, so keeping them only strands cards
  *
+ *   users.json          ADDED TO, never rewritten: any of the four cast
+ *                       members missing from the file is created, so a fresh
+ *                       clone has people the user switcher can offer. Anyone
+ *                       already there is left exactly as they are.
+ *
  * What it deliberately leaves alone:
- *   users.json          your cast and their roles; the mock user switcher
+ *   users.json          existing records — roles, `active`, everything. An
+ *                       admin's edits survive a re-seed
  *   admin-settings.json the notification channel you picked
  *   bot-references.json who has messaged the bot — earned, and painful to redo
  *
@@ -77,6 +83,23 @@ const JOHANNA = { id: "admin-1", displayName: "Johanna" };
 const SUZIE = { id: "loan-officer-1", displayName: "Suzie" };
 const ALEXA = { id: "file-checker-1", displayName: "Alexa" };
 const HEATHER = { id: "new-1", displayName: "Heather Finn" };
+
+/* The same four, with the roles they need to work the tasks below. This is the
+   only place the local cast is written down: since #309 the web app's user
+   switcher reads whoever is in users.json rather than carrying its own copy,
+   so a person added here becomes switchable with no code change.
+
+   Which is also why the seeder now has to put them there. users.json is
+   gitignored and starts empty, and people used to land in it by logging in —
+   a chicken-and-egg the old hardcoded list broke. Existing records are left
+   exactly as they are (see `ensureCast`), so an admin's role edits and
+   deactivations survive a re-seed, as they always have. */
+const CAST = [
+  { ...JOHANNA, email: "johanna@loneoakfund.com", roles: ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] },
+  { ...SUZIE, email: "suzie@loneoakfund.com", roles: ["LOAN_OFFICER"] },
+  { ...ALEXA, email: "alexa@loneoakfund.com", roles: ["LOAN_OFFICER", "FILE_CHECKER"] },
+  { ...HEATHER, email: "heather@loneoakfund.com", roles: ["LOAN_OFFICER"] }
+];
 
 /* Seeded messages carry an identifier like any other (#286): the store would
    backfill one at start-up, but seed data that already looks like real data is
@@ -447,6 +470,32 @@ if (!keep) {
   }
 }
 
+/* Make sure the cast the seeded tasks belong to actually exists as people.
+   Add-only: a person already in users.json is left untouched, roles, `active`
+   and all — this file is still "your cast and their roles", and an admin who
+   deactivated somebody or gave them a role does not get it undone by a
+   re-seed. What it fixes is the empty file on a fresh clone, where nobody
+   existed and (since #309) nobody could log in to be created either. */
+const ensureCast = async () => {
+  const usersFile = path.resolve(dataDir, "users.json");
+  const stored = await readJson(usersFile, { users: [] });
+  const users = Array.isArray(stored.users) ? stored.users : [];
+  const known = new Set(users.map((user) => user.id));
+  const added = CAST.filter((person) => !known.has(person.id)).map((person) => ({
+    ...person,
+    active: true,
+    createdAt: at(-30 * DAY),
+    lastSeenAt: at(-DAY)
+  }));
+  if (added.length === 0) {
+    return 0;
+  }
+  await writeJson(usersFile, { users: [...users, ...added] });
+  return added.length;
+};
+
+const castAdded = await ensureCast();
+
 const byStatus = tasks.reduce((counts, task) => {
   counts[task.status] = (counts[task.status] ?? 0) + 1;
   return counts;
@@ -458,8 +507,11 @@ console.log(
     .map(([status, count]) => `  ${status}: ${count}`)
     .join("\n")
 );
+if (castAdded > 0) {
+  console.log(`Added ${castAdded} missing cast ${castAdded === 1 ? "member" : "members"} to users.json — the user switcher offers them now.`);
+}
 if (!keep) {
-  console.log("Cleared bot card / thread / activity-signal state. Users, admin settings and bot references untouched.");
+  console.log("Cleared bot card / thread / activity-signal state. Existing users, admin settings and bot references untouched.");
 }
 /* No restart needed: the store re-reads the file on every call, so a running
    dev server serves the new board on the next refresh. */

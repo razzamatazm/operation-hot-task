@@ -27,7 +27,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { DEV_USERS_PATH, chooseDevUser, fetchDevUsers } from "../apps/web/src/dev-users.ts";
+import { DEV_USERS_PATH, chooseDevUser, fetchDevUsers, loadDevUsers } from "../apps/web/src/dev-users.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const APP_SOURCE = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
@@ -129,6 +129,44 @@ test("entries that are not people are dropped", async () => {
   assert.deepEqual(await fetchDevUsers("/api", impl), [SUZIE]);
 });
 
+/* ── Surviving a server that isn't up yet ───────────────── */
+
+/* `npm run dev` starts vite and the API together and vite usually wins, so the
+   first read can beat the server to the port. That cost nothing while the app
+   started as a hardcoded person; now an empty roster is an app that is nobody,
+   with no way back but a reload. */
+test("a roster that is empty at first is retried until it isn't", async () => {
+  let call = 0;
+  const impl = async () => {
+    call += 1;
+    return call < 3 ? { ok: false, json: async () => ({}) } : jsonResponse({ users: ROSTER });
+  };
+  const slept = [];
+  const roster = await loadDevUsers("/api", { fetchImpl: impl, sleep: async (ms) => void slept.push(ms) });
+  assert.deepEqual(roster, ROSTER);
+  assert.equal(call, 3, "gave up on neither of the first two answers");
+  assert.equal(slept.length, 2, "waited between attempts, not after the last one");
+});
+
+test("a roster that never arrives gives up, and gives up empty", async () => {
+  const impl = stubFetch(new Error("ECONNREFUSED"));
+  const roster = await loadDevUsers("/api", { fetchImpl: impl, sleep: async () => {}, attempts: 4 });
+  assert.deepEqual(roster, [], "still nobody, never a made-up somebody");
+  assert.equal(impl.calls.length, 4, "bounded — it does not retry forever");
+});
+
+/* A server that is up with an empty users file reads the same as one that is
+   down, so it is retried the same way and lands on the same empty roster —
+   which the switcher renders as the one command that fixes it. */
+test("an up server with no people in it lands on an empty roster too", async () => {
+  const impl = stubFetch(jsonResponse({ users: [] }));
+  assert.deepEqual(await loadDevUsers("/api", { fetchImpl: impl, sleep: async () => {}, attempts: 2 }), []);
+  assert.ok(
+    APP_SOURCE.includes("No people — run npm run dev:reset"),
+    "the empty switcher names the command that seeds the cast"
+  );
+});
+
 /* ── What App must not go back to ───────────────────────── */
 
 /* The failure #309 fixes was a literal cast in App.tsx. Nothing type-checks that
@@ -139,7 +177,7 @@ test("App carries no hardcoded cast", () => {
   for (const name of ["Suzie", "Alexa", "Johanna", "Heather"]) {
     assert.ok(!APP_SOURCE.includes(`"${name}`), `${name} is not named in App.tsx`);
   }
-  assert.ok(APP_SOURCE.includes("fetchDevUsers"), "the roster is fetched");
+  assert.ok(APP_SOURCE.includes("loadDevUsers"), "the roster is fetched");
   assert.ok(APP_SOURCE.includes("chooseDevUser"), "the selection rule is the shared one");
 });
 

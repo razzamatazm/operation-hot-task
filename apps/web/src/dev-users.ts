@@ -54,6 +54,42 @@ export const fetchDevUsers = async (
   }
 };
 
+/* `npm run dev` starts the API and the web server at once, and vite is usually
+   up first — so the first read can land before the server is listening. That
+   used to cost nothing, because the app started as a hardcoded person; now an
+   empty roster means an app that is nobody, with no way back but a reload. So
+   retry a few times before giving up.
+
+   Retries an EMPTY answer, not just a failed one: a server that is up but
+   whose users file has no people yet reads exactly like one that isn't up. The
+   sleep is injected so the test doesn't wait. */
+export const DEV_ROSTER_ATTEMPTS = 5;
+export const DEV_ROSTER_RETRY_MS = 1000;
+
+export const loadDevUsers = async (
+  apiBase: string,
+  {
+    fetchImpl = fetch,
+    sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    attempts = DEV_ROSTER_ATTEMPTS
+  }: {
+    fetchImpl?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
+    attempts?: number;
+  } = {}
+): Promise<SwitchableUser[]> => {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const roster = await fetchDevUsers(apiBase, fetchImpl);
+    if (roster.length > 0) {
+      return roster;
+    }
+    if (attempt < attempts) {
+      await sleep(DEV_ROSTER_RETRY_MS);
+    }
+  }
+  return [];
+};
+
 const isSwitchableUser = (value: unknown): value is SwitchableUser => {
   if (typeof value !== "object" || value === null) {
     return false;

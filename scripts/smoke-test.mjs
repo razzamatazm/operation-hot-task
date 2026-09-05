@@ -866,21 +866,21 @@ const run = async () => {
     // gated). It exposes id + displayName + roles only, and includes known
     // users. Roles arrived with the Handoff (ADR-0002) so the picker can filter
     // to people eligible to work the task; email/active stay admin-only.
-    const directoryDenied = await request(server.baseUrl, "GET", "/users/directory", {
+    const directoryRead = await request(server.baseUrl, "GET", "/users/directory", {
       user: users.creator
     });
-    expectStatus(directoryDenied.status, 200, "non-admin can read people directory", directoryDenied.json);
-    assert.ok(Array.isArray(directoryDenied.json.users), "directory returns a users array");
+    expectStatus(directoryRead.status, 200, "non-admin can read people directory", directoryRead.json);
+    assert.ok(Array.isArray(directoryRead.json.users), "directory returns a users array");
     assert.ok(
-      directoryDenied.json.users.some((u) => u.id === users.fileChecker.id),
+      directoryRead.json.users.some((u) => u.id === users.fileChecker.id),
       "directory includes a known user"
     );
     assert.ok(
-      directoryDenied.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id,roles"),
+      directoryRead.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id,roles"),
       "directory entries expose only id + displayName + roles"
     );
     assert.ok(
-      directoryDenied.json.users.every((u) => Array.isArray(u.roles)),
+      directoryRead.json.users.every((u) => Array.isArray(u.roles)),
       "every directory entry carries a roles array the picker can filter on"
     );
     pushPass("people directory is readable by any authenticated user, id + name + roles only");
@@ -894,7 +894,7 @@ const run = async () => {
     expectStatus(devRoster.status, 200, "dev roster readable with no identity", devRoster.json);
     assert.deepEqual(
       devRoster.json,
-      directoryDenied.json,
+      directoryRead.json,
       "the dev roster is the same active-people list the pickers read"
     );
 

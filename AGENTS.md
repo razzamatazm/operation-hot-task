@@ -14,8 +14,13 @@ Humperdink userscript).
 - `npm run dev:reset` — replace the local task store with ~a dozen seeded tasks,
   one per shape worth looking at (overdue, nagged, both merge rungs, the three
   live fraud phases, OOO, review, closed). Backs the old store up under
-  `apps/server/data/backups/` first; leaves users, admin settings and bot
-  references alone. `-- --keep` re-seeds without clearing what's there.
+  `apps/server/data/backups/` first; leaves admin settings and bot
+  references alone. It also creates any of its four cast members missing from
+  `users.json` — that file is gitignored and starts empty, and the dev user
+  switcher offers whoever is in it — but never edits a person already there,
+  so roles and deactivations survive. `-- --keep` re-seeds without clearing
+  what's there. **Run this once on a fresh clone**, or the switcher has nobody
+  to offer.
 - `npm run build` — production-style build
 - `npm run lint` — typecheck (`tsc --noEmit`); there is no ESLint
 - `npm run check:import-cycles` — fail if `packages/shared` has a value-level

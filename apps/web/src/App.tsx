@@ -4,7 +4,7 @@ import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent,
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
-import { SwitchableUser, chooseDevUser, fetchDevUsers } from "./dev-users";
+import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { bylineOf, formatDate, initialsOf } from "./format";
@@ -3806,7 +3806,7 @@ export const App = () => {
        leaves the app as nobody rather than as a made-up somebody. */
     if (!IS_DEV) return;
     let live = true;
-    fetchDevUsers(API_BASE)
+    loadDevUsers(API_BASE)
       .then((roster) => {
         if (!live) return;
         setDevUsers(roster);
@@ -4615,14 +4615,17 @@ export const App = () => {
               <span>User:</span>
               {/* Disabled until the roster lands: with no people to offer there
                   is nothing to switch to, and the app is deliberately still
-                  nobody at that point. */}
+                  nobody at that point. `loadDevUsers` retries for a few seconds
+                  first, so still-empty means the users file has nobody in it —
+                  say the one command that fixes that rather than sitting on a
+                  dead control. */}
               <select
                 value={user.id}
                 disabled={devUsers.length === 0}
                 onChange={(e) => setUser(chooseDevUser(devUsers, e.target.value) ?? INITIAL_USER)}
               >
                 {devUsers.length === 0 ? (
-                  <option value="">Loading…</option>
+                  <option value="">No people — run npm run dev:reset</option>
                 ) : (
                   devUsers.map((u) => (
                     <option key={u.id} value={u.id}>
