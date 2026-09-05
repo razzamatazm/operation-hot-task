@@ -3718,15 +3718,19 @@ button.btn-good:hover {
 /* Placement is for the cell's OWN children only. The quick action is never one
    of them anymore — it always renders inside `.task-card-quick-action-slot`
    (#184) — and listing it here pinned it to column 2 of the SLOT's grid too,
-   which pushed the "N to resolve" sub-label into an implicit column 1 and grew
-   the slot to label + gap + 116px, overflowing the 116px action track. */
+   which pushed the slot's own second child into an implicit column 1 and grew
+   the slot to that child + gap + 116px, overflowing the 116px action track.
+   The slot holds only the button today, and the rule stays because the bug is
+   about where placement applies, not about what happened to be stacked. */
 .task-card-action-cell .task-card-quick-action-slot,
 .task-card-action-cell .task-card-quick-action-waiting,
 .task-card-action-cell .task-card-quick-action-empty,
 .task-card-action-cell .two-exit-panel { grid-column: 2; }
-/* The primary action's slot: normally just the button, plus a one-line reason
-   underneath when the move is blocked (#184). Stacked rather than beside, so a
-   blocked row keeps the same column width as every other row. */
+/* The primary action's slot: the button, and nothing under it. It carried a
+   "N to resolve" sub-label while the move was blocked (#184) until #321 took it
+   off — the disabled button is the signal, and the sentence rides the tooltip
+   and the aria-label. A grid rather than a bare span so the button still
+   stretches to the track. */
 .task-card-action-cell .task-card-quick-action-slot {
   display: grid;
   justify-items: stretch;
@@ -3738,15 +3742,6 @@ button.btn-good:hover {
   --btn-bg-hover: var(--btn-bg);
   cursor: not-allowed;
   opacity: 0.5;
-}
-.task-card-quick-action-blocked {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  text-align: center;
-  white-space: nowrap;
 }
 /* Passive "Waiting on <name>" indicator (#117) — a label, not a button:
    muted mono, no border, no fill, no pointer. Takes the same

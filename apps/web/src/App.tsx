@@ -1896,7 +1896,7 @@ const TaskCard = memo(({
      task's state won't take it yet — today only Submit, held until every
      checklist item is checked or noted (#184). Same sentence the server's
      refusal would carry, so the button doesn't teach a different rule. */
-  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; blockedCount?: number };
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string };
   let primaryAction: QuickAction | null = null;
   /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
      checker holding it, and only when the server would accept BOTH moves —
@@ -1937,7 +1937,7 @@ const TaskCard = memo(({
            rides alongside the sentence rather than being recomputed here, so the
            narrow action column can't disagree with the tooltip beside it. */
         ...(fraudQuick.blockedReason
-          ? { blockedReason: fraudQuick.blockedReason, blockedCount: fraudQuick.blockedCount ?? 0 }
+          ? { blockedReason: fraudQuick.blockedReason }
           : {})
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
@@ -2659,12 +2659,6 @@ const TaskCard = memo(({
               >
                 {primaryAction.label}
               </button>
-              {/* The column is one button wide, so the slot shows the count and
-                  the full sentence rides the title, the button's aria-label and
-                  the expanded checklist head — next to the rows it names. */}
-              {primaryAction.blockedReason && (
-                <span className="task-card-quick-action-blocked">{`${primaryAction.blockedCount} to resolve`}</span>
-              )}
             </span>
           ) : waitingLabel ? (
             /* Passive indicator, not a control — no button, no handler. */
