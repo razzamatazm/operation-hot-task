@@ -566,6 +566,13 @@ export interface NotificationEvent {
      and nobody is re-pinged for a rename. */
   target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
+  /* What this task's loan was called a moment ago, carried only on
+     CARD_CORRECTION (#280). A card records the values it was rendered with, and
+     the correction swaps those out of the stored text — but cards posted before
+     that recording existed have nothing to swap. For those, the values the edit
+     moved AWAY from are the missing record, so the first correction after this
+     lands still repairs them instead of writing them off. */
+  previousLoan?: { folderName?: string; humperdinkLink?: string };
   /* Free-text note from the actor, surfaced in the recipient's card (issue #41
      share, and the Handoff's DM_ASSIGN card — ADR-0002). Optional. */
   note?: string;

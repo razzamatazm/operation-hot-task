@@ -78,7 +78,7 @@ const bootstrap = async (): Promise<void> => {
      cards already posted to Teams (#280). The loan service asks for those to be
      corrected without knowing the notification layer exists; the work runs in
      the background, off the request the person renaming is waiting on. */
-  loanService.setCardCorrector((taskId) => service.correctTaskCards(taskId));
+  loanService.setCardCorrector((taskId, previousLoan) => service.correctTaskCards(taskId, previousLoan));
   /* Idempotent (#207): start the pool-nag clock on unclaimed tasks that are
      already past the nag threshold with no stamp — the shape a task written
      before the nag existed has — so the first maintenance pass does not read the

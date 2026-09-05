@@ -1,7 +1,7 @@
 import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatHumperdinkCardLine, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
-import { TeamsBotClient, channelCardContext, recentNoteThread } from "./bot.js";
+import { TeamsBotClient, channelCardContext, loanCardValues, recentNoteThread } from "./bot.js";
 import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
@@ -151,8 +151,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         /* Recorded on the tracked card so a later loan edit knows which name
            and link this copy was rendered with, and can correct them without
            re-deriving either from the text (#280). */
-        folderName: event.task.folderName,
-        ...(event.task.humperdinkLink ? { humperdinkLink: event.task.humperdinkLink } : {})
+        ...loanCardValues(event.task)
       };
       if (options.withAdvance) {
         /* FRAUD's forward move is note-required (Send Outstanding Items) and
@@ -357,24 +356,34 @@ export class TeamsNotificationProvider implements NotificationProvider {
          Above the enableDmNotifications gate for the same reason the sync is:
          it sends nothing, and turning DMs off is no reason to leave a card
          quoting a loan name nobody uses any more. */
+      const values = loanCardValues(event.task);
       const card = this.buildChannelCard(event.task);
-      await this.botClient.correctChannelCard(event.task.id, {
-        title: card.title,
-        detail: card.detail,
-        folderName: event.task.folderName,
-        ...(event.task.humperdinkLink ? { humperdinkLink: event.task.humperdinkLink } : {})
-      });
+      /* One surface failing must not take the other two down with it. The
+         connector writes are already best-effort inside the bot client, but the
+         card stores these read and write are not, and a task whose channel
+         record can't be read still has DM cards worth correcting. */
+      const surface = async (name: string, work: () => Promise<void>): Promise<void> => {
+        try {
+          await work();
+        } catch (error) {
+          console.error("card_correction_failed", {
+            surface: name,
+            taskId: event.task.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      };
+      await surface("channel", () => this.botClient.correctChannelCard(event.task.id, { title: card.title, ...values }));
       /* The claim-detail card is replayed from a snapshot taken when it was
          sent, so correcting the snapshot BEFORE the sync is what makes the sync
          repaint the new name instead of the old one. Order matters here. */
-      await this.botClient.correctDetailCardSnapshot(event.task.id, {
-        folderName: event.task.folderName,
-        ...(event.task.humperdinkLink ? { humperdinkLink: event.task.humperdinkLink } : {})
-      });
+      await surface("claim-detail", () =>
+        this.botClient.correctDetailCardSnapshot(event.task.id, values, event.previousLoan)
+      );
       // Note cards are rebuilt from the task's live values, so the ordinary
       // sync already corrects those — and it is also what re-renders the
       // detail card from the snapshot just rewritten.
-      await this.syncDmCards(event);
+      await surface("dm-sync", () => this.syncDmCards(event));
       return;
     }
 

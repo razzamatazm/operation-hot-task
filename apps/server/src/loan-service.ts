@@ -104,7 +104,7 @@ export class LoanService {
      Optional throughout. Nothing here waits on it and nothing here fails
      without it: a rename with no corrector wired is exactly today's behaviour,
      which is the right fallback for the migration and the create-time dedupe. */
-  private correctTaskCards?: (taskId: string) => void;
+  private correctTaskCards?: (taskId: string, previousLoan?: { folderName?: string; humperdinkLink?: string }) => void;
 
   constructor(
     private readonly loans: LoanStore,
@@ -112,19 +112,26 @@ export class LoanService {
     private readonly events: SseHub
   ) {}
 
-  setCardCorrector(correct: (taskId: string) => void): void {
+  setCardCorrector(
+    correct: (taskId: string, previousLoan?: { folderName?: string; humperdinkLink?: string }) => void
+  ): void {
     this.correctTaskCards = correct;
   }
 
   /* Fire-and-forget, per task, and never allowed to interrupt the propagation
      loop: the tasks after this one still need their values written, and a card
-     is not worth a half-renamed loan. */
-  private requestCardCorrection(taskId: string): void {
+     is not worth a half-renamed loan.
+
+     `previousLoan` is what the loan said before this edit. A card that recorded
+     the values it was rendered with doesn't need it; one posted before that
+     recording existed has nothing else to go on, and this is the only place
+     that still knows. */
+  private requestCardCorrection(taskId: string, previousLoan?: { folderName?: string; humperdinkLink?: string }): void {
     if (!this.correctTaskCards) {
       return;
     }
     try {
-      this.correctTaskCards(taskId);
+      this.correctTaskCards(taskId, previousLoan);
     } catch (error) {
       console.error("loan_card_correction_failed", {
         taskId,
@@ -344,7 +351,11 @@ export class LoanService {
           this.events.broadcast({ type: "task.changed", payload: next });
           // Folding two loans together renames the absorbed loan's tasks as
           // surely as an edit does, so their posted cards are just as stale.
-          this.requestCardCorrection(next.id);
+          // What they were quoting is the absorbed record, which is still here.
+          this.requestCardCorrection(next.id, {
+            folderName: duplicate.name,
+            ...(duplicate.humperdinkLink ? { humperdinkLink: duplicate.humperdinkLink } : {})
+          });
         }
       }
     }
@@ -374,7 +385,10 @@ export class LoanService {
            Teams still quote the old ones (#280). Only when something actually
            moved — a propagation that changed nothing has no card to correct. */
         if (moved) {
-          this.requestCardCorrection(next.id);
+          this.requestCardCorrection(next.id, {
+            ...(changed?.name ? { folderName: changed.name.from } : {}),
+            ...(changed?.link?.from ? { humperdinkLink: changed.link.from } : {})
+          });
         }
       }
     }

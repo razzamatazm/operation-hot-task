@@ -1533,7 +1533,7 @@ export class TaskService {
      Best-effort per task, like every other background fan-out here: a task
      whose cards can't be written logs and is dropped, leaving the rename
      successful and the remaining tasks on the loan still to be processed. */
-  correctTaskCards(taskId: string): void {
+  correctTaskCards(taskId: string, previousLoan?: { folderName?: string; humperdinkLink?: string }): void {
     this.background(async () => {
       const task = await this.store.findTask(taskId);
       if (!task) {
@@ -1544,7 +1544,10 @@ export class TaskService {
         task,
         actor: { id: "system", displayName: "Hot Task" },
         message: `${task.folderName} cards corrected`,
-        target: "CARD_CORRECTION"
+        target: "CARD_CORRECTION",
+        // What the loan said a moment ago, so a card that never recorded the
+        // values it was rendered with can still be corrected this once.
+        ...(previousLoan ? { previousLoan } : {})
       });
     }, { method: "correctTaskCards", taskId });
   }

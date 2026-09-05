@@ -55,6 +55,23 @@ interface StoredThread {
   };
 }
 
+/* The two loan values a posted card quotes, and the only two a loan edit can
+   change (#280). They travel together through every card write and every
+   correction, so they are one named thing rather than the same pair of
+   parameters spelled out at five signatures. */
+export interface LoanCardValues {
+  folderName: string;
+  humperdinkLink?: string;
+}
+
+/* The values a task's cards should be quoting right now. The link is omitted
+   rather than set to undefined, so a stored snapshot never carries an empty
+   key and "no link" compares equal across a save/read round trip. */
+export const loanCardValues = (task: LoanTask): LoanCardValues => ({
+  folderName: task.folderName,
+  ...(task.humperdinkLink ? { humperdinkLink: task.humperdinkLink } : {})
+});
+
 /* Correct a stored DM card snapshot for a loan whose name or link has been
    edited, or return undefined when there is nothing safe or necessary to do.
 
@@ -68,9 +85,9 @@ interface StoredThread {
    A snapshot with no recorded name predates this and is skipped: there is no
    substring we know belongs to the loan, and a guess corrupts the card. */
 export const correctedDetailSnapshot = (
-  card: { title: string; detail: string; folderName?: string; humperdinkLink?: string },
-  next: { folderName: string; humperdinkLink?: string }
-): { title: string; detail: string; folderName: string; humperdinkLink?: string } | undefined => {
+  card: { title: string; detail: string } & Partial<LoanCardValues>,
+  next: LoanCardValues
+): ({ title: string; detail: string } & LoanCardValues) | undefined => {
   if (!card.folderName) {
     return undefined;
   }
@@ -364,7 +381,21 @@ class ThreadStore {
     }
   }
 
+  /* Reads go through the same queue the writes do. `save` rewrites the whole
+     file, and `writeFile` truncates before it writes, so a read taken while one
+     is in flight sees a torn file, fails to parse, and comes back EMPTY — which
+     every caller here reads as "this task has no card", and silently skips the
+     update. Rare while cards were only ever written one task at a time; routine
+     since a loan edit started correcting every task on a loan at once (#280),
+     where a card would just fail to update for no visible reason.
+
+     The queue's own read must stay off the queue, or `save` would wait on
+     itself. */
   async read(): Promise<StoredThread[]> {
+    return this.enqueue(() => this.readUnqueued());
+  }
+
+  private async readUnqueued(): Promise<StoredThread[]> {
     try {
       const raw = await fs.readFile(this.filePath, "utf8");
       return JSON.parse(raw) as StoredThread[];
@@ -380,7 +411,7 @@ class ThreadStore {
 
   async save(thread: StoredThread): Promise<void> {
     await this.enqueue(async () => {
-      const entries = await this.read();
+      const entries = await this.readUnqueued();
       const idx = entries.findIndex((entry) => entry.taskId === thread.taskId);
       if (idx >= 0) {
         entries[idx] = thread;
@@ -391,9 +422,13 @@ class ThreadStore {
     });
   }
 
-  private async enqueue(operation: () => Promise<void>): Promise<void> {
-    this.chain = this.chain.then(operation, operation);
-    return this.chain;
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(operation, operation);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 }
 
@@ -2145,15 +2180,7 @@ export class TeamsBotClient {
     /* `folderName` / `humperdinkLink` are recorded alongside the rendered text,
        not read out of it: they are what a later loan correction swaps (#280),
        and the title is the only place the name lands. */
-    detail: {
-      taskId: string;
-      title: string;
-      detail: string;
-      openUrl?: string;
-      advance?: AdvanceAction;
-      folderName?: string;
-      humperdinkLink?: string;
-    }
+    detail: { taskId: string; title: string; detail: string; openUrl?: string; advance?: AdvanceAction } & Partial<LoanCardValues>
   ): Promise<void> {
     if (!this.adapter || userIds.length === 0) {
       return;
@@ -2419,15 +2446,20 @@ export class TeamsBotClient {
 
      The recorded `openUrl` is deliberately untouched. It embeds the name the
      card was posted with, and it still opens the correct task — posted
-     addresses keep pointing where they always pointed. */
-  async correctChannelCard(taskId: string, content: { title: string; detail: string; folderName: string; humperdinkLink?: string }): Promise<void> {
+     addresses keep pointing where they always pointed.
+
+     So is the recorded `detail`. The headline is the only part of a channel
+     card that quotes the loan, and rewriting the body as well would quietly
+     turn a rename into a general card resync, repainting How Bad and Urgency
+     from whatever they say today. A correction corrects; it doesn't catch the
+     card up on everything else that has happened to the task. */
+  async correctChannelCard(taskId: string, content: { title: string } & LoanCardValues): Promise<void> {
     const thread = await this.threads.get(taskId);
     if (!thread?.card) {
       return;
     }
     const unchanged =
       thread.card.title === content.title &&
-      thread.card.detail === content.detail &&
       thread.card.folderName === content.folderName &&
       thread.card.humperdinkLink === content.humperdinkLink;
     if (unchanged) {
@@ -2436,7 +2468,6 @@ export class TeamsBotClient {
     const card: NonNullable<StoredThread["card"]> = {
       ...thread.card,
       title: content.title,
-      detail: content.detail,
       folderName: content.folderName
     };
     if (content.humperdinkLink) {
@@ -2456,13 +2487,23 @@ export class TeamsBotClient {
      snapshot — the posted DM cards are re-rendered from it by the card sync
      that follows, which is the path that already knows each viewer's buttons
      and each closed task's banner. Splitting it that way is what keeps a
-     correction from having to re-derive any of that. */
-  async correctDetailCardSnapshot(taskId: string, next: { folderName: string; humperdinkLink?: string }): Promise<void> {
+     correction from having to re-derive any of that.
+
+     `previous` is the fallback for a card sent before the values were recorded
+     alongside it. Those snapshots carry no name to swap, and every claim-detail
+     card in existence when this shipped is one of them — written off, they
+     would keep quoting the old name through the first rename that was supposed
+     to fix it. The values the loan edit moved away from are exactly the missing
+     record, so they stand in for it. Only for a record that has none of its
+     own: a card that recorded "no link" means it, and must not be handed a link
+     from somewhere else. */
+  async correctDetailCardSnapshot(taskId: string, next: LoanCardValues, previous?: Partial<LoanCardValues>): Promise<void> {
     const entry = await this.detailCards.get(taskId);
     if (!entry?.card) {
       return;
     }
-    const corrected = correctedDetailSnapshot(entry.card, next);
+    const recorded = entry.card.folderName ? entry.card : { ...entry.card, ...previous };
+    const corrected = correctedDetailSnapshot(recorded, next);
     if (!corrected) {
       return;
     }

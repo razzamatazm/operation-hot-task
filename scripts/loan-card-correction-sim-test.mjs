@@ -232,14 +232,16 @@ const harness = async () => {
   const service = new TaskService(store, notifier, sse, config, undefined, loans);
   // The loan service reaches the cards through a callback handed to it here, so
   // it keeps knowing nothing about the notification layer.
-  loans.setCardCorrector((taskId) => service.correctTaskCards(taskId));
+  loans.setCardCorrector((taskId, previousLoan) => service.correctTaskCards(taskId, previousLoan));
   bot.setTaskLookup(async (taskId) => service.getTask(taskId));
 
   const settle = async () => {
     await service.settleBackgroundWork();
   };
 
-  return { bot, loans, service, store, loanStore, sent, updated, created, attempted, connector, settle };
+  const detailCardsFile = path.join(dir, "bot-detail-cards.json");
+
+  return { bot, loans, service, store, loanStore, sent, updated, created, attempted, connector, settle, detailCardsFile };
 };
 
 /* The channel card is the one posted through createConversation, so its edits
@@ -414,7 +416,58 @@ await check("a card that cannot be updated fails neither the rename nor the next
   assert.equal(result.loan.name, "Fail-2", "the rename succeeded");
   assert.equal((await h.store.findTask(two.id)).folderName, "Fail-2");
   const channels = h.attempted.filter((entry) => entry.conversationId.startsWith("channel-thread-"));
+  // Two tasks on one loan means two corrections running at once against the
+  // same card store. A read that lands mid-write must not come back empty and
+  // quietly skip a card — this is the assertion that catches that.
   assert.equal(channels.length, 2, "both tasks' cards were still attempted");
+});
+
+await check("a rename corrects the name and nothing else on the card", async () => {
+  const h = await harness();
+  const task = await createLoanTask(h.service, "Only-1");
+  await h.settle();
+  const loanId = (await h.store.findTask(task.id)).loanId;
+
+  // Editing How Bad does not touch the channel card today, by design — the card
+  // records what was announced. A rename must not quietly become the resync
+  // that catches it up on everything else that has happened since.
+  await h.service.updateTaskPoints(task.id, 4, CREATOR);
+  await h.settle();
+  h.updated.length = 0;
+
+  await h.loans.update(loanId, { name: "Only-2" }, { actor: CREATOR });
+  await h.settle();
+
+  const card = cardOf(channelEdits(h.updated).at(-1));
+  assert.equal(headline(card), "Dana Requester needs an LOI checked: Only-2");
+  assert.match(card.body[1].text, /How Bad: 💩💩\n/, "the body it was posted with is left alone");
+});
+
+await check("a card sent before the values were recorded is still corrected", async () => {
+  const h = await harness();
+  const task = await createLoanTask(h.service, "Legacy-1");
+  await h.service.claimTask(task.id, CHECKER);
+  await h.settle();
+  const loanId = (await h.store.findTask(task.id)).loanId;
+
+  // Every claim-detail card in existence when this shipped looks like this:
+  // rendered text, no record of which loan values went into it. Written off,
+  // they would keep quoting the old name through the very rename meant to fix
+  // them, so the values the edit moves AWAY from stand in for the record.
+  const entries = JSON.parse(await fs.readFile(h.detailCardsFile, "utf8"));
+  for (const entry of entries) {
+    delete entry.card.folderName;
+    delete entry.card.humperdinkLink;
+  }
+  await fs.writeFile(h.detailCardsFile, JSON.stringify(entries, null, 2), "utf8");
+  h.updated.length = 0;
+
+  await h.loans.update(loanId, { name: "Legacy-2" }, { actor: CREATOR });
+  await h.settle();
+
+  const detail = editsTitled(h.updated, "You claimed").at(-1);
+  assert.ok(detail, "the claim-detail card was still edited");
+  assert.equal(headline(cardOf(detail)), "You claimed Legacy-2");
 });
 
 await check("folding two loans together corrects the absorbed loan's cards", async () => {
