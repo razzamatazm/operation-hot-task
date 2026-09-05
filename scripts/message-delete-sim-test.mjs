@@ -140,7 +140,9 @@ const renderThread = (task, viewerId, handlers = {}) =>
   );
 
 const handlers = { onEditMessage: async () => {}, onDeleteMessage: async () => {} };
-const triggerCount = (markup) => (markup.match(/msg-menu-trigger/g) ?? []).length;
+/* See the note in message-edit-sim-test: since #297 a row offering a menu is
+   marked by the bubble, not by a `⋯` button. */
+const triggerCount = (markup) => (markup.match(/data-holdable="true"/g) ?? []).length;
 
 /* ── The author, and only the author (rule 1) ────────────────────────────── */
 
