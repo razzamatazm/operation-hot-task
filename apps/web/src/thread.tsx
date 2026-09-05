@@ -46,6 +46,18 @@ import { bylineOf, initialsOf } from "./format";
    inch below it is two gestures wearing one name. */
 const LONG_PRESS_MS = 500;
 
+/* The shortest the box's editor opens at, whatever the read view measured
+   (#318). A one-line brief would otherwise open as a slot the height of its own
+   sentence, which is a box you cannot see a paragraph in while typing one. */
+const MIN_EDITOR_HEIGHT_PX = 72;
+
+/* A field's own vertical padding, in px. `getComputedStyle` resolves whatever
+   the stylesheet said, so nothing here has to know what that was. */
+const paddingHeight = (el: HTMLElement): number => {
+  const style = window.getComputedStyle(el);
+  return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+};
+
 /* ── One menu at a time, across the whole card (#303) ────────────────────── */
 /* Until #303 the thread was the only surface on a card with a hold menu, so
    `ThreadMessages` owning "which row is open" was enough. The Instructions box
@@ -319,8 +331,10 @@ const InstructionsBox = ({
       }`}
       /* The one hook the sim tests count to ask "does this box answer a hold at
          all", there being no trigger element to find. On the panel, because the
-         panel is what answers. */
-      data-holdable={editable ? "true" : undefined}
+         panel is what answers — and off while the editor is open, because the
+         gesture stands down then and a marker that says otherwise is a marker
+         that lies. */
+      data-holdable={editable && !editing ? "true" : undefined}
       {...holdProps}
     >
       <div className="loi-terms-head">
@@ -429,13 +443,23 @@ export const InstructionsEditor = ({
   const openedWith = useRef(instructions).current;
   const { refusal, canSave, cancelAsks } = instructionsEditState(draft, openedWith, taskType);
 
-  /* `autoFocus` alone leaves the caret in front of the words, which reads as
-     the box having moved rather than as an invitation to type. */
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     const field = fieldRef.current;
-    if (field) field.setSelectionRange(field.value.length, field.value.length);
-  }, []);
+    if (!field) return;
+    /* `autoFocus` alone leaves the caret in front of the words, which reads as
+       the box having moved rather than as an invitation to type. */
+    field.setSelectionRange(field.value.length, field.value.length);
+    /* The field is `box-sizing: border-box`, so an opening height taken
+       straight from the read view spends the field's own padding and border on
+       chrome and shows less text than the box did a moment ago — which is the
+       one thing the measurement exists to prevent. Read them off the field
+       rather than restating the stylesheet's numbers here, where they would go
+       stale the first time the padding changed. */
+    if (startHeight === undefined) return;
+    const chrome = field.offsetHeight - field.clientHeight + paddingHeight(field);
+    field.style.height = `${Math.max(startHeight, MIN_EDITOR_HEIGHT_PX) + chrome}px`;
+  }, [startHeight]);
 
   /* Focus lands on the answer that keeps the typing, never on the one that
      bins it — a stray Return on the confirmation must not be the discard. */
@@ -473,9 +497,11 @@ export const InstructionsEditor = ({
         ref={fieldRef}
         className="loi-terms-edit-field"
         rows={6}
-        /* Floored, so a one-line box still opens as something you can type a
-           paragraph into rather than a slot the height of its own sentence. */
-        style={startHeight !== undefined ? { height: `${Math.max(startHeight, 72)}px` } : undefined}
+        style={
+          startHeight !== undefined
+            ? { height: `${Math.max(startHeight, MIN_EDITOR_HEIGHT_PX)}px` }
+            : undefined
+        }
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

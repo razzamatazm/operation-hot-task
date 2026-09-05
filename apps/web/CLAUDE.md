@@ -651,13 +651,17 @@ nested card chrome, in this order:
      make room for `Save` and `Cancel`, which reads as the panel caving in under
      the press. The press itself is visible while it lasts (`.loi-terms-held`),
      because half a second with no menu at the end of it is otherwise half a
-     second of nothing. The gesture is literally shared:
+     second of nothing — which is why `useHoldMenu` reports the press through an
+     optional `onPressChange`, taken by the box and not by the bubbles, which
+     have a menu to arrive instead.
+
+   The gesture is literally shared:
    `useHoldMenu` in [src/thread.tsx](src/thread.tsx) owns the threshold, the
    pointer events that cancel a press, the right-click and the swallowed click,
    and both the box and the bubbles spread its props. Written out twice, "the
    same threshold" is a thing a test has to check; written once it is true.
-   Everything downstream of the menu opening stays with each component and
-   deliberately disagrees. `InstructionsEditor` in
+   Everything downstream of the gesture stays with each component and
+   deliberately disagrees — a bubble opens its menu, the box opens its editor. `InstructionsEditor` in
    [src/thread.tsx](src/thread.tsx) is its own component, never a mode of the
    message editor, because the two disagree about exactly the things a shared
    component would have to branch on:
@@ -683,7 +687,8 @@ nested card chrome, in this order:
    Whether the box answers a hold at all is shared `canAmendTask` and nothing
    else — both parties on an LOI, the creator alone on the other four, nobody on
    a closed task, restored by reopening. No permission logic is written here;
-   somebody the rule refuses gets no menu rather than an error.
+   somebody the rule refuses gets no gesture rather than an error — the panel
+   simply does not answer the hold.
 
    **One menu is open at a time across the whole card.** That is one `useState`
    in `CardMenuScopeProvider`, wrapped around the expanded body in `App.tsx`,

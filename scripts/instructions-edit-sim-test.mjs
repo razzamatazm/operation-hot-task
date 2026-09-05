@@ -303,7 +303,10 @@ test("the whole panel answers the hold, not the sentence inside it", () => {
      prototype was told, in those words. */
   const section = box.slice(box.indexOf("<section"), box.indexOf("loi-terms-head"));
   assert.ok(section.includes("{...holdProps}"), "the gesture is on the section");
-  assert.ok(section.includes('data-holdable={editable ? "true" : undefined}'), "and so is the marker");
+  assert.ok(
+    section.includes('data-holdable={editable && !editing ? "true" : undefined}'),
+    "and so is the marker, which stands down with the gesture rather than lying while the editor is open"
+  );
   const body = box.slice(box.indexOf('className="loi-terms-body"'));
   assert.ok(!body.includes("{...holdProps}"), "the text does not carry it separately");
 });
@@ -318,7 +321,32 @@ test("the panel grows to fit the editor rather than the words shrinking", () => 
     box.indexOf("setStartHeight") < box.indexOf("setEditing(true)"),
     "and measured before the editor replaces it"
   );
-  assert.ok(editorSource().includes("height: `${Math.max(startHeight, 72)}px`"), "the editor opens at it");
+  assert.ok(
+    editorSource().includes("height: `${Math.max(startHeight, MIN_EDITOR_HEIGHT_PX)}px`"),
+    "the editor opens at it, floored"
+  );
+});
+
+test("the editor opens focused, with the caret at the end of the words", () => {
+  /* In front of them it reads as the box having moved rather than as an
+     invitation to type — which is what driving the prototype said, in those
+     words. Source-assertable like the rest of the gesture: there is no DOM. */
+  const editor = editorSource();
+  assert.ok(editor.includes("autoFocus"), "focused on open");
+  assert.ok(
+    editor.includes("field.setSelectionRange(field.value.length, field.value.length)"),
+    "with the caret at the end"
+  );
+});
+
+test("the opening height is corrected for the field's own chrome", () => {
+  /* The field is border-box, so the read view's height handed over untouched
+     spends the field's padding and border on chrome and shows less text than
+     the box did a moment ago. Read off the element, not restated from the
+     stylesheet. */
+  const editor = editorSource();
+  assert.ok(editor.includes("field.offsetHeight - field.clientHeight"), "border and scrollbar");
+  assert.ok(editor.includes("paddingHeight(field)"), "and the padding");
 });
 
 test("the press is visible while it is in flight", () => {
@@ -355,6 +383,17 @@ test("the click a completed hold delivers is swallowed", () => {
 
 test("a hold on the box stands down while its editor is open", () => {
   assert.ok(boxSource().includes("enabled: editable && !editing"), "the box is the editor then, not a thing to hold");
+});
+
+test("the editor's own Escape stops there rather than collapsing the card", () => {
+  /* This travelled with the menu's dismissal test, which #318 deleted along
+     with the menu. The rule did not go with it: every row of a card is an
+     expand toggle, so an Escape that keeps bubbling closes the card out from
+     under an open editor. */
+  const editor = editorSource();
+  const handler = editor.slice(editor.indexOf("onKeyDown"), editor.indexOf("}}", editor.indexOf("onKeyDown")));
+  assert.ok(handler.includes('if (e.key !== "Escape") return;'), "Escape and nothing else");
+  assert.ok(handler.includes("e.stopPropagation();"), "and it stops there");
 });
 
 test("no outside-press or Escape listener sits over the box at all", () => {

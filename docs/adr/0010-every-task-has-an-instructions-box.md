@@ -1,6 +1,7 @@
 # 0010. Every task has an instructions box, edited where it stands
 
-Status: Accepted, not yet implemented. Amends
+Status: Accepted and built — #300, #301, #302, #303, #304, with rule 4 amended
+by #318 (see the rule). Amends
 [ADR-0008](0008-loi-terms-are-a-field-not-a-message.md) rules 2, 4 and 9.
 Extends the gesture built for [ADR-0009](0009-messages-are-editable-by-their-author.md)
 to a field.
