@@ -269,8 +269,9 @@ h1, h2, h3, h4 {
 
 /* New-task form floats over the list as a modal. The backdrop is inert (#114) —
    only the explicit Cancel button or Escape dismisses, so a stray click can't
-   destroy an in-progress draft. Backdrop fades in; panel slides down from the
-   top. */
+   destroy an in-progress draft. Since #283 those two exits ask first once there
+   is something in the form, in `.discard-confirm-overlay` below. Backdrop fades
+   in; panel slides down from the top. */
 .form-overlay {
   position: fixed;
   inset: 0;
@@ -305,13 +306,19 @@ h1, h2, h3, h4 {
   animation: slideDown 0.18s ease-out;
 }
 
-/* "Merge with X?" — the app's only true confirmation dialog (#265, ADR-0008
-   rule 7). Same scrim and panel construction as the form modal above, at
-   z-index 70: it can open OVER the edit form, which is itself a modal at 50,
-   and over a toast at 60, because a question outranks a notice. Centered
-   rather than dropped from the top — it is short, and it is the only thing on
-   screen that matters while it is up. */
-.merge-confirm-overlay {
+/* The app's two confirmation dialogs: "Merge with X?" (#265, ADR-0008 rule 7)
+   and "Discard this task?" (#283). Same scrim and panel construction as the form
+   modal above, at z-index 70: either can open OVER the edit form, which is
+   itself a modal at 50, and over a toast at 60, because a question outranks a
+   notice. Centered rather than dropped from the top — both are short, and while
+   one is up it is the only thing on screen that matters.
+
+   One rule set under two names rather than one shared class, because the two
+   dialogs are separate components asking unrelated questions; what they share is
+   how a confirmation LOOKS, and that is what lives here. A third would join the
+   list rather than fork it. */
+.merge-confirm-overlay,
+.discard-confirm-overlay {
   position: fixed;
   inset: 0;
   background: rgba(20, 18, 14, 0.45);
@@ -322,11 +329,13 @@ h1, h2, h3, h4 {
   z-index: 70;
   animation: fadeIn 0.12s ease-out;
 }
-:root[data-theme="dark"] .merge-confirm-overlay {
+:root[data-theme="dark"] .merge-confirm-overlay,
+:root[data-theme="dark"] .discard-confirm-overlay {
   background: rgba(0, 0, 0, 0.66);
 }
 
-.merge-confirm-panel {
+.merge-confirm-panel,
+.discard-confirm-panel {
   width: 100%;
   max-width: 420px;
   border: 2px solid var(--bad);
@@ -337,14 +346,16 @@ h1, h2, h3, h4 {
   animation: slideDown 0.18s ease-out;
 }
 
-.merge-confirm-title {
+.merge-confirm-title,
+.discard-confirm-title {
   margin: 0 0 8px;
   font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
   font-size: 1rem;
   color: var(--ink);
 }
 
-.merge-confirm-body {
+.merge-confirm-body,
+.discard-confirm-body {
   margin: 0 0 14px;
   font-family: "DM Sans", sans-serif;
   font-size: 0.86rem;
@@ -352,7 +363,8 @@ h1, h2, h3, h4 {
   color: var(--ink);
 }
 
-.merge-confirm-actions {
+.merge-confirm-actions,
+.discard-confirm-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;

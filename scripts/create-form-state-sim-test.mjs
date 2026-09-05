@@ -7,13 +7,23 @@
    Humperdink Link — so the literal moved out into a framework-free module that
    takes initial values and returns the whole form state.
 
-   Both functions here are plain value-in/value-out, so they run under node's TS
-   type stripping (node >= 24) with no build and no React.
+   #283 added a third question to the same module — whether the form differs from
+   the one that was opened, which is what closing it asks before throwing the
+   draft away.
+
+   Everything here is plain value-in/value-out, so it runs under node's TS type
+   stripping (node >= 24) with no build and no React.
    Run: `node --test scripts/create-form-state-sim-test.mjs`. */
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BLANK_CREATE_FORM, applyImportedLoan, initialCreateForm } from "../apps/web/src/create-form-state.ts";
+import {
+  BLANK_CREATE_FORM,
+  applyImportedLoan,
+  editFormValues,
+  formHasChanges,
+  initialCreateForm
+} from "../apps/web/src/create-form-state.ts";
 
 /* ── The prefactor: opening blank must not change ───────── */
 
@@ -191,4 +201,155 @@ test("a re-import tidies only the seam it left, not the filer's own paragraphs",
   const first = applyImportedLoan({ ...initialCreateForm(), notes: typed }, payload, { noteText: TERMS_NOTE });
   const second = applyImportedLoan(first, payload, { noteText: TERMS_NOTE, previousNoteText: TERMS_NOTE });
   assert.equal(second.notes, `${typed}\n\n${TERMS_NOTE}`);
+});
+
+/* ── Is there anything to lose on the way out? (#283) ───────
+
+   Closing the form asks first once someone has done something to it, and the
+   whole of "has someone done something to it" is `formHasChanges`. It is a plain
+   function over two value objects precisely so this can be asked without
+   rendering a form, and so the draft-saving ticket that follows can reuse it.
+
+   The comparison is always against the values the form OPENED with, which is
+   what lets one predicate serve both modes: a blank create form, a seeded one,
+   and an edit form full of the task's own values are all "untouched" until
+   somebody touches them. */
+
+test("a form nobody has touched has nothing to lose, in either mode", () => {
+  const blank = initialCreateForm();
+  assert.equal(formHasChanges(blank, blank), false, "the same object");
+  assert.equal(formHasChanges(initialCreateForm(), initialCreateForm()), false, "and two equal ones");
+
+  /* Edit mode opens full of values nobody typed. Measured against a blank form
+     every edit would prompt, which is why the opening values are the yardstick. */
+  const task = {
+    taskType: "LOI",
+    notes: "Loan Amount: $2,340,000",
+    folderName: "Whitfield 4471",
+    humperdinkLink: "https://h.example/whitfield-4471",
+    urgency: "RED",
+    points: 3,
+    createdBy: { id: "creator-1", displayName: "Dana Requester" }
+  };
+  const opened = editFormValues(task);
+  assert.equal(formHasChanges(opened, editFormValues(task)), false, "an untouched edit form closes at once");
+  assert.equal(formHasChanges(blank, opened), true, "though it is nothing like a blank one");
+});
+
+/* A form opened with values in it (#194 — an imported Humperdink loan, a deep
+   link) is untouched until somebody changes those values, not because they are
+   blank but because they are what was put there. */
+test("values the form was opened with are not changes", () => {
+  const seeded = initialCreateForm({ folderName: "Adams - Harbor", taskType: "FRAUD" });
+  assert.equal(formHasChanges(seeded, initialCreateForm({ folderName: "Adams - Harbor", taskType: "FRAUD" })), false);
+  assert.equal(formHasChanges(seeded, { ...seeded, folderName: "Adams - Harbour" }), true, "editing one is");
+});
+
+/* Deliberately over-eager. Every field counts, one on its own is enough, and
+   nothing is trimmed or normalised first — this answers "did this person do
+   anything here", not `taskEdit`'s much more forgiving "is this worth sending". */
+test("any single field differing from the opening form is enough", () => {
+  const opened = initialCreateForm();
+  const changes = {
+    folderName: "Adams - Harbor",
+    loanId: "loan-9",
+    taskType: "FRAUD",
+    urgency: "RED",
+    startDate: "2026-03-02",
+    returnDate: "2026-03-09",
+    notes: "n",
+    humperdinkLink: "https://h.example/1",
+    points: 1,
+    initialItems: ["Missing appraisal"],
+    pickerMode: "assign",
+    recipientUserId: "user-3",
+    recipientNote: "please take this"
+  };
+  for (const [field, value] of Object.entries(changes)) {
+    assert.equal(formHasChanges(opened, { ...opened, [field]: value }), true, `${field} alone counts`);
+  }
+  assert.equal(Object.keys(changes).length, Object.keys(BLANK_CREATE_FORM).length, "and every field is covered here");
+});
+
+/* The ticket calls this one out by name: a type picked and nothing else typed is
+   still a decision somebody made, and a threshold that ignored the type picker
+   would eventually eat real work. */
+test("changing only the task type is something to lose", () => {
+  const opened = initialCreateForm();
+  assert.equal(formHasChanges(opened, { ...opened, taskType: "OOO" }), true);
+});
+
+/* Whitespace is not normalised away in any field. A space typed into an empty
+   box is a box somebody typed into, and the prompt costs one click while the
+   wrong answer costs the draft. */
+test("even typing a single space counts", () => {
+  const opened = initialCreateForm();
+  assert.equal(formHasChanges(opened, { ...opened, notes: " " }), true);
+  assert.equal(formHasChanges(opened, { ...opened, folderName: " " }), true);
+});
+
+/* Nothing today can hand this two objects with different keys — both come out
+   of the same two builders — but the draft-saving ticket compares against values
+   that have been through storage, where a dropped or added key is reachable. A
+   field surviving on only one side is a change, not an invisible. */
+test("a field present on one side and not the other is a change, not a blind spot", () => {
+  const opened = initialCreateForm();
+  const { notes, ...missingNotes } = opened;
+  assert.equal(formHasChanges(opened, missingNotes), true, "a field that did not survive storage");
+  assert.equal(formHasChanges(missingNotes, opened), true, "and one that appeared out of it");
+});
+
+/* The seeder rebuilds the list on every add, so reference equality would call
+   every form changed and comparing the references as values would call none of
+   them changed. */
+test("the outstanding-items list is compared item by item, not by reference", () => {
+  const opened = initialCreateForm();
+  assert.equal(formHasChanges(opened, { ...opened, initialItems: [] }), false, "a fresh empty array is no change");
+  assert.equal(formHasChanges(opened, { ...opened, initialItems: ["Missing appraisal"] }), true, "an added item is");
+  const seeded = { ...opened, initialItems: ["Missing appraisal", "No W-2"] };
+  assert.equal(formHasChanges(seeded, { ...seeded, initialItems: ["Missing appraisal", "No W-2"] }), false);
+  assert.equal(formHasChanges(seeded, { ...seeded, initialItems: ["Missing appraisal"] }), true, "a removed one too");
+  assert.equal(formHasChanges(seeded, { ...seeded, initialItems: ["No W-2", "Missing appraisal"] }), true, "reordered");
+});
+
+/* The FRAUD seeder's input holds typing that has not been committed to the list
+   yet. It lives outside the values object in the component, so it is passed in
+   — and losing a half-typed item silently is exactly what this ticket is about. */
+test("a half-typed outstanding item counts as something to lose", () => {
+  const opened = initialCreateForm();
+  assert.equal(formHasChanges(opened, opened, "Missing appr"), true);
+  assert.equal(formHasChanges(opened, opened, ""), false, "an empty box is not");
+  assert.equal(formHasChanges(opened, opened, "   "), false, "nor is one holding only spaces");
+  assert.equal(formHasChanges(opened, opened), false, "and it is optional");
+});
+
+/* The form captures its opening values on the first render, so anything that
+   rewrites those values without a person doing something would make an untouched
+   form look touched. There is exactly one such thing: the effect that clears a
+   picked recipient who turns out to be ineligible. It cannot fire at open while
+   no form can open with a recipient already picked — which is a fact about these
+   two builders, and therefore is asserted here rather than assumed there. */
+test("no form opens with a recipient already picked, so nothing clears one at open", () => {
+  assert.equal(initialCreateForm().recipientUserId, "");
+  assert.equal(initialCreateForm({ folderName: "Adams - Harbor" }).recipientUserId, "");
+  assert.equal(
+    editFormValues({
+      taskType: "LOI",
+      notes: "n",
+      folderName: "f",
+      humperdinkLink: "",
+      urgency: "GREEN",
+      points: 0,
+      createdBy: { id: "creator-1", displayName: "Dana Requester" }
+    }).recipientUserId,
+    ""
+  );
+});
+
+test("formHasChanges does not touch either form it is given", () => {
+  const opened = initialCreateForm();
+  const current = { ...opened, notes: "typed" };
+  formHasChanges(opened, current);
+  assert.deepEqual(opened, initialCreateForm());
+  assert.equal(current.notes, "typed");
 });
