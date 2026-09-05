@@ -118,10 +118,20 @@ and goes to `PATCH /api/loans/:loanId`, below.
   `TASK_FOLDER_NAME_AMENDED` / `TASK_POINTS_UPDATED` / `TASK_DATES_AMENDED`).
   The points line named only the new rating until #261 put it on the edit form
   alongside the others.
-- **In the web app**, whoever may edit an active task gets `Edit Task` in the
-  row's hamburger — its creator, plus the assignee on an LOI — and that is the
-  only way in (ADR-0008 rule 4); the old `Edit request` button on the thread
-  head is gone. The menu item is drawn from the same shared predicate the
+- **In the web app there are two doors onto the request field**, and they write
+  through the same route so they cannot produce different results (ADR-0010
+  rule 4, amending ADR-0008 rule 4). The first is `Edit Task` in the row's
+  hamburger, offered to whoever may edit an active task — its creator, plus the
+  assignee on an LOI. The second is the **Instructions box itself**: press and
+  hold it, or right-click it, exactly as on a message, and the menu appears
+  beside it with one entry and the box becomes an editor in place. It behaves
+  as a field rather than as a message once open — Enter makes a new line, an
+  explicit `Save` commits, cancelling a changed draft asks before discarding it,
+  and there is no delete, because instructions cannot be emptied. A Fraud
+  Check's note is still in the thread and has no box, so it has only the first
+  door. The box does not respond to a hold for anyone the shared rule refuses,
+  or on a closed task; reopening restores it. The old `Edit request` button on
+  the thread head is gone. The menu item is drawn from the same shared predicate the
   server's refusal is written from, so no surface offers an edit the server
   would turn away. It opens the same form the task was filed with, preloaded,
   with the task type shown disabled and a reason, and `Save` in place of

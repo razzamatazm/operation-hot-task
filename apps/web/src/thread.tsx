@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   LoanTask,
   MESSAGE_EDITED_MARKER,
   StoredReviewNote,
+  canAmendTask,
   canDeleteMessage,
   canEditMessage,
+  emptyRequestFieldRefusal,
   getNotesFieldLabel,
   isEmptyMessageText,
   noteBodyText,
@@ -24,10 +26,72 @@ import { bylineOf, initialsOf } from "./format";
    `scripts/instructions-box-sim-test.mjs` renders both components and reads the
    markup back.
  *
- * Only the read-only halves moved. The reply composer, the scroll ref and
- * every piece of card state stay in App.tsx; what a viewer may do to a task is
- * not this file's business, and since #260 the only door onto this field is
- * `Edit Task` in the row's hamburger. */
+ * The reply composer, the scroll ref and every piece of card state stay in
+ * App.tsx. What lives here is what a person does to the two surfaces
+ * themselves: a message is held to edit or withdraw (#287, #288, #297), and
+ * since #303 so is the box (ADR-0010 rule 4). Both ask a shared rule whether
+ * they may — this file writes no permission logic of its own — and both take
+ * their writes as injected callbacks, so a renderer that hands over neither
+ * gets the two surfaces read-only. `Edit Task` in the row's hamburger is still
+ * the other door onto the box, deliberately (ADR-0010 rule 4). */
+
+/* How long a press has to last before a menu opens. Long enough not to fire on
+   a tap that was meant to scroll the thread, short enough that nobody wonders
+   whether it worked.
+   One number for touch and mouse alike since #297: the same gesture on both,
+   rather than a hover-revealed trigger on one and a long press on the other.
+   One number for the *bubbles and the box* alike since #303 — the box borrows
+   the gesture, and a box that answers to a different hold than the messages an
+   inch below it is two gestures wearing one name. */
+const LONG_PRESS_MS = 500;
+
+/* ── One menu at a time, across the whole card (#303) ────────────────────── */
+/* Until #303 the thread was the only surface on a card with a hold menu, so
+   `ThreadMessages` owning "which row is open" was enough. The Instructions box
+   now has one too, and it is a *sibling* of the thread rather than a row in it,
+   so the variable has to sit above both of them — otherwise the box's menu and
+   a message's menu can stand open at once, which is the exact bug #297 fixed
+   inside the thread.
+
+   A context rather than props threaded through <App>, for two reasons. The
+   thread already reads this state in a dozen places and would have to grow a
+   controlled/uncontrolled pair of code paths to take it from outside; and this
+   file has to stay renderable on its own by a node script, which the fallback
+   below preserves — a component with no provider over it keeps its own copy and
+   behaves exactly as it did before.
+
+   Ids are namespaced by surface: `msg:<id>` for a bubble, `box` for the
+   Instructions box. Each surface acts only on its own — a press outside the
+   thread must not close a menu the thread does not own, which would otherwise
+   unmount the box's `Edit` button before its own click landed. */
+export const INSTRUCTIONS_MENU_ID = "box";
+export const messageMenuId = (id: string): string => `msg:${id}`;
+const isMessageMenu = (openId: string | null): boolean => openId !== null && openId.startsWith("msg:");
+
+interface CardMenuScope {
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+}
+
+const CardMenuContext = createContext<CardMenuScope | null>(null);
+
+/* Wrapped around one expanded card body. Per card, not per app: two cards open
+   at once are two conversations, and closing one because somebody held
+   something on the other would be surprising. */
+export const CardMenuScopeProvider = ({ children }: { children?: React.ReactNode }) => {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const value = useMemo<CardMenuScope>(() => ({ openId, setOpenId }), [openId]);
+  return <CardMenuContext.Provider value={value}>{children}</CardMenuContext.Provider>;
+};
+
+/* The scope, or a private one when nothing provided it. Both hooks run every
+   render either way, so this is a choice of value and not a conditional hook. */
+const useCardMenuScope = (): CardMenuScope => {
+  const shared = useContext(CardMenuContext);
+  const [localId, setLocalId] = useState<string | null>(null);
+  const fallback = useMemo<CardMenuScope>(() => ({ openId: localId, setOpenId: setLocalId }), [localId]);
+  return shared ?? fallback;
+};
 
 /* Small neutral avatar. Mono treatment: initials in a neutral circle, no
    per-user color. Since the thread dropped its author/timestamp row (#165)
@@ -65,25 +129,335 @@ export const threadHeadLabel = (task: Pick<LoanTask, "taskType" | "notes">): str
  * to line up; a Buddy Chat's concerns are prose and widening the box must not
  * drag the exception along with it.
  *
- * No edit affordance here yet. ADR-0010 rule 4 gives the box a press-and-hold
- * editor, which is #303's work; until then `Edit Task` in the hamburger is the
- * one door onto this field and this section displays. */
+ * Held to edit since #303 (ADR-0010 rule 4), which is the second door onto this
+ * field — `Edit Task` in the hamburger is still the first. `onSave` absent
+ * means this is a read-only rendering and the box behaves exactly as it did
+ * before that ticket, which is how the sim tests and any future read-only
+ * surface get the section unchanged. */
 export const InstructionsSection = ({
-  task
+  task,
+  viewerId,
+  onSave
 }: {
-  task: Pick<LoanTask, "taskType" | "notes">;
+  task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "assignee" | "status">;
+  viewerId?: string;
+  /* The one write this box can make. Optional for the reason `onEditMessage` is
+     optional on the thread: a renderer with nothing to save to gets the box as
+     it was. Rejects on a refusal, having already toasted, so the editor can
+     stay open with the typing still in it. */
+  onSave?: (text: string) => Promise<void>;
 }) => {
   const instructions = standingInstructionsFor(task);
   if (instructions === undefined) return null;
+  return <InstructionsBox task={task} instructions={instructions} viewerId={viewerId} onSave={onSave} />;
+};
+
+/* The box itself, split from the section above only so the "is this field in
+   the thread?" answer can still be an early return — the hooks below cannot sit
+   behind one. */
+const InstructionsBox = ({
+  task,
+  instructions,
+  viewerId,
+  onSave
+}: {
+  task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "assignee" | "status">;
+  instructions: string;
+  /* Explicitly `| undefined` rather than optional: this is an internal split of
+     the section above and always receives both, whatever they hold. */
+  viewerId: string | undefined;
+  onSave: ((text: string) => Promise<void>) | undefined;
+}) => {
+  const scope = useCardMenuScope();
+  const menuOpen = scope.openId === INSTRUCTIONS_MENU_ID;
+  const [editing, setEditing] = useState(false);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /* Set when a hold completes, read by the click that arrives as the press
+     ends — the same guard the bubbles carry, for the same reason. */
+  const heldOpen = useRef(false);
+  const sectionRef = useRef<HTMLElement | null>(null);
+
+  /* Whether this person may correct this box, asked of the shared rule and of
+     nothing else (ADR-0010 rule 5, criterion "no permission logic is written in
+     the web app"). `canAmendTask` is `amendRefusal(task, user, "notes")` with
+     the sentence thrown away, which is both halves of the rule at once: both
+     parties on an LOI, the creator alone on the other four, and nobody at all
+     on a completed, cancelled or archived task. The route asks the same
+     function, so a box that offers no menu is a box the API would refuse
+     anyway — hiding it is the courtesy, the refusal is the enforcement.
+
+     Short-circuited on `onSave` first so a read-only render never reaches a
+     rule it has no viewer to ask. */
+  const editable = onSave !== undefined && viewerId !== undefined && canAmendTask(task, { id: viewerId });
+
+  const cancelPress = (): void => {
+    if (pressTimer.current !== undefined) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = undefined;
+    }
+  };
+
+  /* Press and hold, at the message menu's threshold and on the same pointer
+     events, so one gesture covers touch, mouse and pen alike. */
+  const onPointerDown = (): void => {
+    if (!editable || editing) return;
+    heldOpen.current = false;
+    cancelPress();
+    pressTimer.current = setTimeout(() => {
+      heldOpen.current = true;
+      scope.setOpenId(INSTRUCTIONS_MENU_ID);
+    }, LONG_PRESS_MS);
+  };
+
+  /* Right-click is the same act on a desktop, immediately, and taking it stops
+     the OS menu landing on top of ours. */
+  const onContextMenu = (event: { preventDefault: () => void }): void => {
+    if (!editable || editing) return;
+    event.preventDefault();
+    cancelPress();
+    scope.setOpenId(INSTRUCTIONS_MENU_ID);
+  };
+
+  /* Swallow the click a completed hold delivers on the way up, before anything
+     underneath reads it as "collapse this card". */
+  const onClickCapture = (event: { preventDefault: () => void; stopPropagation: () => void }): void => {
+    if (!heldOpen.current) return;
+    heldOpen.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  /* A press anywhere outside the box closes its menu — capture phase, like the
+     thread's, so the close lands before whatever was pressed acts on it.
+     It closes only the box's own menu: `openId` is shared across the card, and
+     a handler that cleared it unconditionally would take a message menu down
+     from over here for no reason.
+
+     Deliberately not armed while the editor is open. That is the whole of
+     ADR-0010 rule 4's departure from the message editor — an outside press is
+     the commonest stray gesture there is, and a half-rewritten brief does not
+     go anywhere because somebody clicked the card next to it. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: globalThis.PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && sectionRef.current?.contains(target)) return;
+      scope.setOpenId(null);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [menuOpen, scope]);
+
+  /* Escape closes the menu and stops there, so the card's own Escape handlers
+     do not also fire and take the row down with it. On the document rather than
+     on the section, because a hold leaves focus nowhere in particular and a
+     menu that only answers Escape while focused is a menu that mostly doesn't.
+     The editor's own Escape is the textarea's, which has focus by then. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      scope.setOpenId(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [menuOpen, scope]);
+
+  const startEditing = (): void => {
+    scope.setOpenId(null);
+    setEditing(true);
+  };
+
   /* No `aria-label` on the section: the visible mono title already names the
      block, and a label repeating it makes a screen reader say it twice. */
   return (
-    <section className="loi-terms">
+    <section className="loi-terms" ref={sectionRef}>
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
+        {/* Beside the box, in the head's own reserved right-hand slot, the way
+            the message menu sits beside its bubble. One entry and no `Delete`:
+            instructions cannot be emptied (ADR-0010 rule 4), and a control that
+            is always refused is worse than no control. */}
+        {menuOpen && (
+          <div className="msg-menu-panel loi-terms-menu" role="menu">
+            <button type="button" role="menuitem" onClick={startEditing}>
+              Edit
+            </button>
+          </div>
+        )}
       </div>
-      <div className="loi-terms-body">{instructions}</div>
+      {editing && onSave ? (
+        <InstructionsEditor
+          taskType={task.taskType}
+          instructions={instructions}
+          onSave={onSave}
+          onClose={() => setEditing(false)}
+        />
+      ) : (
+        <div
+          className={`loi-terms-body${editable ? " loi-terms-holdable" : ""}${
+            menuOpen ? " loi-terms-held" : ""
+          }`}
+          /* The one hook the sim tests count to ask "does this box answer a
+             hold at all", there being no trigger element to find. */
+          data-holdable={editable ? "true" : undefined}
+          onPointerDown={onPointerDown}
+          onPointerUp={cancelPress}
+          onPointerMove={cancelPress}
+          onPointerCancel={cancelPress}
+          onPointerLeave={cancelPress}
+          onContextMenu={onContextMenu}
+          onClickCapture={onClickCapture}
+        >
+          {instructions}
+        </div>
+      )}
     </section>
+  );
+};
+
+/* The box turned into a field in place (#303, ADR-0010 rule 4).
+
+   Its own component and deliberately not a mode of the message editor. The two
+   share the gesture that opens them and the menu's visual shell, and they
+   disagree about the two things that matter once open: Enter, and what
+   cancelling costs. One component asking which of the two it was would carry
+   both sets of rules and would eventually apply the wrong one.
+
+   **Enter makes a new line.** There is no key handler for it at all — a
+   textarea already does the right thing, and the message editor's
+   `preventDefault` is the special case, not this. A message is a sentence and
+   can be committed by reflex; this box holds a pasted term sheet a dozen lines
+   long, and committing it halfway through a paste is not a shrug.
+
+   **Committing is a button.** Refused while the box is empty, with the same
+   sentence the route throws, so the two doors onto this field cannot disagree
+   about what "empty" means. Refused while nothing has changed, because a save
+   that writes nothing is a button that lies about what it did.
+
+   **Cancelling a changed draft asks.** One press is not enough to lose a
+   rewrite — the requirement the ticket left as a build-time call. The
+   confirmation is the same in-place two-step the thread's `Delete` uses rather
+   than a modal: the box is already wide enough to hold the question, and a
+   dialog over a card for one question costs more than it prevents. An
+   untouched draft still closes on the first press, because a prompt that
+   appears every time is a prompt people stop reading — the same rule the task
+   form's discard guard follows. */
+/* The editor's two decisions, as a function rather than as three expressions
+   inlined in the JSX — the same move `formHasChanges` made for the task form's
+   discard guard, and for the same reason. "One stray keystroke does not bin a
+   half-rewritten brief" is the promise this ticket is about, and a promise
+   buried in a `disabled={...}` can only be asserted by reading the source.
+
+   `changed` is raw and untrimmed: somebody who has only added a blank line has
+   still changed the box, and a guard that decides otherwise throws away a
+   change it could not see the point of.
+
+   `refusal` is the route's own sentence, from shared, so the box and the API
+   cannot disagree about what an emptied field is told. */
+export const instructionsEditState = (
+  draft: string,
+  instructions: string,
+  taskType: LoanTask["taskType"]
+): { changed: boolean; refusal: string | undefined; canSave: boolean; cancelAsks: boolean } => {
+  const changed = draft !== instructions;
+  const refusal = draft.trim().length === 0 ? emptyRequestFieldRefusal(taskType) : undefined;
+  return { changed, refusal, canSave: changed && refusal === undefined, cancelAsks: changed };
+};
+
+export const InstructionsEditor = ({
+  taskType,
+  instructions,
+  onSave,
+  onClose
+}: {
+  taskType: LoanTask["taskType"];
+  instructions: string;
+  onSave: (text: string) => Promise<void>;
+  onClose: () => void;
+}) => {
+  const [draft, setDraft] = useState(instructions);
+  const [saving, setSaving] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const keepRef = useRef<HTMLButtonElement | null>(null);
+  /* Two cards can be expanded at once, so the field's id has to be this box's
+     own rather than a constant two boxes would share with each other. */
+  const fieldId = `instructions-edit-${useId()}`;
+
+  const { refusal, canSave, cancelAsks } = instructionsEditState(draft, instructions, taskType);
+
+  /* Focus lands on the answer that keeps the typing, never on the one that
+     bins it — a stray Return on the confirmation must not be the discard. */
+  useEffect(() => {
+    if (confirmingCancel) keepRef.current?.focus();
+  }, [confirmingCancel]);
+
+  const requestClose = (): void => {
+    if (cancelAsks) setConfirmingCancel(true);
+    else onClose();
+  };
+
+  const save = async (): Promise<void> => {
+    if (!canSave || saving) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+      onClose();
+    } catch {
+      /* The box stays open with the typing still in it. The caller has already
+         said why in a toast, and closing on a refusal would throw away the
+         rewrite along with it. */
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="loi-terms-edit">
+      <label className="sr-only" htmlFor={fieldId}>
+        Edit {getNotesFieldLabel(taskType)}
+      </label>
+      <textarea
+        id={fieldId}
+        className="loi-terms-edit-field"
+        rows={6}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          /* Escape only. Enter is deliberately not here: it is a newline, which
+             is what the textarea does when nobody interferes. */
+          if (e.key !== "Escape") return;
+          e.stopPropagation();
+          if (confirmingCancel) setConfirmingCancel(false);
+          else requestClose();
+        }}
+      />
+      {/* The refusal, said where the person is looking rather than after a round
+         trip. Same sentence as the route's, from shared. */}
+      {refusal !== undefined && <p className="loi-terms-refusal">{refusal}</p>}
+      {confirmingCancel ? (
+        <div className="loi-terms-edit-actions">
+          <span className="loi-terms-discard-question">Discard your changes?</span>
+          <button type="button" className="btn-sm btn-ghost" ref={keepRef} onClick={() => setConfirmingCancel(false)}>
+            Keep editing
+          </button>
+          <button type="button" className="btn-sm btn-danger" onClick={onClose}>
+            Discard
+          </button>
+        </div>
+      ) : (
+        <div className="loi-terms-edit-actions">
+          <button type="button" className="btn-sm" disabled={!canSave || saving} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button type="button" className="btn-sm btn-ghost" disabled={saving} onClick={requestClose}>
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -103,13 +477,6 @@ export const InstructionsSection = ({
  * to load. It invites a reply only when the viewer has a composer — an
  * Observer, or anyone looking at a task with no reply box, has nothing below
  * to start. */
-/* How long a press has to last before the menu opens. Long enough not to fire
-   on a tap that was meant to scroll the thread, short enough that nobody
-   wonders whether it worked.
-   One number for touch and mouse alike since #297: the same gesture on both,
-   rather than a hover-revealed trigger on one and a long press on the other. */
-const LONG_PRESS_MS = 500;
-
 /* One reply row.
  *
  * Which row is open is NOT its own business since #297. A row holding its own
@@ -481,13 +848,30 @@ export const ThreadMessages = ({
      stand open at once: a row that only knows about itself cannot close its
      neighbour. Two ids rather than one union because they are not alternatives
      to each other — opening either closes both, but the closing is done here,
-     in one place, rather than by every row testing itself against a mode. */
-  const [menuId, setMenuId] = useState<string | null>(null);
+     in one place, rather than by every row testing itself against a mode.
+
+     Since #303 the *menu* half of that lives one level higher again, in the
+     card's menu scope, because the Instructions box above the thread now has a
+     menu too and the same argument applies across the pair of them. The
+     open-editor half stays here: the box's editor is deliberately not closed by
+     anything the thread does, and vice versa. */
+  const scope = useCardMenuScope();
+  const menuId = isMessageMenu(scope.openId) ? scope.openId : null;
+  /* Clears the shared slot only when what is in it is a menu of ours. Every
+     "close the menu" in this component means "close mine", never "close
+     whatever the card has open". */
+  const setMenuId = (): void => {
+    if (menuId !== null) scope.setOpenId(null);
+  };
   const [editingId, setEditingId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const closeAll = (): void => {
-    setMenuId(null);
+    /* Only ever clears a menu the thread owns. `openId` is shared with the box
+       above, and a thread that cleared it wholesale would close the box's menu
+       from over here — which would unmount its `Edit` before the click that
+       chose it had landed. */
+    if (menuId !== null) setMenuId();
     setEditingId(null);
   };
 
@@ -531,16 +915,25 @@ export const ThreadMessages = ({
     closeAll();
   };
 
+  /* The menu id is namespaced (`msg:<id>`), the editing id is not: one is
+     shared with the box above and has to say which surface it belongs to, the
+     other never leaves this component. */
   const rowState = (id: string) => ({
-    menuOpen: menuId === id,
+    menuOpen: menuId === messageMenuId(id),
     editing: editingId === id,
     onMenu: (open: boolean) => {
-      setMenuId(open ? id : null);
-      if (open) setEditingId(null);
+      /* Opening a message menu closes the box's, because `openId` holds one
+         answer for the whole card. */
+      if (open) {
+        scope.setOpenId(messageMenuId(id));
+        setEditingId(null);
+      } else {
+        setMenuId();
+      }
     },
     onEditing: (editing: boolean) => {
       setEditingId(editing ? id : null);
-      setMenuId(null);
+      setMenuId();
     }
   });
 

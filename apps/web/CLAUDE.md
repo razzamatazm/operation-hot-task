@@ -624,11 +624,47 @@ nested card chrome, in this order:
    reply count and the bot's quoted reply cards are each asserted across every
    type rather than reasoned about.
 
-   Neither box carries an edit button (#260). The instructions box and the
-   thread head both used to host `Edit request`; ADR-0008 rule 4 made the
-   hamburger's `Edit Task` the one door. ADR-0010 rule 4 reverses that and gives
-   the box a press-and-hold editor of its own — that is #303's work and is not
-   built yet.
+   **Neither box carries an edit button, and the instructions box is held
+   instead** (#260, then #303). Both surfaces used to host `Edit request`;
+   ADR-0008 rule 4 made the hamburger's `Edit Task` the one door, and ADR-0010
+   rule 4 opens a second one — not another button, the same press-and-hold the
+   messages below already answer to. There is deliberately no visible trigger,
+   for the reason #297 took the bubbles' `⋯` away.
+
+   It borrows the gesture and the menu's shell (`.msg-menu-panel`, in the head's
+   reserved right-hand slot) and nothing else. `InstructionsEditor` in
+   [src/thread.tsx](src/thread.tsx) is its own component, never a mode of the
+   message editor, because the two disagree about exactly the things a shared
+   component would have to branch on:
+
+   - **Enter is a newline.** The editor has no Enter handler at all — the box
+     may hold a pasted term sheet, and committing one halfway through a paste
+     is a real loss where committing a sentence is not.
+   - **Cancelling a changed draft asks.** Cancel and Escape both go through one
+     `requestClose`, which swaps the action row for `Discard your changes?` /
+     `Keep editing` once there is anything to lose, focused on the answer that
+     keeps it. An untouched draft still closes on the first press. An outside
+     press does not close the editor at all — the two dismissal listeners are
+     armed on the menu being open, never on the editor. This is the one place
+     the box is deliberately stickier than a message, which discards silently.
+   - **There is no Delete on the menu.** Instructions cannot be emptied, so the
+     control would always be refused. An emptied box is refused in the editor
+     with the route's own sentence, from shared `emptyRequestFieldRefusal`.
+
+   Whether the box answers a hold at all is shared `canAmendTask` and nothing
+   else — both parties on an LOI, the creator alone on the other four, nobody on
+   a closed task, restored by reopening. No permission logic is written here;
+   somebody the rule refuses gets no menu rather than an error.
+
+   **One menu is open at a time across the whole card**, the box's and the
+   messages' counted together. That is one `useState` in
+   `CardMenuScopeProvider`, wrapped around the expanded body in `App.tsx`, read
+   through `useCardMenuScope` by both surfaces. Ids are namespaced (`box`,
+   `msg:<id>`) so each surface's outside-press handler clears only its own —
+   a handler that cleared the slot wholesale would unmount the other's `Edit`
+   before the click that chose it landed. A component with no provider over it
+   keeps a private copy and behaves as it did before, which is what keeps
+   `thread.tsx` renderable on its own by a node script.
 
    **Messages are bubbles** (#297). Each one wraps to its own text rather than
    filling the row — `.msg-bubble`, paper with a hairline for other people's,
