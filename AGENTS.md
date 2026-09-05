@@ -18,6 +18,11 @@ Humperdink userscript).
   references alone. `-- --keep` re-seeds without clearing what's there.
 - `npm run build` — production-style build
 - `npm run lint` — typecheck (`tsc --noEmit`); there is no ESLint
+- `npm run check:import-cycles` — fail if `packages/shared` has a value-level
+  import cycle. Type-only imports are ignored, since they erase at compile
+  time. Runs in CI and inside `test:all`. Point it at another directory
+  (`node scripts/assert-no-import-cycles.mjs apps/web/src`) to audit one; the
+  guard itself only covers `shared`.
 - `npm run test:all` — full sim/smoke suite (individual `test:*` scripts in
   the root `package.json`). The sim tests import compiled `dist`, so this
   rebuilds `shared` and `server` first (`npm run build:sim`). An individual
