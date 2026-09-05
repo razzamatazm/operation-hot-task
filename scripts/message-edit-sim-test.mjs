@@ -505,11 +505,12 @@ test("the originating field is not a message and carries no menu", () => {
 
 test("every message renders as a bubble, and the old hover trigger is gone", () => {
   const markup = renderThread(threadTask([MINE, THEIRS]), CREATOR.id, async () => {});
-  assert.equal(
-    (markup.match(/msg-bubble/g) ?? []).length >= 3,
-    true,
-    "both replies are bubbles, and each holdable one carries its modifier class too"
-  );
+  /* Counted off the class attribute rather than off `msg-bubble` anywhere in
+     the string: the modifier classes start with the same nine characters, so a
+     loose count says three for two bubbles and would go on passing if a row
+     stopped rendering. Two replies, two bubbles, and since #300 the request
+     field is a standing box rather than a third row. */
+  assert.equal((markup.match(/class="msg-bubble/g) ?? []).length, 2, "both replies are bubbles");
   assert.ok(
     !markup.includes("msg-menu-trigger"),
     "no ⋯ button: a control only a hovering pointer can find is half the people who never find it"

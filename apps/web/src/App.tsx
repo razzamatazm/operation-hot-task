@@ -2436,7 +2436,7 @@ const TaskCard = memo(({
      gives the box a press-and-hold editor, which is #303's work; until then the
      hamburger's `Edit Task` is the one door. */
   const fieldIsInThread = standingInstructionsFor(task) === undefined;
-  const termsBlock = fieldIsInThread ? null : (
+  const instructionsBlock = fieldIsInThread ? null : (
     <div className="task-card-terms">
       <InstructionsSection task={task} />
     </div>
@@ -2487,7 +2487,7 @@ const TaskCard = memo(({
       <Timeline task={task} />
       {fraudActionsBlock}
       {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
-      {termsBlock}
+      {instructionsBlock}
       <div className="thread">{notesBlock}</div>
     </div>
   );

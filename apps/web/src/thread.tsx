@@ -100,9 +100,9 @@ export const InstructionsSection = ({
  * The empty state is a real row rather than a blank box: an empty conversation
  * on a brand-new task is the normal case on five of six types now, and an
  * unexplained gap between the box and the composer reads as something failing
- * to load. It invites a
- * reply only when the viewer has a composer — an Observer, or anyone looking at
- * a task with no reply box, has nothing below to start. */
+ * to load. It invites a reply only when the viewer has a composer — an
+ * Observer, or anyone looking at a task with no reply box, has nothing below
+ * to start. */
 /* How long a press has to last before the menu opens. Long enough not to fire
    on a tap that was meant to scroll the thread, short enough that nobody
    wonders whether it worked.
