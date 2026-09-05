@@ -17,12 +17,14 @@
 import type { UserRole } from "@loan-tasks/shared";
 
 /* One person the switcher can become. Structurally the directory entry the
-   pickers already use (`DirectoryUser`), left generic in its role type so this
-   module needs no value-level import from the shared package. */
-export interface SwitchableUser<R = UserRole> {
+   pickers already use (`DirectoryUser` in task-form.tsx) — declared again here
+   rather than imported because that module is a React component file, and
+   pulling it in would cost this one its framework-free, type-strippable
+   property. */
+export interface SwitchableUser {
   id: string;
   displayName: string;
-  roles: R[];
+  roles: UserRole[];
 }
 
 /* Unauthenticated, dev-only. Absent from a deployed server (404), which is
@@ -82,10 +84,10 @@ const isSwitchableUser = (value: unknown): value is SwitchableUser => {
    A current id the roster does NOT contain means that person was deactivated
    (or never existed): fall to the head of the roster rather than keeping an
    identity the server would now refuse. */
-export const chooseDevUser = <R,>(
-  roster: readonly SwitchableUser<R>[],
+export const chooseDevUser = (
+  roster: readonly SwitchableUser[],
   currentId: string
-): SwitchableUser<R> | null => {
+): SwitchableUser | null => {
   if (roster.length === 0) {
     return null;
   }
