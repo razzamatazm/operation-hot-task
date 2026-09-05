@@ -233,6 +233,29 @@
   a stored identity and calls `addReviewNote`; the card refreshes to confirm.
 - Reminders: DM assignee, except `Loan Docs` in `Merge Done` where reminder DM
   goes to creator
+- **Amendments**: a task edited under whoever is holding it DMs them, and only
+  them — plain one-line DMs, never a channel post, because an amendment is
+  two-party business (ADR-0002). Silent while the task is unclaimed, and never
+  sent to the person who made the change. Three edits qualify, all covered in
+  [task-fields.md](task-fields.md):
+  - **Urgency** — their deadline moved.
+  - **An OOO task's dates** — the window they are covering the desk across
+    moved.
+  - **The instructions** — what they are working from moved
+    ([ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 7). The
+    sentence **names the box by its own heading** and quotes none of the new
+    text: `Dana changed the things to look out for on Smith-1042 — check them
+    before you carry on`, and an LOI keeps the short `the terms` it has read
+    since ADR-0008 rule 9. The phrase comes from `instructionsFieldPhrase`
+    (`packages/shared/src/types.ts`), derived from the same heading table the
+    box itself is drawn from, so the message cannot call a box something the
+    box does not call itself. A Fraud Check is the exception on both counts:
+    its ask stays in the thread rather than a box, so its note change is
+    silent.
+
+  A points change is silent on every type. Every amendment also re-renders the
+  task's delivered cards through the silent [DM Card Sync](#dm-card-sync) path,
+  so no card is left quoting a stale value; a no-op save does neither.
 - **Plain lifecycle DMs carry the task link too** (#174). The one-line notices —
   claim, `Merge done`, the completion notice, `Got the green light`, the fraud round
   trip, handoff displacement, OOO auto-completion, the overdue nudge — read as

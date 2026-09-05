@@ -86,8 +86,10 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/tasks/:taskId/notes` — amend the task's request field. Body
     `{ notes }`. Creator only on five types; on an `LOI`, where the field holds
     the loan's terms, either party — creator or current assignee (ADR-0008
-    rule 5). Non-closed statuses only, for everyone. Cannot be emptied. Silent:
-    no DM, no channel post; the existing DM cards are re-rendered in place.
+    rule 5). Non-closed statuses only, for everyone. Cannot be emptied. DMs
+    whoever is holding the task, on every type but a `FRAUD` — never the person
+    who made the change, and silent while unclaimed (ADR-0010 rule 7). No
+    channel post; the existing DM cards are re-rendered in place either way.
   - `POST /api/tasks/:taskId/urgency` — amend the task's urgency. Body
     `{ urgency }`; `dueAt` is re-derived server-side from the new band and the
     last-reminder stamp is cleared. Creator only on every type — ADR-0008 rule 5

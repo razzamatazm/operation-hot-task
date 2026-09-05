@@ -94,16 +94,19 @@ and goes to `PATCH /api/loans/:loanId`, below.
     moved. **A date change does too**, for a related but distinct reason: an OOO
     task's dates are a scheduled action rather than a deadline, but they are the
     window the assignee is covering the desk across, and it just moved.
-  - **A change to an LOI's terms DMs the checker holding it**, unless the
-    checker is the one who made the change — the terms are what they are
-    checking against, so a change to them is the amendment most likely to make
-    their work wrong (ADR-0008 rule 9). While the LOI is unclaimed there is
-    nobody to tell, so it is silent. The DM names the person and the file and
-    says to check the terms; it does not quote them, because the terms are a
-    block and a DM you have to scroll is one people stop reading. Nobody else
-    hears — a checker correcting a transposed digit does not DM the creator.
-  - **A notes change on the other five types is silent**, claimed or not, and
-    so is a points change.
+  - **An instructions change DMs whoever is holding the task**, unless they are
+    the one who made the change — the instructions are what they are working
+    from, so a change to them is the amendment most likely to make their work
+    wrong (ADR-0010 rule 7, widening the LOI-only ADR-0008 rule 9). While the
+    task is unclaimed there is nobody to tell, so it is silent. The DM names the
+    person, the file and **the box by its own heading** — a Value Check says its
+    things to look out for changed, a Loan Docs task its extras and edits. It
+    quotes none of the new text, because a brief is a block and a DM you have to
+    scroll is one people stop reading. Nobody else hears — a checker correcting
+    a transposed digit on an LOI does not DM the creator.
+  - **A Fraud Check's note change is silent**, claimed or not: its ask is the
+    outstanding-items list rather than a box, so there is no box to say has
+    moved. **A points change is silent** on every type.
   Nothing posts to the channel.
 - **The reminder cadence restarts on an urgency change.** Moving `dueAt` from a
   new band clears the task's last-reminder stamp, so a task made newly overdue

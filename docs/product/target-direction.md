@@ -8,9 +8,10 @@ Not yet implemented — do not present as current state. Everything else under
   [implementation-snapshot.md](implementation-snapshot.md).
 - **An Instructions box editable in place** — held or right-clicked, the way a
   message already is. The box itself now exists on every type but a Fraud Check
-  (#300); what is still to come is the editor, the four new headings, a Fraud
-  Check's note becoming optional where it carries at least one outstanding item,
-  and telling the holder about a change on every type rather than the LOI alone.
+  (#300), each box says what belongs in it (#301), and correcting one tells
+  whoever is holding the task (#304). What is still to come is the editor
+  itself, and a Fraud Check's note becoming optional where it carries at least
+  one outstanding item.
   See [ADR-0010](../adr/0010-every-task-has-an-instructions-box.md).
 - **A real inbound task-creation API** for the in-house web app — a `POST` that
   creates a task headlessly, needing a per-user credential on staff machines.
