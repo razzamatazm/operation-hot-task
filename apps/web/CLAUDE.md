@@ -10,6 +10,21 @@ workflow, backend contracts, git workflow, agent conventions — starts at
 colors used as signal (good / warn / hot / bad). Not a SaaS-blue dashboard;
 think bookkeeping pad with sharp typography.
 
+**The dark theme is a different room, on purpose** (2026-09-05, settled on
+`prototype/dark-palette-v2`). It is an indigo ledger — indigo paper, near-white
+ink, a lavender accent — not the warm ledger with the lights off. Five whole
+palettes were driven on the live board before this one won, and warm grounds
+(including a faithful dark version of the light theme) were among the ones that
+lost.
+
+Its one standing rule: **in an indigo frame, nothing else may be warm.** Every
+signal is rotated to the cool side of its own hue — overdue is a rose, urgency
+a coral, "good" is a mint, and the eight person chips all come from the cool
+half of the wheel. A second accent round is what settled this: the generic
+tomato / orange / grass-green accents read as borrowed from another app the
+moment the ground went indigo. A new signal color added to the dark theme gets
+cooled before it lands, and a warm one undoes the scheme.
+
 - Display / headings: **Bricolage Grotesque** (700)
 - Body: **DM Sans** (400 / 500 / 600)
 - Mono / metadata / badges: **JetBrains Mono** (uppercase, tracked, small)
@@ -43,6 +58,10 @@ Never hard-code colors. Use the variables:
 | `--warn` / `--warn-bg`      | Yellow urgency, review thread accent     |
 | `--hot`  / `--hot-bg`       | Orange urgency, Loan Docs type bar       |
 | `--bad`  / `--bad-bg`       | Red urgency, overdue, cancelled, errors  |
+
+The four signal rows name each token's **role**, not its hex. The dark theme
+answers them in cool hues (mint / gold / coral / rose) per the aesthetic
+direction above, so "the red one" means `--bad`, not a red.
 | `--row-alt`, `--row-hover`  | Striping and hover overlays              |
 | `--control-hover`           | Hover tint for a non-filled inline control|
 | `--shadow-sm`, `--shadow-md`| Card resting / hover elevation           |
