@@ -1006,11 +1006,15 @@ test("no catch-all update route was introduced", () => {
    LOAN, in one call, so the correction reaches every task on that loan; only an
    OOO task's description is written on the task itself. */
 test("the loan fields save to the loan record, and OOO's to the task", () => {
-  assert.match(app, /if \(task\.taskType === "OOO"\) \{\s*\n\s*if \(edit\.folderName !== undefined\) await amendApi\.setFolderName/);
+  /* The dispatch itself moved out of App into `save-task-edit.ts` with #281, so
+     it can be run rather than read — see `edit-save-order-sim-test.mjs`. Where
+     each field lands is still the same answer, asserted where it now lives. */
+  const save = readFileSync(join(REPO, "apps/web/src/save-task-edit.ts"), "utf8");
+  assert.match(save, /if \(task\.taskType === "OOO" && edit\.folderName !== undefined\) \{\s*\n\s*await write\.setFolderName/);
   /* The task id travels with it since #266: the server checks that the caller
      is a party to that task and that the task is on that loan, so the id is
      part of the request rather than context for the log. */
-  assert.match(app, /await saveLoanFields\(task\.loanId, task\.id, \{/, "everything else goes to the loan, from a named task");
+  assert.match(save, /await write\.saveLoanFields\(task\.loanId, task\.id, \{/, "everything else goes to the loan, from a named task");
   /* Since #265 the request itself is made one level down, in `patchLoan`, which
      is the shared step that asks before a merge — but it is still the same
      existing loan route, and still one call carrying both fields. */
@@ -1086,14 +1090,23 @@ test("nothing on the edit path can express a due date", () => {
 /* A save is a dispatch across the focused routes, one line per field — the
    thing that must never appear is one request carrying a task-shaped body. */
 test("the save dispatches each field to its own route", () => {
-  const dispatch = /const onSaveEdit = useCallback\([\s\S]*?\n  \}, \[amendApi[^\]]*\]\);/.exec(app);
-  assert.ok(dispatch, "onSaveEdit is still a dispatch over the edit");
+  /* The dispatch is `saveTaskEdit` since #281 — it moved out of App so that
+     what it does NOT write on a declined merge could be run rather than
+     regex'd. What it dispatches is unchanged, and the order it dispatches in is
+     asserted by running it, in `edit-save-order-sim-test.mjs`. */
+  const save = readFileSync(join(REPO, "apps/web/src/save-task-edit.ts"), "utf8");
+  const dispatch = /export const saveTaskEdit = async \([\s\S]*?\n\};/.exec(save);
+  assert.ok(dispatch, "saveTaskEdit is still a dispatch over the edit");
   assert.match(dispatch[0], /edit\.notes !== undefined.*setNotes/);
   assert.match(dispatch[0], /edit\.urgency !== undefined.*setUrgency/);
   assert.match(dispatch[0], /edit\.points !== undefined.*setPoints/);
   assert.match(dispatch[0], /edit\.dates !== undefined.*setDates/);
-  /* And the list is refetched once for the whole save, not once per field. */
-  assert.equal((dispatch[0].match(/refresh\(\)/g) ?? []).length, 1);
+  assert.ok(!/apiRequest|fetch\(/.test(save), "and it dispatches over an injected writer rather than making the calls");
+  /* And the list is refetched once for the whole save, not once per field —
+     which stayed in App, because the refetch is the shell's. */
+  const shell = /const onSaveEdit = useCallback\([\s\S]*?\n  \}, \[amendApi[^\]]*\]\);/.exec(app);
+  assert.ok(shell, "onSaveEdit is still where a save starts");
+  assert.equal((shell[0].match(/refresh\(\)/g) ?? []).length, 1);
 });
 
 /* ADR-0008 rule 4: two paths to one number is worth more than the tidiness of
