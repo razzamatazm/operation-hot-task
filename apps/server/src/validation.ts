@@ -208,6 +208,19 @@ export const reviewNoteSchema = z.object({
   text: z.string().min(1).max(1000)
 });
 
+/* Correcting a message you posted (#287, ADR-0009). Same field and the same
+   ceiling as posting one — an edit that could exceed the length a message may
+   be posted at would be a second, wider door onto the same field.
+
+   `min(1)` catches an empty string here, but it is not where "an edit may not
+   empty a message" lives: a body of `"   "` clears this schema and is refused
+   by the shared `isEmptyMessageText` in the service, which is the one rule the
+   Save button reads too. This schema says the payload has a text field; the
+   service says whether it says anything. */
+export const messageEditSchema = z.object({
+  text: z.string().min(1).max(1000)
+});
+
 /* FRAUD structured checklist (#44) — one focused schema per atomic op. */
 export const checklistItemTextSchema = z.object({
   text: z.string().min(1).max(500)

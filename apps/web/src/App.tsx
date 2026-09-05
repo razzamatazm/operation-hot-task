@@ -1469,6 +1469,7 @@ const TaskCard = memo(({
   onTransition,
   onRelease,
   onAddReviewNote,
+  onEditMessage,
   onAddCompletedNote,
   onUpdatePoints,
   onEditTask,
@@ -1495,6 +1496,10 @@ const TaskCard = memo(({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
+  /* Correct a message you posted (#287, ADR-0009). Addressed by the message's
+     own identifier, not its position: the thread hands back what it was given,
+     and the server is the one that decides whether the author may. */
+  onEditMessage: (taskId: string, messageId: string, text: string) => Promise<void>;
   /* Append a note to an already-COMPLETED task (#45). Server keeps the task
      COMPLETED — no visible reopen. */
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
@@ -1735,6 +1740,15 @@ const TaskCard = memo(({
     setCompletedNote("");
     setCompletedNoteOpen(false);
   };
+
+  /* The thread's edit handler, bound to this task (#287). No
+     `acknowledgeUnread` here, unlike every other write on this card: correcting
+     your own sentence is not reading somebody else's, and the unread signal
+     belongs to a message from the other party. */
+  const editMessage = useCallback(
+    (messageId: string, text: string): Promise<void> => onEditMessage(task.id, messageId, text),
+    [onEditMessage, task.id]
+  );
 
   /* Share: point one person at this task. Candidates exclude the current user
      plus the creator and assignee — they already see the task, so the picker
@@ -2417,7 +2431,7 @@ const TaskCard = memo(({
     <>
       <div className="thread-head">{threadHeadLabel(task)}</div>
       <div className="msgs" ref={reviewListRef}>
-        <ThreadMessages task={task} viewerId={user.id} canReply={canPostNote} />
+        <ThreadMessages task={task} viewerId={user.id} canReply={canPostNote} onEditMessage={editMessage} />
       </div>
       {canPostNote && (
         <div className="composer">
@@ -2655,6 +2669,7 @@ const CardList = ({
   onTransition,
   onRelease,
   onAddReviewNote,
+  onEditMessage,
   onAddCompletedNote,
   onUpdatePoints,
   onEditTask,
@@ -2682,6 +2697,10 @@ const CardList = ({
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
   onAddReviewNote: (taskId: string, text: string) => Promise<void>;
+  /* Correct a message you posted (#287, ADR-0009). Addressed by the message's
+     own identifier, not its position: the thread hands back what it was given,
+     and the server is the one that decides whether the author may. */
+  onEditMessage: (taskId: string, messageId: string, text: string) => Promise<void>;
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   /* Open the edit form on this task (#260). App owns the form and the save, so
@@ -2724,6 +2743,7 @@ const CardList = ({
           onTransition={onTransition}
           onRelease={onRelease}
           onAddReviewNote={onAddReviewNote}
+          onEditMessage={onEditMessage}
           onAddCompletedNote={onAddCompletedNote}
           onUpdatePoints={onUpdatePoints}
           onEditTask={onEditTask}
@@ -3891,6 +3911,34 @@ export const App = () => {
     }
   }, [user, refresh, showToast]);
 
+  /* Correct a message you posted (#287, ADR-0009). One narrow POST on the
+     message's own identifier, then the usual refresh.
+
+     No toast on success, deliberately. Every other write here that people watch
+     for announces itself; a correction is explicitly not news (rule 6), and the
+     row redrawing with the new words and an `(edited)` marker is the whole of
+     the feedback. A refusal still toasts — the author-only rule and the
+     archived gate are enforced server-side, so a client that somehow asked
+     anyway has to be told why it was refused.
+
+     And the refusal is re-thrown after the toast, which is the one place this
+     handler differs from its neighbours. They all fire and forget; this one is
+     awaited by an open text box holding what the person typed, and that box has
+     to know not to close. The toast says why; the draft survives to be fixed. */
+  const onEditMessage = useCallback(async (taskId: string, messageId: string, text: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(
+        `/tasks/${taskId}/messages/${messageId}/text`,
+        { method: "POST", body: JSON.stringify({ text }) },
+        user
+      );
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to edit the message", { variant: "error" });
+      throw err;
+    }
+  }, [user, refresh, showToast]);
+
   /* Add a note to a COMPLETED task (#45). Hits the server-atomic endpoint that
      appends the note while keeping the task COMPLETED — no visible reopen. */
   const onAddCompletedNote = useCallback(async (taskId: string, text: string): Promise<void> => {
@@ -4333,6 +4381,7 @@ export const App = () => {
       onTransition,
       onRelease,
       onAddReviewNote,
+      onEditMessage,
       onAddCompletedNote,
       onUpdatePoints,
       onEditTask,

@@ -2255,6 +2255,135 @@ button.btn-good:hover {
   padding-top: 2px;
 }
 
+/* ── Editing a message you posted (#287, ADR-0009) ───────────────────────── */
+
+/* The row's second cell. It was an unclassed div until the menu needed
+   something to anchor to; the trigger sits at its top-right corner rather than
+   in a third grid column, so a row with no menu keeps exactly the two tracks
+   `.msg` has always had and nothing shifts between rows. */
+.msg-body {
+  position: relative;
+  min-width: 0;
+}
+/* Room for the trigger, reserved only where one can appear. Reserving it on
+   every row would indent everyone else's text against nothing. */
+.msg-mine .msg-body {
+  padding-right: 22px;
+}
+
+/* Rule 3's whole marker: plain, muted, no timestamp, nothing to click. It runs
+   on from the message's last line rather than sitting on its own row — it is a
+   footnote on the sentence, not a second sentence. Body face, because it is a
+   word; mono is reserved for dates, counts and badges, and this is none of
+   them. */
+.msg-edited {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* The menu, hover-revealed on a pointer device and long-pressed into on a
+   touch one (ADR-0009 rule 9). Only ever rendered on the viewer's own
+   messages, so "invisible until you want it" costs nobody a discoverable
+   control they were entitled to. */
+.msg-menu-trigger {
+  position: absolute;
+  top: 0;
+  right: 0;
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  color: var(--muted);
+  /* Hidden, not absent: it stays in the tab order and in the accessibility
+     tree, so the keyboard route to Edit exists without a pointer. `:focus-
+     visible` below brings it back into view when it is tabbed to. */
+  opacity: 0;
+}
+.msg-menu-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+.msg:hover .msg-menu-trigger,
+.msg-menu-trigger:focus-visible,
+.msg-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+/* No hover on a touch screen, so the trigger never appears there and the
+   long-press on the row is the way in. */
+@media (hover: none) {
+  .msg-menu-trigger {
+    display: none;
+  }
+}
+/* In the row's own flow, not floating over it — the one panel in this app that
+   isn't. The thread is a 178px scrolling box, so a panel taken out of flow is
+   clipped by its own container on exactly the message people edit most, the
+   last one; and escaping the box the way the card's menus do means the
+   placement machinery in `App.tsx`, which this file deliberately cannot
+   import. So the row grows by the height of a two-entry menu and the thread
+   scrolls, which it already does. */
+.msg-menu-panel {
+  margin: 4px 0 0 auto;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  min-width: 96px;
+  padding: 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+.msg-menu-panel button {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+/* The message turned into a box in place. Same face and size as the text it
+   replaces, so the row does not jump when it opens. */
+.msg-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.msg-edit-field {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+/* The app's label, shown and not editable (rule 5). It sits beside the box
+   rather than inside it: the author is looking at the row as it will read, and
+   the one thing they cannot change is the one thing not in the field. */
+.msg-edit-label {
+  color: var(--ink-secondary);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  padding-top: 6px;
+  white-space: nowrap;
+}
+.msg-edit textarea {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+.msg-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
 /* Composer — textarea + Send, brand focus ring. */
 .composer {
   display: flex;

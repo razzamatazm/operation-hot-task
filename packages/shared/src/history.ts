@@ -80,6 +80,17 @@ export const currentAssigneeSince = (history: readonly Pick<TaskHistoryEvent, "a
 export const TASK_COMPLETED_ACTION = "TASK_COMPLETED";
 export const TASK_ARCHIVED_ACTION = "TASK_ARCHIVED";
 
+/* The row a message correction writes (#287, ADR-0009 rule 7), carrying the
+   author's words on both sides of the change.
+
+   Named here rather than left a bare string beside `REVIEW_NOTE_ADDED` because
+   this is the row rules 3 and 4 lean on: the thread deliberately shows no
+   previous version and no edit time, which is only defensible while history
+   reliably carries them. A constant is what lets the test that guards that
+   promise, and the delete row that joins it in #288, name the same thing the
+   writer does. */
+export const REVIEW_NOTE_EDITED_ACTION = "REVIEW_NOTE_EDITED";
+
 /* Which statuses get a named closure row, in one place, so the writer and the
    readers below cannot come to disagree about it. `undefined` means "this
    arrival is an ordinary status change" — the caller supplies its own action.
