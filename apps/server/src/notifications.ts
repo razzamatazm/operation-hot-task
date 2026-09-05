@@ -1,7 +1,7 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatHumperdinkCardLine, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
-import { TeamsBotClient, channelCardContext, recentNoteThread } from "./bot.js";
+import { TeamsBotClient, channelCardContext, loanCardValues, recentNoteThread } from "./bot.js";
 import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
@@ -134,7 +134,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
                people scroll is a card people stop reading. An LOI leans on its
                deep link instead; the other five keep the line (#259). */
             ...(event.task.taskType !== "LOI" && event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
-            ...(event.task.humperdinkLink ? [`Humperdink: [link](${event.task.humperdinkLink})`] : [])
+            ...(event.task.humperdinkLink ? [formatHumperdinkCardLine(event.task.humperdinkLink)] : [])
           ];
     // A personal note (share or handoff) leads the body, above the task
     // details, so the "hey, look at this" reads before the metadata.
@@ -147,7 +147,11 @@ export class TeamsNotificationProvider implements NotificationProvider {
         taskId: event.task.id,
         title: options.title,
         detail: lines.join("\n"),
-        ...(openUrl ? { openUrl } : {})
+        ...(openUrl ? { openUrl } : {}),
+        /* Recorded on the tracked card so a later loan edit knows which name
+           and link this copy was rendered with, and can correct them without
+           re-deriving either from the text (#280). */
+        ...loanCardValues(event.task)
       };
       if (options.withAdvance) {
         /* FRAUD's forward move is note-required (Send Outstanding Items) and
@@ -173,6 +177,41 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
     await this.botClient.sendToDms(`${typeLabel} - ${options.fallbackText ?? options.title}`);
+  }
+
+  /* Silently re-render the DM cards already sitting in participants' chats so
+     they match the task's live state. Deliberately above the
+     enableDmNotifications gate: this sends nothing. It only edits cards already
+     in people's chats, and turning DMs off is no reason to strand a live
+     Complete button on a task that's already done.
+
+     The task's own participants, plus anyone the caller names — an unclaim or a
+     fraud release drops the assignee, and it's precisely that ex-assignee whose
+     card is still offering a button they no longer have.
+
+     Two callers: DM_CARD_SYNC, where the task moved, and CARD_CORRECTION, where
+     what the task is called moved (#280). */
+  private async syncDmCards(event: NotificationEvent): Promise<void> {
+    const advance = botPrimaryAdvance(event.task);
+    const recipients = taskCardRecipients(
+      event.task,
+      await this.cardViewers([
+        event.task.createdBy.id,
+        event.task.assignee?.id,
+        ...(event.recipientUserIds ?? [])
+      ])
+    );
+    if (recipients.length === 0) {
+      return;
+    }
+    await this.botClient.syncTaskCards({
+      taskId: event.task.id,
+      folder: event.task.folderName,
+      status: event.task.status,
+      thread: recentNoteThread(event.task),
+      ...(advance ? { advance } : {}),
+      recipients
+    });
   }
 
   async canReachDm(userId: string): Promise<boolean> {
@@ -303,32 +342,48 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (event.target === "DM_CARD_SYNC") {
-      // Deliberately above the enableDmNotifications gate: this sends nothing.
-      // It only edits cards already in people's chats, and turning DMs off is no
-      // reason to strand a live Complete button on a task that's already done.
-      // The task's own participants, plus anyone the caller names — an unclaim
-      // or a fraud release drops the assignee, and it's precisely that
-      // ex-assignee whose card is still offering a button they no longer have.
-      const advance = botPrimaryAdvance(event.task);
-      const recipients = taskCardRecipients(
-        event.task,
-        await this.cardViewers([
-          event.task.createdBy.id,
-          event.task.assignee?.id,
-          ...(event.recipientUserIds ?? [])
-        ])
+      await this.syncDmCards(event);
+      return;
+    }
+
+    if (event.target === "CARD_CORRECTION") {
+      /* A loan edit changed what this task's already-posted cards quote (#280).
+         Every surface here is an in-place edit of a message that already
+         exists: nothing is posted, nothing is deleted, nobody is re-pinged, and
+         a card that can't be updated is logged and skipped by the bot client
+         without taking the others down with it.
+
+         Above the enableDmNotifications gate for the same reason the sync is:
+         it sends nothing, and turning DMs off is no reason to leave a card
+         quoting a loan name nobody uses any more. */
+      const values = loanCardValues(event.task);
+      const card = this.buildChannelCard(event.task);
+      /* One surface failing must not take the other two down with it. The
+         connector writes are already best-effort inside the bot client, but the
+         card stores these read and write are not, and a task whose channel
+         record can't be read still has DM cards worth correcting. */
+      const surface = async (name: string, work: () => Promise<void>): Promise<void> => {
+        try {
+          await work();
+        } catch (error) {
+          console.error("card_correction_failed", {
+            surface: name,
+            taskId: event.task.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      };
+      await surface("channel", () => this.botClient.correctChannelCard(event.task.id, { title: card.title, ...values }));
+      /* The claim-detail card is replayed from a snapshot taken when it was
+         sent, so correcting the snapshot BEFORE the sync is what makes the sync
+         repaint the new name instead of the old one. Order matters here. */
+      await surface("claim-detail", () =>
+        this.botClient.correctDetailCardSnapshot(event.task.id, values, event.previousLoan)
       );
-      if (recipients.length === 0) {
-        return;
-      }
-      await this.botClient.syncTaskCards({
-        taskId: event.task.id,
-        folder: event.task.folderName,
-        status: event.task.status,
-        thread: recentNoteThread(event.task),
-        ...(advance ? { advance } : {}),
-        recipients
-      });
+      // Note cards are rebuilt from the task's live values, so the ordinary
+      // sync already corrects those — and it is also what re-renders the
+      // detail card from the snapshot just rewritten.
+      await surface("dm-sync", () => this.syncDmCards(event));
       return;
     }
 
