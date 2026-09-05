@@ -4,7 +4,11 @@ Status: Accepted, not yet implemented. Supersedes
 [ADR-0006](0006-amend-task-ask.md). Rule 5's closing clause — messages stay
 immutable — is amended by
 [ADR-0009](0009-messages-are-editable-by-their-author.md), which is the future
-work that clause named.
+work that clause named. Rules 2, 4 and 9 are amended by
+[ADR-0010](0010-every-task-has-an-instructions-box.md): every type but a Fraud
+Check gets the box, the box carries an edit door of its own, and a change to it
+tells the holder on every type. Rule 2's mechanism survives there; its reason
+does not.
 
 ## Context
 

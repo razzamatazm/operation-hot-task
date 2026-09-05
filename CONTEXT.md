@@ -103,22 +103,39 @@ _Completion chain_, which only hand-offs advance.
 _Avoid_: "waive"/"N-A" as separate states (one checked state covers both; the
 per-item note carries the reason)
 
+**Instructions**:
+A task's standing ask — what it is for, and what it should say *now* rather than
+what anybody said about it. Free text in its own bordered box above the
+conversation, never echoed into it, required, and correctable in place by
+press-and-hold or right-click as well as through _Amend_. Every type has one bar
+a **Fraud Check**, whose standing ask is its list of outstanding items and whose
+note stays in the thread. The heading is the type's own — `Loan Terms and
+Contacts`, `Concerns`, `Things to Look Out For`, `Extras and Edits`,
+`Coverage Notes` — because four types sharing the word "Notes" named nothing.
+The box freezes when the task closes, unlike the conversation beside it. See
+[ADR-0010](docs/adr/0010-every-task-has-an-instructions-box.md).
+_Avoid_: "the first note", "the originating message" (the split exists precisely
+because it is not one); "notes" for the box (that is the Fraud Check's thread
+heading, and the one place the word still means a conversation)
+
 **Terms**:
-The standing description of the loan an LOI Check is checking — amount, rate,
-fees, broker, borrower. A *fact about the loan* rather than something anybody
-said, which is why it is corrected rather than replied to, and why both _Parties_
-may correct it: the checker is the one reading it closely enough to catch a
-transposed digit. Free text in its own section, above and outside the notes
-thread, and never echoed into it. LOI only — the other five types have no field
-a second person verifies. Labelled `Loan Terms and Contacts` at the point of
-use. See [ADR-0008](docs/adr/0008-loi-terms-are-a-field-not-a-message.md).
-_Avoid_: "the first note", "the terms message" (the split exists precisely
-because it is not one)
+The _Instructions_ of an LOI Check specifically: the standing description of the
+loan being checked — amount, rate, fees, broker, borrower. Worth its own word
+because it is the one instance that is a *fact about the loan* rather than the
+creator's brief, which is why both _Parties_ may correct it where the other four
+types admit only the creator: the checker is the one reading it closely enough
+to catch a transposed digit. Labelled `Loan Terms and Contacts` at the point of
+use, and the one box drawn in a fixed-width face, since a term sheet only lines
+up in one. See [ADR-0008](docs/adr/0008-loi-terms-are-a-field-not-a-message.md).
+_Avoid_: "the terms message" (see _Instructions_)
 
 **Amend**:
-Correcting a task after filing — its _Terms_ or notes, its urgency, its poop
+Correcting a task after filing — its _Instructions_, its urgency, its poop
 points, its folder name and Humperdink link, and an OOO task's dates. Open to
-both _Parties_, with two exceptions, both about timing: **urgency belongs to
+both _Parties_, with three exceptions. One is about standing: **the
+_Instructions_ of every type but an LOI belong to the creator alone**, because
+they are the brief, and the person carrying a brief out does not rewrite it. The
+other two are about timing: **urgency belongs to
 the creator alone**, because it sets the deadline and the assignee is the person
 under it, and so do **an OOO task's dates**, which are the creator's own
 absence to declare. Those dates are a scheduled action rather than a deadline —
@@ -136,11 +153,15 @@ amendment changes what the task says, never what happened or who is doing it. A
 task's type and both its seats are not amendable. Says nothing about the
 conversation: a posted message is its author's to fix or withdraw, under
 different rules and a different control — see _Message edit_. Reached through
-`Edit Task` in the task's menu, and nowhere else. See
+`Edit Task` in the task's menu, which covers every amendable field, and — for
+the _Instructions_ alone — by holding or right-clicking the box itself, since
+the person who spots a wrong figure is already looking at it. See
 [ADR-0008](docs/adr/0008-loi-terms-are-a-field-not-a-message.md), which
-supersedes [ADR-0006](docs/adr/0006-amend-task-ask.md).
-_Avoid_: "editing the notes" for an LOI (that is _Terms_, and it has its own
-rules)
+supersedes [ADR-0006](docs/adr/0006-amend-task-ask.md), and
+[ADR-0010](docs/adr/0010-every-task-has-an-instructions-box.md), which adds the
+second door and the per-type _Instructions_ rule.
+_Avoid_: "editing the notes" (the box is the _Instructions_ on every type but a
+Fraud Check, and on an LOI it is the _Terms_)
 
 **Message edit**:
 Correcting or withdrawing a message you posted. The author's alone — not the
@@ -152,8 +173,10 @@ is where the conversation itself closes. A corrected message carries a plain
 row that keeps the author's name and its place in the thread and counts as a
 message like any other. Neither act notifies anybody, re-raises the message as
 unread, or moves the task in any list — a correction is not activity. Reached
-from a menu on the message itself, which is the one deliberate exception to
-_Amend_'s single door. A message the app prefixed — a send-back's `Needs
+from a menu on the message itself, held or right-clicked — the gesture the
+_Instructions_ box later borrowed, though the box saves on a button where a
+message saves on Enter, and a message may be withdrawn where instructions may
+not. A message the app prefixed — a send-back's `Needs
 fixes:` — keeps its prefix through both: the author owns the words, the app owns
 the label. See
 [ADR-0009](docs/adr/0009-messages-are-editable-by-their-author.md).
