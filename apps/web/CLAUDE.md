@@ -416,23 +416,27 @@ The ladder can also produce an action the task's **state** won't take yet —
 today only FRAUD's `Submit`, held until every checklist item is checked or
 noted. That is not the same thing as having no action: the requester needs to
 see that Submit *is* the next step and why it won't go. The slot renders the
-button `disabled` inside `.task-card-quick-action-slot`, with the blocking
-count stacked beneath it (`.task-card-quick-action-blocked`) and the full
-sentence on the wrapper's `title` and the button's `aria-label`. Clicking
-anywhere in the slot expands the card, where the checklist head repeats the
-sentence and the blocking rows carry `.checklist-item-blocking`.
+button `disabled` inside `.task-card-quick-action-slot`, with the sentence on
+the wrapper's `title` and the button's `aria-label`. Clicking anywhere in the
+slot expands the card, where the blocking rows carry
+`.checklist-item-blocking`.
 
-Both come from `packages/shared` as a pair — `fraudCardActions(...)` returns
-`blockedReason` and `blockedCount` together, and the row carries the count
-through rather than recomputing it, so the slot can never contradict the
-sentence in its own tooltip. The view never decides who may submit or when.
+**Nothing is written under the button, and nothing over the list** (#317, #321).
+The slot used to stack a `N to resolve` count beneath the button and the
+checklist head used to repeat the full sentence above the items. Both were
+introductions to a list that introduces itself, on the one card that already
+carries its ask as a list. The disabled button is the signal; the sentence is a
+hover and an `aria-label` away, which keeps a disabled control's explanation on
+the assistive path where taking it off the screen must not take it off.
+
+`blockedReason` comes from `packages/shared` — `fraudCardActions(...)` — so the
+view never decides who may submit or when. It also returns `blockedCount`
+beside it, which nothing in the web app reads any more.
 The button's placement is the slot's business too: the action cell's
 `grid-column` rules apply to its own children, never through the slot to the
-button (that is what pushed the sub-label into an implicit column and blew the
-116px track). This is
-the one state where an active row runs a hair past two lines; the sub-label is
-a state-specific hint, not a layout reflow, and it appears only on the blocked
-requester's own row.
+button (that is what pushed the slot's second child into an implicit column and
+blew the 116px track). With the sub-label gone a blocked row is exactly two
+lines like every other one, which is what it should have been.
 
 All three are suppressed on mini (closed) rows — see `{!mini && ...}` in
 `TaskCard`. Minis have no quick *action*, but they do have an action
