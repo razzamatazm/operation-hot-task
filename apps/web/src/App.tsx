@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -1248,13 +1248,12 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
 
   const items = task.checklist ?? [];
   const sorted = sortChecklist(items);
-  const open = unresolvedCount(items);
-  /* The submit gate (#184), shown only to the person it gates and only while
-     they hold the ball: every item wants a check, or a note saying why not.
+  /* The submit gate (#184): every item wants a check, or a note saying why not.
      Who-and-when comes from the shared action set rather than being re-derived
      here — one answer to "may this viewer submit yet", the same one the card's
-     button reads. `open` above is the softer count: an item the requester has
-     explained is still open, but it no longer blocks the hand-back. */
+     button reads. The sentence itself is carried by that button and its tooltip
+     alone; the head over the list is the title and nothing else, so a FRAUD
+     card's outstanding items are not introduced by two lines of status. */
   const submitBlocked = fraudCardActions(task, user).find((a) => a.targetStatus === "PENDING_APPROVAL")?.blockedReason;
   /* Which rows to point at, so the requester isn't hunting the list for them. */
   const blockingIds = new Set(submitBlocked ? unresolvedForSubmit(items).map((i) => i.id) : []);
@@ -1293,8 +1292,6 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     <div className="checklist">
       <div className="checklist-head">
         <span className="checklist-title">Outstanding items</span>
-        <span className="checklist-count">{items.length === 0 ? "none yet" : `${open} open / ${items.length}`}</span>
-        {submitBlocked && <span className="checklist-blocked">{submitBlocked}</span>}
       </div>
 
       {sorted.length > 0 && (
@@ -2023,9 +2020,6 @@ const TaskCard = memo(({
      Mirrors the design's accordion: a slim metadata strip up top, then a
      220px / 1fr split — Timeline + actions on the left, the conversation
      thread on the right. */
-  const replyTarget = isCreator
-    ? task.assignee ? firstName(task.assignee.displayName) : "the pool"
-    : firstName(task.createdBy.displayName);
   const canPostNote =
     showActions &&
     !CLOSED_STATUSES.includes(task.status) &&
@@ -2470,7 +2464,7 @@ const TaskCard = memo(({
         <div className="composer">
           <textarea
             rows={1}
-            placeholder={`Reply to ${replyTarget}…`}
+            placeholder="Add a note…"
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSubmitNote(); } }}

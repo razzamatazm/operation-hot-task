@@ -1576,22 +1576,6 @@ button.btn-good:hover {
   letter-spacing: 0.08em;
   color: var(--ink-secondary);
 }
-.checklist-count {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.64rem;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-/* Why Submit won't go yet (#184) — shown to the requester, next to the count it
-   qualifies. Warm rather than alarming: this is an unfinished hand-off, not an
-   error. */
-.checklist-blocked {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.64rem;
-  letter-spacing: 0.04em;
-  color: var(--warn);
-  font-weight: 600;
-}
 .checklist-items {
   list-style: none;
   margin: 0;
