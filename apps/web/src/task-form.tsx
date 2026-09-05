@@ -1068,10 +1068,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
               sentences. Every other type's field is prose and stays in the body
               face. */}
           <label className="span-full">
-            {/* FRAUD's free-text field is now a general discussion seed, so it
-                gets a purpose-built "Notes" label (#69); the shared
-                NOTES_FIELD_LABELS.FRAUD ("Discussion") heads the card thread. */}
-            {form.taskType === "FRAUD" ? "Notes" : getNotesFieldLabel(form.taskType)}
+            {/* The heading comes from the shared per-type table and nothing
+                else (#301). A Fraud Check used to be overridden here, back when
+                the table called it something the form did not want; the table
+                now says "Notes" for that type, and a second copy of the word in
+                this file would just be somewhere for the two to disagree. */}
+            {getNotesFieldLabel(form.taskType)}
             <textarea
               ref={notesRef}
               className={editing ? (form.taskType === "LOI" ? "task-form-terms task-form-terms-mono" : "task-form-terms") : undefined}

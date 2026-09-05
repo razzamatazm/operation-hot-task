@@ -322,13 +322,23 @@ click away in the list directly beneath that header.
   the LOI by #258 ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md))
   and widened to five types by #300
   ([ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 1).
-- Notes label by task type:
+- **Heading by task type** (#301,
+  [ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 2). One
+  table, `NOTES_FIELD_LABELS`, read by the card, the create form, the edit form
+  and the bot, so no two surfaces can name the same field differently. Four
+  types said `Notes` until #301; as the title of a box telling somebody what to
+  do, a word four types share carries nothing.
   - LOI: `Loan Terms and Contacts` — the task's _Terms_
   - Buddy Chat: `Concerns`
-  - Fraud: `Notes` — `NOTES_FIELD_LABELS.FRAUD` heads the card's free-text
-    **discussion thread** (#68), not a separate outstanding-items field;
-    relabeled from `Discussion` to `Notes` for consistency (#81). The
-    create form (#69) uses a purpose-built `Notes` field plus an
-    outstanding-items checklist seeder — see
+  - Value: `Things to Look Out For`
+  - Loan Docs: `Extras and Edits` — the standard set falls out of the merge, so
+    what wants writing down is the delta: wording to type into a document, or an
+    extra document to generate
+  - OOO: `Coverage Notes`
+  - Fraud: `Notes` — the one type whose field is still the thread's first
+    message, so this heads the card's free-text **discussion thread** (#68)
+    rather than a box, and is not a separate outstanding-items field; relabeled
+    from `Discussion` to `Notes` for consistency (#81). The create form (#69)
+    seeds that thread and carries an outstanding-items checklist seeder beside
+    it; since #301 its heading comes from this table like every other type — see
     [fraud-workflow.md](fraud-workflow.md#structured-outstanding-items-checklist-44)
-  - Value / Loan Docs / OOO: `Notes`

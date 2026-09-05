@@ -9,18 +9,32 @@ import type { ChecklistItem } from "./checklist.js";
 export const TASK_TYPES = ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
+/* What heads the task's request field: the Instructions box on five types, the
+   conversation on a Fraud Check (ADR-0010 rules 1 and 2). One table, read by
+   the card, the create form, the edit form and the bot, so no two surfaces can
+   name the same field differently.
+
+   Four types said "Notes" until #301. That was survivable while the word only
+   headed a message list; as the title of the box telling somebody what to do,
+   it is the least informative word available, and four types sharing it meant
+   the heading carried nothing. Each now names what belongs in it — "Extras and
+   Edits" on a Loan Docs task because the standard set falls out of the merge
+   and what wants writing down is the delta: wording to type into a document,
+   or an extra document to generate. */
 export const NOTES_FIELD_LABELS: Readonly<Record<TaskType, string>> = {
   LOI: "Loan Terms and Contacts",
   BUDDY_CHAT: "Concerns",
-  VALUE: "Notes",
+  VALUE: "Things to Look Out For",
   // FRAUD's free-text surface is the shared discussion thread (#68): the
   // structured checklist carries outstanding items, and this label heads the
-  // card's thread. Relabeled from "Discussion" back to "Notes" for
-  // consistency with every other task type (#81). The create form uses its
-  // own purpose-built "Notes" label (#69), not this constant.
+  // card's thread rather than a box. It is the one type still headed "Notes",
+  // and now that it is the only one, the word reads as what it is — a
+  // conversation. Relabeled from "Discussion" back to "Notes" (#81); the create
+  // form's rival hardcoded "Notes" was removed in #301, so this is the single
+  // source for that type too.
   FRAUD: "Notes",
-  LOAN_DOCS: "Notes",
-  OOO: "Notes"
+  LOAN_DOCS: "Extras and Edits",
+  OOO: "Coverage Notes"
 };
 
 export const getNotesFieldLabel = (taskType?: TaskType): string => {

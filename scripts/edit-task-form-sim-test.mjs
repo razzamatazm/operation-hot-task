@@ -41,6 +41,7 @@ import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { TASK_TYPES, getNotesFieldLabel } from "../packages/shared/dist/types.js";
 import { canAmendTask } from "../packages/shared/dist/workflow.js";
 import {
   BLANK_CREATE_FORM,
@@ -596,6 +597,49 @@ test("the reason is a popover on the chip, and always reachable", () => {
   assert.ok(!/display: none/.test(note[1]), "never display:none — that takes it out of the a11y tree too");
   assert.match(css, /\.task-form-type-locked:hover \+ \.task-form-type-note/, "hover reveals it");
   assert.match(css, /\.task-form-type-locked:focus-visible \+ \.task-form-type-note/, "and so does the keyboard");
+});
+
+/* ── The request field's heading (#301) ─────────────────── */
+
+/* #301's table, spelled out because it is the product decision rather than
+   something derivable. The card asserts the same list in
+   `instructions-box-sim-test.mjs`; the point of writing it twice is that the
+   form and the card have to agree, and a single shared constant would let both
+   drift together. */
+const HEADINGS = {
+  LOI: "Loan Terms and Contacts",
+  BUDDY_CHAT: "Concerns",
+  VALUE: "Things to Look Out For",
+  LOAN_DOCS: "Extras and Edits",
+  OOO: "Coverage Notes",
+  FRAUD: "Notes"
+};
+
+/* The heading is the label wrapping the textarea, so this looks for it there
+   rather than anywhere in the page — "Notes" alone would match half the form. */
+const notesHeading = (html) => html.match(/<label class="span-full">([^<]*)<textarea/)?.[1];
+
+test("the create form heads the request field with what belongs in it, on every type", () => {
+  for (const taskType of TASK_TYPES) {
+    assert.equal(notesHeading(render({ initialValues: { taskType } })), HEADINGS[taskType], taskType);
+  }
+});
+
+test("the edit form heads it identically — no surface disagrees", () => {
+  for (const taskType of TASK_TYPES) {
+    assert.equal(notesHeading(editing(loiTask({ taskType, notes: "what I asked for" }))), HEADINGS[taskType], taskType);
+  }
+});
+
+test("both forms read the shared table rather than a heading of their own", () => {
+  for (const taskType of TASK_TYPES) {
+    assert.equal(HEADINGS[taskType], getNotesFieldLabel(taskType), `${taskType} is the table's own wording`);
+  }
+  const source = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+  assert.ok(
+    !/taskType === "FRAUD" \? "Notes"/.test(source),
+    "the create form no longer hardcodes a heading for a Fraud Check"
+  );
 });
 
 /* Hover alone is no affordance on a touch screen, and the chip sits where a

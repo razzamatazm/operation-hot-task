@@ -152,7 +152,9 @@ Rules:
   FRAUD card's free-text surface is the shared discussion thread (headed by
   `NOTES_FIELD_LABELS.FRAUD` = "Notes") plus the per-item notes — there
   is **no separate submission-notes field**. The create form's `Notes` (#69)
-  seeds that thread.
+  seeds that thread, and since #301 takes its heading from that same table
+  rather than hardcoding the word — a Fraud Check is the one type whose field
+  stays in the conversation, so it is also the one type still headed `Notes`.
 
 ## Note-Required Hand-Back
 

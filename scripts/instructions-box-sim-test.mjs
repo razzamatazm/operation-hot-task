@@ -57,7 +57,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { getNotesFieldLabel, TASK_TYPES } from "../packages/shared/dist/types.js";
 import { hasUnreadNoteForViewer, standingInstructionsFor, unreadNoteFor } from "../packages/shared/dist/notes.js";
-import { recentNoteThread } from "../apps/server/dist/bot.js";
+import { parseReviewAction, recentNoteThread, reviewActionsForDraft } from "../apps/server/dist/bot.js";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 
@@ -149,6 +149,66 @@ test("an LOI's box is exactly the one ADR-0008 built", () => {
   assert.ok(markup.includes("Loan Terms and Contacts"), "same heading");
   assert.match(markup, /^<section class="loi-terms">/, "same bordered section, same class");
   assert.ok(markup.includes(INSTRUCTIONS), "same free text, unparsed");
+});
+
+/* ── Each box is headed by what belongs in it (#301) ──────── */
+
+/* The headings, written out by hand and by name, because they are the product
+   decision and not a derivation: #301's table, which ADR-0010 rule 2 records.
+   Spelled literally here so a change to the wording has to be a change to this
+   list, and keyed off `TASK_TYPES` so a seventh type is a failure. */
+const HEADINGS = {
+  LOI: "Loan Terms and Contacts",
+  BUDDY_CHAT: "Concerns",
+  VALUE: "Things to Look Out For",
+  LOAN_DOCS: "Extras and Edits",
+  OOO: "Coverage Notes",
+  FRAUD: "Notes"
+};
+
+test("the per-type table says what belongs in each box", () => {
+  assert.deepEqual(
+    Object.fromEntries(TASK_TYPES.map((taskType) => [taskType, getNotesFieldLabel(taskType)])),
+    HEADINGS
+  );
+});
+
+test("each box is headed by its own wording, and no two boxes read alike", () => {
+  for (const taskType of BOX_TYPES) {
+    assert.ok(
+      section(task({ taskType })).includes(`<span class="loi-terms-title">${HEADINGS[taskType]}</span>`),
+      `${taskType}'s box is headed ${HEADINGS[taskType]}`
+    );
+  }
+  const headings = BOX_TYPES.map((taskType) => HEADINGS[taskType]);
+  assert.equal(new Set(headings).size, headings.length, "five boxes, five different headings");
+});
+
+test("a Fraud Check reads Notes, and reads it from the same table", () => {
+  /* The one type whose field stays in the conversation keeps the word it had.
+     It is a thread heading, not a box heading — so the assertion is on the
+     thread, and its source is the table every other surface reads. */
+  assert.equal(getNotesFieldLabel("FRAUD"), "Notes");
+  assert.equal(threadHeadLabel(task({ taskType: "FRAUD" })), "Notes");
+});
+
+test("the bot's review menu names the field the same way its own summary does", () => {
+  /* The quick-add review message prints `Coverage Notes: ...` and offers a
+     button under it. That button said `Edit Notes` whatever the type, so one
+     message named one field two ways. Both come off the table now, and the
+     press still resolves to the action the handler switches on. */
+  for (const taskType of TASK_TYPES) {
+    const offered = reviewActionsForDraft({ taskType });
+    const entry = `Edit ${HEADINGS[taskType]}`;
+    assert.ok(offered.includes(entry), `${taskType} is offered ${entry}`);
+    assert.equal(parseReviewAction(entry, taskType), "Edit Notes", `${taskType}'s press reaches the notes step`);
+  }
+  /* A draft mid-flight when this shipped was offered the old wording, and
+     somebody may type it rather than press anything. */
+  assert.equal(parseReviewAction("Edit Notes", "OOO"), "Edit Notes");
+  /* And a draft with no type yet falls back to the bare word, as the prompt
+     above it already does. */
+  assert.ok(reviewActionsForDraft({}).includes("Edit Notes"));
 });
 
 test("the section is drawn from the field the task already carries", () => {
