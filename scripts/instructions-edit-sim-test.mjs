@@ -283,22 +283,32 @@ test("the box's menu borrows the message menu's shell", () => {
 
 /* ── The gesture, as far as source can carry it ───────────────────────────── */
 
-test("the box holds at the message menu's threshold, from one constant", () => {
-  assert.equal((THREAD_SRC.match(/^const LONG_PRESS_MS = /gm) ?? []).length, 1, "one declaration in the file");
-  assert.equal((THREAD_SRC.match(/}, LONG_PRESS_MS\);/g) ?? []).length, 2, "both surfaces time their hold by it");
+test("the box and the bubbles hold through one gesture, not two alike", () => {
+  /* The threshold, the pointer events that cancel a press, the right-click and
+     the swallowed click are one implementation. Written out twice — as they
+     were first drafted — "the same threshold" is a thing a test has to check;
+     written once it is a thing that is true. */
+  assert.equal((THREAD_SRC.match(/^const LONG_PRESS_MS = /gm) ?? []).length, 1, "one threshold in the file");
+  assert.equal((THREAD_SRC.match(/}, LONG_PRESS_MS\);/g) ?? []).length, 1, "used in one place");
+  assert.equal((THREAD_SRC.match(/useHoldMenu\(\{/g) ?? []).length, 2, "and both surfaces call it");
+  assert.ok(boxSource().includes("{...holdProps}"), "the box wears the gesture");
+  assert.ok(THREAD_SRC.slice(THREAD_SRC.indexOf("const MessageRow")).includes("{...holdProps}"), "so does a bubble");
 });
 
-test("right-click opens the box's menu immediately and suppresses the OS menu", () => {
-  const box = boxSource();
-  assert.match(box, /onContextMenu = \(event[\s\S]*?event\.preventDefault\(\);[\s\S]*?scope\.setOpenId\(INSTRUCTIONS_MENU_ID\);/);
-  assert.ok(box.includes("onContextMenu={onContextMenu}"), "wired to the box");
+test("right-click opens a menu immediately and suppresses the OS menu", () => {
+  const hook = sourceBetween("const useHoldMenu", "/* Small neutral avatar");
+  assert.match(hook, /onContextMenu: \(event[\s\S]*?event\.preventDefault\(\);[\s\S]*?onOpen\(\);/);
+  assert.ok(boxSource().includes("onOpen: () => scope.setOpenId(INSTRUCTIONS_MENU_ID)"), "the box's menu is what opens");
 });
 
 test("the click a completed hold delivers is swallowed", () => {
-  const box = boxSource();
-  assert.match(box, /heldOpen\.current = true;/, "a completed hold is remembered");
-  assert.match(box, /onClickCapture = \(event[\s\S]*?event\.preventDefault\(\);\s*event\.stopPropagation\(\);/);
-  assert.ok(box.includes("onClickCapture={onClickCapture}"), "wired to the box");
+  const hook = sourceBetween("const useHoldMenu", "/* Small neutral avatar");
+  assert.match(hook, /heldOpen\.current = true;/, "a completed hold is remembered");
+  assert.match(hook, /onClickCapture: \(event[\s\S]*?event\.preventDefault\(\);\s*event\.stopPropagation\(\);/);
+});
+
+test("a hold on the box stands down while its editor is open", () => {
+  assert.ok(boxSource().includes("enabled: editable && !editing"), "the box is the editor then, not a thing to hold");
 });
 
 test("a press outside or Escape closes the menu, and neither touches an open editor", () => {
@@ -390,6 +400,20 @@ test("cancelling a changed draft asks, and an untouched one does not", () => {
   /* Escape at the confirmation declines rather than confirming — the key that
      raised the question must not also answer it. */
   assert.ok(editor.includes("if (confirmingCancel) setConfirmingCancel(false);"), "Escape declines");
+});
+
+test("the draft is measured against the box as it opened, not as it now is", () => {
+  /* `instructions` is a live prop — the card refetches after any save, and on
+     an LOI the other party can correct the box mid-rewrite. Measured against
+     the moving value, a remote edit matching the draft would make `changed`
+     false and let the next Escape bin the typing without asking. */
+  const editor = editorSource();
+  assert.ok(editor.includes("const openedWith = useRef(instructions).current;"), "pinned at open");
+  assert.ok(
+    editor.includes("instructionsEditState(draft, openedWith, taskType)"),
+    "and it is the pinned value the guard reads"
+  );
+  assert.ok(!editor.includes("instructionsEditState(draft, instructions"), "never the live prop");
 });
 
 test("save is refused while nothing has changed or the box is empty", () => {

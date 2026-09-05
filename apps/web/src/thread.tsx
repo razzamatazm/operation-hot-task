@@ -93,6 +93,73 @@ const useCardMenuScope = (): CardMenuScope => {
   return shared ?? fallback;
 };
 
+/* ── The gesture, once ───────────────────────────────────────────────────── */
+/* Press and hold to open a menu, ADR-0009 rule 9's gesture, now worn by two
+   surfaces: a message bubble (#287, #288, #297) and the Instructions box
+   (#303). ADR-0010 rule 4 says the box borrows the gesture and not the
+   behaviour, so the gesture is the part that is shared and the only part —
+   what the menu then offers, and what happens once an editor is open, stay
+   with each component and deliberately disagree.
+
+   Written out twice before this, which made "the same threshold" a thing a
+   test had to check rather than a thing that was true. Now the threshold, the
+   pointer events that cancel a press, the right-click and the swallowed click
+   are one implementation with one caller-supplied `onOpen`.
+
+   Pointer events rather than touch events, so one handler covers a pen too,
+   and `pointerType` is not consulted: a slow click is a hold, on any machine.
+
+   Returns the props to spread onto whatever element is held. Handler
+   parameters are structurally typed rather than `React.MouseEvent`, so a node
+   test can call them with a plain object. */
+const useHoldMenu = ({ enabled, onOpen }: { enabled: boolean; onOpen: () => void }) => {
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /* Set when a hold completes, read by the click that arrives as the press
+     ends. Without it the press that opened the menu is also a click, and on a
+     card whose every row is an expand toggle that click has somewhere to
+     land. */
+  const heldOpen = useRef(false);
+
+  const cancelPress = (): void => {
+    if (pressTimer.current !== undefined) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = undefined;
+    }
+  };
+
+  return {
+    onPointerDown: (): void => {
+      if (!enabled) return;
+      heldOpen.current = false;
+      cancelPress();
+      pressTimer.current = setTimeout(() => {
+        heldOpen.current = true;
+        onOpen();
+      }, LONG_PRESS_MS);
+    },
+    onPointerUp: cancelPress,
+    onPointerMove: cancelPress,
+    onPointerCancel: cancelPress,
+    onPointerLeave: cancelPress,
+    /* Right-click is the same act on a desktop, and it is what somebody reaches
+       for first. Taking it also stops the OS menu landing on top of ours. */
+    onContextMenu: (event: { preventDefault: () => void }): void => {
+      if (!enabled) return;
+      event.preventDefault();
+      cancelPress();
+      onOpen();
+    },
+    /* Swallow the click a completed hold delivers on the way up, before
+       whatever is underneath reads it as "collapse this card". */
+    onClickCapture: (event: { preventDefault: () => void; stopPropagation: () => void }): void => {
+      if (!heldOpen.current) return;
+      heldOpen.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+};
+
 /* Small neutral avatar. Mono treatment: initials in a neutral circle, no
    per-user color. Since the thread dropped its author/timestamp row (#165)
    these initials are the only visible identity on a note — hence the size, and
@@ -171,10 +238,6 @@ const InstructionsBox = ({
   const scope = useCardMenuScope();
   const menuOpen = scope.openId === INSTRUCTIONS_MENU_ID;
   const [editing, setEditing] = useState(false);
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /* Set when a hold completes, read by the click that arrives as the press
-     ends — the same guard the bubbles carry, for the same reason. */
-  const heldOpen = useRef(false);
   const sectionRef = useRef<HTMLElement | null>(null);
 
   /* Whether this person may correct this box, asked of the shared rule and of
@@ -190,42 +253,14 @@ const InstructionsBox = ({
      rule it has no viewer to ask. */
   const editable = onSave !== undefined && viewerId !== undefined && canAmendTask(task, { id: viewerId });
 
-  const cancelPress = (): void => {
-    if (pressTimer.current !== undefined) {
-      clearTimeout(pressTimer.current);
-      pressTimer.current = undefined;
-    }
-  };
-
-  /* Press and hold, at the message menu's threshold and on the same pointer
-     events, so one gesture covers touch, mouse and pen alike. */
-  const onPointerDown = (): void => {
-    if (!editable || editing) return;
-    heldOpen.current = false;
-    cancelPress();
-    pressTimer.current = setTimeout(() => {
-      heldOpen.current = true;
-      scope.setOpenId(INSTRUCTIONS_MENU_ID);
-    }, LONG_PRESS_MS);
-  };
-
-  /* Right-click is the same act on a desktop, immediately, and taking it stops
-     the OS menu landing on top of ours. */
-  const onContextMenu = (event: { preventDefault: () => void }): void => {
-    if (!editable || editing) return;
-    event.preventDefault();
-    cancelPress();
-    scope.setOpenId(INSTRUCTIONS_MENU_ID);
-  };
-
-  /* Swallow the click a completed hold delivers on the way up, before anything
-     underneath reads it as "collapse this card". */
-  const onClickCapture = (event: { preventDefault: () => void; stopPropagation: () => void }): void => {
-    if (!heldOpen.current) return;
-    heldOpen.current = false;
-    event.preventDefault();
-    event.stopPropagation();
-  };
+  /* The gesture, from the one implementation the bubbles below also use — same
+     threshold, same pointer events, same right-click, same swallowed click.
+     Stood down while the editor is open: the box is the editor then, and a hold
+     on a textarea is a text selection. */
+  const holdProps = useHoldMenu({
+    enabled: editable && !editing,
+    onOpen: () => scope.setOpenId(INSTRUCTIONS_MENU_ID)
+  });
 
   /* A press anywhere outside the box closes its menu — capture phase, like the
      thread's, so the close lands before whatever was pressed acts on it.
@@ -302,13 +337,7 @@ const InstructionsBox = ({
           /* The one hook the sim tests count to ask "does this box answer a
              hold at all", there being no trigger element to find. */
           data-holdable={editable ? "true" : undefined}
-          onPointerDown={onPointerDown}
-          onPointerUp={cancelPress}
-          onPointerMove={cancelPress}
-          onPointerCancel={cancelPress}
-          onPointerLeave={cancelPress}
-          onContextMenu={onContextMenu}
-          onClickCapture={onClickCapture}
+          {...holdProps}
         >
           {instructions}
         </div>
@@ -385,7 +414,17 @@ export const InstructionsEditor = ({
      own rather than a constant two boxes would share with each other. */
   const fieldId = `instructions-edit-${useId()}`;
 
-  const { refusal, canSave, cancelAsks } = instructionsEditState(draft, instructions, taskType);
+  /* The words the box held when this editor opened, pinned. `instructions` is a
+     live prop: the card refetches after any save on the task, and on an LOI the
+     other party can correct the box while somebody is part-way through their
+     own rewrite. Measured against the moving value, a remote edit that happened
+     to match the draft would flip `changed` to false and let the next Escape
+     bin the typing with no prompt — the one loss this editor exists to prevent
+     — and the commoner direction would start asking "Discard your changes?"
+     over a box nobody had touched. Same reasoning as the task form's
+     `openedWith` ref, and the same fix. */
+  const openedWith = useRef(instructions).current;
+  const { refusal, canSave, cancelAsks } = instructionsEditState(draft, openedWith, taskType);
 
   /* Focus lands on the answer that keeps the typing, never on the one that
      bins it — a stray Return on the confirmation must not be the discard. */
@@ -523,12 +562,6 @@ const MessageRow = ({
      editing; this decides what is in the box while it is. */
   const [draft, setDraft] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /* Set when a hold completes, read by the click that arrives as the press
-     ends. Without it the press that opened the menu is also a click on the
-     bubble, and on a card whose every row is an expand toggle that click has
-     somewhere to land. */
-  const heldOpen = useRef(false);
   const editRef = useRef<HTMLDivElement | null>(null);
 
   const closeMenu = (): void => {
@@ -591,48 +624,15 @@ const MessageRow = ({
     onDelete !== undefined && note.id !== undefined && canDeleteMessage(task, note, { id: viewerId });
   const hasMenu = editable || deletable;
 
-  const cancelPress = (): void => {
-    if (pressTimer.current !== undefined) {
-      clearTimeout(pressTimer.current);
-      pressTimer.current = undefined;
-    }
-  };
-
   /* Press and hold, ADR-0009 rule 9's gesture — now the only way in on every
      kind of machine (#297). It used to be the touch half of a pair, with a
      hover-revealed `⋯` for pointers; a control that only exists under a cursor
      is one half the people using the app never find, and holding a message is
      what everybody already does in every other chat they use.
-     Pointer events rather than touch events, so one handler covers a pen too,
-     and `pointerType` is no longer consulted: a slow click on your own message
-     is a hold, and there is nothing else a click on a bubble could have meant. */
-  const onPointerDown = (): void => {
-    if (!hasMenu) return;
-    heldOpen.current = false;
-    cancelPress();
-    pressTimer.current = setTimeout(() => {
-      heldOpen.current = true;
-      onMenu(true);
-    }, LONG_PRESS_MS);
-  };
-
-  /* Right-click is the same act on a desktop, and it is what somebody reaches
-     for first. Taking it also stops the OS menu landing on top of ours. */
-  const onContextMenu = (event: { preventDefault: () => void }): void => {
-    if (!hasMenu) return;
-    event.preventDefault();
-    cancelPress();
-    onMenu(true);
-  };
-
-  /* Swallow the click a completed hold delivers on the way up, before the row
-     underneath reads it as "collapse this card". */
-  const onClickCapture = (event: { preventDefault: () => void; stopPropagation: () => void }): void => {
-    if (!heldOpen.current) return;
-    heldOpen.current = false;
-    event.preventDefault();
-    event.stopPropagation();
-  };
+     Since #303 the mechanics are `useHoldMenu`, shared with the Instructions
+     box above, which is what makes "the same threshold" true rather than
+     merely tested. */
+  const holdProps = useHoldMenu({ enabled: hasMenu, onOpen: () => onMenu(true) });
 
   const startEditing = (): void => {
     setConfirmingDelete(false);
@@ -751,13 +751,7 @@ const MessageRow = ({
               /* The one hook the sim tests count to ask "does this row offer a
                  menu at all", now that there is no trigger element to find. */
               data-holdable={hasMenu ? "true" : undefined}
-              onPointerDown={onPointerDown}
-              onPointerUp={cancelPress}
-              onPointerMove={cancelPress}
-              onPointerCancel={cancelPress}
-              onPointerLeave={cancelPress}
-              onContextMenu={onContextMenu}
-              onClickCapture={onClickCapture}
+              {...holdProps}
             >
               {noteBodyText(note)}
               {/* Rule 3, and the whole of what the thread says about an edit: no

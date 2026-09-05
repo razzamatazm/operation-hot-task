@@ -632,7 +632,13 @@ nested card chrome, in this order:
    for the reason #297 took the bubbles' `⋯` away.
 
    It borrows the gesture and the menu's shell (`.msg-menu-panel`, in the head's
-   reserved right-hand slot) and nothing else. `InstructionsEditor` in
+   reserved right-hand slot) and nothing else. The gesture is literally shared:
+   `useHoldMenu` in [src/thread.tsx](src/thread.tsx) owns the threshold, the
+   pointer events that cancel a press, the right-click and the swallowed click,
+   and both the box and the bubbles spread its props. Written out twice, "the
+   same threshold" is a thing a test has to check; written once it is true.
+   Everything downstream of the menu opening stays with each component and
+   deliberately disagrees. `InstructionsEditor` in
    [src/thread.tsx](src/thread.tsx) is its own component, never a mode of the
    message editor, because the two disagree about exactly the things a shared
    component would have to branch on:
@@ -647,6 +653,10 @@ nested card chrome, in this order:
      press does not close the editor at all — the two dismissal listeners are
      armed on the menu being open, never on the editor. This is the one place
      the box is deliberately stickier than a message, which discards silently.
+     "Anything to lose" is measured against an `openedWith` ref pinned when the
+     editor opened, never against the live prop: the card refetches after every
+     save, and on an LOI the other party can correct the box mid-rewrite. The
+     same ref, for the same reason, as the task form's discard guard.
    - **There is no Delete on the menu.** Instructions cannot be emptied, so the
      control would always be refused. An emptied box is refused in the editor
      with the route's own sentence, from shared `emptyRequestFieldRefusal`.
