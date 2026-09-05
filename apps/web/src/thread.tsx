@@ -17,6 +17,8 @@ import {
 } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
+/* PROTOTYPE — throwaway, see the file's header. Delete this import with it. */
+import { VariantA, VariantB, VariantC, usePrototypeVariant } from "./instructions-gesture-prototype";
 
 /* ── The expanded card's Instructions box and its conversation ──────────── */
 /* Lifted out of App.tsx for the same reason `timeline.tsx` was: this is the
@@ -216,7 +218,24 @@ export const InstructionsSection = ({
   onSave?: (text: string) => Promise<void>;
 }) => {
   const instructions = standingInstructionsFor(task);
+  /* PROTOTYPE (throwaway, branch prototype/instructions-edit-gesture): `?variant=`
+     swaps this box for one of three answers to "how should it open?". Off by
+     default, absent from a production build, and the hook returns "off" under
+     the node sim tests, which have no window. */
+  const protoVariant = usePrototypeVariant();
   if (instructions === undefined) return null;
+  if (protoVariant !== "off" && onSave && viewerId !== undefined) {
+    const Variant =
+      protoVariant === "A" ? VariantA : protoVariant === "B" ? VariantB : VariantC;
+    return (
+      <Variant
+        task={task}
+        instructions={instructions}
+        editable={canAmendTask(task, { id: viewerId })}
+        onSave={onSave}
+      />
+    );
+  }
   return <InstructionsBox task={task} instructions={instructions} viewerId={viewerId} onSave={onSave} />;
 };
 
