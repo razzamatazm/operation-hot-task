@@ -148,8 +148,18 @@ export const VariantA = ({ task, instructions, editable, onSave }: BoxProps): Re
     }
   });
 
+  /* The gesture is on the whole panel, heading and padding included — every
+     pixel inside the white box answers a hold, because the box is the thing
+     being corrected and a target the size of the sentence is a target people
+     miss. Stood down while the editor is open: a hold on a textarea is a text
+     selection. */
   return (
-    <section className={`loi-terms proto-box${hold.held ? " proto-held" : ""}`}>
+    <section
+      className={`loi-terms proto-box${editable && !editing ? " proto-holdable" : ""}${
+        hold.held ? " proto-held" : ""
+      }`}
+      {...hold.props}
+    >
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
       </div>
@@ -163,11 +173,7 @@ export const VariantA = ({ task, instructions, editable, onSave }: BoxProps): Re
           startHeight={startHeight}
         />
       ) : (
-        <div
-          ref={bodyRef}
-          className={`loi-terms-body${editable ? " loi-terms-holdable" : ""}`}
-          {...hold.props}
-        >
+        <div ref={bodyRef} className="loi-terms-body">
           {instructions}
         </div>
       )}
@@ -197,7 +203,12 @@ export const VariantB = ({ task, instructions, editable, onSave }: BoxProps): Re
   };
 
   return (
-    <section className={`loi-terms proto-box${hold.held ? " proto-held" : ""}`}>
+    <section
+      className={`loi-terms proto-box${editable && !editing ? " proto-holdable" : ""}${
+        hold.held ? " proto-held" : ""
+      }`}
+      {...hold.props}
+    >
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
       </div>
@@ -215,11 +226,7 @@ export const VariantB = ({ task, instructions, editable, onSave }: BoxProps): Re
           }}
         />
       ) : (
-        <div
-          ref={bodyRef}
-          className={`loi-terms-body${editable ? " loi-terms-holdable" : ""}`}
-          {...hold.props}
-        >
+        <div ref={bodyRef} className="loi-terms-body">
           {instructions}
         </div>
       )}
@@ -241,7 +248,15 @@ export const VariantC = ({ task, instructions, editable, onSave }: BoxProps): Re
   const [editing, setEditing] = useState(false);
 
   return (
-    <section className="loi-terms proto-box">
+    <section
+      className={`loi-terms proto-box${editable && !editing ? " proto-tappable" : ""}`}
+      onClick={(e) => {
+        if (!editable || editing) return;
+        /* The card underneath reads a click as "collapse me". */
+        e.stopPropagation();
+        setEditing(true);
+      }}
+    >
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
         {editable && !editing && <span className="proto-hint">click to edit</span>}
@@ -255,17 +270,7 @@ export const VariantC = ({ task, instructions, editable, onSave }: BoxProps): Re
           commit="button"
         />
       ) : (
-        <div
-          className={`loi-terms-body${editable ? " proto-tappable" : ""}`}
-          onClick={(e) => {
-            if (!editable) return;
-            /* The card underneath reads a click as "collapse me". */
-            e.stopPropagation();
-            setEditing(true);
-          }}
-        >
-          {instructions}
-        </div>
+        <div className="loi-terms-body">{instructions}</div>
       )}
     </section>
   );
@@ -480,7 +485,7 @@ const ProtoStyles = (): React.ReactElement => (
 .proto-box { position: relative; }
 /* The whole box answers the gesture, padding included — that is variant A's
    actual claim, and a hold target the size of the text is not it. */
-.proto-box .loi-terms-holdable {
+.proto-box.proto-holdable {
   cursor: pointer; touch-action: none; -webkit-user-select: none; user-select: none;
   -webkit-touch-callout: none;
 }
@@ -489,8 +494,8 @@ const ProtoStyles = (): React.ReactElement => (
 .proto-box.proto-held {
   box-shadow: inset 0 0 0 2px var(--brand), var(--shadow-md);
 }
-.proto-box .proto-tappable { cursor: text; border-radius: 6px; }
-.proto-box .proto-tappable:hover { box-shadow: inset 0 0 0 1px var(--line); }
+.proto-box.proto-tappable { cursor: text; }
+.proto-box.proto-tappable:hover { box-shadow: inset 0 0 0 1px var(--brand), var(--shadow-sm); }
 .proto-hint {
   font-family: "JetBrains Mono", monospace; font-size: 0.6rem;
   letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase;
