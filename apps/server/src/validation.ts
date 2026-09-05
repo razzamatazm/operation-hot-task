@@ -1,4 +1,4 @@
-import { oooDatesOutOfOrder } from "@loan-tasks/shared";
+import { fraudFilingRefusal, oooDatesOutOfOrder } from "@loan-tasks/shared";
 import { z } from "zod";
 
 const SCHEME_PREFIX_RE = /^[a-z][a-z0-9+.-]*:/i;
@@ -43,7 +43,12 @@ export const createTaskSchema = z.object({
   returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "returnDate must be YYYY-MM-DD").optional(),
   urgency: z.enum(["GREEN", "YELLOW", "ORANGE", "RED"]).optional(),
   points: z.number().int().min(0).max(5).optional(),
-  notes: z.string().min(1),
+  /* Non-empty on five of the six types, and the refine below says which. It
+     cannot be `.min(1)` here any more (#302, ADR-0010 rule 3): a Fraud Check
+     filed on its itemised conditions alone has no note, and a base-shape check
+     fires before the refine ever runs, so the cross-field rule would never get
+     asked. The requirement moves down rather than disappearing. */
+  notes: z.string(),
   humperdinkLink: humperdinkLinkSchema,
   serverLocation: z.string().optional(),
   // FRAUD only (#69): outstanding items the creator seeds at creation. Optional
@@ -63,6 +68,30 @@ export const createTaskSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: "folderName, loanName, serverLocation, or loanId is required"
     });
+  }
+
+  /* The request field, in the one place that can see both halves of it (#302).
+     On five types it is required on its own and the wording stays what the
+     base shape said when `.min(1)` lived up there — this moved for the Fraud
+     rule's sake and is not an invitation to reword what the other five see.
+
+     On a Fraud Check the rule spans two fields, so it is the shared one the web
+     form asks too, not a copy of it living here: a note or at least one
+     outstanding item, and the sentence comes with it. Same arrangement as the
+     OOO date range below, and for the same reason. */
+  if (value.taskType !== "FRAUD" && value.notes.length < 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.too_small,
+      minimum: 1,
+      type: "string",
+      inclusive: true,
+      path: ["notes"],
+      message: "String must contain at least 1 character(s)"
+    });
+  }
+  const fraudRefusal = fraudFilingRefusal(value);
+  if (fraudRefusal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["notes"], message: fraudRefusal });
   }
 
   if (value.taskType === "OOO") {

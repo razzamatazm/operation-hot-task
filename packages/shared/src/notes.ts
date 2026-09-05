@@ -40,6 +40,31 @@ import { LoanTask, ReviewNote, StoredReviewNote, UserIdentity } from "./types.js
 export const standingInstructionsFor = (task: Pick<LoanTask, "taskType" | "notes">): string | undefined =>
   task.taskType !== "FRAUD" ? task.notes : undefined;
 
+/* The task's field as the conversation's opening row, or `undefined` when the
+   conversation opens on its replies alone (#302, ADR-0010 rules 1 and 3).
+
+   The other half of the same question, and it reads its answer off
+   `standingInstructionsFor` rather than asking about task types again — a
+   second `taskType` test here is exactly the disagreement that function exists
+   to prevent. Where the field is a standing box, it is not a message; where it
+   is a message, it is the one below.
+
+   The second clause is new and belongs to #302. Since ADR-0010 rule 3 a Fraud
+   Check can be filed on its itemised conditions alone, so its `notes` can
+   legitimately be empty — and an empty first row is not an empty conversation.
+   It is an avatar, a byline and a blank bubble, which reads as something that
+   failed to load rather than as a thread nobody has spoken in. So a Fraud Check
+   with nothing in its note opens on the empty-conversation state, the way an
+   LOI has since ADR-0008 rule 1.
+
+   Hands back the text for the same reason `standingInstructionsFor` does: a
+   renderer that got a boolean would have to reach for `task.notes` itself, and
+   would then be free to draw a row this function said not to. */
+export const threadOpeningNoteFor = (task: Pick<LoanTask, "taskType" | "notes">): string | undefined => {
+  if (standingInstructionsFor(task) !== undefined) return undefined;
+  return task.notes.trim().length > 0 ? task.notes : undefined;
+};
+
 /* Latest review-note timestamp from someone other than `userId`. Empty string
    when there is no such note.
 

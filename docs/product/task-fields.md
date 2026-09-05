@@ -286,7 +286,17 @@ click away in the list directly beneath that header.
     - Non-OOO: urgency (see [due-date-urgency.md](due-date-urgency.md))
     - OOO: start date and return date in `YYYY-MM-DD`, PT (start ≤ return; both
       required) — see [ooo.md](ooo.md)
-  - Notes
+  - Notes — required on five of the six types. A **Fraud Check** needs a note
+    **or** at least one outstanding item (#302,
+    [ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 3): its
+    conditions list carries the ask just as well, and requiring a note beside an
+    itemised list buys a line of filler. Neither is refused — a request that
+    says nothing is not a request — and the refusal names both. The rule spans
+    two fields, so it is one shared function (`fraudFilingRefusal`) that the
+    create form and the create schema both ask, the way the OOO date range is.
+    Correcting a task is unaffected: an existing field still cannot be emptied
+    on any type. A Fraud Check filed without a note opens on an empty
+    conversation rather than a blank first message.
 - Non-OOO only, above Folder Name: **Import from Humperdink** and the paste
   field beside it. Paste what the **Send to Hot Task** userscript copied off a
   Humperdink loan page and press it; Folder Name, the Humperdink Link and the

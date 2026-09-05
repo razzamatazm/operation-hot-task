@@ -270,6 +270,59 @@ export const oooDatesOutOfOrder = (startDate: string, returnDate: string): boole
 /* What the service paths say when they refuse it. */
 export const OOO_DATE_RANGE_REFUSAL = "Start date must be on or before the return date";
 
+/* ── Filing a Fraud Check (#302, ADR-0010 rule 3) ────────────────────────── */
+
+/* What a Fraud Check filed with nothing in it is told.
+
+   One sentence, and it names both of the things that would have done, because
+   the person reading it did not fail to fill in a box — they failed to say what
+   they are asking for, and there are two ways to say it. */
+export const FRAUD_FILING_REFUSAL =
+  "A Fraud Check needs a note, or at least one outstanding item";
+
+/* Why this Fraud Check cannot be filed as it stands, or `undefined` when it
+   can. `undefined` on every other type: this is the Fraud rule, not a general
+   one, and the other five have no second field that could carry the ask.
+
+   The note has been mandatory on every type since before the outstanding-items
+   list existed. Since #69 a filer can seed that list at creation, and a Fraud
+   Check whose conditions are already itemised has nothing left to put in a
+   note — demanding one buys a line of filler the checker then has to read. So
+   filing needs **a note, or at least one outstanding item**. Neither is
+   refused, because a request that says nothing is not a request.
+
+   This spans two fields, which is the whole reason it is a function here rather
+   than a rule on either field. A `required` attribute on the note cannot see
+   the conditions list; a `min(1)` on `notes` in the create schema cannot see it
+   either. Anything enforcing this per-field is enforcing something else, and
+   the form and the server would drift about what a valid filing is.
+
+   Shaped after `oooDatesOutOfOrder` above and placed beside it deliberately:
+   one rule about a filing, living in shared, asked by every surface that has an
+   opinion about whether a filing is complete. It differs in returning the
+   sentence rather than a boolean — the date rule's callers each had their own
+   established wording to keep, and this rule has no wording anywhere to
+   preserve, so there is one sentence and both callers show it.
+
+   Trimmed on both sides. Spaces are not a note, and a blank condition is not a
+   condition; the create schema refuses an empty item on its own terms, so the
+   trim here is about agreeing with the form, which lets a filer type a space
+   into the seeder box.
+
+   It says nothing about *correcting* a task. ADR-0010 rule 3 relaxes filing
+   alone: a Fraud Check that has a note still cannot have it emptied through the
+   edit path, the same as every other type. */
+export const fraudFilingRefusal = (filing: {
+  taskType: TaskType;
+  notes: string;
+  initialItems?: readonly { text: string }[] | undefined;
+}): string | undefined => {
+  if (filing.taskType !== "FRAUD") return undefined;
+  if (filing.notes.trim().length > 0) return undefined;
+  if ((filing.initialItems ?? []).some((item) => item.text.trim().length > 0)) return undefined;
+  return FRAUD_FILING_REFUSAL;
+};
+
 export const computeDefaultDueAt = (
   _taskType: TaskType,
   now: Date,
