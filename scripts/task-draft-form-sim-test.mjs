@@ -55,8 +55,12 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider, DRAFT_VERSION, draftKey, serializeDraft } = await import(
-  pathToFileURL(bundle).href
+const { TaskForm, ToastProvider, DRAFT_VERSION, draftAction, draftKey, restoredDraftCopy, serializeDraft } =
+  await import(pathToFileURL(bundle).href);
+/* Straight from source, no bundle: both modules import their types type-only,
+   so node strips them as they stand. Only the form needs building. */
+const { BLANK_CREATE_FORM, formHasChanges } = await import(
+  pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href
 );
 
 /* ── A browser, as far as this module is concerned ──────── */
@@ -363,9 +367,13 @@ test("the draft's owner is pinned at open, not read live", () => {
 
 /* ── How the forgetting is wired ────────────────────────── */
 
-test("there is one way to forget a draft, and both endings go through it", () => {
+test("there is one way to forget a draft, and every ending goes through it", () => {
   assert.match(FORM_SOURCE, /const forgetDraft = \(\): void => \{/, "one named thing");
-  assert.equal(FORM_SOURCE.match(/forgetDraft\(\);/g).length, 2, "used by exactly the two endings");
+  assert.equal(
+    FORM_SOURCE.match(/forgetDraft\(\);/g).length,
+    3,
+    "used by exactly the three endings: a create, the discard prompt, and Start fresh (#285)"
+  );
 });
 
 test("creating the task clears the draft, and only on success", () => {
@@ -390,4 +398,140 @@ test("confirming the discard prompt clears the draft; declining leaves it", () =
   const body = confirm.slice(0, confirm.indexOf("};"));
   assert.match(body, /forgetDraft\(\);/);
   assert.match(body, /onClose\(\);/, "and then closes, as Cancel always has");
+});
+
+/* ── Saying so, and the way out (#285) ──────────────────── */
+
+const NOTE = restoredDraftCopy().note;
+
+test("a form restored from a draft says where the values came from", () => {
+  saveDraft(USER.id, FILLED);
+  const html = render();
+  assert.ok(html.includes(NOTE), "the line is on screen");
+  assert.match(html, />Start fresh</, "with the way out beside it");
+});
+
+test("a form that opened blank says nothing", () => {
+  const html = render();
+  assert.ok(!html.includes(NOTE), "nothing was restored, so there is nothing to explain");
+  assert.doesNotMatch(html, />Start fresh</);
+});
+
+/* Three more forms that did not open on a draft, and so say nothing either. An
+   expired or garbled record is no draft at all — the form opens blank, and a
+   line claiming otherwise would be the mystery this ticket exists to remove. */
+test("a form that fell back to blank says nothing about a draft", () => {
+  saveDraft(USER.id, FILLED, 8 * DAY);
+  assert.ok(!render().includes(NOTE), "an expired draft");
+  storage.set(draftKey(USER.id), "{ this is not a draft");
+  assert.ok(!render().includes(NOTE), "a garbled one");
+});
+
+test("a prefilled form says nothing — it took the caller's values, not the draft", () => {
+  saveDraft(USER.id, FILLED);
+  assert.ok(!render({ initialValues: { folderName: "Whitfield 4471" } }).includes(NOTE));
+});
+
+test("edit mode says nothing, having restored nothing", () => {
+  saveDraft(USER.id, FILLED);
+  assert.ok(!render({ edit: { task: TASK, onSave: async () => {} } }).includes(NOTE));
+});
+
+/* Quiet, per the last criterion: the muted register `.task-form-locked` already
+   carries elsewhere on this form, and a secondary ghost button. Never an alert
+   role, a warning tint or a dialog — nothing has gone wrong, the app did
+   something helpful and is saying so. */
+test("the line and its button are quiet, not an alert", () => {
+  saveDraft(USER.id, FILLED);
+  const html = render();
+  const strip = html.slice(html.indexOf("task-form-restored"), html.indexOf(NOTE) + NOTE.length + 200);
+  assert.match(strip, /task-form-locked/, "the form's existing muted prose register");
+  assert.match(strip, /class="btn-sm btn-ghost"/, "a secondary button, not a filled one");
+  assert.doesNotMatch(strip, /role="alert"|task-form-warning/, "nothing has gone wrong");
+});
+
+/* The criterion is that the line stays for as long as the form is open, edits
+   included — it is where the button lives, and the person most likely to want
+   it is a few seconds in. Rendering proves the first paint; what proves it does
+   not vanish on a keystroke is that the condition cannot see `form` at all. It
+   is a mount-time flag, moved only by Start fresh. */
+test("the line is keyed to how the form opened, not to what is in it now", () => {
+  const mount = FORM_SOURCE.slice(FORM_SOURCE.indexOf("{restoredNote &&"));
+  const block = mount.slice(0, mount.indexOf("</div>"));
+  assert.doesNotMatch(block, /\bform\.[a-z]/i, "no field of the current values is consulted");
+  assert.match(
+    FORM_SOURCE,
+    /useState\(opening\.fromDraft\)/,
+    "set once from how the form opened"
+  );
+  const setters = FORM_SOURCE.match(/setRestoredNote\(/g) ?? [];
+  assert.equal(setters.length, 1, "and moved by exactly one thing: Start fresh");
+});
+
+test("Start fresh empties the form, forgets the draft, and asks nothing first", () => {
+  const fresh = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const startFresh"));
+  const body = fresh.slice(0, fresh.indexOf("\n  };"));
+  assert.match(body, /setForm\(blank\)/, "every field goes back to the blank form");
+  assert.match(body, /openedWith\.current = blank/, "which is now what a Cancel measures against");
+  assert.match(body, /setSeedDraft\(""\)/, "the outstanding-items box too");
+  /* Every field, per the criterion — including the two that are not in the
+     values object: the FRAUD seeder's box above, and the Humperdink paste box,
+     which sits on every LOI form and a blank one is an LOI. */
+  assert.match(body, /setImportText\(""\)/, "and the Humperdink paste box");
+  assert.match(body, /setImported\(false\)/, "whose button stops saying Imported");
+  assert.match(body, /setImportedNote\(""\)/, "with nothing left of the note it wrote");
+  assert.match(body, /forgetDraft\(\);/, "and the saved copy is deleted");
+  assert.match(body, /setRestoredNote\(false\)/, "the line has nothing left to describe");
+  assert.doesNotMatch(body, /setDiscardAsk|DiscardConfirm/, "no confirmation — one press is the whole thing");
+});
+
+/* The button removes itself: the line has nothing to say over an empty form, so
+   the element that was clicked unmounts and focus would fall to the document
+   body — outside the dialog, where the overlay's Escape handler never sees it.
+   Focus goes to the first field, which is where a new task starts anyway, and
+   it goes there before the clears run because that box's own `onFocus` reads
+   the value it can still see. */
+test("Start fresh leaves focus inside the form, on the field a new task starts in", () => {
+  const fresh = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const startFresh"));
+  const body = fresh.slice(0, fresh.indexOf("\n  };"));
+  assert.match(body, /folderNameRef\.current\?\.focus\(\)/, "focus stays in the dialog");
+  assert.ok(
+    body.indexOf("folderNameRef.current?.focus()") < body.indexOf("setLoanQuery"),
+    "moved before the typeahead is cleared, so the field's own onFocus cannot undo it"
+  );
+  /* And the box it focuses actually carries the ref while filing — it used to
+     be attached only in edit mode, where the plain text input stands in for the
+     typeahead. */
+  const typeahead = FORM_SOURCE.slice(FORM_SOURCE.indexOf('<span className="loan-typeahead">'));
+  assert.match(typeahead.slice(0, typeahead.indexOf("/>")), /ref=\{folderNameRef\}/);
+});
+
+/* After Start fresh the form is blank and there is no draft on disk, so the
+   effect must read "keep" — nothing to write, nothing to clear — and the first
+   keystroke after it must read "write". Both fall out of the two yardsticks
+   being re-pointed at the blank form, which is why `openedWith` moves with it;
+   left pointing at the restored values, an untouched blank form would look
+   changed and immediately re-save the thing that was just thrown away. */
+test("typing after Start fresh starts a new draft, and a straight Cancel asks nothing", () => {
+  const blank = { ...BLANK_CREATE_FORM, initialItems: [] };
+  assert.equal(
+    draftAction({
+      changedFromBlank: formHasChanges(blank, blank),
+      movedSinceOpen: formHasChanges(blank, blank),
+      onDisk: false
+    }),
+    "keep",
+    "a form just emptied writes nothing and clears nothing"
+  );
+  assert.equal(formHasChanges(blank, blank), false, "so Cancel closes without a prompt");
+  const typed = { ...blank, notes: "a brand new task" };
+  assert.equal(
+    draftAction({
+      changedFromBlank: formHasChanges(blank, typed),
+      movedSinceOpen: formHasChanges(blank, typed),
+      onDisk: false
+    }),
+    "write",
+    "and the next keystroke starts a new draft as normal"
+  );
 });

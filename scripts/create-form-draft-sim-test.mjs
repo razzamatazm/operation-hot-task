@@ -28,6 +28,7 @@ import {
   draftKey,
   parseDraft,
   readDraft,
+  restoredDraftCopy,
   serializeDraft,
   writeDraft
 } from "../apps/web/src/create-form-draft.ts";
@@ -450,4 +451,18 @@ test("asking the browser for storage where there is no browser returns null rath
   /* Node has no `window`, which is the same shape of failure as a profile that
      refuses the property — and is what makes this assertable here. */
   assert.equal(browserDraftStorage(), null);
+});
+
+/* ── What a restored form says about itself (#285) ──────── */
+
+/* The wording is the promise — it is the only explanation anyone gets for why
+   Tuesday's half-written task is on their screen — so it is asserted directly
+   rather than fished out of rendered markup one refactor away from being
+   dropped. Same reason `discardConfirmCopy` and `mergeConfirmCopy` are
+   functions. */
+test("the restored-draft line says where the values came from, and the button says what it does", () => {
+  assert.deepEqual(restoredDraftCopy(), {
+    note: "Hot Task saved your progress. Picking up where you left off.",
+    action: "Start fresh"
+  });
 });

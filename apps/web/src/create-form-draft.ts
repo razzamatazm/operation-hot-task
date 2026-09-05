@@ -292,3 +292,29 @@ export const clearDraft = (storage: DraftStorage | null, userId: string): void =
     /* storage unavailable — degrade silently */
   }
 };
+
+/* ── What a restored form says about itself (#285) ──────────
+   Restoring silently is the right default and a small mystery: someone opens
+   New Task expecting an empty form and finds last Tuesday's abandoned attempt
+   with no clue where it came from. One line says where, and the button beside
+   it is the way out for the person who did not want it back.
+
+   A pure function for the reason `discardConfirmCopy` is one: the wording IS
+   the feature — it is the whole of the explanation — so a test asserts it
+   directly rather than fishing it out of rendered markup one refactor away from
+   being dropped.
+
+   Says "Hot Task", not "we" or "this form": the point is that the app did
+   something on the person's behalf while they were away. The second sentence
+   is what makes it an explanation rather than a notification — it names the
+   state the form is in, which is why the line stays up while the form is open
+   instead of flashing past.
+
+   "Start fresh" rather than "Discard" or "Clear": nothing is being thrown away
+   that the person still wants, and the button is a beginning rather than a
+   deletion. It takes no confirmation — anyone pressing it wants an empty form,
+   and the form starts saving again the moment they type. */
+export const restoredDraftCopy = (): { note: string; action: string } => ({
+  note: "Hot Task saved your progress. Picking up where you left off.",
+  action: "Start fresh"
+});

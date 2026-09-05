@@ -28,7 +28,7 @@
    correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, writeDraft } from "./create-form-draft";
+import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
@@ -111,8 +111,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
      browser would hang "please fill out this field" on. The folder name joined
-     them in edit mode with #262; in create mode it is the typeahead's input and
-     the ref simply goes unused, because nothing refuses a create here. */
+     them in edit mode with #262; in create mode nothing refuses a create, so the
+     ref carries no refusal — it is on the typeahead's input as well since #285,
+     which needs somewhere inside the form to put focus after Start fresh takes
+     away the button that was clicked. */
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const folderNameRef = useRef<HTMLInputElement>(null);
   /* Where this form's saved draft lives (#284), decided once at open and never
@@ -174,6 +176,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      never wrote — and what makes emptying a restored form back out clear the
      copy behind it rather than leave the old values waiting to reappear. */
   const draftStored = useRef(opening.fromDraft);
+  /* Is the "we brought this back" line up (#285)? True for a form that opened on
+     a restored draft, and false again once Start fresh has emptied it — the line
+     describes where the values on screen came from, and after Start fresh they
+     came from nowhere.
+
+     Keyed to how the form OPENED, never to what is in it now: the line stays put
+     while somebody edits the restored values, because it is where Start fresh
+     lives and the person most likely to want that button is a few seconds in,
+     having just realised this is not the task they meant to file. */
+  const [restoredNote, setRestoredNote] = useState(opening.fromDraft);
   /* Is the "discard this task?" prompt up (#283)? Set by an exit taken on a
      form that has something in it; see `requestClose` below. */
   const [discardAsk, setDiscardAsk] = useState(false);
@@ -407,6 +419,66 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     draftStored.current = false;
   };
 
+  /* "Start fresh" (#285): the restored draft was not what they wanted, so the
+     form becomes the one they expected to open — empty, with nothing saved
+     behind it.
+
+     No confirmation, deliberately. The button only exists on a form somebody did
+     not ask for, pressing it is the whole of the intent, and a misfire costs
+     nothing that is not one keystroke from being saved again.
+
+     `opening.fresh` rather than `BLANK_CREATE_FORM` because it is already the
+     form's own idea of a blank-slate open, and it is the yardstick the draft
+     effect measures against. Copied rather than aliased so the state object and
+     the yardstick can never become the same object.
+
+     `openedWith` moves with it, and that is the subtle half. It is what Cancel
+     and the save timer measure "has anything happened here" against; left
+     pointing at the restored values, an emptied form would read as heavily
+     changed — Cancel would ask to discard a form with nothing in it, and the
+     timer would immediately save the blank over the draft that was just deleted.
+     Re-pointed at the blank, both questions answer "nothing to lose", and the
+     next keystroke starts a new draft exactly as it would on any other new form.
+
+     The typeahead's own three pieces of state go too: they are the folder name
+     box's uncommitted half, and a suggestion list left open over an emptied
+     field is the old loan still on screen. */
+  /* Read once, so the line and the button on it can never come from two
+     different readings of the same wording. */
+  const restoredCopy = restoredDraftCopy();
+
+  const startFresh = (): void => {
+    /* Focus lands on the first field, and it is moved FIRST for a reason worth
+       stating. The button unmounts itself — the line it sits on has nothing left
+       to say once the form is empty — and focus would otherwise fall to the
+       document body, outside the dialog: Escape is handled on the overlay and
+       only sees keys bubbling from inside it, so a keyboard user would be left
+       in an open form with no way out and nothing said about what happened. The
+       folder name box is where a new task starts anyway.
+
+       Before the clears below, not after, because the box's own `onFocus` seeds
+       the typeahead query from the value it can see — which at this instant is
+       still the restored loan. Focusing first lets that write be overtaken by
+       the clears rather than land after them. */
+    folderNameRef.current?.focus();
+    const blank = { ...opening.fresh, initialItems: [...opening.fresh.initialItems] };
+    setForm(blank);
+    openedWith.current = blank;
+    setSeedDraft("");
+    setLoanQuery("");
+    setLoanSuggestOpen(false);
+    setLoanHighlight(-1);
+    /* The Humperdink paste box is a field like any other, and it sits on the
+       form for every LOI — which a blank one is. Left alone it would still be
+       holding the pasted term sheet, with its button still reading "Imported",
+       over a form with nothing in it. */
+    setImportText("");
+    setImported(false);
+    setImportedNote("");
+    forgetDraft();
+    setRestoredNote(false);
+  };
+
   /* Save an edit (#260, #261). Only what moved, and nothing at all when nothing did:
      `taskEdit` answers that, and an empty answer closes the form without a
      request — so the server records no history and DMs nobody about a save
@@ -558,6 +630,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       ) : (
         <span className="loan-typeahead">
           <input
+            ref={folderNameRef}
             value={form.folderName}
             autoComplete="off"
             /* Short enough to survive the column it lives in. The long version
@@ -722,6 +795,35 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       >
         <div className="form-panel">
         <form className="task-form" onSubmit={handleSubmit}>
+          {/* Where these values came from, on a form that opened on a saved
+              draft (#285). At the top because it explains the whole form under
+              it, and a person who opens New Task expecting an empty one reads
+              this before they read the loan name that isn't theirs.
+
+              Muted prose in `.task-form-locked`'s register with the same info
+              icon the footer's notes use: nothing has gone wrong, and the app
+              doing what it promised is not a warning. No live region and no
+              `role="status"` here, unlike the footer's two lines — those appear
+              while somebody is working and have a change to announce, whereas
+              this is on screen from the first paint, inside a dialog whose
+              contents get read on entry. A region mounted with its text already
+              in it announces nothing anyway.
+
+              It stays up while the form is edited; only Start fresh takes it
+              down, because only Start fresh makes it untrue. */}
+          {restoredNote && (
+            <div className="task-form-restored">
+              <InfoIcon />
+              <p className="task-form-locked task-form-restored-note">{restoredCopy.note}</p>
+              {/* Ghost, not filled: the primary action on this form is Create
+                  Task, and this is the quiet way out for somebody who did not
+                  want the draft back. It runs on the press — see `startFresh`
+                  for why it asks nothing first. */}
+              <button type="button" className="btn-sm btn-ghost" onClick={startFresh}>
+                {restoredCopy.action}
+              </button>
+            </div>
+          )}
           {/* The top row, in both modes: what the task is about, what kind it is,
               when it's wanted, and how bad it is. Four controls on one line
               rather than four rows, because together they are the one-glance
