@@ -223,19 +223,61 @@ export const readDraft = (
    Silent on failure, which is mostly `QuotaExceededError` — storage is full, or
    a locked-down Teams profile refuses writes. A person who has never seen this
    feature is exactly as well off as they were before it existed, and a toast
-   about local storage is a toast nobody can act on. */
+   about local storage is a toast nobody can act on.
+
+   Returns whether the draft is now on disk, so the caller's idea of "there is a
+   copy out there" is what actually happened rather than what it attempted. On a
+   full disk that is the difference between believing a save landed and knowing
+   it didn't. */
 export const writeDraft = (
   storage: DraftStorage | null,
   userId: string,
   values: CreateFormValues,
   savedAt: number = Date.now()
-): void => {
-  if (!storage) return;
+): boolean => {
+  if (!storage) return false;
   try {
     storage.setItem(draftKey(userId), serializeDraft(values, savedAt));
+    return true;
   } catch {
     /* storage unavailable or full — degrade silently */
+    return false;
   }
+};
+
+/* ── What the form should do about its draft right now ─────
+   The decision the save timer makes, lifted out of the effect so it can be
+   asked as a truth table instead of by rendering a form and waiting. Three
+   answers, and the middle one is why this isn't a one-liner:
+
+   • `write` — the form differs from what a blank-slate open would have given
+     AND something has moved since it opened. That is work worth keeping.
+   • `keep` — it differs from blank but nothing has moved since it opened, so
+     this IS the restored draft, byte for byte. Writing it again would only push
+     its seven days out, turning "untouched for a week" into "not opened for a
+     week", which is not what was promised. Also the answer for an untouched
+     form with no draft behind it: nothing to save, nothing to delete.
+   • `clear` — there is nothing worth keeping and there is a draft on disk. A
+     form typed into and then emptied back out has been un-done, and leaving the
+     old values waiting to reappear would be a form that ignores what someone
+     just did. Only when a draft is actually out there: an untouched form must
+     never clear one, or opening New Task prefilled from a Humperdink link would
+     silently bin last Tuesday's work.
+
+   `changedFromBlank` and `movedSinceOpen` are both `formHasChanges` answers
+   (`create-form-state.ts`) — the same predicate the discard prompt asks, taken
+   from two different yardsticks. They are passed in rather than computed here
+   because importing that module for a value would cost this one its type-only
+   imports, which is what lets it run in a test with no build. */
+export type DraftAction = "write" | "keep" | "clear";
+
+export const draftAction = (state: {
+  changedFromBlank: boolean;
+  movedSinceOpen: boolean;
+  onDisk: boolean;
+}): DraftAction => {
+  if (state.changedFromBlank) return state.movedSinceOpen ? "write" : "keep";
+  return state.onDisk ? "clear" : "keep";
 };
 
 /* Forget this person's draft. The one call behind every way a draft is meant to

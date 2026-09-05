@@ -19,9 +19,11 @@ import test from "node:test";
 import {
   DRAFT_KEY_PREFIX,
   DRAFT_MAX_AGE_MS,
+  DRAFT_SAVE_DEBOUNCE_MS,
   DRAFT_VERSION,
   browserDraftStorage,
   clearDraft,
+  draftAction,
   draftFieldNames,
   draftKey,
   parseDraft,
@@ -29,7 +31,12 @@ import {
   serializeDraft,
   writeDraft
 } from "../apps/web/src/create-form-draft.ts";
-import { BLANK_CREATE_FORM, formHasChanges, initialCreateForm } from "../apps/web/src/create-form-state.ts";
+import {
+  BLANK_CREATE_FORM,
+  createLoanId,
+  formHasChanges,
+  initialCreateForm
+} from "../apps/web/src/create-form-state.ts";
 
 /* A localStorage that lives in a Map. `throws` turns it into the locked-down or
    full one — the Teams profile that refuses to store anything, which the ticket
@@ -315,6 +322,101 @@ test("a draft carrying extra keys comes back as the form's fields only", () => {
   assert.deepEqual(parseDraft(raw, NOW), FILLED);
 });
 
+/* ── When the form saves, keeps or clears ───────────────── */
+
+/* The decision the save timer makes, as a truth table. It lives out here rather
+   than in the effect precisely so the promises about it — opening a draft does
+   not restart its seven days, an untouched form never deletes one — are asked
+   directly instead of by rendering a form and waiting 400ms. */
+test("work worth keeping, with something moved since the form opened, is written", () => {
+  assert.equal(draftAction({ changedFromBlank: true, movedSinceOpen: true, onDisk: false }), "write");
+  assert.equal(draftAction({ changedFromBlank: true, movedSinceOpen: true, onDisk: true }), "write");
+});
+
+test("a restored draft nobody has touched is left alone, so opening it does not restart its seven days", () => {
+  assert.equal(draftAction({ changedFromBlank: true, movedSinceOpen: false, onDisk: true }), "keep");
+});
+
+test("a form typed into and then emptied back out clears the copy behind it", () => {
+  assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: true, onDisk: true }), "clear");
+});
+
+/* The Humperdink-prefill case: a form that differs from nothing and never wrote
+   anything must not delete a draft that some other sitting saved. */
+test("an untouched form with nothing of its own on disk does nothing at all", () => {
+  assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: false, onDisk: false }), "keep");
+  assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: true, onDisk: false }), "keep");
+});
+
+/* Written as they type, so the only question is how often; a few hundred ms
+   makes a sentence one write rather than forty. */
+test("the save settles shortly after the typing stops, not on the way out", () => {
+  assert.ok(DRAFT_SAVE_DEBOUNCE_MS > 0 && DRAFT_SAVE_DEBOUNCE_MS <= 1000, "a few hundred milliseconds");
+});
+
+/* The whole of "worth saving" is #283's predicate against a blank-slate open,
+   which is what makes the ticket's named case — a task type and nothing else —
+   enough on its own. */
+test("changing only the task type is enough for a draft to be saved", () => {
+  const fresh = initialCreateForm();
+  const typePicked = { ...fresh, taskType: "OOO" };
+  assert.equal(
+    draftAction({
+      changedFromBlank: formHasChanges(fresh, typePicked),
+      movedSinceOpen: formHasChanges(fresh, typePicked),
+      onDisk: false
+    }),
+    "write"
+  );
+  const storage = fakeStorage();
+  writeDraft(storage, "user-1", typePicked, NOW);
+  assert.equal(readDraft(storage, "user-1", NOW).taskType, "OOO", "and it comes back that way");
+});
+
+/* ── A loan the draft picked, a week later ──────────────── */
+
+/* The draft keeps the picked `loanId` but never trusts it: a week is long
+   enough for a loan to be renamed, merged or removed, and `createLoanId` is
+   where that is caught — no id goes out, the create resolves the typed name the
+   way it does for anything typed by hand (ADR-0001), and a loan that has moved
+   on produces the same no-match a typo does. */
+const LOANS = [{ id: "loan-9", name: "Adams - Harbor" }];
+
+test("a restored pick whose loan is unchanged still files against that loan", () => {
+  const storage = fakeStorage();
+  writeDraft(storage, "user-1", FILLED, NOW);
+  assert.equal(createLoanId(readDraft(storage, "user-1", NOW), LOANS), "loan-9");
+});
+
+test("a restored pick whose loan was renamed falls back to resolving the name", () => {
+  const storage = fakeStorage();
+  writeDraft(storage, "user-1", FILLED, NOW);
+  const restored = readDraft(storage, "user-1", NOW);
+  assert.equal(createLoanId(restored, [{ id: "loan-9", name: "Adams - Harbour Point" }]), undefined);
+  assert.equal(restored.folderName, "Adams - Harbor", "and the text they had is still what gets sent");
+});
+
+test("a restored pick whose loan is gone falls back too, rather than erroring", () => {
+  const storage = fakeStorage();
+  writeDraft(storage, "user-1", FILLED, NOW);
+  assert.equal(createLoanId(readDraft(storage, "user-1", NOW), []), undefined);
+});
+
+test("a name typed over the restored one is a different loan, and the old id is dropped", () => {
+  const storage = fakeStorage();
+  writeDraft(storage, "user-1", FILLED, NOW);
+  const restored = readDraft(storage, "user-1", NOW);
+  assert.equal(createLoanId({ ...restored, folderName: "Someone else entirely" }, LOANS), undefined);
+});
+
+test("an out-of-office draft never files against a loan, whatever it is carrying", () => {
+  assert.equal(createLoanId({ ...FILLED, taskType: "OOO" }, LOANS), undefined);
+});
+
+test("a draft with no pick in it resolves by name, as a typed one always has", () => {
+  assert.equal(createLoanId({ ...FILLED, loanId: "" }, LOANS), undefined);
+});
+
 /* ── When the browser will not store anything ───────────── */
 
 /* The ticket: the form behaves exactly as it does today, with no error and no
@@ -325,6 +427,15 @@ test("storage that throws on every call is silently no draft", () => {
   assert.doesNotThrow(() => writeDraft(storage, "user-1", FILLED, NOW));
   assert.doesNotThrow(() => clearDraft(storage, "user-1"));
   assert.equal(readDraft(storage, "user-1", NOW), null);
+});
+
+/* A full disk is the difference between believing a save landed and knowing it
+   didn't, and the form uses the answer to decide whether there is anything out
+   there to clear later. */
+test("a write says whether the draft actually landed", () => {
+  assert.equal(writeDraft(fakeStorage(), "user-1", FILLED, NOW), true);
+  assert.equal(writeDraft(fakeStorage({ throws: true }), "user-1", FILLED, NOW), false, "storage full");
+  assert.equal(writeDraft(null, "user-1", FILLED, NOW), false, "no storage at all");
 });
 
 /* A locked-down Teams profile can throw on the `window.localStorage` property

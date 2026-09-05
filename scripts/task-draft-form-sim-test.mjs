@@ -171,6 +171,29 @@ test("with no draft the form opens exactly as it always has", () => {
   assert.doesNotMatch(html, /Second TD needs confirming/);
 });
 
+/* A restored draft is the first thing that can put a person in the recipient
+   picker before anyone has touched the form, and the effect that drops an
+   ineligible pick runs on the first render. Handed an empty directory — the
+   moment before it has loaded — it would drop the restored person and the note
+   written to them, so it now waits for a directory before deciding anything.
+   Asserted on the source as well as rendered: the render proves the pick is on
+   screen, the source proves why it survives. */
+test("a restored recipient is not dropped by a directory that has not loaded yet", () => {
+  saveDraft(USER.id, FILLED);
+  const html = render({ directory: [] });
+  assert.match(html, /Second TD needs confirming/, "the draft is restored");
+  /* The picker itself isn't drawn without a directory to pick from, so the
+     person and their note are not on screen to assert — the point is that they
+     are still in the form's state when the directory lands, which is what the
+     guard below is. Rendered with a directory (above) they are both there. */
+  const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("Switching to Assign"));
+  assert.match(
+    effect.slice(0, effect.indexOf("});")),
+    /if \(directory\.length === 0\) return;/,
+    "eligibility is not decided on a list that is not there"
+  );
+});
+
 /* ── The drafts that must not come back ─────────────────── */
 
 test("a draft older than seven days does not come back, and the form opens blank", () => {
@@ -296,12 +319,35 @@ test("the draft is written as the person types, on a timer, not on the way out",
    answer to "has anything been done here", so the prompt and the draft can
    never disagree. Measured against a blank-slate open, which is what makes a
    changed task type on its own enough. */
+/* The write/keep/clear rule itself is `draftAction`, tested as a truth table in
+   `create-form-draft-sim-test.mjs`; what is asserted here is that the effect
+   asks it, and with which two yardsticks. Both are `formHasChanges` — #283's
+   predicate, which the ticket says to reuse — so the prompt and the draft can
+   never disagree about what "untouched" means. */
 test("worth saving is the discard prompt's own check, against a blank-slate open", () => {
   const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("── Keeping the draft (#284)"));
   const body = effect.slice(0, effect.indexOf("}, [form,"));
-  assert.match(body, /formHasChanges\(opening\.fresh, form\)/, "different from a form opened fresh");
-  assert.match(body, /formHasChanges\(openedWith\.current, form\)/, "and something moved since it opened");
+  assert.match(body, /changedFromBlank: formHasChanges\(opening\.fresh, form\)/, "different from a form opened fresh");
+  assert.match(body, /movedSinceOpen: formHasChanges\(openedWith\.current, form\)/, "and something moved since");
+  assert.match(body, /onDisk: draftStored\.current/, "and whether there is a copy out there already");
+  assert.match(body, /draftStored\.current = writeDraft\(/, "a write records whether it actually landed");
   assert.match(body, /clearDraft\(draftSeat\.storage, draftSeat\.userId\)/, "a form emptied back out clears it");
+});
+
+/* Not asked for by the ticket, which never contemplates opening New Task
+   prefilled; it is the answer to a case the code can reach. A form opened with
+   values is someone asking for a task about a particular loan, and answering
+   that with last Tuesday's half-written task about a different one would be the
+   wrong form. Their draft is left alone rather than restored or destroyed, so a
+   plain New Task still gets it back. */
+test("a form opened prefilled shows the prefill, and leaves the draft where it is", () => {
+  saveDraft(USER.id, FILLED);
+  const html = render({ initialValues: { folderName: "Whitfield 4471" } });
+  assert.match(html, /value="Whitfield 4471"/, "what the caller asked for");
+  assert.doesNotMatch(html, /Adams - Harbor/, "not the draft");
+  assert.doesNotMatch(html, /Second TD needs confirming/);
+  assert.equal(storage.size, 1, "which is still there for the next plain New Task");
+  assert.match(render(), /Second TD needs confirming/, "and comes back on one");
 });
 
 /* The saved copy is keyed to whoever opened the form, not to whoever is signed

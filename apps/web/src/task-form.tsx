@@ -28,8 +28,8 @@
    correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, readDraft, writeDraft } from "./create-form-draft";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
+import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, writeDraft } from "./create-form-draft";
+import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { useToast } from "./toast";
@@ -341,12 +341,22 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
 
   /* Switching to Assign, or to a Fraud Check, can make the current pick
      ineligible. Drop it rather than leave a selection showing that the server
-     would reject at submit. */
+     would reject at submit.
+
+     A directory that hasn't arrived yet is not an answer about eligibility, and
+     since #284 the form can open with somebody already picked — a restored draft
+     carries the person it was going to. Without this guard, a form opened in the
+     moment before the directory lands would quietly drop that person and the
+     note written to them, which is the opposite of what a restored draft
+     promises. Same `directory.length` reasoning as the no-checker warning
+     below, for the same reason: don't decide anything on a list that isn't
+     loaded. */
   useEffect(() => {
+    if (directory.length === 0) return;
     if (form.recipientUserId && !recipientCandidates.some((c) => c.id === form.recipientUserId)) {
       setForm((c) => ({ ...c, recipientUserId: "" }));
     }
-  }, [recipientCandidates, form.recipientUserId]);
+  }, [directory.length, recipientCandidates, form.recipientUserId]);
 
   /* ── Keeping the draft (#284) ───────────────────────────────
      The form saves itself as it is typed into, settling shortly after the
@@ -360,28 +370,28 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      draft can never be overwritten a moment later by a keystroke's leftover
      timer.
 
-     Three outcomes, and the middle one is the reason this isn't one line:
-     • Different from a blank-slate open, and something has moved since the form
-       opened — that is work worth keeping, so write it.
-     • Different from blank, but nothing has moved since the form opened — this
-       IS the restored draft, byte for byte. Rewriting it would only push its
-       seven-day expiry out, turning "untouched for a week" into "not opened for
-       a week", which is not what was promised.
-     • Back to what a blank-slate open would have given — there is nothing worth
-       keeping, so a draft this form saved earlier goes. Only if there is one:
-       an untouched form must never clear a draft, or opening New Task from a
-       Humperdink link would silently bin last Tuesday's work.
+     Write, keep or clear is `draftAction`, decided over there rather than in
+     here so the rule — including "opening a draft does not restart its seven
+     days" and "an untouched form never clears one" — can be asked as a truth
+     table instead of by rendering a form and waiting. The two questions it
+     takes are both `formHasChanges` (#283), from two yardsticks: against a
+     blank-slate open, which is what makes a changed task type on its own worth
+     saving, and against the values this form opened with.
 
-     Storage that is missing, locked down or full is handled inside those three
-     functions, silently — nothing here can throw at a person mid-sentence. */
+     Storage that is missing, locked down or full is handled inside the write
+     and clear themselves, silently — nothing here can throw at a person
+     mid-sentence, and the write reports back whether it actually landed. */
   useEffect(() => {
     if (editing) return;
     const timer = window.setTimeout(() => {
-      if (formHasChanges(opening.fresh, form)) {
-        if (!formHasChanges(openedWith.current, form)) return;
-        writeDraft(draftSeat.storage, draftSeat.userId, form);
-        draftStored.current = true;
-      } else if (draftStored.current) {
+      const action = draftAction({
+        changedFromBlank: formHasChanges(opening.fresh, form),
+        movedSinceOpen: formHasChanges(openedWith.current, form),
+        onDisk: draftStored.current
+      });
+      if (action === "write") {
+        draftStored.current = writeDraft(draftSeat.storage, draftSeat.userId, form);
+      } else if (action === "clear") {
         clearDraft(draftSeat.storage, draftSeat.userId);
         draftStored.current = false;
       }
@@ -458,10 +468,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     }
     const rawLink = form.humperdinkLink.trim();
     const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
-    // Only pass loanId when the typed name still matches the selected loan —
-    // editing the text after selecting means the user intends a new loan.
-    const selectedLoan = form.loanId ? loans.find((l) => l.id === form.loanId) : undefined;
-    const keepLoanId = form.taskType !== "OOO" && selectedLoan && selectedLoan.name === form.folderName.trim();
+    // Which loan this is filed against, or nothing — in which case the server
+    // resolves the typed name and link (ADR-0001). One rule, in
+    // `create-form-state.ts`, because a restored draft (#284) can carry a pick
+    // whose loan has since been renamed or removed.
+    const keepLoanId = createLoanId(form, loans);
     // FRAUD only (#69): fold any not-yet-added seeder draft into the list, then
     // ship the outstanding items the creator already knows about.
     const assignAtCreate = Boolean(form.recipientUserId) && form.pickerMode === "assign";
@@ -473,7 +484,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
       folderName: form.folderName,
       taskType: form.taskType,
       notes: form.notes,
-      ...(keepLoanId ? { loanId: form.loanId } : {}),
+      ...(keepLoanId ? { loanId: keepLoanId } : {}),
       ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
       ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
       ...(form.points > 0 ? { points: form.points } : {}),

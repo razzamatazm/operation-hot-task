@@ -883,6 +883,54 @@ every time is one people stop reading. The backdrop stays inert and raises no
 prompt either. Confirming is a bare `onClose`, which is the single line the
 draft-saving work hangs "and clear the draft" onto.
 
+**And it remembers what you typed** (#284). The prompt above only covers the
+exits the app can see. The one it exists for — the Teams tab that reloads, the
+session that drops — runs nothing on the way out, so the new task form keeps a
+copy of itself in `localStorage` as it is typed into and opens on that copy next
+time. Nothing about it is visible yet; the line saying where the values came
+from and the button to start over are #285.
+
+The rules are [src/create-form-draft.ts](src/create-form-draft.ts) —
+framework-free, storage handed in as three methods, so seven-day expiry and
+"anything malformed is no draft" are testable without rendering a form
+(`scripts/create-form-draft-sim-test.mjs`); the wiring is asserted in
+`scripts/task-draft-form-sim-test.mjs`. What that buys:
+
+- **Per person, not per machine** — `loan-tasks:create-draft:<userId>`, the same
+  convention as `loan-tasks:expand:<id>`. The seat (storage object + user id) is
+  pinned when the form opens, because the mock user picker can change who is
+  signed in mid-form and the live id would file the first person's typing under
+  the second person's name.
+- **Written as they type**, on a 400ms trailing debounce keyed on the values.
+  Never on unmount or `beforeunload`: a save that needs an exit path to run is
+  not there for the failure this exists to survive.
+- **Worth saving is `formHasChanges` again**, measured against a blank-slate
+  open — so a changed task type on its own is enough, and the prompt and the
+  draft can never disagree about what "untouched" means. Measured against
+  `openedWith` instead it would call a restored draft unchanged and stop saving
+  it.
+- **Forgotten in one place** (`forgetDraft`), reached by exactly two endings: a
+  successful create, and confirming the discard prompt. Declining changes
+  nothing. A restored draft is not rewritten just for being opened, so its seven
+  days mean untouched rather than unopened.
+- **Edit mode has null storage** rather than a rule not to save — there is
+  nowhere to write, so nothing further down can slip.
+- **Storage that refuses or is full is silent.** Every read and write is
+  wrapped, failure is `null`, and the form behaves exactly as it did before this
+  existed. A restored `loanId` is kept but never trusted: `createLoanId` in
+  [src/create-form-state.ts](src/create-form-state.ts) only sends one whose loan
+  still exists and still carries the name in the box, so a loan renamed, merged
+  or removed during the week the draft sat there behaves like any typed no-match
+  (ADR-0001) rather than erroring.
+
+Two rules moved out of the component to be tested rather than described:
+`draftAction` (write / keep / clear, as a truth table) and `createLoanId` above.
+The submit path's "only pass a `loanId` that still matches" check was inline in
+`handleSubmit` before #284 needed it to survive a week-old pick. And the effect
+that drops an ineligible recipient now waits for a non-empty `directory`: a
+restored draft is the first thing that can open the form with somebody already
+picked, and an unloaded list is not an answer about who is eligible.
+
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request
 field is one — on the other five the paste box and its button took a paste
