@@ -76,6 +76,11 @@ export const saveTaskEdit = async (task: SaveTarget, edit: TaskEdit, write: Task
      An OOO task is excluded outright — it has no loan, and its folder name is a
      vacation description of its own, handled at the bottom. */
   if (task.taskType !== "OOO" && (edit.folderName !== undefined || edit.humperdinkLink !== undefined)) {
+    /* Its precondition travels with it, so this moved forward too: a save that
+       cannot land its name no longer lands the terms on its way to finding out.
+       Not what #281 is about — this one is a genuine refusal rather than an
+       expected decline, and it still toasts — but the guard belongs beside the
+       call it guards, and the ticket's own principle points the same way. */
     if (!task.loanId) throw new NoLoanToCorrect();
     await write.saveLoanFields(task.loanId, task.id, {
       ...(edit.folderName !== undefined ? { name: edit.folderName } : {}),

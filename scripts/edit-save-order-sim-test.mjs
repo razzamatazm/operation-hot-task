@@ -25,7 +25,10 @@
  * `loan-sim-test.mjs` for the refusal being write-free on both loan records,
  * `amend-task-sim-test.mjs` for a field write's history row and its DM.
  *
- * Run: `node --test scripts/edit-save-order-sim-test.mjs`. */
+ * Run: `node --test scripts/edit-save-order-sim-test.mjs`. No `pretest` guard,
+ * unlike its neighbours: nothing here imports a compiled `dist`. The module
+ * under test type-strips from source and its only shared import is type-only,
+ * and the one thing esbuild bundles has no import but React. */
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
