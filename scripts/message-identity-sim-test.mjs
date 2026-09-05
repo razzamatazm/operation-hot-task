@@ -47,7 +47,7 @@ import { TaskService } from "../apps/server/dist/task-service.js";
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 
 /* The thread is TSX with a relative import, so esbuild bundles rather than
-   transforms — the same trick `loi-terms-section-sim-test.mjs` uses, and for
+   transforms — the same trick `instructions-box-sim-test.mjs` uses, and for
    the same reason: the promise is about rendered markup, and App.tsx cannot be
    imported into a node script. */
 const scratch = mkdtempSync(join(REPO, "node_modules", ".message-identity-"));
@@ -214,14 +214,22 @@ test("the thread view renders identically before and after the migration", () =>
 test("the reply count and the empty-conversation state are unchanged", () => {
   const migrated = migrate(legacyTask()).task;
   assert.equal(migrated.reviewNotes.length, LEGACY_THREAD.length, "the collapsed row counts what it always counted");
-  assert.equal(rowCount(renderThread(migrated)), 4, "three replies plus the originating field, as before");
+  assert.equal(rowCount(renderThread(migrated)), 3, "the three replies, and nothing this ticket added");
 
-  /* An LOI's field is a standing section rather than message number one, so an
-     LOI with no replies is the empty state — before the migration and after. */
-  const emptyLoi = legacyTask({ taskType: "LOI", reviewNotes: [] });
-  const emptyMarkup = renderThread(migrate(emptyLoi).task);
+  /* Three, not the four this asserted before #300. A Value Check's request
+     field is now a standing Instructions box rather than message number one
+     (ADR-0010 rule 1), so it is not a row here — which is a fact about where
+     that field is drawn and not about the migration. What this test is for is
+     that the count is the same either side of the migration, and it is: the
+     stored `reviewNotes` above are untouched, and both counts move together. */
+  assert.equal(rowCount(renderThread(legacyTask())), 3, "and the same count before the migration ran");
+
+  /* The field being a standing section is what makes a reply-less task the
+     empty state — before the migration and after. */
+  const emptyTask = legacyTask({ reviewNotes: [] });
+  const emptyMarkup = renderThread(migrate(emptyTask).task);
   assert.match(emptyMarkup, /msgs-empty/, "still says the conversation is empty");
-  assert.equal(emptyMarkup, renderThread(emptyLoi), "and says it in the same words");
+  assert.equal(emptyMarkup, renderThread(emptyTask), "and says it in the same words");
 });
 
 test("the Teams card thread quotes the same lines", () => {

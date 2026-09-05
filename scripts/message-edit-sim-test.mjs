@@ -425,8 +425,8 @@ test("each edit lands in history with the text on both sides", async () => {
 
 /* ── What the thread shows (rules 3 and 9) ───────────────────────────────── */
 
-const threadTask = (notes, status = "CLAIMED") => ({
-  taskType: "VALUE",
+const threadTask = (notes, status = "CLAIMED", taskType = "VALUE") => ({
+  taskType,
   status,
   notes: "Please value this.",
   createdBy: { id: CREATOR.id, displayName: CREATOR.displayName },
@@ -486,12 +486,19 @@ test("a surface with nothing to save to renders the thread exactly as it did bef
 });
 
 test("the originating field is not a message and carries no menu", () => {
-  /* On the five types whose request field still opens the thread, that first
-     row is the task's ask, and its one door is `Edit Task` in the hamburger
-     (ADR-0008 rule 4). Only what somebody posted is editable here. */
-  const markup = renderThread(threadTask([]), CREATOR.id, async () => {});
-  assert.ok(markup.includes("Please value this."), "the field still opens the thread");
-  assert.equal(triggerCount(markup), 0, "with no per-message menu on it");
+  /* On a Fraud Check — the one type whose request field still opens the thread
+     since #300 and ADR-0010 rule 1 — that first row is the task's ask, and it
+     is not a message. Only what somebody posted is editable here.
+     On the other five the field is a standing box outside the thread, which the
+     row below asserts: it is not in this markup at all, so there is nothing for
+     a message menu to land on. */
+  const inThread = renderThread(threadTask([], "CLAIMED", "FRAUD"), CREATOR.id, async () => {});
+  assert.ok(inThread.includes("Please value this."), "a Fraud Check's field still opens the thread");
+  assert.equal(triggerCount(inThread), 0, "with no per-message menu on it");
+
+  const inBox = renderThread(threadTask([]), CREATOR.id, async () => {});
+  assert.ok(!inBox.includes("Please value this."), "and on the box types it is not a thread row at all");
+  assert.equal(triggerCount(inBox), 0);
 });
 
 /* ── The bubble, and the gesture that opens its menu (#297) ──────────────── */
@@ -501,7 +508,7 @@ test("every message renders as a bubble, and the old hover trigger is gone", () 
   assert.equal(
     (markup.match(/msg-bubble/g) ?? []).length >= 3,
     true,
-    "the originating field and both replies are bubbles"
+    "both replies are bubbles, and each holdable one carries its modifier class too"
   );
   assert.ok(
     !markup.includes("msg-menu-trigger"),

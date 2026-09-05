@@ -2,35 +2,43 @@ import { ACTION_LABELS } from "./labels.js";
 import { isTaskParty } from "./parties.js";
 import { LoanTask, ReviewNote, StoredReviewNote, UserIdentity } from "./types.js";
 
-/* ADR-0008 rules 1–3 — an LOI's terms are a standing description of the loan,
-   not message number one.
+/* ADR-0010 rule 1 (amending ADR-0008 rules 1–3) — a task's instructions are the
+   standing ask, not message number one.
 
-   Nothing about the data moves. On an LOI the `notes` field has always held
-   the terms — labelled "Loan Terms and Contacts", required since day one, and
+   Nothing about the data moves. The `notes` field has always held what the
+   person filing the task is asking for — required since day one on every type,
    always written by the creator at creation, which is exactly why every
-   existing LOI's first thread row is already its terms. No column is added and
+   existing task's first thread row is already its ask. No column is added and
    nothing migrates. What changes is where that one field is drawn: its own
    bordered section above the conversation, and *out* of the conversation,
-   because a copy of the terms living inside the thread has no answer to what
-   happens to it when the terms are corrected.
+   because a copy of the instructions living inside the thread has no answer to
+   what happens to it when they are corrected, and because two replies later it
+   has scrolled away from the person working off it.
 
-   LOI only. The other five types' fields are the creator's own words about
-   their own situation — a Buddy Chat's concerns, an OOO's description — with
-   no second party verifying the contents, so they keep one blended field
-   rendered as the thread's first message.
+   Anything but a Fraud Check. ADR-0008 drew this line at LOI only, on the
+   grounds that the split earns its keep where a field holds facts a second
+   person is verifying; ADR-0010 withdrew that reasoning — the split is for the
+   standing ask, and every type has one. A Fraud Check is the single exception,
+   and not for want of consistency: its standing ask is already the outstanding
+   items list at the top of its card, so a prose box above that list would ask a
+   filer to say the same thing twice in two shapes.
 
-   This is one function rather than a `taskType === "LOI"` at each surface
-   because the two halves of the rule have to agree: the section shows the
-   field exactly when the thread stops showing it. The caller that draws the
-   section and the caller that builds the message list read the same answer off
-   the same call. Asked separately, a task ends up showing its terms twice, or
-   not at all.
+   This is one function rather than a `taskType` test at each surface because
+   the two halves of the rule have to agree: the section shows the field exactly
+   when the thread stops showing it. The caller that draws the section and the
+   caller that builds the message list read the same answer off the same call.
+   Asked separately, a task ends up showing its instructions twice, or not at
+   all.
+
+   Named for instructions rather than terms since #300. It stopped being an LOI
+   concept the moment it answered for five types, and a name pointing at a term
+   sheet would mislead every reader after this.
 
    It hands back the text rather than a boolean so a renderer has no reason to
    reach past it for `task.notes`. `undefined` means the field is still a
    member of the thread. */
-export const standingTermsFor = (task: Pick<LoanTask, "taskType" | "notes">): string | undefined =>
-  task.taskType === "LOI" ? task.notes : undefined;
+export const standingInstructionsFor = (task: Pick<LoanTask, "taskType" | "notes">): string | undefined =>
+  task.taskType !== "FRAUD" ? task.notes : undefined;
 
 /* Latest review-note timestamp from someone other than `userId`. Empty string
    when there is no such note.
@@ -83,11 +91,12 @@ const latestNoteFromOther = (task: LoanTask, userId: string): string => {
 
    Also deliberately says nothing about `task.notes`. ADR-0008 took an LOI's
    terms out of the thread and flagged this calculation as something that might
-   have leant on the thread's first row being the originating note. It never
-   did: the walk is over `reviewNotes` alone, so the originating field has never
-   been able to read as an unread message at anybody, and taking it out of the
-   thread changes nothing here. That is asserted, not assumed — see
-   `scripts/loi-terms-section-sim-test.mjs`. */
+   have leant on the thread's first row being the originating note; ADR-0010
+   widened that flag from one type to five. It never did lean on it: the walk is
+   over `reviewNotes` alone, so the originating field has never been able to
+   read as an unread message at anybody, and taking it out of the thread on five
+   types changes nothing here. That is asserted, not assumed — see
+   `scripts/instructions-box-sim-test.mjs`. */
 export const unreadNoteFor = (
   task: LoanTask,
   user: Pick<UserIdentity, "id">,

@@ -16,7 +16,7 @@
  * with the two filing-time controls gone, the type shown but locked, and a save
  * action. That is rendered markup, so this file compiles the form with esbuild
  * and renders it through `react-dom/server`, the way the terms section is
- * tested in `loi-terms-section-sim-test.mjs`.
+ * tested in `instructions-box-sim-test.mjs`.
  *
  * Source checks at the end cover what neither half can: the hamburger is the
  * only door (`Edit Task` in the menu), the old `Edit request` button is gone

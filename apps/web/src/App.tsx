@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingTermsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, getNotesFieldLabel, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedCount, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -10,7 +10,7 @@ import { bylineOf, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
 import { DirectoryUser, TaskForm } from "./task-form";
-import { TermsSection, ThreadMessages, threadHeadLabel } from "./thread";
+import { InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -2423,21 +2423,22 @@ const TaskCard = memo(({
 
   const checklistBlock = task.taskType === "FRAUD" && <FraudChecklist task={task} user={user} api={checklist} />;
 
-  /* Where the task's own field is drawn, and where it isn't (ADR-0008 rules 1
-     and 2). `standingTermsFor` decides once: on an LOI it hands back the terms,
-     the `TermsSection` above the thread draws them, and `ThreadMessages` leaves
-     the conversation to the replies. On the other five it hands back nothing,
-     the section renders nothing, and the field opens the thread as before.
+  /* Where the task's own field is drawn, and where it isn't (ADR-0010 rule 1,
+     widening ADR-0008 rules 1 and 2). `standingInstructionsFor` decides once:
+     on the five box types it hands back the instructions, the
+     `InstructionsSection` above the thread draws them, and `ThreadMessages`
+     leaves the conversation to the replies. On a Fraud Check it hands back
+     nothing, the section renders nothing, and the field opens the thread as
+     before — its standing ask is the outstanding-items list further up this
+     same body, so a prose box above it would say the same thing twice.
 
-     Neither carries an edit button any more (#260, ADR-0008 rule 4). The
-     hamburger's `Edit Task` is the one door: a second entrance beside the field
-     is fewer clicks from where the error is spotted, at the cost of two
-     surfaces that have to be kept in agreement, and this app already keeps
-     "what can I do to this task" in one place. */
-  const fieldIsInThread = standingTermsFor(task) === undefined;
+     Neither carries an edit button yet (#260, ADR-0008 rule 4). ADR-0010 rule 4
+     gives the box a press-and-hold editor, which is #303's work; until then the
+     hamburger's `Edit Task` is the one door. */
+  const fieldIsInThread = standingInstructionsFor(task) === undefined;
   const termsBlock = fieldIsInThread ? null : (
     <div className="task-card-terms">
-      <TermsSection task={task} />
+      <InstructionsSection task={task} />
     </div>
   );
   const notesBlock = (
