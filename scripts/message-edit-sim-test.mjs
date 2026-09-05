@@ -134,7 +134,10 @@ const renderThread = (task, viewerId, onEditMessage) =>
     })
   );
 
-const triggerCount = (markup) => (markup.match(/msg-menu-trigger/g) ?? []).length;
+/* #297 took the `⋯` trigger away: the bubble itself is the control, held
+   rather than clicked. The marker a row carries when it offers a menu is the
+   attribute the bubble wears, so that is what gets counted. */
+const triggerCount = (markup) => (markup.match(/data-holdable="true"/g) ?? []).length;
 
 /* ── The author, and only the author (rule 1) ────────────────────────────── */
 
@@ -489,4 +492,37 @@ test("the originating field is not a message and carries no menu", () => {
   const markup = renderThread(threadTask([]), CREATOR.id, async () => {});
   assert.ok(markup.includes("Please value this."), "the field still opens the thread");
   assert.equal(triggerCount(markup), 0, "with no per-message menu on it");
+});
+
+/* ── The bubble, and the gesture that opens its menu (#297) ──────────────── */
+
+test("every message renders as a bubble, and the old hover trigger is gone", () => {
+  const markup = renderThread(threadTask([MINE, THEIRS]), CREATOR.id, async () => {});
+  assert.equal(
+    (markup.match(/msg-bubble/g) ?? []).length >= 3,
+    true,
+    "the originating field and both replies are bubbles"
+  );
+  assert.ok(
+    !markup.includes("msg-menu-trigger"),
+    "no ⋯ button: a control only a hovering pointer can find is half the people who never find it"
+  );
+  assert.ok(markup.includes("msg-line"), "the bubble and its menu share a row, so the menu can sit beside it");
+});
+
+test("only the rows that offer a menu are marked holdable", () => {
+  /* The mark is what the press handler is attached to, so a row without it
+     cannot open a menu however long it is held — the same answer the API
+     gives, from the same shared rule. */
+  const markup = renderThread(threadTask([MINE, THEIRS]), CREATOR.id, async () => {});
+  assert.equal(triggerCount(markup), 1, "one holdable bubble: the one message this viewer wrote");
+  const bubbles = (markup.match(/msg-bubble/g) ?? []).length;
+  assert.ok(bubbles > triggerCount(markup), "the others are bubbles too, just not holdable ones");
+});
+
+test("a tombstone is a bubble nobody can hold", () => {
+  const withTombstone = threadTask([{ ...MINE, deleted: true }, THEIRS]);
+  const markup = renderThread(withTombstone, CREATOR.id, async () => {});
+  assert.ok(markup.includes("msg-deleted"), "it still renders as a withdrawn message");
+  assert.equal(triggerCount(markup), 0, "and offers no way back into itself");
 });

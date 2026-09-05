@@ -613,26 +613,67 @@ nested card chrome, in this order:
    `Edit Task` the one door, so a second entrance beside the field is gone
    rather than duplicated.
 
-   **A message, though, carries its own menu** (#287,
+   **Messages are bubbles** (#297). Each one wraps to its own text rather than
+   filling the row — `.msg-bubble`, paper with a hairline for other people's,
+   `--brand-soft` for your own — with both parties on the same side and the
+   author's initials to the left. Close to the chat apps everybody uses, not a
+   copy of one: a thread here has exactly two people in it, so who said what is
+   carried by the initials rather than by which wall the message is against.
+
+   Three sizing rules on that bubble are bugs, not taste, and each was hit in
+   the prototype (`prototype/thread-bubbles-297`):
+
+   - **No percentage width or max-width.** Its containing block is
+     shrink-to-fit, and a percentage against an indefinite width cannot be
+     resolved — it falls back to min-content, which renders one word per line.
+   - **It must stay shrinkable.** Pinning it with `flex: 0 0 auto` cures that
+     squeeze and hands the overflow outward: the row inherits the longest
+     unwrapped line as its own minimum, outgrows the thread and is clipped by
+     `.msgs`. Hence `min-width: 0` on `.msg`, `.msg-body` and `.msg-line`.
+   - **The gutter that keeps a bubble off the right edge is in pixels**
+     (`.msg-line { padding-right: 26px }`), for the same reason.
+
+   **A message carries its own menu** (#287,
    [ADR-0009](../../docs/adr/0009-messages-are-editable-by-their-author.md) rule
    9) — the one sanctioned exception to that single door, because the hamburger
-   belongs to the task and cannot know which of a dozen messages is meant. A
-   `⋯` trigger sits at the top-right of the row's text cell
-   (`.msg-menu-trigger`), `opacity: 0` until the row is hovered or the trigger
-   is tabbed to, and `display: none` under `@media (hover: none)` where a
-   long-press on the row opens the menu instead. It renders **only on the
-   viewer's own messages**, and whether it renders at all is the shared
-   `canEditMessage` — the same function the server throws from — so the menu
-   can never appear on a message the API would refuse, and never on the
-   originating field, which is the task's ask and not a message.
+   belongs to the task and cannot know which of a dozen messages is meant.
+   **Press and hold the bubble** to open it, on every kind of machine, plus
+   right-click on a desktop. The `⋯` trigger that used to reveal it on hover is
+   gone: a control that only exists under a cursor is one half the people using
+   the app never find, and holding a message is what they already do elsewhere.
+   `.msg-bubble-holdable` marks a bubble that takes the gesture and carries the
+   `touch-action` / `user-select` / `-webkit-touch-callout` opt-outs that stop a
+   phone answering the press with the magnifier, a text selection and the OS
+   menu. Held, it takes a ring and a shadow (`.msg-bubble-held`) — never a
+   `transform: scale`, which grows a bubble by a share of its own width and so
+   expands a long message over the menu beside it.
+
+   Whether a row offers the menu at all is the shared `canEditMessage` /
+   `canDeleteMessage` — the same functions the server throws from — so it can
+   never appear on a message the API would refuse, and never on the originating
+   field, which is the task's ask and not a message. The sim tests count
+   `data-holdable="true"` to ask that question, since there is no trigger
+   element to find.
 
    The panel (`.msg-menu-panel`) stays **in the row's flow** — the one panel in
    the app that does. Every other one escapes its container through
    `useAnchoredPanel`; this one can't, because `thread.tsx` is deliberately
-   importable by a node script and `App.tsx` is not. Taken out of flow it would
-   be clipped by the 178px `.msgs` box on exactly the message people edit most,
-   the last one, so instead the row grows by a two-entry menu and the thread
-   scrolls, which it already does. `Edit` and, since #288, `Delete` beside it.
+   importable by a node script and `App.tsx` is not. It sits **beside** the
+   bubble rather than under it, so the row cannot grow taller when a menu opens,
+   and it is **one width in both of its states** (`--msg-menu-w`): a confirm
+   step wider than the menu it replaces pushes past the thread's edge, and
+   `.msgs` clips horizontally because it scrolls vertically. That is why the
+   confirm is a red `Sure?` beside `Cancel` rather than a question and two
+   answers. `Edit` and, since #288, `Delete` beside it.
+
+   **One at a time, and pressing away cancels.** `ThreadMessages` owns which row
+   has a menu or a box open; a row holding its own copy of that cannot close its
+   neighbour, which is how two edit boxes stood open at once. A press anywhere
+   that is not the open menu or the open box closes both — elsewhere in the
+   thread, on another bubble, or outside the card — and so does Escape. An
+   unsaved edit is discarded without a prompt: it was never promised back, and a
+   confirmation here would be a second dialog on the smallest surface in the
+   app.
 
    `Edit` swaps the row's text for a textarea in place (`.msg-edit`) with
    `Save` / `Cancel`, Enter to save and Shift+Enter for a newline, the same

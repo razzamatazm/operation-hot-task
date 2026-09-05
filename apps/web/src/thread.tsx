@@ -93,17 +93,20 @@ export const TermsSection = ({
  * the terms and the composer reads as something failing to load. It invites a
  * reply only when the viewer has a composer — an Observer, or anyone looking at
  * a task with no reply box, has nothing below to start. */
-/* How long a finger has to stay down before the menu opens on a touch screen.
-   Long enough not to fire on a tap that was meant to scroll the thread, short
-   enough that nobody wonders whether it worked. */
+/* How long a press has to last before the menu opens. Long enough not to fire
+   on a tap that was meant to scroll the thread, short enough that nobody
+   wonders whether it worked.
+   One number for touch and mouse alike since #297: the same gesture on both,
+   rather than a hover-revealed trigger on one and a long press on the other. */
 const LONG_PRESS_MS = 500;
 
-/* One reply row, and the only stateful thing in this file.
+/* One reply row.
  *
- * It is a component rather than markup inside the map because the edit box is
- * per-message state (#287): a draft, an open menu, and an in-flight save belong
- * to the row being edited, and hoisting them into `ThreadMessages` would mean
- * one "which message" variable that every row has to test itself against.
+ * Which row is open is NOT its own business since #297. A row holding its own
+ * "am I open" cannot close the others, which is how two edit boxes ended up on
+ * screen at once; `ThreadMessages` owns that one variable and hands each row
+ * its answer. What stays local is what belongs to the act rather than to the
+ * choice of row: the draft, the in-flight save, the delete confirmation.
  *
  * `onEdit` absent means the surface offers no editing at all — which is how the
  * sim tests and any future read-only renderer get the thread exactly as it was.
@@ -116,15 +119,22 @@ const MessageRow = ({
   task,
   viewerId,
   onEdit,
-  onDelete
+  onDelete,
+  menuOpen,
+  editing,
+  onMenu,
+  onEditing
 }: {
   note: StoredReviewNote;
   task: Pick<LoanTask, "status">;
   viewerId: string;
   onEdit?: (messageId: string, text: string) => Promise<void>;
   onDelete?: (messageId: string) => Promise<void>;
+  menuOpen: boolean;
+  editing: boolean;
+  onMenu: (open: boolean) => void;
+  onEditing: (editing: boolean) => void;
 }) => {
-  const [menuOpen, setMenuOpen] = useState(false);
   /* The second step of `Delete` (#288). The act has no undo — rule 4 refuses
      one on purpose — so the menu asks once, in place, rather than firing on a
      stray click on a two-entry menu whose other entry is harmless. */
@@ -132,38 +142,64 @@ const MessageRow = ({
   const [deleting, setDeleting] = useState(false);
   /* `undefined` is "not editing". An empty string is a real draft — the author
      has cleared the box — and the Save button refuses it, so the two states
-     cannot be the same value. */
+     cannot be the same value. The row above decides WHETHER this row is
+     editing; this decides what is in the box while it is. */
   const [draft, setDraft] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  /* Set when a hold completes, read by the click that arrives as the press
+     ends. Without it the press that opened the menu is also a click on the
+     bubble, and on a card whose every row is an expand toggle that click has
+     somewhere to land. */
+  const heldOpen = useRef(false);
+  const editRef = useRef<HTMLDivElement | null>(null);
 
-  /* A press anywhere else closes the menu. Not a nicety: on a touch screen the
-     trigger is `display: none` and the menu is opened by a long press, so
-     without this the only way out of an opened menu is to choose something from
-     it. On a pointer device it is also what stops every row's menu standing
-     open at once, since an open one pins its trigger visible.
-     Capture phase, like the card's own panels, so the close lands before
-     whatever was clicked acts on it. */
-  /* Closing the menu also takes the delete confirmation down with it: a menu
-     reopened later must not still be holding a "yes, delete it" the person
-     walked away from. */
   const closeMenu = (): void => {
-    setMenuOpen(false);
+    onMenu(false);
     setConfirmingDelete(false);
   };
 
+  /* A menu closed from outside — a press elsewhere, another row opening — must
+     not come back still holding a "yes, delete it" nobody confirmed. */
   useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (event: globalThis.PointerEvent): void => {
-      const target = event.target as Node | null;
-      if (target && menuRef.current?.contains(target)) return;
-      setMenuOpen(false);
-      setConfirmingDelete(false);
-    };
-    document.addEventListener("pointerdown", onDown, true);
-    return () => document.removeEventListener("pointerdown", onDown, true);
+    if (!menuOpen) setConfirmingDelete(false);
   }, [menuOpen]);
+
+  /* Bring the whole box into view when it opens. The box is taller than the
+     row it replaces and the thread is a fixed-height scroller, so on the last
+     message — the one people edit most — `Save` and `Cancel` open below the
+     fold, behind the reply composer.
+     The browser's own focus scroll is not enough: it stops as soon as the
+     textarea's TOP is visible, which is exactly the part that was never
+     hidden. So the container is nudged by however far the box's bottom
+     overshoots it, after a frame, once the box has its real height. */
+  useEffect(() => {
+    if (!editing) return;
+    const box = editRef.current;
+    const scroller = box?.closest(".msgs");
+    if (!box || !scroller) return;
+    const frame = requestAnimationFrame(() => {
+      /* 4px so the box's border and its focus ring clear the edge rather than
+         sitting flush against it. */
+      const overshoot = box.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom + 4;
+      if (overshoot > 0) scroller.scrollTop += overshoot;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editing]);
+
+  /* The box follows the same one owner. Opening it seeds the author's own
+     words; closing it, from here or from anywhere else, throws the draft away
+     — an edit nobody saved was never promised back. */
+  useEffect(() => {
+    if (editing) setDraft((d) => d ?? note.text);
+    else {
+      setDraft(undefined);
+      setSaving(false);
+    }
+    /* `note.text` deliberately absent: a re-render carrying newer text must not
+       overwrite what the author is part-way through typing. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   /* A message the store has not backfilled an identifier onto cannot be
      addressed, so it cannot be edited — the `StoredReviewNote` case #286 left
@@ -185,30 +221,53 @@ const MessageRow = ({
     }
   };
 
-  /* Tap-and-hold, the touch half of ADR-0009 rule 9. A touch screen has no
-     hover, so the trigger this reveals is invisible there and the press has to
-     open the menu itself. Pointer events rather than touch events so one
-     handler covers a pen as well, and `pointerType` keeps it off the mouse,
-     where a slow click must stay a click. */
-  const onPointerDown = (event: { pointerType: string }): void => {
-    if (!hasMenu || event.pointerType === "mouse") return;
+  /* Press and hold, ADR-0009 rule 9's gesture — now the only way in on every
+     kind of machine (#297). It used to be the touch half of a pair, with a
+     hover-revealed `⋯` for pointers; a control that only exists under a cursor
+     is one half the people using the app never find, and holding a message is
+     what everybody already does in every other chat they use.
+     Pointer events rather than touch events, so one handler covers a pen too,
+     and `pointerType` is no longer consulted: a slow click on your own message
+     is a hold, and there is nothing else a click on a bubble could have meant. */
+  const onPointerDown = (): void => {
+    if (!hasMenu) return;
+    heldOpen.current = false;
     cancelPress();
-    pressTimer.current = setTimeout(() => setMenuOpen(true), LONG_PRESS_MS);
+    pressTimer.current = setTimeout(() => {
+      heldOpen.current = true;
+      onMenu(true);
+    }, LONG_PRESS_MS);
+  };
+
+  /* Right-click is the same act on a desktop, and it is what somebody reaches
+     for first. Taking it also stops the OS menu landing on top of ours. */
+  const onContextMenu = (event: { preventDefault: () => void }): void => {
+    if (!hasMenu) return;
+    event.preventDefault();
+    cancelPress();
+    onMenu(true);
+  };
+
+  /* Swallow the click a completed hold delivers on the way up, before the row
+     underneath reads it as "collapse this card". */
+  const onClickCapture = (event: { preventDefault: () => void; stopPropagation: () => void }): void => {
+    if (!heldOpen.current) return;
+    heldOpen.current = false;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const startEditing = (): void => {
-    closeMenu();
-    /* The author's own words and nothing else. The app's label is not in the
-       box because rule 5 says it is not theirs to change — it is drawn beside
-       the box instead, so they can see the row will still read `Needs
-       fixes: ...` when they save. */
+    setConfirmingDelete(false);
+    /* The box opens with the author's own words and nothing else. The app's
+       label is not in it because rule 5 says it is not theirs to change — it is
+       drawn beside the box instead, so they can see the row will still read
+       `Needs fixes: ...` when they save. */
     setDraft(note.text);
+    onEditing(true);
   };
 
-  const stopEditing = (): void => {
-    setDraft(undefined);
-    setSaving(false);
-  };
+  const stopEditing = (): void => onEditing(false);
 
   const save = async (): Promise<void> => {
     if (draft === undefined || note.id === undefined || isEmptyMessageText(draft) || saving) return;
@@ -245,23 +304,14 @@ const MessageRow = ({
     }
   };
 
-  const editing = draft !== undefined;
   const byline = bylineOf(note.by.displayName, note.at);
   return (
-    <div
-      className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`}
-      title={byline}
-      onPointerDown={onPointerDown}
-      onPointerUp={cancelPress}
-      onPointerMove={cancelPress}
-      onPointerCancel={cancelPress}
-      onPointerLeave={cancelPress}
-    >
+    <div className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`} title={byline}>
       <ExpandAvatar name={note.by.displayName} />
       <div className="msg-body">
         <span className="sr-only">{byline}</span>
-        {editing ? (
-          <div className="msg-edit">
+        {editing && draft !== undefined ? (
+          <div className="msg-edit" ref={editRef}>
             <label className="sr-only" htmlFor={`msg-edit-${note.id}`}>
               Edit your message
             </label>
@@ -306,77 +356,66 @@ const MessageRow = ({
             </div>
           </div>
         ) : (
-          /* A tombstone is the same row, muted, saying the app's words instead
-             of the author's (#288, rule 4). It keeps the avatar, the byline and
-             its place in the list above and below it, which is what makes the
-             gap legible: you can see who withdrew something and roughly when.
-             `noteBodyText` is what decides the wording, so a withdrawn
-             send-back still reads `Needs fixes: message deleted` here and on the
-             Teams card without either surface knowing how. */
-          <div className={`msg-text${note.deleted ? " msg-deleted" : ""}`}>
-            {noteBodyText(note)}
-            {/* Rule 3, and the whole of what the thread says about an edit: no
-                time, and no route back to the previous wording. That lives in
-                the task's history. Never on a tombstone: there are no words
-                left for it to be a footnote on. */}
-            {note.edited && !note.deleted && <span className="msg-edited"> {MESSAGE_EDITED_MARKER}</span>}
-          </div>
-        )}
-        {hasMenu && !editing && (
-          <div
-            ref={menuRef}
-            className="msg-menu"
-            /* Escape closes the menu, and stops there: focus is inside this
-               wrapper whenever the menu is open, so nothing else needs to hear
-               it — and the card's own Escape handlers must not also fire and
-               take the whole row down with it. */
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && menuOpen) {
-                e.stopPropagation();
-                closeMenu();
-              }
-            }}
-          >
-            <button
-              type="button"
-              className="msg-menu-trigger"
-              aria-label="Message menu"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
+          /* The bubble (#297). It wraps to its own text rather than filling
+             the row, and holding it is what opens the menu — no hover-only
+             trigger, so the same gesture works on a phone and a desktop.
+             A tombstone is the same bubble, muted, saying the app's words
+             instead of the author's (#288, rule 4). It keeps the avatar, the
+             byline and its place in the list above and below it, which is what
+             makes the gap legible: you can see who withdrew something and
+             roughly when. `noteBodyText` is what decides the wording, so a
+             withdrawn send-back still reads `Needs fixes: message deleted`
+             here and on the Teams card without either surface knowing how. */
+          <div className="msg-line">
+            <div
+              className={`msg-bubble${note.deleted ? " msg-deleted" : ""}${
+                hasMenu ? " msg-bubble-holdable" : ""
+              }${menuOpen ? " msg-bubble-held" : ""}`}
+              /* The one hook the sim tests count to ask "does this row offer a
+                 menu at all", now that there is no trigger element to find. */
+              data-holdable={hasMenu ? "true" : undefined}
+              onPointerDown={onPointerDown}
+              onPointerUp={cancelPress}
+              onPointerMove={cancelPress}
+              onPointerCancel={cancelPress}
+              onPointerLeave={cancelPress}
+              onContextMenu={onContextMenu}
+              onClickCapture={onClickCapture}
             >
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="5" cy="12" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="19" cy="12" r="2" />
-              </svg>
-            </button>
-            {/* Opens in the row's own flow rather than as a portaled panel, the
-                one panel in this app that does. The thread is a 178px scrolling
-                box, so a panel taken out of flow is clipped by its own
-                container on exactly the message people edit most — the last one
-                — and escaping the box the way the card's menus do means the
-                placement machinery in `App.tsx`, which this file deliberately
-                cannot import. A two-entry menu is small enough to sit in the
-                row instead; #288's `Delete` joins it here. */}
+              {noteBodyText(note)}
+              {/* Rule 3, and the whole of what the thread says about an edit: no
+                  time, and no route back to the previous wording. That lives in
+                  the task's history. Never on a tombstone: there are no words
+                  left for it to be a footnote on. */}
+              {note.edited && !note.deleted && <span className="msg-edited"> {MESSAGE_EDITED_MARKER}</span>}
+            </div>
+            {/* Beside the bubble, in the row's own flow — never over it and
+                never below it. Still not a portaled panel: the thread is a
+                178px scrolling box and `thread.tsx` is deliberately importable
+                by a node script, so the placement machinery in `App.tsx` is out
+                of reach. Sitting in the row instead means the row cannot grow
+                taller when a menu opens, which a panel under the bubble did. */}
             {menuOpen && (
               <div className="msg-menu-panel" role="menu">
                 {/* The confirmation replaces the menu rather than opening a
                     dialog over it: the row is already the smallest surface in
                     the app, and a modal for two words costs more than the
-                    mistake it prevents. Escape and a press anywhere else both
+                    mistake it prevents. It has to fit the same strip the menu
+                    occupies — a wider confirm step pushes past the thread's
+                    edge, and the scroll box clips horizontally — so the red
+                    word is the question. Escape and a press anywhere else both
                     back out of it, the same way they back out of the menu. */}
                 {confirmingDelete ? (
                   <>
-                    <span className="msg-menu-confirm">Delete this message?</span>
                     <button
                       type="button"
                       role="menuitem"
                       className="msg-menu-danger"
+                      aria-label="Confirm deleting this message"
                       disabled={deleting}
                       onClick={() => void remove()}
                     >
-                      {deleting ? "Deleting…" : "Delete"}
+                      {deleting ? "Deleting…" : "Sure?"}
                     </button>
                     <button type="button" role="menuitem" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
                       Cancel
@@ -427,6 +466,74 @@ export const ThreadMessages = ({
   onDeleteMessage?: (messageId: string) => Promise<void>;
 }) => {
   const opensWithOriginatingNote = standingTermsFor(task) === undefined;
+  /* One menu and one edit box across the whole thread (#297). This is the
+     variable the rows used to each hold a copy of, which is why two boxes could
+     stand open at once: a row that only knows about itself cannot close its
+     neighbour. Two ids rather than one union because they are not alternatives
+     to each other — opening either closes both, but the closing is done here,
+     in one place, rather than by every row testing itself against a mode. */
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const closeAll = (): void => {
+    setMenuId(null);
+    setEditingId(null);
+  };
+
+  /* A press anywhere outside the thread is a cancel — for the menu and for the
+     edit box alike. Capture phase, like the card's own panels, so the close
+     lands before whatever was pressed acts on it. It deliberately does not ask
+     whether the box has typing in it: an edit nobody saved was never promised
+     back, and a prompt here would be a second confirmation on a surface whose
+     whole point is that it is small. */
+  useEffect(() => {
+    if (menuId === null && editingId === null) return;
+    const onDown = (event: globalThis.PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && listRef.current?.contains(target)) return;
+      closeAll();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [menuId, editingId]);
+
+  /* Inside the thread, a press on anything that is not the open menu or the
+     open box is also a cancel: a different bubble, or the gap between two of
+     them. The menu and the box are exempt or `Edit` would be closed before its
+     own click landed. A hold on the newly pressed bubble still opens that row a
+     moment later, which is the gesture doing what it looks like it does. */
+  const onListPointerDown = (event: React.PointerEvent): void => {
+    if (menuId === null && editingId === null) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".msg-menu-panel") || target?.closest(".msg-edit")) return;
+    closeAll();
+  };
+
+  /* Escape closes whatever is open and stops there — the card's own Escape
+     handlers must not also fire and take the whole row down with it. The
+     textarea keeps its own handler for the same reason it always had one:
+     focus is inside the box, and this listener never sees the key first. */
+  const onListKeyDown = (event: React.KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    if (menuId === null && editingId === null) return;
+    event.stopPropagation();
+    closeAll();
+  };
+
+  const rowState = (id: string) => ({
+    menuOpen: menuId === id,
+    editing: editingId === id,
+    onMenu: (open: boolean) => {
+      setMenuId(open ? id : null);
+      if (open) setEditingId(null);
+    },
+    onEditing: (editing: boolean) => {
+      setEditingId(editing ? id : null);
+      setMenuId(null);
+    }
+  });
+
   /* Tombstones are members of this list like any other message (#288, rule 4),
      which is the whole of what makes the empty state below correct: a thread
      holding only a withdrawn message is not an empty conversation, and saying
@@ -441,13 +548,15 @@ export const ThreadMessages = ({
     );
   }
   return (
-    <>
+    <div className="msgs-list" ref={listRef} onPointerDown={onListPointerDown} onKeyDown={onListKeyDown}>
       {opensWithOriginatingNote && (
         <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
           <ExpandAvatar name={task.createdBy.displayName} />
           <div className="msg-body">
             <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
-            <div className="msg-text">{task.notes}</div>
+            <div className="msg-line">
+              <div className="msg-bubble">{task.notes}</div>
+            </div>
           </div>
         </div>
       )}
@@ -466,10 +575,11 @@ export const ThreadMessages = ({
           note={note}
           task={task}
           viewerId={viewerId}
+          {...rowState(note.id ?? `at:${note.at}:${i}`)}
           {...(onEditMessage ? { onEdit: onEditMessage } : {})}
           {...(onDeleteMessage ? { onDelete: onDeleteMessage } : {})}
         />
       ))}
-    </>
+    </div>
   );
 };

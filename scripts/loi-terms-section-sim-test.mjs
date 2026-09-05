@@ -156,7 +156,7 @@ test("an LOI with no replies shows an empty conversation, not its terms", () => 
   assert.match(markup, /class="msgs-empty"/, "the conversation says it is empty");
   assert.match(markup, /No messages yet/);
   assert.ok(!markup.includes(TERMS), "and the terms are nowhere in it");
-  assert.ok(!markup.includes("msg-text"), "there is no message row at all");
+  assert.ok(!markup.includes("msg-bubble"), "there is no message row at all");
 });
 
 test("the empty state only invites a reply from someone who has a reply box", () => {
@@ -256,7 +256,7 @@ test("App.tsx draws these components and paints no notes row of its own", () => 
   assert.match(app, /<TermsSection\b/, "the card renders the terms section");
   assert.match(app, /<ThreadMessages\b/, "and the message list under test");
   assert.ok(
-    !/msg-text/.test(app),
+    !/msg-bubble/.test(app),
     "App.tsx no longer builds message rows itself — a second copy could echo the terms again"
   );
 });
