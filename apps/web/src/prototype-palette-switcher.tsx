@@ -20,6 +20,12 @@ const STOPS: Stop[] = [
   { key: "c", name: "C — Graphite", swatches: ["#131517", "#24272a", "#8d9399", "#ff7d5c", "#edeff1"] },
   { key: "d", name: "D — Deep Teal", swatches: ["#0e1a1a", "#1a2e2c", "#7f9c97", "#f0c46e", "#e9f2ef"] },
   { key: "e", name: "E — Plum Noir", swatches: ["#110f16", "#221e2c", "#8f86a2", "#e58ac9", "#f3eff8"] },
+  /* Round 2 — A's neutrals fixed, accent layer varying. Swatches show the
+     four signal colours (good/warn/hot/bad) rather than the grounds, since
+     the grounds are identical across these three. */
+  { key: "a1", name: "A1 — Cool Signals", swatches: ["#6fe0c2", "#e8cf7a", "#f5a08d", "#ff85a8", "#8f8ff0"] },
+  { key: "a2", name: "A2 — Two Signals, plain chips", swatches: ["#86d8f0", "#e3b96a", "#e3b96a", "#ff7a9c", "#3a3a78"] },
+  { key: "a3", name: "A3 — Indigo & Gold", swatches: ["#7fd6ac", "#e8c46a", "#f0a86e", "#f2808e", "#eac272"] },
 ];
 
 const readKey = (): string => {

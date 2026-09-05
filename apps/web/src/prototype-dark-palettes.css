@@ -261,3 +261,148 @@
   border-radius: 3px;
   border: 1px solid rgba(0, 0, 0, 0.35);
 }
+
+/* ══ Round 2 ══════════════════════════════════════════════════════════
+   A's indigo neutrals are settled. What's left is the accent layer: the
+   status colours (overdue red, urgency orange, the green "good") and the
+   per-person avatar chips, all of which were generic dark-theme pastels
+   dropped onto an indigo ground and read as borrowed from another app.
+
+   A1 / A2 / A3 carry IDENTICAL neutrals to A — same bg, panel, ink,
+   hairlines. Only --good/--warn/--hot/--bad, their tints, --brand and the
+   eight --avatar-* slots move, so anything you notice between them is the
+   accent layer and nothing else. Three different theories about why the
+   accents clashed. */
+
+/* ── A1 — Cool Signals ─────────────────────────────────────────────
+   Theory: nothing in an indigo scheme should be warm. Every signal is
+   rotated to the cool side of its own hue — red becomes rose, orange
+   becomes coral, green becomes mint — so they share the ground's blue
+   undertone instead of sitting on top of it. Person chips become an
+   all-cool set. */
+:root[data-theme="dark"][data-palette="a1"] {
+  --bg: #14143a;
+  --bg-soft: #1a1a40;
+  --panel: #23234f;
+  --ink: #f5f5ff;
+  --ink-secondary: #d3d3e6;
+  --muted: #a9a9c8;
+  --line: #7f7fb0;
+  --line-soft: #6d6d98;
+  --brand: #aeaef0;
+  --brand-hover: #c8c8ff;
+  --brand-soft: #2b2b60;
+  --on-accent: #14143a;
+  --good: #6fe0c2;
+  --good-bg: #1b3a4e;
+  --warn: #e8cf7a;
+  --warn-bg: #33305a;
+  --hot: #f5a08d;
+  --hot-bg: #3a2b52;
+  --bad: #ff85a8;
+  --bad-bg: #3d2350;
+  --row-alt: rgba(255, 255, 255, 0.02);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --focus-ring: 0 0 0 2px rgba(174, 174, 240, 0.45);
+  --avatar-1: #8f8ff0;
+  --avatar-2: #6fb0e8;
+  --avatar-3: #5fc8d8;
+  --avatar-4: #b48ff0;
+  --avatar-5: #e88fc4;
+  --avatar-6: #7fc8b0;
+  --avatar-7: #9aa8e0;
+  --avatar-8: #c8a0e8;
+  --avatar-ink: #14143a;
+}
+
+/* ── A2 — Two Signals ──────────────────────────────────────────────
+   Theory: the clash isn't the hues, it's how many of them there are.
+   The scheme keeps one alarm colour (rose) and one calm colour (ice
+   blue); urgency's orange and yellow collapse into a single muted amber.
+   Person chips go fully monochrome — one recessed violet for everyone,
+   identity carried by the initials, the way the contrast theme already
+   does it. The quietest of the three. */
+:root[data-theme="dark"][data-palette="a2"] {
+  --bg: #14143a;
+  --bg-soft: #1a1a40;
+  --panel: #23234f;
+  --ink: #f5f5ff;
+  --ink-secondary: #d3d3e6;
+  --muted: #a9a9c8;
+  --line: #7f7fb0;
+  --line-soft: #6d6d98;
+  --brand: #aeaef0;
+  --brand-hover: #c8c8ff;
+  --brand-soft: #2b2b60;
+  --on-accent: #14143a;
+  --good: #86d8f0;
+  --good-bg: #1c3450;
+  --warn: #e3b96a;
+  --warn-bg: #322c52;
+  --hot: #e3b96a;
+  --hot-bg: #322c52;
+  --bad: #ff7a9c;
+  --bad-bg: #40234a;
+  --row-alt: rgba(255, 255, 255, 0.02);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --focus-ring: 0 0 0 2px rgba(174, 174, 240, 0.45);
+  --avatar-1: #3a3a78;
+  --avatar-2: #3a3a78;
+  --avatar-3: #3a3a78;
+  --avatar-4: #3a3a78;
+  --avatar-5: #3a3a78;
+  --avatar-6: #3a3a78;
+  --avatar-7: #3a3a78;
+  --avatar-8: #3a3a78;
+  --avatar-ink: #e2e2f5;
+}
+
+/* ── A3 — Indigo & Gold ────────────────────────────────────────────
+   Theory: the warm accents looked wrong because they were the only warm
+   thing in the frame. So the scheme grows a warm anchor — the primary
+   action colour goes gold instead of lavender — and the warm signals read
+   as part of the design rather than as intrusions. Genuinely warm
+   urgency, kept, and made to belong. Loudest of the three. */
+:root[data-theme="dark"][data-palette="a3"] {
+  --bg: #14143a;
+  --bg-soft: #1a1a40;
+  --panel: #23234f;
+  --ink: #f5f5ff;
+  --ink-secondary: #d3d3e6;
+  --muted: #a9a9c8;
+  --line: #7f7fb0;
+  --line-soft: #6d6d98;
+  --brand: #eac272;
+  --brand-hover: #ffda94;
+  --brand-soft: #332c52;
+  --on-accent: #14143a;
+  --good: #7fd6ac;
+  --good-bg: #1e3a46;
+  --warn: #e8c46a;
+  --warn-bg: #33305a;
+  --hot: #f0a86e;
+  --hot-bg: #3a2c4c;
+  --bad: #f2808e;
+  --bad-bg: #3d2348;
+  --row-alt: rgba(255, 255, 255, 0.02);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --focus-ring: 0 0 0 2px rgba(234, 194, 114, 0.45);
+  --avatar-1: #eac272;
+  --avatar-2: #8f9ff0;
+  --avatar-3: #6fc8c0;
+  --avatar-4: #c09aee;
+  --avatar-5: #ef9f7c;
+  --avatar-6: #b9c87a;
+  --avatar-7: #9aa6d8;
+  --avatar-8: #e290bc;
+  --avatar-ink: #14143a;
+}

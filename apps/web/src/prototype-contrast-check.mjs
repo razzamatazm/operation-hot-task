@@ -21,11 +21,13 @@ const ratio = (a, b) => {
   return (x + 0.05) / (y + 0.05);
 };
 
-const blocks = [...css.matchAll(/\[data-palette="(\w)"\]\s*\{([^}]*)\}/g)];
+const blocks = [...css.matchAll(/\[data-palette="([\w-]+)"\]\s*\{([^}]*)\}/g)];
 const SHIPPING = {
   key: "current", panel: "#1e2129", bg: "#111318", ink: "#e8e6e1", "ink-secondary": "#a09b91",
   muted: "#b3b5ba", line: "#989ca4", "line-soft": "#75787f", brand: "#c9903f", "on-accent": "#14171c",
   good: "#5ec97e", warn: "#e0b44a", hot: "#e8944a", bad: "#e66b6b",
+  "avatar-ink": "#14171c", "avatar-1": "#e0b44a", "avatar-2": "#6da3e0", "avatar-3": "#4fc4b0",
+  "avatar-4": "#b083c9", "avatar-5": "#e0805a", "avatar-6": "#9ac25a", "avatar-7": "#8fa3c9", "avatar-8": "#d97fb0",
 };
 
 const parsed = blocks.map(([, key, body]) => {
@@ -50,6 +52,9 @@ for (const p of [SHIPPING, ...parsed]) {
     ["warn vs panel", ratio(p.warn, p.panel), 4.5],
     ["hot vs panel", ratio(p.hot, p.panel), 4.5],
     ["bad vs panel", ratio(p.bad, p.panel), 4.5],
+    /* Initials sit on the chip, so every avatar slot has to carry the one
+       --avatar-ink. Reported as the worst of the eight. */
+    ["avatar-ink vs chips", Math.min(...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ratio(p["avatar-ink"], p[`avatar-${n}`]))), 4.5],
   ];
   console.log(`\n── palette ${p.key} ──`);
   for (const [label, value, floor] of checks) {
