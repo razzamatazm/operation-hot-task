@@ -632,7 +632,7 @@ nested card chrome, in this order:
    importable by a node script and `App.tsx` is not. Taken out of flow it would
    be clipped by the 178px `.msgs` box on exactly the message people edit most,
    the last one, so instead the row grows by a two-entry menu and the thread
-   scrolls, which it already does. `Edit` today, `Delete` beside it in #288.
+   scrolls, which it already does. `Edit` and, since #288, `Delete` beside it.
 
    `Edit` swaps the row's text for a textarea in place (`.msg-edit`) with
    `Save` / `Cancel`, Enter to save and Shift+Enter for a newline, the same
@@ -643,6 +643,21 @@ nested card chrome, in this order:
    `(edited)` (`.msg-edited`, body face — it is a word, not a badge) running on
    from its last line, with no edit time and no route back to the previous
    wording; that lives in the task's history.
+
+   `Delete` (#288, rule 4) sits under `Edit` in the bad accent
+   (`.msg-menu-danger`) and asks once before it fires: the panel swaps to
+   `Delete this message?` (`.msg-menu-confirm`) with `Delete` / `Cancel`, since
+   the act has no undo and the entry beside it is harmless. What it leaves is a
+   **tombstone** — the same row, muted and italic (`.msg-deleted`), still
+   wearing its author's initials and byline and still in its original position,
+   reading `Message deleted` or `Needs fixes: message deleted` on a withdrawn
+   send-back. The words come from shared `noteBodyText`, so the Teams card's
+   quoted thread says the same thing. A tombstone carries **no menu at all**:
+   both halves come off the shared `canEditMessage` / `canDeleteMessage`, which
+   refuse one, so there is no undelete and no editing it back into a message.
+   It still counts as a message — it is a member of `reviewNotes`, so the
+   collapsed row's count includes it and a thread holding only a tombstone
+   renders the tombstone rather than `.msgs-empty`.
 
 The body **ends on the notes thread**. It used to close with a compact
 Created / Due meta row; that moved into the hamburger in #166 — reference

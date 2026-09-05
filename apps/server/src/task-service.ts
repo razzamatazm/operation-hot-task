@@ -8,10 +8,13 @@ import {
   TASK_ARCHIVED_ACTION,
   TASK_COMPLETED_ACTION,
   REVIEW_NOTE_EDITED_ACTION,
+  REVIEW_NOTE_DELETED_ACTION,
   EMPTY_MESSAGE_REFUSAL,
+  deleteMessageInThread,
   editMessageInThread,
   findMessageInThread,
   isEmptyMessageText,
+  messageDeleteRefusal,
   messageEditRefusal,
   closureActionFor,
   completionTargetStatus,
@@ -1652,6 +1655,61 @@ export class TaskService {
     }));
 
     this.background(() => this.resyncTaskCards(updated.id), { method: "editReviewNote", taskId: updated.id });
+
+    return updated;
+  }
+
+  /* Withdraw a message you posted (#288, ADR-0009 rule 4). `editReviewNote`'s
+     twin, and deliberately its twin down to the shape: the same lookup, the
+     same shared refusal, the same history-row-then-write-then-silent-resync,
+     and the same three things it does not touch — status, `completedAt` and
+     `updatedAt`. Everything said about silence up there is true here: no DM, no
+     activity-feed ping, no channel post, and the task holds its place in the
+     done list and the archive, because withdrawing a sentence is not activity
+     on the task either.
+
+     One addition, and it lives nowhere near here: a withdrawn message is not
+     something to read, so the shared unread walk skips a tombstone. That is a
+     clause inside `unreadNoteFor`, not a check this method makes, because the
+     signal has to clear for a viewer whose acknowledgement never moves — nobody
+     visits the task — and a service that "cleared" it would be writing
+     somebody else's seen-marker.
+
+     The DM card resync is what makes a card sitting in a chat stop quoting the
+     words their author just took back. It is the same silent path the edit and
+     a checklist write use: it creates nothing and pings nobody.
+
+     No `deleted` payload and no undo endpoint. Rule 4 is one way, and the
+     refusal for a second delete comes off the shared rule rather than from a
+     quiet no-op here. */
+  async deleteReviewNote(taskId: string, messageId: string, user: UserIdentity): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+
+    const note = findMessageInThread(task, messageId);
+    if (!note) {
+      throw new Error("Message not found");
+    }
+
+    const refusal = messageDeleteRefusal(task, note, user);
+    if (refusal) {
+      throw new Error(refusal);
+    }
+
+    /* Written before the words are gone, and the only surviving copy of them
+       once they are (rule 7). The author's own words: the app's label stays on
+       the row, so it was never withdrawn and quoting it here would say it was. */
+    const event = this.makeHistory(
+      task.id,
+      user,
+      REVIEW_NOTE_DELETED_ACTION,
+      `Message deleted, was "${note.text}"`
+    );
+    const updated = await this.writeTask(task.id, (current) => ({
+      task: { ...current, reviewNotes: deleteMessageInThread(current.reviewNotes ?? [], messageId) },
+      event
+    }));
+
+    this.background(() => this.resyncTaskCards(updated.id), { method: "deleteReviewNote", taskId: updated.id });
 
     return updated;
   }

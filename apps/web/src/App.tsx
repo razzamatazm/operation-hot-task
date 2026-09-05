@@ -1470,6 +1470,7 @@ const TaskCard = memo(({
   onRelease,
   onAddReviewNote,
   onEditMessage,
+  onDeleteMessage,
   onAddCompletedNote,
   onUpdatePoints,
   onEditTask,
@@ -1500,6 +1501,10 @@ const TaskCard = memo(({
      own identifier, not its position: the thread hands back what it was given,
      and the server is the one that decides whether the author may. */
   onEditMessage: (taskId: string, messageId: string, text: string) => Promise<void>;
+  /* Withdraw a message you posted (#288, ADR-0009 rule 4). One way and no
+     payload: the thread hands back the identifier it was given, and the server
+     decides whether the author may. */
+  onDeleteMessage: (taskId: string, messageId: string) => Promise<void>;
   /* Append a note to an already-COMPLETED task (#45). Server keeps the task
      COMPLETED — no visible reopen. */
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
@@ -1748,6 +1753,14 @@ const TaskCard = memo(({
   const editMessage = useCallback(
     (messageId: string, text: string): Promise<void> => onEditMessage(task.id, messageId, text),
     [onEditMessage, task.id]
+  );
+
+  /* And the delete handler beside it (#288), bound the same way and for the
+     same reason: no `acknowledgeUnread` either. Withdrawing your own sentence
+     is not reading somebody else's. */
+  const deleteMessage = useCallback(
+    (messageId: string): Promise<void> => onDeleteMessage(task.id, messageId),
+    [onDeleteMessage, task.id]
   );
 
   /* Share: point one person at this task. Candidates exclude the current user
@@ -2431,7 +2444,13 @@ const TaskCard = memo(({
     <>
       <div className="thread-head">{threadHeadLabel(task)}</div>
       <div className="msgs" ref={reviewListRef}>
-        <ThreadMessages task={task} viewerId={user.id} canReply={canPostNote} onEditMessage={editMessage} />
+        <ThreadMessages
+          task={task}
+          viewerId={user.id}
+          canReply={canPostNote}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
+        />
       </div>
       {canPostNote && (
         <div className="composer">
@@ -2670,6 +2689,7 @@ const CardList = ({
   onRelease,
   onAddReviewNote,
   onEditMessage,
+  onDeleteMessage,
   onAddCompletedNote,
   onUpdatePoints,
   onEditTask,
@@ -2701,6 +2721,10 @@ const CardList = ({
      own identifier, not its position: the thread hands back what it was given,
      and the server is the one that decides whether the author may. */
   onEditMessage: (taskId: string, messageId: string, text: string) => Promise<void>;
+  /* Withdraw a message you posted (#288, ADR-0009 rule 4). One way and no
+     payload: the thread hands back the identifier it was given, and the server
+     decides whether the author may. */
+  onDeleteMessage: (taskId: string, messageId: string) => Promise<void>;
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
   onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   /* Open the edit form on this task (#260). App owns the form and the save, so
@@ -2744,6 +2768,7 @@ const CardList = ({
           onRelease={onRelease}
           onAddReviewNote={onAddReviewNote}
           onEditMessage={onEditMessage}
+          onDeleteMessage={onDeleteMessage}
           onAddCompletedNote={onAddCompletedNote}
           onUpdatePoints={onUpdatePoints}
           onEditTask={onEditTask}
@@ -3939,6 +3964,24 @@ export const App = () => {
     }
   }, [user, refresh, showToast]);
 
+  /* Withdraw a message you posted (#288, ADR-0009 rule 4). The edit's twin: one
+     narrow request on the message's own identifier, then the usual refresh, and
+     silence on success for the same reason — the row redrawing as `Message
+     deleted` is the whole of the feedback, and a toast announcing it would be
+     the app being noisier about a withdrawal than it is about the message.
+
+     Re-thrown after the toast like the edit, because the menu that called it is
+     waiting to know whether to close. */
+  const onDeleteMessage = useCallback(async (taskId: string, messageId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/messages/${messageId}`, { method: "DELETE" }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to delete the message", { variant: "error" });
+      throw err;
+    }
+  }, [user, refresh, showToast]);
+
   /* Add a note to a COMPLETED task (#45). Hits the server-atomic endpoint that
      appends the note while keeping the task COMPLETED — no visible reopen. */
   const onAddCompletedNote = useCallback(async (taskId: string, text: string): Promise<void> => {
@@ -4382,6 +4425,7 @@ export const App = () => {
       onRelease,
       onAddReviewNote,
       onEditMessage,
+      onDeleteMessage,
       onAddCompletedNote,
       onUpdatePoints,
       onEditTask,

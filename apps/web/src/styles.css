@@ -2349,6 +2349,32 @@ button.btn-good:hover {
   font-size: 0.82rem;
   color: var(--ink);
 }
+/* `Delete` reads in the bad accent, on both steps (#288). It is the one entry
+   here with no undo — rule 4 refuses one deliberately — so it does not look
+   like `Edit`. Ink only, not a filled `.btn-danger`: this is a menu entry, and
+   a filled button inside a two-entry panel would be shouting. */
+.msg-menu-danger {
+  --btn-bg-hover: var(--bad-bg);
+  color: var(--bad);
+}
+/* The confirmation's question, above the two answers. Not a button and not in
+   the tab order — it is the panel telling you what you are about to do. */
+.msg-menu-confirm {
+  padding: 6px 10px 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* The tombstone (#288, ADR-0009 rule 4). The same row, muted, in the same place
+   in the thread, still wearing its author's initials — an attributed gap reads
+   better than an anonymous one, which is the whole reason the row stays. The
+   words come from shared `noteBodyText`, so a withdrawn send-back says `Needs
+   fixes: message deleted` here and on the Teams card alike. Italic and muted so
+   it reads as the app speaking rather than as something somebody typed. */
+.msg-deleted {
+  color: var(--muted);
+  font-style: italic;
+}
 
 /* The message turned into a box in place. Same face and size as the text it
    replaces, so the row does not jump when it opens. */

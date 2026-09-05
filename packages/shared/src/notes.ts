@@ -38,10 +38,21 @@ export const standingTermsFor = (task: Pick<LoanTask, "taskType" | "notes">): st
    Deliberately not exported. It is half of the attention question, and handing
    half out is what #161 was: a caller took the note lookup, paired it with its
    own idea of who counts, and got the second half wrong. Callers ask
-   `unreadNoteFor` instead and get the whole answer. */
+   `unreadNoteFor` instead and get the whole answer.
+
+   Three clauses now, not two. A withdrawn message is **not something to read**
+   (#288, ADR-0009 rule 6): sending somebody to a task to find `Message deleted`
+   spends their attention on nothing, so a tombstone is skipped here and the
+   signal falls back to whatever else is genuinely outstanding — often nothing,
+   which is the point. This is the first time this walk has had to care about a
+   message's state rather than only its author and its time, and the clause
+   lives here, inside the one function that owns the rule, precisely so that no
+   caller is tempted to pair `hasUnreadNoteForViewer` with an "…and is it
+   deleted" of its own. That pairing is #161. */
 const latestNoteFromOther = (task: LoanTask, userId: string): string => {
   let latest = "";
   for (const n of task.reviewNotes ?? []) {
+    if (n.deleted) continue;
     if (n.by.id !== userId && n.at > latest) latest = n.at;
   }
   return latest;
@@ -130,6 +141,19 @@ export const NOTE_LABELS: readonly string[] = Array.from(
   new Set([...HISTORIC_NOTE_PREFIXES, ACTION_LABELS.NEEDS_FIXES])
 );
 
+/* The words a withdrawn message is replaced by (#288, ADR-0009 rule 4). One
+   constant, because the thread, the Teams card and the tests all have to say
+   the same thing, and because the words are the product's.
+
+   Sentence case standing alone, lower case when it follows the app's label, so
+   a withdrawn send-back reads `Needs fixes: message deleted` rather than
+   sprouting a capital mid-sentence. Derived from the one string rather than
+   written twice: two literals is two things to change when the wording does. */
+export const MESSAGE_DELETED_BODY = "Message deleted";
+
+const tombstoneBody = (labelled: boolean): string =>
+  labelled ? `${MESSAGE_DELETED_BODY.charAt(0).toLowerCase()}${MESSAGE_DELETED_BODY.slice(1)}` : MESSAGE_DELETED_BODY;
+
 /* What a message reads as. The ONE place a label and an author's words are put
    back together, so no surface has to know that they were ever apart, and so
    none of them can join them differently.
@@ -138,9 +162,16 @@ export const NOTE_LABELS: readonly string[] = Array.from(
    thread. A message with no label reads as its text and nothing else, which is
    why moving a prefix out of `text` and into `label` changes nothing anybody
    sees. Asserted against `needsFixesNote`, which is how the prefix was written
-   before it was a label: the two must produce the same sentence. */
-export const noteBodyText = (note: Pick<ReviewNote, "label" | "text">): string =>
-  `${noteLabelPrefix(note)}${note.text}`;
+   before it was a label: the two must produce the same sentence.
+
+   A tombstone reads as the app's words under the author's label (#288): the
+   label survives the delete exactly as it survives an edit, because the author
+   owns the words and the app owns the row's reason for existing. Putting that
+   here rather than in each renderer is what makes the Teams card's quoted
+   thread show a tombstone as a tombstone — never as the old text, never as a
+   blank — without the card builder knowing the state exists. */
+export const noteBodyText = (note: Pick<ReviewNote, "label" | "text" | "deleted">): string =>
+  `${noteLabelPrefix(note)}${note.deleted ? tombstoneBody(Boolean(note.label)) : note.text}`;
 
 /* The app's half of the sentence, ending in its separator, or an empty string
    on a message the app has nothing to say about.
@@ -226,7 +257,8 @@ export const MESSAGE_EDITED_MARKER = "(edited)";
    one: the server throws it and the web can show it, so there is one sentence
    for one rule instead of a predicate here and copy somewhere else.
 
-   Two clauses and no more.
+   Three clauses and no more, shared with the delete rule below through
+   `messageChangeRefusal` — the two differ in their wording and in nothing else.
 
    **The author, and only the author** (rule 1). Not the other party, not an
    observer, not an admin — narrower than ADR-0008's field rules, which admit
@@ -251,27 +283,84 @@ export const MESSAGE_EDITED_MARKER = "(edited)";
    conversation on. If it is ever decided the other way, this is the line that
    changes and nothing else.
 
+   **A tombstone is neither editable nor deletable** (#288, rule 4). One way:
+   there is no undelete, and an edit box on a withdrawn message would be one by
+   another name.
+
    Takes the two fields it reads rather than a whole task, so the thread — which
    holds a narrow `Pick` — can ask it without widening itself. */
-export const messageEditRefusal = (
+const messageChangeRefusal = (
   task: Pick<LoanTask, "status">,
-  note: Pick<ReviewNote, "by">,
-  user: Pick<UserIdentity, "id">
+  note: Pick<ReviewNote, "by" | "deleted">,
+  user: Pick<UserIdentity, "id">,
+  words: { notAuthor: string; archived: string; tombstoned: string }
 ): string | undefined => {
-  if (note.by.id !== user.id) return "Only the person who wrote a message can edit it";
-  if (task.status === "ARCHIVED") return "Messages cannot be edited on an archived task";
+  if (note.by.id !== user.id) return words.notAuthor;
+  if (task.status === "ARCHIVED") return words.archived;
+  if (note.deleted) return words.tombstoned;
   return undefined;
 };
 
-/* The same question as a predicate, for the thread deciding whether to draw the
-   menu on a row. The server asks for the sentence; the UI only needs the
-   yes/no, and both come off the one rule above — hiding the control is a
-   courtesy, the refusal is the enforcement. */
+export const messageEditRefusal = (
+  task: Pick<LoanTask, "status">,
+  note: Pick<ReviewNote, "by" | "deleted">,
+  user: Pick<UserIdentity, "id">
+): string | undefined =>
+  messageChangeRefusal(task, note, user, {
+    notAuthor: "Only the person who wrote a message can edit it",
+    archived: "Messages cannot be edited on an archived task",
+    tombstoned: "A deleted message cannot be edited"
+  });
+
+/* Why this person may not withdraw this message, or `undefined` when they may
+   (#288, ADR-0009 rule 4).
+
+   The same three clauses, deliberately — one rule, asked twice with different
+   words. Edit and delete are the same menu on the same rows under the same
+   permission, and the fastest way to end up with a message you can delete but
+   not edit is to write the rule out a second time.
+
+   The third clause is what "one way" means: a tombstone is not deletable
+   either, so a second delete is a refusal rather than a silent no-op that
+   writes a history row about nothing.
+
+   Inherits #287's open question, unchanged and on purpose: archival is the
+   gate, so a CANCELLED task's messages are still deletable even though a
+   cancelled task refuses new ones. Following the letter here keeps edit and
+   delete a single rule; if it is ever decided the other way, the status clause
+   in `messageChangeRefusal` is the one line that changes, and it changes for
+   both at once. */
+export const messageDeleteRefusal = (
+  task: Pick<LoanTask, "status">,
+  note: Pick<ReviewNote, "by" | "deleted">,
+  user: Pick<UserIdentity, "id">
+): string | undefined =>
+  messageChangeRefusal(task, note, user, {
+    notAuthor: "Only the person who wrote a message can delete it",
+    archived: "Messages cannot be deleted on an archived task",
+    tombstoned: "This message has already been deleted"
+  });
+
+/* The same questions as predicates, for the thread deciding what to draw on a
+   row. The server asks for the sentence; the UI only needs the yes/no, and both
+   come off the one rule above — hiding the control is a courtesy, the refusal
+   is the enforcement.
+
+   Two predicates rather than one because the menu is not all-or-nothing on a
+   tombstone: the row keeps neither entry today, but `Edit` is the one that must
+   never come back on one, and a single `canChangeMessage` would let a later
+   change offer it by accident. */
 export const canEditMessage = (
   task: Pick<LoanTask, "status">,
-  note: Pick<ReviewNote, "by">,
+  note: Pick<ReviewNote, "by" | "deleted">,
   user: Pick<UserIdentity, "id">
 ): boolean => messageEditRefusal(task, note, user) === undefined;
+
+export const canDeleteMessage = (
+  task: Pick<LoanTask, "status">,
+  note: Pick<ReviewNote, "by" | "deleted">,
+  user: Pick<UserIdentity, "id">
+): boolean => messageDeleteRefusal(task, note, user) === undefined;
 
 /* An edit may not empty a message (rule 4). Deletion is its own action, with
    its own tombstone; an edit box that can be emptied is deletion by the back
@@ -304,6 +393,32 @@ export const editMessageInThread = (
   text: string
 ): ReviewNote[] =>
   notes.map((note) => (note.id === messageId && note.text !== text ? { ...note, text, edited: true } : note));
+
+/* One message in a thread withdrawn, and every other message returned as-is
+   (#288, ADR-0009 rule 4).
+
+   The mirror of `editMessageInThread`, and the one place the shape of a delete
+   is decided. It sets `deleted`, empties `text`, and drops the `(edited)`
+   marker — a tombstone is not a message that was corrected, it is the absence
+   of one, and the marker on it would read as a claim about words nobody can
+   see. It leaves `id`, `at`, `by` and `label` exactly where they are: the row
+   keeps its identity, its place in the thread, its author's name and the app's
+   reason for writing it, which is the whole of what a tombstone is for.
+
+   Emptying `text` is deliberate rather than tidy. A "deleted" message that
+   still ships its words to every client that reads the task is not deleted; the
+   withdrawn words go into the history row the caller writes, which is the one
+   place ADR-0009 puts them.
+
+   Takes and returns the whole list, for the same reason the edit does: the
+   server runs it inside `updateTask`'s closure against the thread as it is at
+   write time, so a reply that landed mid-flight survives (#158). */
+export const deleteMessageInThread = (notes: readonly ReviewNote[], messageId: string): ReviewNote[] =>
+  notes.map((note) => {
+    if (note.id !== messageId || note.deleted) return note;
+    const { edited: _edited, ...rest } = note;
+    return { ...rest, text: "", deleted: true };
+  });
 
 /* The message this identifier names, or `undefined` when the thread has no such
    row. Named rather than inlined because three callers need it — the route's
