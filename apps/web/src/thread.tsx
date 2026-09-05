@@ -4,6 +4,7 @@ import {
   LoanTask,
   MESSAGE_EDITED_MARKER,
   StoredReviewNote,
+  canDeleteMessage,
   canEditMessage,
   getNotesFieldLabel,
   isEmptyMessageText,
@@ -114,14 +115,21 @@ const MessageRow = ({
   note,
   task,
   viewerId,
-  onEdit
+  onEdit,
+  onDelete
 }: {
   note: StoredReviewNote;
   task: Pick<LoanTask, "status">;
   viewerId: string;
   onEdit?: (messageId: string, text: string) => Promise<void>;
+  onDelete?: (messageId: string) => Promise<void>;
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  /* The second step of `Delete` (#288). The act has no undo — rule 4 refuses
+     one on purpose — so the menu asks once, in place, rather than firing on a
+     stray click on a two-entry menu whose other entry is harmless. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   /* `undefined` is "not editing". An empty string is a real draft — the author
      has cleared the box — and the Save button refuses it, so the two states
      cannot be the same value. */
@@ -137,12 +145,21 @@ const MessageRow = ({
      open at once, since an open one pins its trigger visible.
      Capture phase, like the card's own panels, so the close lands before
      whatever was clicked acts on it. */
+  /* Closing the menu also takes the delete confirmation down with it: a menu
+     reopened later must not still be holding a "yes, delete it" the person
+     walked away from. */
+  const closeMenu = (): void => {
+    setMenuOpen(false);
+    setConfirmingDelete(false);
+  };
+
   useEffect(() => {
     if (!menuOpen) return;
     const onDown = (event: globalThis.PointerEvent): void => {
       const target = event.target as Node | null;
       if (target && menuRef.current?.contains(target)) return;
       setMenuOpen(false);
+      setConfirmingDelete(false);
     };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
@@ -153,6 +170,13 @@ const MessageRow = ({
      open. The store migrates at start-up, so this is a belt, not a road. */
   const editable =
     onEdit !== undefined && note.id !== undefined && canEditMessage(task, note, { id: viewerId });
+  /* The same shape for `Delete` (#288), off the delete half of the same shared
+     rule. Both come back false on a tombstone, which is how "no undelete, and
+     no editing one back into a message" reaches the UI without this file
+     knowing what a tombstone is. */
+  const deletable =
+    onDelete !== undefined && note.id !== undefined && canDeleteMessage(task, note, { id: viewerId });
+  const hasMenu = editable || deletable;
 
   const cancelPress = (): void => {
     if (pressTimer.current !== undefined) {
@@ -167,13 +191,13 @@ const MessageRow = ({
      handler covers a pen as well, and `pointerType` keeps it off the mouse,
      where a slow click must stay a click. */
   const onPointerDown = (event: { pointerType: string }): void => {
-    if (!editable || event.pointerType === "mouse") return;
+    if (!hasMenu || event.pointerType === "mouse") return;
     cancelPress();
     pressTimer.current = setTimeout(() => setMenuOpen(true), LONG_PRESS_MS);
   };
 
   const startEditing = (): void => {
-    setMenuOpen(false);
+    closeMenu();
     /* The author's own words and nothing else. The app's label is not in the
        box because rule 5 says it is not theirs to change — it is drawn beside
        the box instead, so they can see the row will still read `Needs
@@ -200,6 +224,24 @@ const MessageRow = ({
          worst possible moment to lose them. */
     } finally {
       setSaving(false);
+    }
+  };
+
+  /* Withdrawing it (#288). The menu stays open on a refusal — the caller has
+     already said why in a toast — because the alternative is a control that
+     vanishes without having done anything. On success the row redraws as a
+     tombstone and the menu goes with it, since a tombstone offers neither
+     entry. */
+  const remove = async (): Promise<void> => {
+    if (note.id === undefined || deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete?.(note.id);
+      closeMenu();
+    } catch {
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -264,15 +306,23 @@ const MessageRow = ({
             </div>
           </div>
         ) : (
-          <div className="msg-text">
+          /* A tombstone is the same row, muted, saying the app's words instead
+             of the author's (#288, rule 4). It keeps the avatar, the byline and
+             its place in the list above and below it, which is what makes the
+             gap legible: you can see who withdrew something and roughly when.
+             `noteBodyText` is what decides the wording, so a withdrawn
+             send-back still reads `Needs fixes: message deleted` here and on the
+             Teams card without either surface knowing how. */
+          <div className={`msg-text${note.deleted ? " msg-deleted" : ""}`}>
             {noteBodyText(note)}
             {/* Rule 3, and the whole of what the thread says about an edit: no
                 time, and no route back to the previous wording. That lives in
-                the task's history. */}
-            {note.edited && <span className="msg-edited"> {MESSAGE_EDITED_MARKER}</span>}
+                the task's history. Never on a tombstone: there are no words
+                left for it to be a footnote on. */}
+            {note.edited && !note.deleted && <span className="msg-edited"> {MESSAGE_EDITED_MARKER}</span>}
           </div>
         )}
-        {editable && !editing && (
+        {hasMenu && !editing && (
           <div
             ref={menuRef}
             className="msg-menu"
@@ -283,7 +333,7 @@ const MessageRow = ({
             onKeyDown={(e) => {
               if (e.key === "Escape" && menuOpen) {
                 e.stopPropagation();
-                setMenuOpen(false);
+                closeMenu();
               }
             }}
           >
@@ -293,7 +343,7 @@ const MessageRow = ({
               aria-label="Message menu"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(!menuOpen)}
+              onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
             >
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <circle cx="5" cy="12" r="2" />
@@ -311,9 +361,46 @@ const MessageRow = ({
                 row instead; #288's `Delete` joins it here. */}
             {menuOpen && (
               <div className="msg-menu-panel" role="menu">
-                <button type="button" role="menuitem" onClick={startEditing}>
-                  Edit
-                </button>
+                {/* The confirmation replaces the menu rather than opening a
+                    dialog over it: the row is already the smallest surface in
+                    the app, and a modal for two words costs more than the
+                    mistake it prevents. Escape and a press anywhere else both
+                    back out of it, the same way they back out of the menu. */}
+                {confirmingDelete ? (
+                  <>
+                    <span className="msg-menu-confirm">Delete this message?</span>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="msg-menu-danger"
+                      disabled={deleting}
+                      onClick={() => void remove()}
+                    >
+                      {deleting ? "Deleting…" : "Delete"}
+                    </button>
+                    <button type="button" role="menuitem" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {editable && (
+                      <button type="button" role="menuitem" onClick={startEditing}>
+                        Edit
+                      </button>
+                    )}
+                    {deletable && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="msg-menu-danger"
+                        onClick={() => setConfirmingDelete(true)}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -327,17 +414,24 @@ export const ThreadMessages = ({
   task,
   viewerId,
   canReply,
-  onEditMessage
+  onEditMessage,
+  onDeleteMessage
 }: {
   task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "createdAt" | "reviewNotes" | "status">;
   viewerId: string;
   canReply: boolean;
-  /* The one write this file can make (#287). Optional so a renderer with
+  /* The two writes this file can make (#287, #288). Optional so a renderer with
      nothing to save to — a test, a future read-only view — gets the thread
      exactly as it was before the edit path existed. */
   onEditMessage?: (messageId: string, text: string) => Promise<void>;
+  onDeleteMessage?: (messageId: string) => Promise<void>;
 }) => {
   const opensWithOriginatingNote = standingTermsFor(task) === undefined;
+  /* Tombstones are members of this list like any other message (#288, rule 4),
+     which is the whole of what makes the empty state below correct: a thread
+     holding only a withdrawn message is not an empty conversation, and saying
+     "No messages yet" under a visible `Message deleted` reads as a bug. The
+     collapsed row's reply count is the same length, counted in `App.tsx`. */
   const replies = Array.isArray(task.reviewNotes) ? task.reviewNotes : [];
   if (!opensWithOriginatingNote && replies.length === 0) {
     return (
@@ -373,6 +467,7 @@ export const ThreadMessages = ({
           task={task}
           viewerId={viewerId}
           {...(onEditMessage ? { onEdit: onEditMessage } : {})}
+          {...(onDeleteMessage ? { onDelete: onDeleteMessage } : {})}
         />
       ))}
     </>

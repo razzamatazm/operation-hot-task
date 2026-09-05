@@ -127,6 +127,22 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     the top of the done list or the archive. Existing DM cards refresh in place
     through the same silent sync a checklist write uses. Every applied edit
     writes a `REVIEW_NOTE_EDITED` history row carrying the text on both sides.
+  - `DELETE /api/tasks/:taskId/messages/:messageId` — withdraw a message you
+    posted (#288, [ADR-0009](../adr/0009-messages-are-editable-by-their-author.md)
+    rule 4). The edit's twin: **author only**, no time window, archival the only
+    status gate, and enforced here rather than by the web hiding the control.
+    The message is not removed — it becomes a **tombstone**: the row keeps its
+    id, its post time, its author and the app's label, its text is emptied, and
+    it reads `Message deleted` (`Needs fixes: message deleted` on a withdrawn
+    send-back). **One way**: there is no undelete, a second DELETE is refused,
+    and editing a tombstone is refused. A tombstone still counts as a message
+    everywhere a message is counted, and it is never unread — the shared unread
+    walk skips it, so a viewer whose only outstanding message was withdrawn has
+    their signal cleared. **Silent** exactly as an edit is: no DM, no feed ping,
+    no channel post, `updatedAt` unmoved, and existing DM cards refreshed in
+    place through the same quiet sync, quoting the tombstone. Every delete
+    writes a `REVIEW_NOTE_DELETED` history row carrying the withdrawn text,
+    which is the only surviving copy of it.
   - FRAUD structured checklist (#44, gated deletion #66) — focused, atomic
     endpoints, each server-enforcing the two permission rules + gated-deletion /
     checked-stale invariants:

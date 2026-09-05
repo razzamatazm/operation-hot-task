@@ -700,6 +700,24 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* Withdraw a message you posted (#288, ADR-0009 rule 4). The seam #287 left:
+     the same noun, addressed by the same identifier, with the verb in the
+     method because deleting a message has no body to send. No payload and no
+     undo route — a tombstone is one way, and a second DELETE is refused by the
+     shared rule rather than quietly accepted.
+
+     Author-only and the archived gate are enforced in the service, off the same
+     `messageChangeRefusal` the edit reads. */
+  router.delete("/tasks/:taskId/messages/:messageId", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      const task = await service.deleteReviewNote(req.params.taskId, req.params.messageId, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to delete the message");
+    }
+  });
+
   /* FRAUD structured outstanding-items checklist (#44, gated deletion #66).
      Focused, atomic endpoints mirroring the completed-note pattern — each
      enforces its permission rule and the gated-deletion / checked-stale

@@ -334,7 +334,24 @@ export interface UserIdentity {
    touched. The first is rule 6 — `at` is the value the unread comparison reads,
    so moving it would re-raise a corrected message at somebody who had already
    read it. The second is rule 5 — the author owns their words, the app owns the
-   label saying why the row exists. */
+   label saying why the row exists.
+
+   `deleted` is the tombstone (#288, ADR-0009 rule 4): the author withdrew what
+   they said, and the row stays. It is a state on the message rather than a
+   removal from the list because the gap is the point — the row keeps its
+   author, its place and its label, so a reader can see that somebody withdrew
+   something here and roughly when. It counts as a message everywhere a message
+   is counted.
+
+   A tombstoned message's `text` is emptied when the flag goes on, because
+   "deleted" that still ships the words to every client is not deleted. The
+   withdrawn words survive in the task's history, which is where rule 7 puts
+   them and the only place rule 4 lets anyone read them. Nothing renders `text`
+   directly — `noteBodyText` answers what the row reads, and on a tombstone
+   that is the app's words, not the author's.
+
+   One way (rule 4): there is no undelete, and a tombstone is not editable. The
+   two refusals come off the same shared rule the edit does. */
 export interface ReviewNote {
   id: string;
   label?: string;
@@ -342,6 +359,7 @@ export interface ReviewNote {
   by: Pick<UserIdentity, "id" | "displayName">;
   at: string;
   edited?: boolean;
+  deleted?: boolean;
 }
 
 /* A message as it may still be sitting in the store: a `ReviewNote` whose

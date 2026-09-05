@@ -91,6 +91,17 @@ export const TASK_ARCHIVED_ACTION = "TASK_ARCHIVED";
    writer does. */
 export const REVIEW_NOTE_EDITED_ACTION = "REVIEW_NOTE_EDITED";
 
+/* The row a withdrawn message writes (#288, ADR-0009 rules 4 and 7), carrying
+   the words that were taken out of the thread.
+
+   This one is load-bearing in a way the edit row is not. A delete empties the
+   message: the thread shows a tombstone, the API stops handing the words out,
+   and there is no undelete. So this row is the only place the withdrawn text
+   still exists, which is exactly what lets rule 4 refuse an undo with a clear
+   conscience — "somebody who deleted by mistake retypes it" assumes it can
+   still be read back by someone who needs it. */
+export const REVIEW_NOTE_DELETED_ACTION = "REVIEW_NOTE_DELETED";
+
 /* Which statuses get a named closure row, in one place, so the writer and the
    readers below cannot come to disagree about it. `undefined` means "this
    arrival is an ordinary status change" — the caller supplies its own action.
