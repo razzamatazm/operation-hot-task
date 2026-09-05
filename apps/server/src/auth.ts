@@ -39,7 +39,10 @@ const parseRoles = (raw: string | undefined): UserRole[] => {
   return parts.length > 0 ? parts : ["LOAN_OFFICER"];
 };
 
-const ssoConfigured = (): boolean =>
+/* Is Entra SSO wired up on this instance? When it isn't, the `x-user-*` header
+   fallback below is live and this is a local dev server — which is the only
+   condition under which the dev-only routes in routes.ts are registered. */
+export const ssoConfigured = (): boolean =>
   Boolean(config.ssoTenantId) && Boolean(config.ssoAudience ?? config.ssoClientId);
 
 /* Lazily-built, cached JWKS for the configured tenant. `createRemoteJWKSet`

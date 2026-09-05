@@ -1,6 +1,6 @@
 import { Request, Response, Router } from "express";
 import { LOAN_EDIT_NEEDS_TASK, LOAN_EDIT_WRONG_LOAN, UserIdentity, UserRole, loanEditRefusal, nextFlowStatuses } from "@loan-tasks/shared";
-import { AuthError, authenticate } from "./auth.js";
+import { AuthError, authenticate, ssoConfigured } from "./auth.js";
 import { resolveUserByEmail } from "./graph-users.js";
 import { config } from "./config.js";
 import { SseHub } from "./sse.js";
@@ -88,6 +88,15 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     await service.registerUser(user);
     return user;
   };
+
+  /* The people-picker view of the users table: active people only, and only
+     id + displayName + roles — no email, no status. One definition because two
+     routes serve it (the authenticated directory and its dev-only twin), and a
+     second copy is how one of them would quietly start leaking a field. */
+  const activeDirectory = async (): Promise<Array<Pick<UserIdentity, "id" | "displayName" | "roles">>> =>
+    (await userStore.list())
+      .filter((user) => user.active !== false)
+      .map((user) => ({ id: user.id, displayName: user.displayName, roles: user.roles }));
 
   const requireAdmin = (user: UserIdentity): void => {
     if (!user.roles.includes("ADMIN")) {
@@ -195,14 +204,33 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   router.get("/users/directory", async (req, res) => {
     try {
       await getActor(req);
-      const users = (await userStore.list())
-        .filter((user) => user.active !== false)
-        .map((user) => ({ id: user.id, displayName: user.displayName, roles: user.roles }));
-      res.json({ users });
+      res.json({ users: await activeDirectory() });
     } catch (error) {
       sendError(res, error, "Failed to list users");
     }
   });
+
+  /* Local dev only: the same directory, readable with no identity at all.
+     The mock user switcher (#309) needs the cast BEFORE it can be anybody —
+     it used to carry its own hardcoded copy of the list, which drifted from
+     the seed data. Every authenticated route provisions its caller
+     (`getActor` → `upsertOnLogin`), so asking through one of those would mean
+     inventing a placeholder person and writing them into the very list being
+     read. Hence an unauthenticated read.
+
+     Registered only when SSO is unconfigured — the same condition that turns
+     on the `x-user-*` header fallback this switcher rides. On the deployed
+     instance it does not exist (404), so no anonymous caller can enumerate
+     staff. */
+  if (!ssoConfigured()) {
+    router.get("/dev/users", async (_req, res) => {
+      try {
+        res.json({ users: await activeDirectory() });
+      } catch (error) {
+        sendError(res, error, "Failed to list users");
+      }
+    });
+  }
 
   /* Admin: list users + manage roles (onboarding + future admin UI). */
   router.get("/users", async (req, res) => {

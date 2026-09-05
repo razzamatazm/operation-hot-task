@@ -11,11 +11,13 @@ import net from "node:net";
    up to the first free port — and SMOKE_PORT overrides the starting point. */
 const BASE_PORT = Number(process.env.SMOKE_PORT ?? 4100);
 
-// Identities aligned with the DEV_USERS list in apps/web/src/App.tsx so any
-// task that somehow leaks into dev data is at least tagged to a real current
-// user. `otherOfficer` is a smoke-only synthetic identity (no second
-// non-checker loan officer exists in DEV_USERS); the prefix makes it obvious
-// in any data file it appears in.
+// Identities aligned with the local dev cast in scripts/reset-dev-data.mjs so
+// any task that somehow leaks into dev data is at least tagged to a real
+// current user. (The web app no longer keeps a copy of that cast — since #309
+// its user switcher reads the server's active-user directory.) `otherOfficer`
+// is a smoke-only synthetic identity — there is no second non-checker loan
+// officer in the seed cast — and the prefix makes it obvious in any data file
+// it appears in.
 const users = {
   creator: {
     id: "loan-officer-1",
@@ -864,24 +866,49 @@ const run = async () => {
     // gated). It exposes id + displayName + roles only, and includes known
     // users. Roles arrived with the Handoff (ADR-0002) so the picker can filter
     // to people eligible to work the task; email/active stay admin-only.
-    const directoryDenied = await request(server.baseUrl, "GET", "/users/directory", {
+    const directoryRead = await request(server.baseUrl, "GET", "/users/directory", {
       user: users.creator
     });
-    expectStatus(directoryDenied.status, 200, "non-admin can read people directory", directoryDenied.json);
-    assert.ok(Array.isArray(directoryDenied.json.users), "directory returns a users array");
+    expectStatus(directoryRead.status, 200, "non-admin can read people directory", directoryRead.json);
+    assert.ok(Array.isArray(directoryRead.json.users), "directory returns a users array");
     assert.ok(
-      directoryDenied.json.users.some((u) => u.id === users.fileChecker.id),
+      directoryRead.json.users.some((u) => u.id === users.fileChecker.id),
       "directory includes a known user"
     );
     assert.ok(
-      directoryDenied.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id,roles"),
+      directoryRead.json.users.every((u) => Object.keys(u).sort().join(",") === "displayName,id,roles"),
       "directory entries expose only id + displayName + roles"
     );
     assert.ok(
-      directoryDenied.json.users.every((u) => Array.isArray(u.roles)),
+      directoryRead.json.users.every((u) => Array.isArray(u.roles)),
       "every directory entry carries a roles array the picker can filter on"
     );
     pushPass("people directory is readable by any authenticated user, id + name + roles only");
+
+    // The dev-only twin of that directory (#309). The local user switcher needs
+    // the cast BEFORE it can be anybody, and every authenticated route
+    // registers its caller — so asking through one would invent a placeholder
+    // person and write them into the list being read. This route takes no
+    // identity, and must answer exactly what the authenticated one does.
+    const devRoster = await request(server.baseUrl, "GET", "/dev/users");
+    expectStatus(devRoster.status, 200, "dev roster readable with no identity", devRoster.json);
+    assert.deepEqual(
+      devRoster.json,
+      directoryRead.json,
+      "the dev roster is the same active-people list the pickers read"
+    );
+
+    // The point of the unauthenticated route: it must not have created the
+    // caller it had no name for. A header-less request falls back to
+    // `local-user` in auth.ts, and a provisioning route would put that ghost in
+    // the very roster the switcher offers.
+    const rosterAfter = await request(server.baseUrl, "GET", "/users", { user: users.admin });
+    expectStatus(rosterAfter.status, 200, "admin user list after dev roster read", rosterAfter.json);
+    assert.ok(
+      !rosterAfter.json.users.some((u) => u.id === "local-user"),
+      "reading the dev roster registers nobody"
+    );
+    pushPass("dev roster reads the same active list with no identity, and registers nobody");
 
     const shareOk = await request(server.baseUrl, "POST", `/tasks/${shareId}/share`, {
       user: users.creator,
@@ -1314,6 +1341,32 @@ const run = async () => {
   } finally {
     if (integrationServer) {
       await integrationServer.stop();
+    }
+  }
+
+  // The dev-only roster route (#309) must not exist on a deployed instance.
+  // It is registered on the same condition that turns on the `x-user-*` header
+  // fallback it serves — no SSO — so an SSO-configured server has no such
+  // route and cannot be asked for the staff list without a token.
+  let ssoServer;
+  try {
+    ssoServer = await createServer(BASE_PORT + 5, {
+      AAD_TENANT_ID: "00000000-0000-0000-0000-000000000000",
+      SSO_CLIENT_ID: "11111111-1111-1111-1111-111111111111"
+    });
+    const devRosterOnSso = await request(ssoServer.baseUrl, "GET", "/dev/users");
+    expectStatus(devRosterOnSso.status, 404, "dev roster absent with SSO configured", devRosterOnSso.json);
+
+    // And the authenticated directory it twins is still there, still refusing
+    // an unauthenticated caller — the route disappearing is the only change.
+    const directoryOnSso = await request(ssoServer.baseUrl, "GET", "/users/directory");
+    expectStatus(directoryOnSso.status, 401, "directory needs a token with SSO configured", directoryOnSso.json);
+    pushPass("the dev roster route does not exist once SSO is configured");
+  } catch (error) {
+    pushFail(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (ssoServer) {
+      await ssoServer.stop();
     }
   }
 

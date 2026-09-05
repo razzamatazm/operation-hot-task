@@ -4,6 +4,7 @@ import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent,
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
+import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { bylineOf, formatDate, initialsOf } from "./format";
@@ -17,19 +18,17 @@ import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
-/* Dev-only mock identities for the plain-browser path (no Teams host). The
-   server's `x-user-*` header fallback (auth.ts, only when SSO is unconfigured)
-   trusts these so local role-switching works. IS_DEV is statically false in a
-   prod build, so this list and the selector are tree-shaken out of the bundle.
-   In a Teams tab the real identity comes from the SSO token (bootstrap). */
-const DEV_USERS: UserIdentity[] = [
-  { id: "loan-officer-1", displayName: "Suzie", roles: ["LOAN_OFFICER"] },
-  { id: "file-checker-1", displayName: "Alexa", roles: ["LOAN_OFFICER", "FILE_CHECKER"] },
-  { id: "admin-1", displayName: "Johanna", roles: ["LOAN_OFFICER", "FILE_CHECKER", "ADMIN"] }
-];
-const INITIAL_USER: UserIdentity = IS_DEV
-  ? DEV_USERS[0]!
-  : { id: "", displayName: "Signing in", roles: ["LOAN_OFFICER"] };
+/* Nobody yet, in either build. Prod fills it from the SSO token; dev fills it
+   from the server's active-user directory (`fetchDevUsers`, #309) — the mock
+   switcher used to carry a hardcoded cast here, which drifted from the seed
+   data. Either way the empty id is the signal that no identity has resolved,
+   and every fetch below holds until it has, so nothing is ever requested as
+   this placeholder. */
+const INITIAL_USER: UserIdentity = {
+  id: "",
+  displayName: IS_DEV ? "Loading people" : "Signing in",
+  roles: ["LOAN_OFFICER"]
+};
 
 /* SSO bearer token. Module-level so the standalone apiRequest helper can read
    it without prop-drilling. The cache re-acquires expired tokens on its own —
@@ -3473,6 +3472,13 @@ export const App = () => {
      Active users; carries roles so the handoff picker can filter to file
      checkers on a Fraud Check. */
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  /* The mock switcher's roster (#309), dev only and empty until it lands. Held
+     apart from `directory` above even though both are the active-user list:
+     `directory` is fetched as the signed-in user and refetched whenever that
+     changes, and the switcher needs its list BEFORE there is a user to fetch
+     as. IS_DEV is statically false in a prod build, so this state, its fetch
+     and the selector are all tree-shaken out of the bundle. */
+  const [devUsers, setDevUsers] = useState<SwitchableUser[]>([]);
   /* Teams app id from GET /api/config — runtime config, not a build-time VITE_
      var, so the server can change it without rebuilding the bundle. null until
      the fetch lands (or when the server has no TEAMS_APP_ID), in which case
@@ -3788,19 +3794,44 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
-    /* In prod, hold the first fetch until SSO resolves a real identity.
-       The placeholder user has an empty id (and dev-header auth would send a
-       non-ASCII display name), so fetching now both 401s and risks a header
-       encoding error. Dev always has a real mock id, so it runs immediately. */
-    if (!IS_DEV && !user.id) return;
+    /* Local dev only: fetch the switcher's roster and step into somebody
+       (#309). This is the one request made before an identity exists, which is
+       exactly why it goes to the unauthenticated dev route — asking an
+       authenticated one would register the placeholder as a person and put it
+       in the very list being read.
+
+       `chooseDevUser` keeps the current id when the roster still has it, so a
+       late-arriving roster never yanks the switcher off whoever is selected,
+       and answers null for an empty roster, so a dev server that isn't up yet
+       leaves the app as nobody rather than as a made-up somebody. */
+    if (!IS_DEV) return;
+    let live = true;
+    loadDevUsers(API_BASE)
+      .then((roster) => {
+        if (!live) return;
+        setDevUsers(roster);
+        setUser((current) => chooseDevUser(roster, current.id) ?? current);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    /* Hold the first fetch until an identity resolves — the SSO token in prod,
+       the dev roster locally. The placeholder user has an empty id (and
+       dev-header auth would send a non-ASCII display name), so fetching now
+       both 401s and risks a header encoding error. */
+    if (!user.id) return;
     refresh().catch(() => {});
     loadLoans().catch(() => {});
   }, [user.id]);
 
   useEffect(() => {
     /* Load the people directory for the share picker (issue #41). Same
-       gate as the task fetch: hold until a real identity resolves in prod. */
-    if (!IS_DEV && !user.id) return;
+       gate as the task fetch: hold until a real identity resolves. */
+    if (!user.id) return;
     apiRequest<{ users: DirectoryUser[] }>("/users/directory", { method: "GET" }, user)
       .then((data) => setDirectory(data.users))
       .catch(() => {});
@@ -3893,14 +3924,15 @@ export const App = () => {
      viewer's list doesn't hold — filtered out, or aged past the closed-task
      window — would otherwise be claimed silently and never reported, and the
      refusal reads off the server's answer rather than off the local snapshot
-     anyway. It does wait for SSO in prod, where the placeholder identity has no
-     id and the request would 401.
+     anyway. It does wait for an identity — the placeholder has no id, and the
+     request would either 401 (prod, before SSO) or claim the task for a person
+     who isn't the one about to be selected (dev, before the roster lands).
 
      The ref is what makes it one shot. StrictMode runs a mount effect twice in
      dev, and both passes see the same state. */
   const claimedOnArrival = useRef<string | null>(null);
   useEffect(() => {
-    if (!claimOnArrivalId || (!IS_DEV && !user.id)) {
+    if (!claimOnArrivalId || !user.id) {
       return;
     }
     if (claimedOnArrival.current === claimOnArrivalId) {
@@ -4581,12 +4613,26 @@ export const App = () => {
           {IS_DEV ? (
             <label className="user-picker">
               <span>User:</span>
-              <select value={user.id} onChange={(e) => setUser(DEV_USERS.find((u) => u.id === e.target.value) ?? INITIAL_USER)}>
-                {DEV_USERS.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.displayName} ({u.roles.join("/")})
-                  </option>
-                ))}
+              {/* Disabled until the roster lands: with no people to offer there
+                  is nothing to switch to, and the app is deliberately still
+                  nobody at that point. `loadDevUsers` retries for a few seconds
+                  first, so still-empty means the users file has nobody in it —
+                  say the one command that fixes that rather than sitting on a
+                  dead control. */}
+              <select
+                value={user.id}
+                disabled={devUsers.length === 0}
+                onChange={(e) => setUser(chooseDevUser(devUsers, e.target.value) ?? INITIAL_USER)}
+              >
+                {devUsers.length === 0 ? (
+                  <option value="">No people — run npm run dev:reset</option>
+                ) : (
+                  devUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.displayName} ({u.roles.join("/")})
+                    </option>
+                  ))
+                )}
               </select>
             </label>
           ) : (
