@@ -9,6 +9,7 @@ import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from 
 import { bylineOf, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
+import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
@@ -4205,58 +4206,33 @@ export const App = () => {
      a fresh literal per render would defeat TaskCard's memo across the list. */
   const onEditTask = useCallback((taskId: string): void => setEditingTaskId(taskId), []);
 
-  /* Save an edit (#260, #262, extended by #261 and #264). A focused route per
-     field, chosen from what the form says actually moved — there is deliberately
-     no endpoint that takes a task-shaped body (ADR-0008 rule 4, inherited from
-     ADR-0006), so this is a dispatch rather than a payload.
+  /* Save an edit (#260, #262, extended by #261, #264 and #281). The dispatch
+     itself — which record each field lands on, and in what order — is
+     `saveTaskEdit`, which lives outside this file so it can be driven in a test
+     rather than read as source. What stays here is what belongs to the shell:
+     the api calls it hands over, the one refetch, and the one refusal it raises
+     itself rather than receives.
 
-     Which record each field lands on is decided here, and it is not the same
-     record for all of them: the request field is the task's, and the folder name
-     and link are the loan's on every type but OOO.
-
-     Sequential, not `Promise.all`: a rejection has to stop the ones behind it
-     rather than leave the form guessing which of the writes landed. The order
-     is the order the form reads top to bottom. One refresh at the end covers
-     however many of them ran — several refetches of the same list would be
-     several too many, and a partial save still refetches on the way out so the
-     row shows what actually landed.
+     One refresh at the end covers however many writes ran — several refetches
+     of the same list would be several too many, and a save that stopped partway
+     still refetches on the way out so the row shows what actually landed. Since
+     #281 the write that can stop partway is only ever a genuine failure: the
+     one that asks a question asks it before anything is written.
 
      The form never calls it with an empty edit, so a save that changed nothing
-     makes no request at all: no history entry and no DM. Nothing here can
-     express a due date — changing the urgency re-derives it server-side, from
-     the moment of the edit, exactly as filing does, and changing an OOO task's
-     return date re-derives it from that. Rejects on failure, after the api
-     layer has toasted, so the form stays open with the creator's typing still
-     in it. */
+     makes no request at all: no history entry and no DM. Rejects on failure,
+     after the api layer has toasted, so the form stays open with the creator's
+     typing still in it. */
   const onSaveEdit = useCallback(async (task: LoanTask, edit: TaskEdit): Promise<void> => {
     try {
-      if (edit.dates !== undefined) await amendApi.setDates(task.id, edit.dates);
-      if (edit.urgency !== undefined) await amendApi.setUrgency(task.id, edit.urgency);
-      if (edit.points !== undefined) await amendApi.setPoints(task.id, edit.points);
-      if (edit.notes !== undefined) await amendApi.setNotes(task.id, edit.notes);
-
-      /* An OOO task has no loan, so its description is its own and goes to its
-         own focused route on the task (#262). */
-      if (task.taskType === "OOO") {
-        if (edit.folderName !== undefined) await amendApi.setFolderName(task.id, edit.folderName);
-        return;
-      }
-
-      /* Everything else's folder name and link belong to the shared Loan
-         record, so the two travel as ONE call to the loan rather than two calls
-         to the task — they land on one record, and a rename that succeeded
-         beside a link change that was refused is a half-applied edit nobody
-         asked for. */
-      if (edit.folderName === undefined && edit.humperdinkLink === undefined) return;
-      if (!task.loanId) {
-        const message = "This task isn't linked to a loan yet, so its name can't be corrected here.";
-        showToast(message, { variant: "error" });
-        throw new Error(message);
-      }
-      await saveLoanFields(task.loanId, task.id, {
-        ...(edit.folderName !== undefined ? { name: edit.folderName } : {}),
-        ...(edit.humperdinkLink !== undefined ? { humperdinkLink: edit.humperdinkLink } : {})
-      });
+      await saveTaskEdit(task, edit, { ...amendApi, saveLoanFields });
+    } catch (err) {
+      /* The only refusal raised at this level rather than received from a
+         request, so it is the only one with nobody behind it to have spoken.
+         Everything else has already been toasted by the call that failed — or
+         is a declined merge, which sent nothing and is silent on purpose. */
+      if (err instanceof NoLoanToCorrect) showToast(err.message, { variant: "error" });
+      throw err;
     } finally {
       await refresh();
     }
