@@ -10,7 +10,7 @@ export const TASK_TYPES = ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "
 export type TaskType = (typeof TASK_TYPES)[number];
 
 /* What heads the task's request field: the Instructions box on five types, the
-   conversation on a Fraud Check (ADR-0010 rules 1 and 3). One table, read by
+   conversation on a Fraud Check (ADR-0010 rules 1 and 2). One table, read by
    the card, the create form, the edit form and the bot, so no two surfaces can
    name the same field differently.
 

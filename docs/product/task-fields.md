@@ -323,7 +323,7 @@ click away in the list directly beneath that header.
   and widened to five types by #300
   ([ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 1).
 - **Heading by task type** (#301,
-  [ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 3). One
+  [ADR-0010](../adr/0010-every-task-has-an-instructions-box.md) rule 2). One
   table, `NOTES_FIELD_LABELS`, read by the card, the create form, the edit form
   and the bot, so no two surfaces can name the same field differently. Four
   types said `Notes` until #301; as the title of a box telling somebody what to
@@ -339,6 +339,6 @@ click away in the list directly beneath that header.
     message, so this heads the card's free-text **discussion thread** (#68)
     rather than a box, and is not a separate outstanding-items field; relabeled
     from `Discussion` to `Notes` for consistency (#81). The create form (#69)
-    also seeds that thread and, since #301, takes its heading from this table
-    like every other type — see
+    seeds that thread and carries an outstanding-items checklist seeder beside
+    it; since #301 its heading comes from this table like every other type — see
     [fraud-workflow.md](fraud-workflow.md#structured-outstanding-items-checklist-44)

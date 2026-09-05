@@ -61,13 +61,19 @@ The task creator may cancel a task at any non-terminal stage, moving it to `CANC
 
 ### Task types
 
-| Type        | Notes field label | Notes                                     |
-|-------------|-------------------|-------------------------------------------|
-| `LOI`       | LOI Notes         | Letter of Intent review                   |
-| `VALUE`     | Value Notes       | Property/loan value check                 |
-| `FRAUD`     | Fraud Notes       | Fraud check; restricted to File Checkers  |
-| `LOAN_DOCS` | Loan Docs Notes   | Loan documentation review (extended flow) |
-| `OOO`       | OOO Notes         | Out-of-office coverage entry              |
+Every task carries one required free-text field where the person filing it says
+what the task is for. What that field is **headed** is per type and comes from
+one table (`NOTES_FIELD_LABELS`), read by the card, both forms and the bot — see
+[task-fields.md](product/task-fields.md).
+
+| Type          | Request field heading    | Notes                                     |
+|---------------|--------------------------|-------------------------------------------|
+| `LOI`         | `Loan Terms and Contacts`| Letter of Intent review                   |
+| `BUDDY_CHAT`  | `Concerns`               | Second pair of eyes on a file             |
+| `VALUE`       | `Things to Look Out For` | Property/loan value check                 |
+| `FRAUD`       | `Notes`                  | Fraud check; restricted to File Checkers  |
+| `LOAN_DOCS`   | `Extras and Edits`       | Loan documentation review (extended flow) |
+| `OOO`         | `Coverage Notes`         | Out-of-office coverage entry              |
 
 ### Statuses
 

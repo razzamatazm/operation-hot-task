@@ -294,9 +294,22 @@ const formatField = (value: string | undefined): string => (value && value.trim(
 const urgencyLabel = (urgency: UrgencyLevel): string => URGENCY_CHOICES.find((choice) => choice.value === urgency)?.label ?? urgency;
 const taskTypeLabel = (taskType: TaskType): string => TASK_TYPE_CHOICES.find((choice) => choice.value === taskType)?.label ?? taskType;
 const notesPromptLabel = (taskType?: TaskType): string => `${getNotesFieldLabel(taskType)} (type your notes, or choose No additional notes):`;
+/* The review menu's entry for the request field, worded per type from the same
+   table as the summary line above it (#301). "Edit Notes" under a line reading
+   "Coverage Notes: ..." is one bot message naming one field two ways. The
+   canonical action stays "Edit Notes" — it is an identifier the handler
+   switches on, not something anybody reads. */
+const editNotesAction = (taskType?: TaskType): string => `Edit ${getNotesFieldLabel(taskType)}`;
 const normalizeReviewAction = (text: string): string => normalizeText(text).replace(/\s+/g, " ");
-const parseReviewAction = (text: string): string | undefined => {
+/* Takes the draft's type so the per-type wording it just offered comes back as
+   the action it stands for. Bare "Edit Notes" is still accepted whatever the
+   type: it is what a draft mid-flight was offered before this shipped, and what
+   somebody types rather than presses. */
+export const parseReviewAction = (text: string, taskType?: TaskType): string | undefined => {
   const normalized = normalizeReviewAction(text);
+  if (normalized === normalizeReviewAction(editNotesAction(taskType))) {
+    return "Edit Notes";
+  }
   return REVIEW_ACTIONS.find((action) => normalizeReviewAction(action) === normalized);
 };
 const parseConfirmCreateAction = (text: string): string | undefined => {
@@ -306,11 +319,15 @@ const parseConfirmCreateAction = (text: string): string | undefined => {
 const isEditableStep = (step: QuickAddStep): step is EditableField =>
   step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "START_DATE" || step === "RETURN_DATE" || step === "URGENCY" || step === "POINTS" || step === "NOTES" || step === "HUMPERDINK";
 
-const reviewActionsForDraft = (draft: QuickAddDraft): string[] => {
-  if (draft.taskType === "OOO") {
-    return REVIEW_ACTIONS.filter((action) => action !== "Edit Urgency" && action !== "Edit Humperdink Link");
-  }
-  return REVIEW_ACTIONS.filter((action) => action !== "Edit Start Date" && action !== "Edit Return Date");
+/* Exported for `scripts/instructions-box-sim-test.mjs`, which asserts that what
+   the review menu offers and what a press of it resolves to are the same round
+   trip on every task type. */
+export const reviewActionsForDraft = (draft: QuickAddDraft): string[] => {
+  const shown =
+    draft.taskType === "OOO"
+      ? REVIEW_ACTIONS.filter((action) => action !== "Edit Urgency" && action !== "Edit Humperdink Link")
+      : REVIEW_ACTIONS.filter((action) => action !== "Edit Start Date" && action !== "Edit Return Date");
+  return shown.map((action) => (action === "Edit Notes" ? editNotesAction(draft.taskType) : action));
 };
 
 const toBotUserIdentity = (context: TurnContext): UserIdentity => {
@@ -1399,7 +1416,7 @@ class LoanTasksBot extends ActivityHandler {
     }
 
     if (draft.step === "REVIEW") {
-      const action = parseReviewAction(text);
+      const action = parseReviewAction(text, draft.taskType);
       if (!action) {
         await this.sendReview(context, draft);
         return;
