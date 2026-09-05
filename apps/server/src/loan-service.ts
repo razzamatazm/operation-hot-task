@@ -94,11 +94,44 @@ export interface UpdateLoanOptions {
    being minted, and is refused on an edit unless the caller confirms it (#262,
    ADR-0008 rule 7) — see `LoanLinkCollisionError`. */
 export class LoanService {
+  /* Asked to correct one task's already-posted Teams cards after a loan edit
+     reached it (#280). A callback, not a service reference: the cards live
+     behind the notification layer, and a loan service that imported it would
+     invert the dependency direction the task service already owns (task service
+     → loan service). Injected after construction because the task service is
+     built from this one, so there is no moment at which both exist yet.
+
+     Optional throughout. Nothing here waits on it and nothing here fails
+     without it: a rename with no corrector wired is exactly today's behaviour,
+     which is the right fallback for the migration and the create-time dedupe. */
+  private correctTaskCards?: (taskId: string) => void;
+
   constructor(
     private readonly loans: LoanStore,
     private readonly tasks: TaskStore,
     private readonly events: SseHub
   ) {}
+
+  setCardCorrector(correct: (taskId: string) => void): void {
+    this.correctTaskCards = correct;
+  }
+
+  /* Fire-and-forget, per task, and never allowed to interrupt the propagation
+     loop: the tasks after this one still need their values written, and a card
+     is not worth a half-renamed loan. */
+  private requestCardCorrection(taskId: string): void {
+    if (!this.correctTaskCards) {
+      return;
+    }
+    try {
+      this.correctTaskCards(taskId);
+    } catch (error) {
+      console.error("loan_card_correction_failed", {
+        taskId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 
   async list(): Promise<Loan[]> {
     return this.loans.all();
@@ -309,6 +342,9 @@ export class LoanService {
         }));
         if (next) {
           this.events.broadcast({ type: "task.changed", payload: next });
+          // Folding two loans together renames the absorbed loan's tasks as
+          // surely as an edit does, so their posted cards are just as stale.
+          this.requestCardCorrection(next.id);
         }
       }
     }
@@ -334,6 +370,12 @@ export class LoanService {
       });
       if (next) {
         this.events.broadcast({ type: "task.changed", payload: next });
+        /* The app now shows the corrected values; the cards already sitting in
+           Teams still quote the old ones (#280). Only when something actually
+           moved — a propagation that changed nothing has no card to correct. */
+        if (moved) {
+          this.requestCardCorrection(next.id);
+        }
       }
     }
   }

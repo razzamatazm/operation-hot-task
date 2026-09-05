@@ -181,6 +181,13 @@ export const completionDmMessage = (taskType: TaskType): string =>
    locally and in tests); without it, or without a folder to hang the link on,
    the text is character-for-character what it was before links existed, raw
    folder name and all. */
+/* The Humperdink line on a DM detail card, held here rather than typed at the
+   send site because two places need the exact same string: the card body that
+   writes it, and the correction that has to find that line again to swap the
+   link inside it when the loan's link is edited (#280). A near-miss between the
+   two reads as "the correction silently did nothing". */
+export const formatHumperdinkCardLine = (url: string): string => `Humperdink: [link](${url})`;
+
 export const formatLifecycleDmText = (params: {
   typeLabel: string;
   message: string;
@@ -548,8 +555,16 @@ export interface NotificationEvent {
   /* DM_CARD_SYNC is not a message — it's a silent in-place refresh of the DM
      cards already sitting in participants' chats, so their buttons track the
      task's live status instead of freezing at whatever step they were sent at.
-     Emitted on every status change; creates nothing, pings nobody. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
+     Emitted on every status change; creates nothing, pings nobody.
+
+     CARD_CORRECTION is DM_CARD_SYNC plus the channel card, and it exists for a
+     different reason: not "the task moved" but "what the task is called moved"
+     (#280). A loan's name and link are edited once and pushed onto every task
+     on that loan, so every card already posted for those tasks is quoting a
+     name nobody uses any more. Each one is corrected where it sits, in the
+     lifecycle shape it is already in — nothing is posted, nothing is deleted,
+     and nobody is re-pinged for a rename. */
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* Free-text note from the actor, surfaced in the recipient's card (issue #41
      share, and the Handoff's DM_ASSIGN card — ADR-0002). Optional. */

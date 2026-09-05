@@ -1524,6 +1524,31 @@ export class TaskService {
     }
   }
 
+  /* Correct every card already posted for a task whose loan was renamed or
+     relinked (#280). The loan service calls this once per task it propagated
+     to, and never waits: one loan edit can reach many tasks, including finished
+     ones, and each of those can have several cards in several chats, so the
+     whole pass runs off the request the person is waiting on.
+
+     Best-effort per task, like every other background fan-out here: a task
+     whose cards can't be written logs and is dropped, leaving the rename
+     successful and the remaining tasks on the loan still to be processed. */
+  correctTaskCards(taskId: string): void {
+    this.background(async () => {
+      const task = await this.store.findTask(taskId);
+      if (!task) {
+        return;
+      }
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task,
+        actor: { id: "system", displayName: "Hot Task" },
+        message: `${task.folderName} cards corrected`,
+        target: "CARD_CORRECTION"
+      });
+    }, { method: "correctTaskCards", taskId });
+  }
+
   /* Ask the notification layer to re-render this task's existing DM cards.
      `alsoNotify` names people who should still be synced even though they're no
      longer participants — an unclaim or a fraud release strips the assignee, and
