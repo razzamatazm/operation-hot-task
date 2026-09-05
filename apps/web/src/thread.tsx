@@ -46,6 +46,18 @@ import { bylineOf, initialsOf } from "./format";
    inch below it is two gestures wearing one name. */
 const LONG_PRESS_MS = 500;
 
+/* The shortest the box's editor opens at, whatever the read view measured
+   (#318). A one-line brief would otherwise open as a slot the height of its own
+   sentence, which is a box you cannot see a paragraph in while typing one. */
+const MIN_EDITOR_HEIGHT_PX = 72;
+
+/* A field's own vertical padding, in px. `getComputedStyle` resolves whatever
+   the stylesheet said, so nothing here has to know what that was. */
+const paddingHeight = (el: HTMLElement): number => {
+  const style = window.getComputedStyle(el);
+  return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+};
+
 /* ── One menu at a time, across the whole card (#303) ────────────────────── */
 /* Until #303 the thread was the only surface on a card with a hold menu, so
    `ThreadMessages` owning "which row is open" was enough. The Instructions box
@@ -61,11 +73,12 @@ const LONG_PRESS_MS = 500;
    below preserves — a component with no provider over it keeps its own copy and
    behaves exactly as it did before.
 
-   Ids are namespaced by surface: `msg:<id>` for a bubble, `box` for the
-   Instructions box. Each surface acts only on its own — a press outside the
-   thread must not close a menu the thread does not own, which would otherwise
-   unmount the box's `Edit` button before its own click landed. */
-export const INSTRUCTIONS_MENU_ID = "box";
+   Since #318 only the bubbles put anything in it. The box has no menu to hold
+   open — a hold on it *is* the editor — so what it does with this slot is clear
+   it: opening the editor closes any message menu, which is the rule that
+   mattered. Ids stay namespaced anyway, because the thread's own outside-press
+   handler acts only on its own and a bare slot would have it closing things it
+   does not own. */
 export const messageMenuId = (id: string): string => `msg:${id}`;
 const isMessageMenu = (openId: string | null): boolean => openId !== null && openId.startsWith("msg:");
 
@@ -113,7 +126,19 @@ const useCardMenuScope = (): CardMenuScope => {
    Returns the props to spread onto whatever element is held. Handler
    parameters are structurally typed rather than `React.MouseEvent`, so a node
    test can call them with a plain object. */
-const useHoldMenu = ({ enabled, onOpen }: { enabled: boolean; onOpen: () => void }) => {
+const useHoldMenu = ({
+  enabled,
+  onOpen,
+  onPressChange
+}: {
+  enabled: boolean;
+  onOpen: () => void;
+  /* Optional, so the return value stays a plain props bag both surfaces spread.
+     The box uses it to ring itself while the press is in flight (#318): with no
+     menu to appear at the end of the hold, half a second of nothing is the only
+     feedback there would otherwise be. A bubble does not, having its own. */
+  onPressChange?: (pressing: boolean) => void;
+}) => {
   const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /* Set when a hold completes, read by the click that arrives as the press
      ends. Without it the press that opened the menu is also a click, and on a
@@ -126,6 +151,7 @@ const useHoldMenu = ({ enabled, onOpen }: { enabled: boolean; onOpen: () => void
       clearTimeout(pressTimer.current);
       pressTimer.current = undefined;
     }
+    onPressChange?.(false);
   };
 
   return {
@@ -133,8 +159,10 @@ const useHoldMenu = ({ enabled, onOpen }: { enabled: boolean; onOpen: () => void
       if (!enabled) return;
       heldOpen.current = false;
       cancelPress();
+      onPressChange?.(true);
       pressTimer.current = setTimeout(() => {
         heldOpen.current = true;
+        onPressChange?.(false);
         onOpen();
       }, LONG_PRESS_MS);
     },
@@ -237,9 +265,10 @@ const InstructionsBox = ({
   onSave: ((text: string) => Promise<void>) | undefined;
 }) => {
   const scope = useCardMenuScope();
-  const menuOpen = scope.openId === INSTRUCTIONS_MENU_ID;
   const [editing, setEditing] = useState(false);
-  const sectionRef = useRef<HTMLElement | null>(null);
+  /* The read view, measured. See `startHeight` below. */
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [startHeight, setStartHeight] = useState<number | undefined>(undefined);
 
   /* Whether this person may correct this box, asked of the shared rule and of
      nothing else (ADR-0010 rule 5, criterion "no permission logic is written in
@@ -247,99 +276,80 @@ const InstructionsBox = ({
      the sentence thrown away, which is both halves of the rule at once: both
      parties on an LOI, the creator alone on the other four, and nobody at all
      on a completed, cancelled or archived task. The route asks the same
-     function, so a box that offers no menu is a box the API would refuse
-     anyway — hiding it is the courtesy, the refusal is the enforcement.
+     function, so a box that does not answer a hold is a box the API would
+     refuse anyway — not offering the gesture is the courtesy, the refusal is
+     the enforcement.
 
      Short-circuited on `onSave` first so a read-only render never reaches a
      rule it has no viewer to ask. */
   const editable = onSave !== undefined && viewerId !== undefined && canAmendTask(task, { id: viewerId });
 
-  /* The gesture, from the one implementation the bubbles below also use — same
-     threshold, same pointer events, same right-click, same swallowed click.
-     Stood down while the editor is open: the box is the editor then, and a hold
-     on a textarea is a text selection. */
-  const holdProps = useHoldMenu({
-    enabled: editable && !editing,
-    onOpen: () => scope.setOpenId(INSTRUCTIONS_MENU_ID)
-  });
+  /* Into the editor, not into a menu (#318). #303 shipped the gesture with a
+     one-entry menu behind it, matching the bubbles below — but a bubble's menu
+     earns its place by carrying `Edit` and `Delete`, and this one can never
+     have a second entry, because instructions cannot be emptied. A menu whose
+     only purpose is to be dismissed is a step, and correcting a wrong figure
+     was costing a hold, a read and a click. Settled on the real card against
+     three variants (branch `prototype/instructions-edit-gesture`).
 
-  /* A press anywhere outside the box closes its menu — capture phase, like the
-     thread's, so the close lands before whatever was pressed acts on it.
-     It closes only the box's own menu: `openId` is shared across the card, and
-     a handler that cleared it unconditionally would take a message menu down
-     from over here for no reason.
+     The height is captured *before* the editor mounts, and the box the person
+     held is the box they end up typing in: opened at a fixed row count instead,
+     the editor makes a full box's words collapse to make room for Save and
+     Cancel, which reads as the panel caving in under the press. The panel grows
+     downward instead.
 
-     Deliberately not armed while the editor is open. That is the whole of
-     ADR-0010 rule 4's departure from the message editor — an outside press is
-     the commonest stray gesture there is, and a half-rewritten brief does not
-     go anywhere because somebody clicked the card next to it. */
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (event: globalThis.PointerEvent): void => {
-      const target = event.target as Node | null;
-      if (target && sectionRef.current?.contains(target)) return;
-      scope.setOpenId(null);
-    };
-    document.addEventListener("pointerdown", onDown, true);
-    return () => document.removeEventListener("pointerdown", onDown, true);
-  }, [menuOpen, scope]);
-
-  /* Escape closes the menu and stops there, so the card's own Escape handlers
-     do not also fire and take the row down with it. On the document rather than
-     on the section, because a hold leaves focus nowhere in particular and a
-     menu that only answers Escape while focused is a menu that mostly doesn't.
-     The editor's own Escape is the textarea's, which has focus by then. */
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      scope.setOpenId(null);
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [menuOpen, scope]);
-
+     Closing the shared slot is what survives of "one menu at a time across the
+     card": there is no box menu to compete with a message's any more, but a
+     message menu standing open while the box turns into an editor is two things
+     claiming the card at once. */
   const startEditing = (): void => {
+    setStartHeight(bodyRef.current?.getBoundingClientRect().height);
     scope.setOpenId(null);
     setEditing(true);
   };
 
+  /* The gesture, from the one implementation the bubbles below also use — same
+     threshold, same pointer events, same right-click, same swallowed click.
+     Spread on the whole `<section>` rather than on the text: the heading strip
+     and the panel's own padding are inside the bordered box, and a target the
+     size of the sentence is a target people miss. Stood down while the editor
+     is open: the box is the editor then, and a hold on a textarea is a text
+     selection. */
+  const [pressing, setPressing] = useState(false);
+  const holdProps = useHoldMenu({
+    enabled: editable && !editing,
+    onOpen: startEditing,
+    onPressChange: setPressing
+  });
+
   /* No `aria-label` on the section: the visible mono title already names the
      block, and a label repeating it makes a screen reader say it twice. */
   return (
-    <section className="loi-terms" ref={sectionRef}>
+    <section
+      className={`loi-terms${editable && !editing ? " loi-terms-holdable" : ""}${
+        pressing ? " loi-terms-held" : ""
+      }`}
+      /* The one hook the sim tests count to ask "does this box answer a hold at
+         all", there being no trigger element to find. On the panel, because the
+         panel is what answers — and off while the editor is open, because the
+         gesture stands down then and a marker that says otherwise is a marker
+         that lies. */
+      data-holdable={editable && !editing ? "true" : undefined}
+      {...holdProps}
+    >
       <div className="loi-terms-head">
         <span className="loi-terms-title">{getNotesFieldLabel(task.taskType)}</span>
-        {/* Beside the box, in the head's own reserved right-hand slot, the way
-            the message menu sits beside its bubble. One entry and no `Delete`:
-            instructions cannot be emptied (ADR-0010 rule 4), and a control that
-            is always refused is worse than no control. */}
-        {menuOpen && (
-          <div className="msg-menu-panel loi-terms-menu" role="menu">
-            <button type="button" role="menuitem" onClick={startEditing}>
-              Edit
-            </button>
-          </div>
-        )}
       </div>
       {editing && onSave ? (
         <InstructionsEditor
           taskType={task.taskType}
           instructions={instructions}
+          startHeight={startHeight}
           onSave={onSave}
           onClose={() => setEditing(false)}
         />
       ) : (
-        <div
-          className={`loi-terms-body${editable ? " loi-terms-holdable" : ""}${
-            menuOpen ? " loi-terms-held" : ""
-          }`}
-          /* The one hook the sim tests count to ask "does this box answer a
-             hold at all", there being no trigger element to find. */
-          data-holdable={editable ? "true" : undefined}
-          {...holdProps}
-        >
+        <div ref={bodyRef} className="loi-terms-body">
           {instructions}
         </div>
       )}
@@ -399,11 +409,17 @@ export const instructionsEditState = (
 export const InstructionsEditor = ({
   taskType,
   instructions,
+  startHeight,
   onSave,
   onClose
 }: {
   taskType: LoanTask["taskType"];
   instructions: string;
+  /* The height the read view occupied at the moment of the hold, so the words
+     do not move when this replaces them and the panel grows to fit the actions
+     instead (#318). Absent on a surface that opens the editor some other way,
+     which falls back to the row count below. */
+  startHeight?: number | undefined;
   onSave: (text: string) => Promise<void>;
   onClose: () => void;
 }) => {
@@ -426,6 +442,24 @@ export const InstructionsEditor = ({
      `openedWith` ref, and the same fix. */
   const openedWith = useRef(instructions).current;
   const { refusal, canSave, cancelAsks } = instructionsEditState(draft, openedWith, taskType);
+
+  const fieldRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    /* `autoFocus` alone leaves the caret in front of the words, which reads as
+       the box having moved rather than as an invitation to type. */
+    field.setSelectionRange(field.value.length, field.value.length);
+    /* The field is `box-sizing: border-box`, so an opening height taken
+       straight from the read view spends the field's own padding and border on
+       chrome and shows less text than the box did a moment ago — which is the
+       one thing the measurement exists to prevent. Read them off the field
+       rather than restating the stylesheet's numbers here, where they would go
+       stale the first time the padding changed. */
+    if (startHeight === undefined) return;
+    const chrome = field.offsetHeight - field.clientHeight + paddingHeight(field);
+    field.style.height = `${Math.max(startHeight, MIN_EDITOR_HEIGHT_PX) + chrome}px`;
+  }, [startHeight]);
 
   /* Focus lands on the answer that keeps the typing, never on the one that
      bins it — a stray Return on the confirmation must not be the discard. */
@@ -460,8 +494,14 @@ export const InstructionsEditor = ({
       </label>
       <textarea
         id={fieldId}
+        ref={fieldRef}
         className="loi-terms-edit-field"
         rows={6}
+        style={
+          startHeight !== undefined
+            ? { height: `${Math.max(startHeight, MIN_EDITOR_HEIGHT_PX)}px` }
+            : undefined
+        }
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

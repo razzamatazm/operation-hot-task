@@ -625,20 +625,43 @@ nested card chrome, in this order:
    type rather than reasoned about.
 
    **Neither box carries an edit button, and the instructions box is held
-   instead** (#260, then #303). Both surfaces used to host `Edit request`;
+   instead** (#260, then #303, then #318). Both surfaces used to host `Edit request`;
    ADR-0008 rule 4 made the hamburger's `Edit Task` the one door, and ADR-0010
    rule 4 opens a second one — not another button, the same press-and-hold the
    messages below already answer to. There is deliberately no visible trigger,
    for the reason #297 took the bubbles' `⋯` away.
 
-   It borrows the gesture and the menu's shell (`.msg-menu-panel`, in the head's
-   reserved right-hand slot) and nothing else. The gesture is literally shared:
+   It borrows the gesture and nothing else. **There is no menu** (#318): the
+   hold opens the editor, with the caret at the end of the words. #303 shipped a
+   one-entry menu behind the gesture to match the bubbles, but a bubble's menu
+   earns its place by carrying `Edit` and `Delete` and this one could never hold
+   a second entry — instructions cannot be emptied — so it was a step that
+   existed to be dismissed. Settled against three variants on the real card,
+   branch `prototype/instructions-edit-gesture`.
+
+   Two rules that came out of driving it, both load-bearing:
+
+   - **The gesture is on the `<section>`, not on the text.** The heading strip
+     and the panel's own padding are inside the bordered box; a target the size
+     of the sentence is a target people miss. `data-holdable` marks the panel
+     for the same reason, and it is still what the sim tests count.
+   - **The panel grows; the words do not shrink.** The read view's height is
+     measured at the moment of the hold and handed to the editor as its opening
+     height. Opened at a fixed row count instead, a full box's text collapses to
+     make room for `Save` and `Cancel`, which reads as the panel caving in under
+     the press. The press itself is visible while it lasts (`.loi-terms-held`),
+     because half a second with no menu at the end of it is otherwise half a
+     second of nothing — which is why `useHoldMenu` reports the press through an
+     optional `onPressChange`, taken by the box and not by the bubbles, which
+     have a menu to arrive instead.
+
+   The gesture is literally shared:
    `useHoldMenu` in [src/thread.tsx](src/thread.tsx) owns the threshold, the
    pointer events that cancel a press, the right-click and the swallowed click,
    and both the box and the bubbles spread its props. Written out twice, "the
    same threshold" is a thing a test has to check; written once it is true.
-   Everything downstream of the menu opening stays with each component and
-   deliberately disagrees. `InstructionsEditor` in
+   Everything downstream of the gesture stays with each component and
+   deliberately disagrees — a bubble opens its menu, the box opens its editor. `InstructionsEditor` in
    [src/thread.tsx](src/thread.tsx) is its own component, never a mode of the
    message editor, because the two disagree about exactly the things a shared
    component would have to branch on:
@@ -664,17 +687,19 @@ nested card chrome, in this order:
    Whether the box answers a hold at all is shared `canAmendTask` and nothing
    else — both parties on an LOI, the creator alone on the other four, nobody on
    a closed task, restored by reopening. No permission logic is written here;
-   somebody the rule refuses gets no menu rather than an error.
+   somebody the rule refuses gets no gesture rather than an error — the panel
+   simply does not answer the hold.
 
-   **One menu is open at a time across the whole card**, the box's and the
-   messages' counted together. That is one `useState` in
-   `CardMenuScopeProvider`, wrapped around the expanded body in `App.tsx`, read
-   through `useCardMenuScope` by both surfaces. Ids are namespaced (`box`,
-   `msg:<id>`) so each surface's outside-press handler clears only its own —
-   a handler that cleared the slot wholesale would unmount the other's `Edit`
-   before the click that chose it landed. A component with no provider over it
-   keeps a private copy and behaves as it did before, which is what keeps
-   `thread.tsx` renderable on its own by a node script.
+   **One menu is open at a time across the whole card.** That is one `useState`
+   in `CardMenuScopeProvider`, wrapped around the expanded body in `App.tsx`,
+   read through `useCardMenuScope` by both surfaces. Since #318 only the bubbles
+   put anything in it; the box's only interest is **clearing** it when its
+   editor opens, because a message menu standing open while the box becomes an
+   editor is two things claiming the card at once. Ids stay namespaced
+   (`msg:<id>`) so the thread's outside-press handler acts only on its own. A
+   component with no provider over it keeps a private copy and behaves as it did
+   before, which is what keeps `thread.tsx` renderable on its own by a node
+   script.
 
    **Messages are bubbles** (#297). Each one wraps to its own text rather than
    filling the row — `.msg-bubble`, paper with a hairline for other people's,

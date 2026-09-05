@@ -123,17 +123,20 @@ and goes to `PATCH /api/loans/:loanId`, below.
   rule 4, amending ADR-0008 rule 4). The first is `Edit Task` in the row's
   hamburger, offered to whoever may edit an active task — its creator, plus the
   assignee on an LOI. The second is the **Instructions box itself**: press and
-  hold it, or right-click it, exactly as on a message, and the menu appears
-  beside it with one entry and the box becomes an editor in place. It behaves
-  as a field rather than as a message once open — Enter makes a new line, an
+  hold it anywhere inside its border, or right-click it, and it becomes an
+  editor in place with the caret at the end of the words — no menu and no button
+  in between (#318, amending ADR-0010 rule 4; the first cut raised a one-entry
+  menu, which was a step that existed to be dismissed). The panel grows downward
+  to fit `Save` and `Cancel` rather than its text shrinking to make room for
+  them. It behaves as a field rather than as a message once open — Enter makes a new line, an
   explicit `Save` commits, cancelling a changed draft asks before discarding it,
   and there is no delete, because instructions cannot be emptied. A Fraud
   Check's note is still in the thread and has no box, so it has only the first
   door. The box does not respond to a hold for anyone the shared rule refuses,
   or on a closed task; reopening restores it. The old `Edit request` button on
-  the thread head is gone. The menu item is drawn from the same shared predicate the
-  server's refusal is written from, so no surface offers an edit the server
-  would turn away. It opens the same form the task was filed with, preloaded,
+  the thread head is gone. Whether the box answers a hold is the same shared
+  predicate the server's refusal is written from, so no surface offers an edit
+  the server would turn away. It opens the same form the task was filed with, preloaded,
   with the task type shown disabled and a reason, and `Save` in place of
   `Create Task`. It carries the request field, the folder name, the Humperdink
   link, **urgency**, **poop points** and — on an `OOO` task — its **start and
