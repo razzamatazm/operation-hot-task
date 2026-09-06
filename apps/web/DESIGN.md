@@ -122,12 +122,17 @@ saturated: the working assumption is that the row is full, so a new field
 replaces an existing one rather than joining it. Density is a feature, and the
 discipline that makes density survivable is that the same fact is always
 encoded in the same place, and that a fact which already has a column, a label
-or a section does not also get a margin. Status is the left edge, and the left
-edge is nothing else. Lateness is the number it is about. A person is a colored
-chip. None of these channels borrow each other's vocabulary, and there are
-fewer of them than there were: five edge markers were deleted in one pass on
-2026-09-05, each of them repeating in the margin what the row already said in
-words.
+or a section does not also get a margin. Lateness is the number it is about. A
+person is a colored chip. None of these channels borrow each other's
+vocabulary, and there are fewer of them than there were: the edge markers were
+deleted in one pass on 2026-09-05, each of them repeating in the margin what the
+row already said in words.
+
+**No card edge is painted at all today.** A status stripe exists in CSS and
+nothing emits it — the row is deliberately mono, because the court section it
+sits in already says whose court it is. So "one edge, one meaning" is a rule
+about what an edge may say if one is drawn again, not a description of the
+current screen.
 
 **The dark theme is a different room, on purpose.** It is not the warm ledger
 with the lights off; it is an indigo ledger — indigo paper, near-white ink, a
@@ -363,12 +368,13 @@ two fighting.
 - **Border:** 1px faint rule.
 - **Shadow:** none at rest, lifted on hover.
 - **Internal padding:** 12px.
-- **One edge, one meaning.** The left inset stripe is status, and that is the
-  only thing any edge of a card says. It used to share the left edge with an
-  ownership border and mirror a creator stripe on the right; both are gone,
-  because both facts already have a column on the row and two colored margins
-  meaning two unrelated things read as ornament long before anyone decodes
-  them. A new row-level state does not get an edge.
+- **One edge, one meaning.** No card edge is drawn today: a status stripe is
+  defined in CSS and nothing emits it. The rule governs what happens if one
+  returns — it would be status and nothing else. The left edge used to also
+  carry an ownership border, with a creator stripe mirrored on the right; both
+  rules are gone, though both had stopped rendering before they were removed.
+  Either way a new row-level state does not get an edge: those facts already
+  have a column on the row.
 - **Dimming is a channel too.** Work that is not yours and not actionable drops
   to 0.55 opacity, brightening on hover. Anything unclaimed stays bright,
   because anyone may take it.
@@ -407,10 +413,11 @@ people never see.
 
 The densest surface in the app and the reason most of these rules exist. One
 row renders in both the grouped and flat views. It carries, in fixed positions:
-the task type as a mono label, the loan and its instructions, the two parties
-as person chips, a due stamp, a points count, the single primary action, and a
-menu. Its status is the left stripe on the card, and an unread note from the
-other party pulses a small red dot at the end of the type label.
+the loan name, the task type beside it, the two parties as person chips, a due
+stamp, the single primary action, and a menu. An unread note from the other
+party pulses a small red dot at the end of the type label. Status is carried by
+the section the row sits in and by its action, not by a stripe — nothing paints
+a card edge.
 
 Lateness is said once, on the number: the due value goes red, bold and up a
 size, with its label red behind it a notch quieter. There is no overdue rail —

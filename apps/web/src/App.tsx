@@ -505,10 +505,6 @@ const ShareIcon = () => (
   </svg>
 );
 
-/* Funnel glyph for the per-row "filter to this loan" affordance (#57). Inline
-   SVG in the ShareIcon idiom — no icon library ships. Sized via `.icon-filter`;
-   color follows `currentColor`. */
-
 /* Portaled-panel geometry (#113, #122). The arithmetic — prefer downward, flip
    up when below can't hold it, clamp both axes into the viewport — lives in
    `panel-placement.ts` so a node test can drive it without a browser (#231).
@@ -3017,23 +3013,23 @@ const MetricsPanel = ({
       <div className="metrics-section">
         <div className="metrics-section-title">Task Overview</div>
         <div className="metrics-stat-grid">
-          <div className="stat-card stat-card-total">
+          <div className="stat-card">
             <div className="stat-number">{totals.total}</div>
             <div className="stat-label">Total</div>
           </div>
-          <div className="stat-card stat-card-active">
+          <div className="stat-card">
             <div className="stat-number">{totals.active}</div>
             <div className="stat-label">Active</div>
           </div>
-          <div className="stat-card stat-card-completed">
+          <div className="stat-card">
             <div className="stat-number">{totals.completed}</div>
             <div className="stat-label">Completed</div>
           </div>
-          <div className="stat-card stat-card-archived">
+          <div className="stat-card">
             <div className="stat-number">{totals.archived}</div>
             <div className="stat-label">Archived</div>
           </div>
-          <div className="stat-card stat-card-cancelled">
+          <div className="stat-card">
             <div className="stat-number">{totals.cancelled}</div>
             <div className="stat-label">Cancelled</div>
           </div>
@@ -3482,8 +3478,6 @@ export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
-  /* When set, the task list is filtered to a single Loan and shows its
-     editable header (ADR-0001: click a loan name to filter + edit). */
   /* Selectable people for the share and handoff pickers (issue #41, ADR-0002).
      Active users; carries roles so the handoff picker can filter to file
      checkers on a Fraud Check. */
@@ -4393,9 +4387,6 @@ export const App = () => {
     await refresh();
   }, [user, refresh]);
 
-  /* Stable so it doesn't defeat TaskCard's memo (#73) — was an inline arrow
-     rebuilt inside `cardProps` every render. */
-
   /* Unified visible-task list. Closed tasks (COMPLETED / CANCELLED /
      ARCHIVED) older than CLOSED_TTL_DAYS drop off the bottom — admins can
      see everything ever via the All Tasks tab. CANCELLED rides the same
@@ -4514,7 +4505,7 @@ export const App = () => {
       onUpdatePoints,
       onEditTask,
       taskHistory: taskHistoryApi,
-          onShare,
+      onShare,
       onAssign,
       checklist: checklistApi,
       directory,

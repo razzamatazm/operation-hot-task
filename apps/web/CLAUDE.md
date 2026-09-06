@@ -25,14 +25,18 @@ the baseline, firming up under the cursor. Paying that in the type is the point;
 paying it by adding a second accent colour would undo the change.
 
 **Ornament that encodes nothing is not decoration, it is noise** (2026-09-05).
-Five edge markers were removed in one pass — the red rail on an overdue row, the
-blue edge on a task assigned to you, the right-edge stripe on a task you
-created, and the five coloured bars on the metrics tiles. Each said a second
-time what the row already said in words, and the shape they share — a tinted tab
-on the edge of a list item — is the single most recognisable tell of generated
-UI. The rule that replaced them: **one edge, one meaning.** A card's left edge
-belongs to the status stripe and to nothing else, and a fact that already has a
-column, a label or a section does not also get a margin.
+Edge markers were removed in one pass — the red rail on an overdue row and the
+five coloured bars on the metrics tiles, both of which were live on screen, plus
+the rules for the blue "assigned to you" edge and the right-edge "you created
+this" stripe, which turned out to have been unrendered for some time and so were
+dead-code cleanup rather than a visible change. Each said a second time what the
+row already said in words, and the shape they share — a tinted tab on the edge
+of a list item — is the single most recognisable tell of generated UI.
+
+The rule that replaced them: **one edge, one meaning.** If a card edge is ever
+drawn again it belongs to status and to nothing else, and a fact that already
+has a column, a label or a section does not also get a margin. Note that no card
+edge is painted at all right now — see *Status = left stripe* below.
 
 **The dark theme is a different room, on purpose** (2026-09-05, settled on
 `prototype/dark-palette-v2`). It is an indigo ledger — indigo paper, near-white
@@ -611,10 +615,12 @@ action and the hamburger, and the red dot marks what needs reading without
 taking the decision off the viewer.
 
 **Collapse all** (#177) closes every card open *in the list you're looking
-at*. `CollapseAllButton` renders on all three list headers (standard,
-loan-filtered, admin All Tasks) beside `GroupSeg`, and each is handed the ids
-its own `renderTaskList` renders, so the tab / loan-filter / grouping scoping
-is already done and cards in other lists keep whatever state they had.
+at*. It lives in the app menu (`AppMenu`) on each list header — the standard
+Tasks list and the admin All Tasks list; the loan-filtered list and its header
+are gone, along with the `CollapseAllButton` and `GroupSeg` components that used
+to sit out on the header. Each menu is handed the ids its own `renderTaskList`
+renders, so the tab / grouping scoping is already done and cards in other lists
+keep whatever state they had.
 `expandedTaskIds` reads the override map for that list and `collapseTasks`
 writes the whole set back in one merged update, returning the previous map
 untouched when nothing would change. Both live in `expand-state.ts` alongside
@@ -631,9 +637,25 @@ below it is open, so it holds its place in the tab order and a screen reader
 user can hear that there is nothing to collapse; its accessible name says
 which list it acts on, because three headers render the same two words.
 
-### Status = left stripe
+### Status = left stripe — CSS only, nothing renders it
 
-The 3px colored inset stripe on the card encodes **task status**, not
+**No card edge is painted today.** The stripe rules below still exist in
+`styles.css`, but nothing emits their classes: `cardClass` builds only
+`task-card`, `task-card-grouped-wrap`, and the open / dimmed / mini /
+celebrating flags, and the comment beside it says why — the grouped row is
+deliberately mono, because the court section already says whose court it is.
+That predates the 2026-09-05 pass and was not introduced by it.
+
+Two consequences worth knowing before you touch any of this. **The stripe
+block is dead CSS** — treat it as a proposal, not as a description of the
+screen, and either wire it up or delete it rather than reasoning from it. And
+**"one edge, one meaning" is a rule about what an edge may say if one is ever
+drawn again**, not a claim that an edge is currently saying it. What that pass
+actually removed from the screen was the overdue rail and the metrics tile
+bars; `.task-card-own` and `.task-card-watching` were already unrendered, so
+removing their rules was dead-code cleanup rather than a visible change.
+
+Were it live, the 3px colored inset stripe would encode **task status**, not
 urgency. `STATUS_STRIPE_CLASS` →
 - `.task-card-stripe-open` — red (`--bad`): needs a claim.
 - `.task-card-stripe-progress` — orange (`--hot`): in-flight.
@@ -1356,11 +1378,12 @@ be a design that let them collide.
 - **`Edit Task` itself is not gated by this.** The entry belongs to another
   ticket's rule; what this shuts is the two loan fields inside the form.
 
-`LoanFilterHeader` used to be the app's other loan-editing surface and is now a
-read-only heading — name, Humperdink link, no `Edit`. It sits outside any task,
-so it has no two parties to check; the ability went rather than the rule being
-softened for it. `onSaveLoan` went with it, leaving `patchLoan` with a single
-caller (`saveLoanFields`). Every body through `patchLoan` carries its `taskId`,
+`LoanFilterHeader` used to be the app's other loan-editing surface. It was first
+made read-only — it sits outside any task, so it has no two parties to check,
+and the ability went rather than the rule being softened for it — and has since
+been **removed entirely**, along with the per-row loan filter that was its only
+entry point. `onSaveLoan` went with the first step, leaving `patchLoan` with a
+single caller (`saveLoanFields`). Every body through `patchLoan` carries its `taskId`,
 which is what makes the confirmed merge re-send take the same check as the save
 that asked — a refusal must never be reachable only after a dialog.
 

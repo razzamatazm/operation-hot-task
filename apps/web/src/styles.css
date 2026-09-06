@@ -1149,18 +1149,6 @@ button.btn-ghost:hover {
    the opt-out on hover. Scoped to this control, not to every ghost button:
    the loan header's Cancel-edit button is also an inert `.btn-ghost` mid-save
    and it isn't this button's business to restyle it. */
-/* Collapse all sits beside New Task and the Grouped/Flat segment; it takes the
-   same display face they do rather than inheriting the body face. */
-button.collapse-all {
-  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
-}
-
-button.collapse-all[aria-disabled="true"] {
-  --btn-bg-hover: var(--btn-bg);
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 button.btn-danger {
   background: transparent;
   color: var(--bad);
@@ -1341,14 +1329,6 @@ button.btn-good:hover {
 
 .task-card-dimmed:hover {
   opacity: 0.85;
-}
-
-/* Creator-stake marker, removed. It mirrored the status stripe on the opposite
-   edge to mean "you created this", which gave the card two coloured margins
-   saying two unrelated things — the shape reads as ornament long before anyone
-   decodes it. The ASSIGNER column already names the creator on every row. */
-.task-card-watching {
-  position: relative;
 }
 
 /* ── Status left stripe ───────────────────────────────────── */
@@ -2032,14 +2012,6 @@ button.btn-good:hover {
   font-size: 0.8rem;
   color: var(--muted);
   padding: 4px 0;
-}
-
-/* ── External link icon ───────────────────────────────────── */
-.external-link-icon {
-  font-size: 0.82em;
-  line-height: 1;
-  transform: translateY(-1px);
-  opacity: 0.85;
 }
 
 /* ── Actions menu ─────────────────────────────────────────── */
