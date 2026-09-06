@@ -438,10 +438,6 @@ button.btn-good:hover {
   box-shadow: var(--shadow-md);
 }
 
-.task-card-own {
-  border-left: 2px solid var(--brand-soft);
-}
-
 .task-card-dimmed {
   opacity: 0.55;
 }
@@ -450,47 +446,11 @@ button.btn-good:hover {
   opacity: 0.85;
 }
 
-/* Creator-stake marker: right-edge stripe mirrors status stripe on the left.
-   Means "you created this", paired with the (left) status signal. */
-.task-card-watching {
-  position: relative;
-}
-.task-card-watching::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--brand-soft);
-  pointer-events: none;
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
-}
-
-/* ── Status left stripe ───────────────────────────────────── */
-/* OPEN = red (needs a claim), in-flight = orange (warming).
-   Both fade a tinted backdrop from the left to echo the COMPLETED treatment.
-   Closed statuses carry their own stripes below. */
-.task-card-stripe-open {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
-  background: linear-gradient(90deg, var(--bad-bg) 0%, var(--panel) 32%);
-}
-.task-card-stripe-progress {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot);
-  background: linear-gradient(90deg, var(--hot-bg) 0%, var(--panel) 32%);
-}
-.task-card.task-card-stripe-open:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
-.task-card.task-card-stripe-progress:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
-
 /* ── Closed-status card treatment ─────────────────────────── */
-.task-card-completed {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
-  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
-}
-.task-card-completed:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
-}
+/* Type, not edge. A closed row says so by going quiet — the folder name drops
+   to muted and the type to second ink — on top of the dim opacity every closed
+   card already takes. The coloured left edge and the tinted wash that came with
+   it are gone. CANCELLED had nothing but the edge, so it has no rule left. */
 .task-card-completed .task-card-collapsed-folder,
 .task-card-completed .task-card-collapsed-folder a {
   color: var(--muted);
@@ -499,24 +459,6 @@ button.btn-good:hover {
   color: var(--ink-secondary);
 }
 
-.task-card-cancelled {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
-}
-.task-card-cancelled:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad);
-}
-
-/* Archived keeps the "completed green" visual — same stripe and tinted
-   backdrop as COMPLETED. The dim opacity (.task-card-dimmed, applied to
-   every closed card) is what tells the eye it's filed away vs. still
-   actionable. */
-.task-card-archived {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
-  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
-}
-.task-card-archived:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
-}
 .task-card-archived .task-card-collapsed-folder,
 .task-card-archived .task-card-collapsed-folder a {
   color: var(--muted);
@@ -533,14 +475,15 @@ button.btn-good:hover {
    already pinned to the top of the grid via the celebrating sort bucket;
    the pulse just draws the eye. Animation runs twice then settles. */
 .task-card-celebrating {
+  --celebrate-halo: color-mix(in srgb, var(--good) 28%, transparent);
   animation: pulse-celebrate 1.4s ease-in-out 2;
 }
 @keyframes pulse-celebrate {
   0%, 100% {
-    box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good), 0 0 0 0 rgba(46, 160, 67, 0);
+    box-shadow: var(--shadow-sm), 0 0 0 0 var(--celebrate-halo);
   }
   50% {
-    box-shadow: var(--shadow-md), inset 3px 0 0 var(--good), 0 0 0 10px rgba(46, 160, 67, 0.28);
+    box-shadow: var(--shadow-md), 0 0 0 10px var(--celebrate-halo);
   }
 }
 

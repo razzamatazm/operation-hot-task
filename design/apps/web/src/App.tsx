@@ -42,17 +42,6 @@ const URGENCY_LABELS: Record<UrgencyLevel, string> = {
   RED: "Urgent Now"
 };
 
-/* Left stripe = status (not urgency).
-   OPEN → red ("needs a claim"), in-flight → orange ("warming"),
-   COMPLETED/CANCELLED/ARCHIVED carry their own closed-status stripes. */
-const STATUS_STRIPE_CLASS: Partial<Record<TaskStatus, string>> = {
-  OPEN: "task-card-stripe-open",
-  CLAIMED: "task-card-stripe-progress",
-  NEEDS_REVIEW: "task-card-stripe-progress",
-  MERGE_DONE: "task-card-stripe-progress",
-  MERGE_APPROVED: "task-card-stripe-progress"
-};
-
 const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -338,16 +327,18 @@ const TaskCard = ({
   /* Mini = closed bottom-bucket row. Celebrating COMPLETED renders as a
      full-size pulsing card at the top until the creator archives it. */
   const mini = isClosed && !isCelebrating;
+  /* No card edge. The status stripes, the ownership border and the creator
+     stripe that used to be built here were deleted on 2026-09-06 to match the
+     shipped app, which had already lost all of them — this snapshot was the
+     last place any of them still rendered, and reading it as current is how a
+     deleted edge gets reintroduced. COMPLETED and ARCHIVED stay because their
+     rules colour text, not an edge; CANCELLED was edge-only and is gone. */
   const cardClass = [
     "task-card",
-    !isClosed && task.taskType !== "OOO" ? STATUS_STRIPE_CLASS[task.status] ?? "" : "",
     dimmed ? "task-card-dimmed" : "",
     mini ? "task-card-mini" : "",
     pulsing ? "task-card-celebrating" : "",
-    !isClosed && !dimmed && variant === "watching" && task.status !== "MERGE_DONE" ? "task-card-watching" : "",
-    !isClosed && !dimmed && variant === "own" ? "task-card-own" : "",
     task.status === "COMPLETED" ? "task-card-completed" : "",
-    task.status === "CANCELLED" ? "task-card-cancelled" : "",
     task.status === "ARCHIVED" ? "task-card-archived" : ""
   ].filter(Boolean).join(" ");
 
