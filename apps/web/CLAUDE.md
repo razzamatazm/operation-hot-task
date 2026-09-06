@@ -1307,6 +1307,43 @@ date, which is the range rule and not a calendar floor. `taskEdit` sends both
 dates as one `dates` member on one route: they are a range, and the rule about
 them can't be asked of half of it.
 
+## Zoom is off on mobile
+
+The app is hosted in the Teams mobile webview, which has no address bar and no
+zoom-reset control, so a stray pinch or double-tap leaves someone magnified into
+a corner of a task list with no obvious way back. Zoom is suppressed outright.
+
+It takes three layers, because no single one covers both platforms, and
+`scripts/zoom-guard-sim-test.mjs` holds all three — dropping any one of them
+turns that test red:
+
+1. **The viewport meta** in [index.html](index.html) —
+   `maximum-scale=1.0, user-scalable=no`. Android/Chromium honours it; iOS does
+   not.
+2. **`touch-action: pan-x pan-y` on `html, body`** in
+   [src/styles.css](src/styles.css) — the declarative version: scrolling both
+   ways stays, pinch and double-tap-zoom go. `manipulation` is not enough; it
+   only takes the double-tap. Elements wanting a narrower gesture set (the
+   hold-to-edit box, the message bubbles) still override this on themselves.
+3. **[src/zoom-guard.ts](src/zoom-guard.ts)**, installed on `document` from
+   `main.tsx` — iOS/WKWebView, which ignores the first two. It cancels the
+   `gesture*` events, cancels a two-finger `touchmove`, and cancels the second
+   tap of a double-tap (320ms, 40px). Only the *second* tap, and a third tap
+   starts a fresh pair, so a fast run of taps on one control still works — a
+   dead button is a worse bug than the zoom it was avoiding.
+
+A fourth thing is the same bug wearing different clothes: **iOS zooms the page
+in when a field under 16px takes focus**, and with zoom pinned off it never
+zooms back out. The `@media (pointer: coarse)` block takes `input, select,
+textarea` to 16px on touch devices; desktop, where the behaviour doesn't exist,
+keeps the tighter type. Any new field inherits this — don't set a `font-size`
+under 16px on a control without the coarse-pointer escape.
+
+This is a deliberate accessibility trade: someone who needs magnification has
+to use the OS-level zoom rather than the page's. It is the right call inside a
+chrome-less webview where page zoom is a trap, and it should not be copied to a
+surface that has a way back out.
+
 ## When Adding UI
 
 1. Reuse a token before defining a color.

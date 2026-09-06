@@ -2,7 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The app runs in the Teams mobile webview, where browser zoom has no
+         reset control: a stray pinch or double-tap strands the user in a
+         magnified corner. Zoom is pinned off here for Android/Chromium; iOS
+         ignores this and is handled in src/zoom-guard.ts. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <link rel="icon" type="image/svg+xml" href="/flame.svg" />
     <title>Hot Task</title>
   </head>

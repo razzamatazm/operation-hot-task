@@ -162,6 +162,19 @@
 
 /* ── Reset & base ─────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
+
+/* Zoom is off on mobile — see src/zoom-guard.ts for why, and for the iOS half
+   of the job. `pan-x pan-y` is the declarative version: scrolling in both
+   directions stays, pinch-zoom and double-tap-zoom go. Anything that needs a
+   narrower gesture set (the hold-to-edit boxes) overrides this on itself.
+   `text-size-adjust` stops the webview reflowing text at its own chosen scale
+   once the user can no longer zoom back out of it. */
+html, body {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
@@ -855,6 +868,16 @@ input:focus, select:focus, textarea:focus {
 }
 
 textarea { resize: vertical; }
+
+/* iOS zooms the page in when a field smaller than 16px takes focus, and with
+   zoom pinned off it has no way back out. On a touch device the fields go up
+   to 16px so the trigger never fires; the pointer query keeps desktop, where
+   the behaviour doesn't exist, on the tighter type. */
+@media (pointer: coarse) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
 
 /* ── Buttons ──────────────────────────────────────────────── */
 /* The fill runs through tokens rather than the resolved property. A bare class
