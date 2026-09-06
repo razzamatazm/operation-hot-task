@@ -1590,16 +1590,6 @@ button.btn-good:hover {
 .checklist-item:first-child {
   border-top: none;
 }
-/* The rows the submit gate is waiting on (#184): unchecked with nothing said.
-   A left rule and a tint, so the requester can find them in a long list without
-   reading every row. */
-.checklist-item-blocking {
-  box-shadow: inset 2px 0 0 var(--warn);
-  background: var(--warn-bg);
-  padding-left: 8px;
-  margin-left: -8px;
-  border-radius: 0 4px 4px 0;
-}
 .checklist-item-main {
   display: flex;
   align-items: center;

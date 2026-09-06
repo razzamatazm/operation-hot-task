@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, unresolvedForSubmit, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -1248,15 +1248,12 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
 
   const items = task.checklist ?? [];
   const sorted = sortChecklist(items);
-  /* The submit gate (#184): every item wants a check, or a note saying why not.
-     Who-and-when comes from the shared action set rather than being re-derived
-     here — one answer to "may this viewer submit yet", the same one the card's
-     button reads. The sentence itself is carried by that button and its tooltip
-     alone; the head over the list is the title and nothing else, so a FRAUD
-     card's outstanding items are not introduced by two lines of status. */
-  const submitBlocked = fraudCardActions(task, user).find((a) => a.targetStatus === "PENDING_APPROVAL")?.blockedReason;
-  /* Which rows to point at, so the requester isn't hunting the list for them. */
-  const blockingIds = new Set(submitBlocked ? unresolvedForSubmit(items).map((i) => i.id) : []);
+  /* The submit gate (#184) says nothing here. It is the card's disabled Submit
+     button and its tooltip, and nothing else: not a sentence over the list
+     (#317), not a count under the button and not a tint on the rows it is
+     waiting for (#321, #323). The list is the ask, and a list does not need
+     three things introducing it. Who may submit and when is still the shared
+     action set's answer, asked where the button is drawn. */
 
   /* Recording reality — tick, add, write your own note — is one grant, held by
      both seats at any live status. */
@@ -1308,7 +1305,7 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
             const ownNote = ownChecklistNote(item, seat);
             const editingNote = active?.id === item.id && active.kind === "note";
             return (
-              <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}${blockingIds.has(item.id) ? " checklist-item-blocking" : ""}`}>
+              <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}`}>
                 <div className="checklist-item-main">
                   <button
                     type="button"
