@@ -1100,20 +1100,19 @@ test("the edit form is the one surface that still edits a loan, and it names its
   assert.match(app, /const result = await send\(\{ confirmMerge: true \}\);/);
 });
 
-test("the loan-filter header no longer edits anything", () => {
-  const from = app.indexOf("const LoanFilterHeader = (");
-  assert.ok(from > 0, "the header is still there — it says which loan the list is filtered to");
-  const header = app.slice(from, app.indexOf("\nconst ", from + 1));
-  /* It sits outside any task, so under ADR-0008 rule 5 there is nobody to
-     check. The answer this surface got is that the ability goes, rather than
-     the rule being softened for it: no inputs, no save, no edit toggle. */
-  assert.ok(!/<input/.test(header), "no boxes to type in");
-  assert.ok(!/onSave/.test(header), "and nothing to save with");
-  assert.ok(!/setEditing/.test(header), "and no way into an editing state");
-  assert.match(header, /<h2 className="loan-header-name">\{loan\.name\}<\/h2>/, "still a heading");
-  assert.match(header, /href=\{loan\.humperdinkLink\}/, "still linking out to Humperdink");
-  /* And App no longer carries the save that served it. */
-  assert.ok(!/const onSaveLoan = /.test(app), "the header's save is gone from App too");
+test("there is no loan-filter header, and no loan-editing surface outside a task", () => {
+  /* The header used to be the app's other loan-editing surface. #266 took the
+     ability away under ADR-0008 rule 5 — it sits outside any task, so it has no
+     two parties to check — and this test guarded the stripped-back version.
+     The whole surface is gone now: the per-row filter button that was its only
+     entry point was removed as unused, which left the view unreachable.
+     The rule outlives the surface, so the assertion is now that neither comes
+     back: no header, and no save for one. A loan's name and link are corrected
+     from `Edit Task` on a task on that loan, by one of its two parties, and
+     from nowhere else. */
+  assert.ok(!/const LoanFilterHeader = \(/.test(app), "no loan-filter header");
+  assert.ok(!/const onSaveLoan = /.test(app), "and no save that would serve one");
+  assert.ok(!/loanFilterId/.test(app), "and no filtered-loan view for it to head");
 });
 
 /* The due date is derived from the urgency band at the moment of the edit, the

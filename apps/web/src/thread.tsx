@@ -330,8 +330,8 @@ const InstructionsBox = ({
         pressing ? " loi-terms-held" : ""
       }`}
       /* The one hook the sim tests count to ask "does this box answer a hold at
-         all", there being no trigger element to find. On the panel, because the
-         panel is what answers — and off while the editor is open, because the
+         all", there being no trigger element to find. On the box itself, because
+         the box is what answers — and off while the editor is open, because the
          gesture stands down then and a marker that says otherwise is a marker
          that lies. */
       data-holdable={editable && !editing ? "true" : undefined}

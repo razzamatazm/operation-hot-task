@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "apps/web/src/styles.css"
+        ],
+        "createdAt": "2026-09-06T02:02:22.739Z",
+        "reason": "Same three bar-chart fills already triaged this session, re-reported under the repo-root path spelling. Width is the datum on the leaderboard, type-breakdown and LOI-ratio bars; the project's design notes list 'bar fills on metrics, transition: width 0.3s' as sanctioned motion. Empty elements, admin-only tab, one-shot on load; scaleX would distort their radius and gradient."
+      }
+    ]
+  }
+}

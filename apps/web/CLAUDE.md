@@ -10,6 +10,30 @@ workflow, backend contracts, git workflow, agent conventions — starts at
 colors used as signal (good / warn / hot / bad). Not a SaaS-blue dashboard;
 think bookkeeping pad with sharp typography.
 
+**In the light theme the interactive voice is ink, not a colour** (2026-09-05,
+chosen off a three-way bake-off driven on the live board against a plum and a
+dark ink-teal). `--brand` was `#2c5ea0` — the exact SaaS blue the paragraph
+above disavows — and it was the colour a person saw most, carrying every link,
+every primary button and every focus ring. It is now near-black, which leaves
+the four signals as the only hues on the page. The dark theme is untouched and
+still answers the same role with its lavender; the two disagree on purpose,
+like everything else in the pair.
+
+Its one standing cost, paid in the base rules: **a link cannot announce itself
+by colour any more, so links carry a standing underline** — faint, offset below
+the baseline, firming up under the cursor. Paying that in the type is the point;
+paying it by adding a second accent colour would undo the change.
+
+**Ornament that encodes nothing is not decoration, it is noise** (2026-09-05).
+Five edge markers were removed in one pass — the red rail on an overdue row, the
+blue edge on a task assigned to you, the right-edge stripe on a task you
+created, and the five coloured bars on the metrics tiles. Each said a second
+time what the row already said in words, and the shape they share — a tinted tab
+on the edge of a list item — is the single most recognisable tell of generated
+UI. The rule that replaced them: **one edge, one meaning.** A card's left edge
+belongs to the status stripe and to nothing else, and a fact that already has a
+column, a label or a section does not also get a margin.
+
 **The dark theme is a different room, on purpose** (2026-09-05, settled on
 `prototype/dark-palette-v2`). It is an indigo ledger — indigo paper, near-white
 ink, a lavender accent — not the warm ledger with the lights off. Five whole
@@ -64,7 +88,7 @@ Never hard-code colors. Use the variables:
 | `--bad`  / `--bad-bg`       | Red urgency, overdue, cancelled, errors  |
 | `--row-alt`, `--row-hover`  | Striping and hover overlays              |
 | `--control-hover`           | Hover tint for a non-filled inline control|
-| `--shadow-sm`, `--shadow-md`| Card resting / hover elevation           |
+| `--shadow-sm`, `--shadow-md`| Flat no-op at rest / real lift when raised |
 | `--focus-ring`              | `:focus-visible` ring                    |
 
 The four signal rows name each token's **role**, not its hex. The dark theme
@@ -76,14 +100,50 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
 ## Layout Primitives
 
 - App shell: `.app-shell`, max-width 1320px, 12px gap stack.
-- App bar: nav tabs (admin only) + user picker, no brand lockup (Teams'
-  own tab chrome already shows the app name). `New Task` and the
-  Grouped/Flat segment live on each list's own `.section-head` instead.
+- App bar: nav tabs (admin only) + the dev user picker, no brand lockup
+  (Teams' own tab chrome already shows the app name). **Nothing else goes in
+  here**: in a production build the picker is stripped and the tabs are
+  admin-only, so for most people this row is empty. A control placed here is a
+  control they never see.
+- List header (`.task-grid-head`): heading and count left, then the app menu,
+  then `New Task` hard right. The pair is built to land on the action column of
+  the rows below — same 32px trigger, same 6px gap, same `--quick-action-w`
+  button, and the header carries the row's own right inset (its padding plus
+  the card's 1px border). Read down the right edge and the menu sits over every
+  hamburger, `New Task` over every quick action.
+- **`--quick-action-w` has one definition, on `:root`.** The row's action
+  column, the row's action button, the empty spacer on rows with no action, and
+  the header's `New Task` all read it. Three of those were literal `116px`
+  until the phone breakpoint moved the value and they silently stopped
+  agreeing. Never write the number again.
 - Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill.
+- App menu (`.app-menu`): the preferences that are not decisions about a task —
+  Grouped/Flat, appearance, and Collapse all. Anchored to its own trigger
+  rather than portalled; the app bar is not clipped, so there is nothing to
+  escape and no placement to compute. Closes on outside press and Escape, the
+  same two exits every transient surface here answers to.
+- **Theme is a choice now, not just a report.** Teams tells the tab which of
+  its themes it is running (`hostTheme`); the person can pin one instead
+  (`themeChoice`, persisted). One effect decides which wins, which is what lets
+  `Match Teams` keep following live theme changes while a pinned choice ignores
+  them. `Match Teams` is the default because a Teams tab that disagrees with
+  Teams should be something you asked for.
+- Controls on a list header share one voice: the display face at 0.82rem/600.
+  They were in three different typefaces — display, monospace and body — on one
+  line. Monospace was wrong on its own terms too: it is reserved for things
+  that are counted or labelled, and these are controls.
 - Sections: `.section-head` (h2 + monospace `.section-count` chip) on a
   1px line. Use this for every list grouping.
-- Cards: rounded 8px, 1px `--line-soft`, `--shadow-sm` resting,
-  `--shadow-md` on hover. Background `--panel`.
+- Cards: rounded 8px, 1px `--line-soft`, background `--panel`. **Flat at
+  rest** — `--shadow-sm` is a transparent no-op, and depth comes from the
+  hairline plus the tone step between `--bg` and `--panel`. The old resting
+  shadow was 3px of blur at 6%, under the threshold of visible on paper this
+  warm. `--shadow-md` is the real lift and is reserved for things that leave
+  the page: hover, an expanded row, menus, modals, toasts.
+  Both tokens are transparent no-ops rather than the keyword `none`, including
+  in the contrast theme — several rules compose them with an inset stripe, and
+  `none` inside a `box-shadow` list voids the whole declaration. That keyword is
+  what was quietly deleting the status stripe from the contrast theme.
 
 ## Task Card Anatomy
 
@@ -180,9 +240,9 @@ stamp. Moving the pair onto its own line removed both the gap and the
 reservation:
 
 ```
-4px    | minmax(0,1fr) | 154px
-stripe | title         | action
-stripe | pair          | due
+minmax(0,1fr) | 154px
+title         | action
+pair          | due
 ```
 
 - **pair** — assigner → assignee on one line, now sharing a row only with
@@ -197,7 +257,7 @@ stripe | pair          | due
   handed-off FRAUD check read `OVERDUE BY` while the server, the reminder
   engine, and every other consumer agreed it wasn't overdue. Don't reintroduce
   a local overdue test here; a status added to the shared exclusion list has to
-  reach both the badge and the red row stripe on its own.
+  reach both the badge and the red due stamp on its own.
   Two statuses swap the deadline out entirely. Both are display choices made in
   `groupedDue`; whether the task is *overdue* still isn't.
   - `AWAITING_ITEMS` shows a neutral `WITH REQUESTER` / `WITH YOU` count-up. See
@@ -213,6 +273,32 @@ stripe | pair          | due
     `PENDING_APPROVAL`: testing the status instead of the holder is what let
     that row render a red `OVERDUE BY` while the server agreed it was nobody's
     lateness, and what left the released check with no count-up at all.
+
+  **The title block is one line: loan name, then the task type.** The loan name
+  leads because it is what a person scans for — heading face, full ink, and the
+  elastic part of the row. The type sits directly beside it behind a hairline,
+  in ink and tracked, and it is capped at 45% of the cell so the name keeps the
+  space it earned. The type truncates before the row does: left unshrinkable it
+  is wider than a phone on a fraud check at final approval, and because it sits
+  in a fixed grid row it pushed the whole board sideways with no zoom to escape
+  it. **Under 560px the pair stacks** — name, then type underneath — and the
+  hairline goes with the side-by-side arrangement it belonged to.
+  The rating moved off this block into the expanded body, and the ↗ that used
+  to follow the loan name is gone: a unicode arrow standing in for an icon,
+  which renders as a colour emoji on mobile. The name is still the link and
+  says so with the standing underline every link carries.
+
+  **Overdue is said once, on the number.** The row used to carry a 4px left
+  rail that was transparent on every row in the app and went red on this one
+  condition — a coloured tab on the edge of a list item, repeating in the
+  margin what the due stamp already said in words and in red two columns over.
+  The rail and its grid column are gone (2026-09-05); the row is a two-column
+  grid now and takes even 14px padding on both sides instead of the lopsided
+  inset the rail needed. The signal lives on
+  `.task-card-grouped-due-overdue`: the value goes `--bad`, 700, and up to
+  0.95rem, with the label red behind it at 0.8 opacity so the pair reads as one
+  signal. If a new row-level state ever needs a channel, it does not get an
+  edge — see **one edge, one meaning** in Aesthetic Direction.
 
   Watch the width here. The `due` track is 154px and
   `.task-card-grouped-due-value` is `nowrap`, so an over-long pair overruns the
@@ -246,8 +332,8 @@ sized to what a mini actually renders rather than to the active row's
 reservations:
 
 ```
-4px    | minmax(0,1fr) | 168px | 72px | 32px
-stripe | title         | pair  | due  | action
+minmax(0,1fr) | 168px | 72px | 32px
+title         | pair  | due  | action
 ```
 
 `168px` and `72px` clear the widest pair and done-time measured across the
@@ -600,10 +686,19 @@ nested card chrome, in this order:
    out of the conversation and into its own box (#258 for the LOI, widened to
    five types by #300,
    [ADR-0008](../../docs/adr/0008-loi-terms-are-a-field-not-a-message.md) and
-   [ADR-0010](../../docs/adr/0010-every-task-has-an-instructions-box.md)). A
-   bordered, shadowed panel with a 3px brand left edge, raised off the recessed
-   expanded body while the thread below it stays bare rows on the background —
-   the split is carried by shape, not by shouting in the headings. Free text
+   [ADR-0010](../../docs/adr/0010-every-task-has-an-instructions-box.md)).
+   **Not a panel** (2026-09-05): no border, no fill, no shadow, no radius. It
+   was a bordered, shadowed box with a 3px brand left edge sitting inside the
+   bordered, shadowed task card — two containers deep for one passage of text,
+   with the most borrowed shape in the app stuck on its margin. It is now a
+   ruled page: the field's name sits in a 116px left margin column, one
+   vertical hairline divides the margin from the text, and one horizontal
+   hairline closes the block off from the conversation below. Two rules, no
+   container. Under 560px the columns collapse to one, the label sits back
+   above its text left-aligned, and the closing hairline still carries the
+   separation. The split from the thread is still carried by shape rather than
+   by shouting in the headings — the shape is just a margin now instead of a
+   box. Free text
    rendered as typed (`white-space: pre-wrap`, body font, 1.4 leading — tighter than the thread’s 1.45) so a
    list of figures reads as a list; no parsing, no label columns, no structured
    fields until the direct import exists. Capped at 260px with internal scroll,
@@ -879,11 +974,17 @@ Two consequences worth keeping straight:
 
 ### Card variants (subtle, not loud)
 
-- `task-card-own` — 2px brand-soft left border. Tasks assigned to you.
-- `task-card-watching` — 3px brand-soft right-edge stripe via `::after`.
-  Marks tasks **you created** but didn't assign to yourself. Mirrors the
-  status stripe (left edge), so left=status, right=ownership without
-  competing.
+- `task-card-own` and `task-card-watching` — **both markers removed**
+  (2026-09-05). One was a 2px left border for tasks assigned to you, stacked
+  under the status stripe on the same edge, so that edge was answering two
+  questions at once. The other mirrored it on the right for tasks you created.
+  Between them the card carried two coloured margins meaning two unrelated
+  things, which reads as ornament long before anyone decodes it — and both
+  facts are already on the row, in the ASSIGNER and ASSIGNEE columns, and in
+  the grouped view in the section the row is sitting in. The classes are still
+  applied and now style nothing; keep them as the hook if either fact ever
+  needs a channel again, and give it one that is not an edge. See **one edge,
+  one meaning** in Aesthetic Direction.
 - `task-card-mini` — half-height closed-row variant (see *Mini rows*).
 - `task-card-celebrating` — green pulse halo applied for ~3s after a
   creator's task hits a completion milestone.
@@ -988,10 +1089,17 @@ it first.
 - Every card row is keyboard-focusable (`tabIndex={0}`, Enter/Space).
 - Color is never the only signal: status has text, urgency has a
   tooltip + stripe + (red) overdue text, poop has a count.
+- **Links carry a standing underline**, because the light theme's interactive
+  colour is ink and a link that is only ink is indistinguishable from the
+  sentence around it. Don't remove it to tidy a dense row.
+- `--muted` is ~5:1 against `--panel`. It was ~3.6:1, under the floor for the
+  small label text it exists for. Don't lighten it back.
 - `:focus-visible` uses `--focus-ring`. Don't strip outlines without
   replacing the ring.
 - Theme respects Teams (`light` / `dark` / `contrast`); `contrast`
-  intentionally has no shadows.
+  intentionally has no shadows — expressed as a transparent no-op, never the
+  keyword `none`, which voids any `box-shadow` list it appears in and was
+  silently deleting that theme's status stripes.
 
 ## The task form (file and edit)
 

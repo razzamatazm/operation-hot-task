@@ -8,17 +8,27 @@
      why placeholder text and unstyled chrome went near-invisible on a dark
      panel. */
   color-scheme: light;
-  --bg: #f5f3ef;
-  --bg-soft: #ece9e2;
-  --panel: #fdfcfa;
-  --ink: #1a1814;
-  --ink-secondary: #5c574d;
-  --muted: #8a847a;
-  --line: #d9d4cb;
-  --line-soft: #eae6df;
-  --brand: #2c5ea0;
-  --brand-hover: #1e4a82;
-  --brand-soft: #e4edf7;
+  --bg: #f4f2ee;
+  --bg-soft: #eae7e0;
+  --panel: #fefdfb;
+  --ink: #14120f;
+  --ink-secondary: #55504a;
+  /* 5.0:1 against --panel. It was #8a847a, about 3.6:1, which is under the
+     floor for the small label text this token exists for. */
+  --muted: #6f6a63;
+  --line: #d5d0c7;
+  --line-soft: #e8e4dd;
+  /* The interactive voice is ink, not a colour (2026-09-05, chosen off a
+     three-way bake-off driven on the live board). It used to be a #2c5ea0
+     SaaS blue, which the aesthetic direction below opens by disavowing — and
+     it was the colour a person saw most, on every link, every primary button
+     and every focus ring. Ink leaves the four signals as the only hues on the
+     page, which is the discipline the rest of this design already claims.
+     One consequence, handled in the base rules: a link can no longer announce
+     itself by colour, so links carry a standing underline. */
+  --brand: #1f1c17;
+  --brand-hover: #000000;
+  --brand-soft: #e9e6df;
   /* Ink for text/icons sitting ON a filled accent (brand/good/warn/hot).
      Light theme's accents are dark saturated colors, so white reads fine —
      but the dark and contrast themes use bright pastel accents where white
@@ -41,9 +51,23 @@
      a short inline control there isn't enough area for it to register, and in
      dark it disappeared into the panel entirely. */
   --control-hover: rgba(0, 0, 0, 0.055);
-  --shadow-sm: 0 1px 3px rgba(26, 24, 20, 0.06);
-  --shadow-md: 0 4px 16px rgba(26, 24, 20, 0.07);
-  --focus-ring: 0 0 0 2px rgba(44, 94, 160, 0.3);
+  /* Flat at rest, and a lift you can actually see. The resting shadow used to
+     be 3px of blur at 6% opacity, which is under the threshold of visible on
+     paper this warm — it cost paint work and a whole design vocabulary and
+     showed nothing. It is a transparent no-op now rather than `none`, because
+     several rules compose it with an inset stripe and `none` inside a
+     box-shadow list voids the entire declaration.
+     Depth at rest is carried by the hairlines and the tone step between the
+     page and a panel, which is what was doing the work anyway. The lift is
+     reserved for things that genuinely leave the page: a hover, an open row, a
+     menu, a modal, a toast — and it is now strong enough to read as one. */
+  --shadow-sm: 0 0 0 0 rgba(0, 0, 0, 0);
+  --shadow-md: 0 6px 18px -6px rgba(26, 24, 20, 0.22);
+  /* The width every primary action in a row reserves. Declared here rather
+     than only on the row because the list header lines its own controls up
+     with the rows below it, and two copies of this number would drift. */
+  --quick-action-w: 116px;
+  --focus-ring: 0 0 0 2px rgba(31, 28, 23, 0.35);
   /* Person-avatar chip palette (#106 follow-up) — 8 rotating hues, hashed
      by user id in avatarStyle() (App.tsx), kept distinct from the
      good/warn/hot/bad status hues so a chip color never reads as urgency. */
@@ -115,8 +139,8 @@
   --row-alt: rgba(255, 255, 255, 0.02);
   --row-hover: rgba(255, 255, 255, 0.045);
   --control-hover: rgba(255, 255, 255, 0.1);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 0 0 0 rgba(0, 0, 0, 0);
+  --shadow-md: 0 6px 18px -6px rgba(0, 0, 0, 0.6);
   --focus-ring: 0 0 0 2px rgba(174, 174, 240, 0.45);
   /* All eight cool, for the reason in the block comment. The set still has
      to stay distinct from good/warn/hot/bad so a person's chip never reads
@@ -162,8 +186,13 @@
   --row-alt: rgba(255, 255, 255, 0.04);
   --row-hover: rgba(255, 255, 255, 0.08);
   --control-hover: rgba(255, 255, 255, 0.18);
-  --shadow-sm: none;
-  --shadow-md: none;
+  /* Still no shadows here, but expressed as a transparent no-op rather than
+     `none`. The card's status stripe is drawn as an inset shadow composed with
+     this token, and `none` in a box-shadow list voids the whole declaration —
+     so the literal keyword was quietly deleting the status stripe from the one
+     theme that exists for maximum legibility. */
+  --shadow-sm: 0 0 0 0 transparent;
+  --shadow-md: 0 0 0 0 transparent;
   --focus-ring: 0 0 0 2px #18ffff;
   /* Contrast theme stays monochrome on purpose — decorative hue variety
      works against its max-legibility goal, so every slot maps to the same
@@ -205,8 +234,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a { color: var(--brand); text-decoration: none; }
-a:hover { text-decoration: underline; }
+/* Links carry a standing underline, because the interactive colour is ink and
+   a link that is only ink is indistinguishable from the sentence around it.
+   Kept faint and offset so a dense row reads as a row and not as a page of
+   ruled text: the rule sits below the baseline and in a lighter tone than the
+   words, and only firms up under the cursor. This is the one affordance the
+   ink palette costs, and paying it in the type is more honest than paying it
+   in a second accent colour. */
+a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--line);
+  transition: text-decoration-color 0.15s;
+}
+a:hover { text-decoration-color: currentColor; }
 h1, h2, h3, h4, p { margin: 0; }
 
 h1, h2, h3, h4 {
@@ -225,8 +268,8 @@ h1, h2, h3, h4 {
 /* ── App bar ──────────────────────────────────────────────── */
 /* No brand lockup here — Teams already shows "Hot Task" in its own tab, so
    an in-app logo/title would be pure duplication. New Task now lives on the
-   list's own section header (next to Grouped/Flat, see .task-grid-head),
-   so this row is just nav (admin only) + the dev user picker — light
+   list's own section header (see .task-grid-head), so this row is just nav
+   (admin only) + the dev user picker — light
    enough that it doesn't need its own heavy divider; the tab strip carries
    its own thin underline when it's present, and the list header below
    supplies the real dividing line. */
@@ -243,6 +286,145 @@ h1, h2, h3, h4 {
   margin-left: auto;
   padding: 10px 0;
   flex: none;
+}
+
+/* ── App menu ─────────────────────────────────────────────── */
+/* The preferences that are not decisions about a task. Grouped/Flat and
+   Collapse all used to sit on every list header next to New Task, which put
+   three controls of very different frequency on one line: New Task is pressed
+   all day, the other two are set once and then left alone. Anchored to its own
+   trigger rather than portalled — the app bar is not clipped, so there is
+   nothing to escape and no placement to compute. */
+.app-menu {
+  position: relative;
+  display: inline-flex;
+  /* Last on the list header, hard right. It lives here rather than in the app
+     bar because in production that bar is empty for everyone but an admin —
+     the dev user picker is the only other thing in it, and that is stripped
+     from the build. A control nobody can see is not a control. */
+  margin-left: 2px;
+  flex: 0 0 auto;
+}
+
+.app-menu-trigger {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  /* The hamburger's corner, not a button's — this sits directly above a column
+     of them. */
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-secondary);
+}
+
+.app-menu-trigger:hover { color: var(--ink); }
+
+.app-menu-trigger[aria-expanded="true"] {
+  color: var(--ink);
+  border-color: var(--ink-secondary);
+}
+
+.icon-settings {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.app-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 208px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  /* A real lift — this one has genuinely left the page. */
+  box-shadow: var(--shadow-md);
+  animation: slideDown 150ms ease;
+}
+
+.app-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The same mono section label every other block heading in the app uses. */
+.app-menu-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.app-menu-choices {
+  display: flex;
+  gap: 4px;
+}
+
+.app-menu-choices-wrap { flex-wrap: wrap; }
+
+.app-menu-choice {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.app-menu-choice-on {
+  --btn-bg: var(--brand);
+  --btn-bg-hover: var(--brand-hover);
+  border-color: var(--brand);
+  color: var(--on-accent);
+}
+
+.app-menu-action {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+
+.app-menu-action[aria-disabled="true"] {
+  --btn-bg-hover: var(--btn-bg);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.app-menu-action-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--muted);
 }
 
 .user-picker {
@@ -967,6 +1149,12 @@ button.btn-ghost:hover {
    the opt-out on hover. Scoped to this control, not to every ghost button:
    the loan header's Cancel-edit button is also an inert `.btn-ghost` mid-save
    and it isn't this button's business to restyle it. */
+/* Collapse all sits beside New Task and the Grouped/Flat segment; it takes the
+   same display face they do rather than inheriting the body face. */
+button.collapse-all {
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+}
+
 button.collapse-all[aria-disabled="true"] {
   --btn-bg-hover: var(--btn-bg);
   opacity: 0.5;
@@ -1009,14 +1197,58 @@ button.btn-good:hover {
 /* ── Section headers ──────────────────────────────────────── */
 .section-head {
   display: flex;
-  /* Centered, not baseline — task-grid-head packs in the Grouped/Flat
-     segment and New Task button alongside the h2, and those need to line
-     up on their vertical middle with the text, not its text baseline. */
+  /* Centered, not baseline — task-grid-head packs the New Task button and the
+     app menu alongside the h2, and those need to line up on their vertical
+     middle with the text, not its text baseline. */
   align-items: center;
   gap: 10px;
   padding: 10px 0 6px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 0;
+}
+
+/* The list header: heading and count on the left, then the app menu, then New
+   Task hard right — the thing pressed all day sits where the eye and the thumb
+   go first, and the settings sit one step in from the corner.
+
+   The pair is built to land exactly on top of the action column in the rows
+   below: same 32px trigger, same 6px gap, same --quick-action-w button, and the
+   header carries the row's own 15px right inset (14px of row padding plus the
+   card's 1px border) so the right edges agree. Read down the right-hand side of
+   the list and the menu sits over every hamburger and New Task over every
+   Claim. */
+.task-grid-head {
+  padding-right: 15px;
+}
+
+.task-grid-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* New Task is a row action's twin: same width, same padding, same type size,
+   same corner. It used to be a wider, chunkier control in a different size,
+   sitting directly above a column of buttons it did not match. */
+.task-grid-head-actions .form-toggle {
+  width: var(--quick-action-w);
+  justify-content: center;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  border-radius: 5px;
+}
+
+/* Phones: the heading, its count and the pair do not fit on one line, so the
+   header wraps rather than pushing the count off the edge. The pair stays
+   together, still in that order, on the second line — and the inset goes,
+   because at this width the rows have their own smaller padding. */
+@media (max-width: 480px) {
+  .task-grid-head {
+    flex-wrap: wrap;
+    padding-right: 11px;
+  }
 }
 
 .section-head h2 {
@@ -1097,9 +1329,11 @@ button.btn-good:hover {
   box-shadow: var(--shadow-md);
 }
 
-.task-card-own {
-  border-left: 2px solid var(--brand-soft);
-}
+/* One edge, one meaning. The card's left edge belongs to the status stripe and
+   nothing else; a second left border stacked under it meant the same edge was
+   answering two questions at once, and read as decoration rather than signal.
+   "Assigned to you" is already on the row in the ASSIGNEE column, and in the
+   grouped view in the section the row is sitting in. */
 
 .task-card-dimmed {
   opacity: 0.55;
@@ -1109,22 +1343,12 @@ button.btn-good:hover {
   opacity: 0.85;
 }
 
-/* Creator-stake marker: right-edge stripe mirrors status stripe on the left.
-   Means "you created this", paired with the (left) status signal. */
+/* Creator-stake marker, removed. It mirrored the status stripe on the opposite
+   edge to mean "you created this", which gave the card two coloured margins
+   saying two unrelated things — the shape reads as ornament long before anyone
+   decodes it. The ASSIGNER column already names the creator on every row. */
 .task-card-watching {
   position: relative;
-}
-.task-card-watching::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--brand-soft);
-  pointer-events: none;
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
 }
 
 /* ── Status left stripe ───────────────────────────────────── */
@@ -1202,10 +1426,19 @@ button.btn-good:hover {
 
 /* ── Grouped row title block ──────────────────────────────── */
 .task-card-collapsed-title {
+  /* One line, not two (2026-09-06). The loan name leads and the task type sits
+     beside it rather than under it: the pair used to stack, which spent a whole
+     line of the densest surface in the app on two facts that fit on one. */
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
   min-width: 0;
+  /* The cell itself must be allowed to be narrower than its contents, or the
+     grid track resolves to the content's width and the row grows past the
+     viewport. */
+  overflow: hidden;
   /* One size for both lines of the title block. The file name reads at the
      same size and weight as the stage suffix beside it ("Fraud Check -
      Outstanding Items") — the file is what people scan for, so it stops
@@ -1216,17 +1449,35 @@ button.btn-good:hover {
   --collapsed-title-size: 0.95rem;
 }
 
+/* The type, right of a hairline and in full ink. It reads as its own fact
+   rather than as the tail of the loan name — trailing a name of variable width
+   it landed at a different x on every row, and at a whisper it was simply not
+   being found. It never truncates: the loan name is the elastic one. */
 .task-card-collapsed-type {
+  /* A block, not a flex box, so `text-overflow` can actually reach the text —
+     and it has to, because the label is not always short: a Fraud Check at
+     final approval reads "Fraud Check - Final Approval Needed". Left
+     unshrinkable (which it briefly was) that single label is wider than a
+     phone, and since it sits in a fixed grid row it pushed the whole board
+     sideways with no zoom left to escape it. It gives before the row does, and
+     never past 45% of the title cell so the loan name keeps the space it
+     earned. The unread dot inside it is inline-block and rides along. */
   display: block;
-  font-family: "DM Sans", sans-serif;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  padding-left: 10px;
+  border-left: 1px solid var(--line-soft);
+  font-family: "JetBrains Mono", monospace;
   font-weight: 700;
-  font-size: var(--collapsed-title-size);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
   color: var(--ink);
-  letter-spacing: -0.005em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.2;
 }
 
 .task-card-collapsed-stage {
@@ -1234,31 +1485,43 @@ button.btn-good:hover {
   color: var(--ink-secondary);
 }
 
+/* The loan name, promoted to top billing: it is what a person scans for, so it
+   is the heading face at full ink and the elastic part of the row. */
 .task-card-collapsed-folder {
-  font-family: "DM Sans", sans-serif;
-  font-weight: 500;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-weight: 700;
   font-size: var(--collapsed-title-size);
-  color: var(--ink-secondary);
+  color: var(--ink);
+  /* Takes only the width it needs, so the type sits directly beside it rather
+     than being pushed to the far edge of the cell by a name that grew to fill. */
+  flex: 0 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.25;
+  line-height: 1.2;
+  min-width: 0;
 }
 
-/* The anchor is inline-flex (to sit the ↗ beside the name), which makes it an
-   atomic inline box: the parent's `text-overflow: ellipsis` cannot reach inside
-   it, so a long linked name used to hard-clip while the plain-text variant
-   ellipsised. The name carries its own ellipsis instead, and the ↗ is barred
-   from shrinking so it stays legible at the truncation point (#163). */
+/* The anchor is inline-flex, which makes it an atomic inline box: the parent's
+   `text-overflow: ellipsis` cannot reach inside it, so a long linked name used
+   to hard-clip while the plain-text variant ellipsised. The name carries its
+   own ellipsis instead (#163).
+   The ↗ that used to sit beside it is gone — a unicode arrow standing in for an
+   icon, which rendered as a colour emoji on mobile. The link says it is a link
+   with an underline, the same standing underline every other link carries now
+   that the interactive colour is ink. */
 .task-card-collapsed-folder a {
-  color: var(--ink-secondary);
+  color: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border-bottom: 1px dotted var(--line);
   max-width: 100%;
   min-width: 0;
   vertical-align: bottom;
+  border-bottom: none;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--line);
 }
 
 .task-card-collapsed-folder-name {
@@ -1268,41 +1531,10 @@ button.btn-good:hover {
   white-space: nowrap;
 }
 
-.task-card-collapsed-folder a .external-link-icon {
-  flex: 0 0 auto;
-}
-
 .task-card-collapsed-folder a:hover {
-  color: var(--brand);
-  border-bottom-color: var(--brand);
-  text-decoration: none;
-}
-
-/* Per-row filter affordance (#57): a small funnel button beside the loan name
-   that filters the list to that loan. The name itself now opens the Humperdink
-   link, so filtering gets its own dedicated icon. */
-.loan-filter-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 2px;
-  margin-left: 2px;
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  vertical-align: middle;
-}
-
-.loan-filter-btn:hover {
-  color: var(--brand);
-}
-
-.icon-filter {
-  width: 12px;
-  height: 12px;
-  display: block;
+  color: inherit;
+  border-bottom: none;
+  text-decoration-color: currentColor;
 }
 
 /* Create-form loan typeahead */
@@ -1360,74 +1592,23 @@ button.btn-good:hover {
   color: var(--brand);
 }
 
-/* Loan filter header (editable, ADR-0001) */
-.loan-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-  background: var(--panel);
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
-}
-
-.loan-header-eyebrow {
-  display: block;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
-
-/* Read-only since #266 — the header stands outside any task, so it has no two
-   parties and carries no edit. `.loan-header-edit` and the two input rules that
-   used to sit below went with the affordance rather than being left behind for
-   a later reader to wonder about. */
-.loan-header-view {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.loan-header-name {
-  margin: 0;
-  font-family: "Bricolage Grotesque", sans-serif;
-  font-size: 1.05rem;
-  color: var(--ink);
-}
-
-.loan-header-link {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--brand);
-}
-
-.loan-header-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
+/* Both of these read the shared reservation rather than a literal. They used to
+   say 116px, which was right until the phone breakpoint moved the reservation:
+   the empty spacer then stood 8px wider than the track it sat in and shouldered
+   the column out of line on every row with no action, and the whole right-hand
+   edge stopped agreeing with the New Task and menu pair in the header above
+   it. */
 .task-card-quick-action {
   flex-shrink: 0;
   white-space: nowrap;
   justify-self: end;
   width: 100%;
-  max-width: 116px;
+  max-width: var(--quick-action-w);
 }
 
 .task-card-quick-action-empty {
   display: block;
-  width: 116px;
+  width: var(--quick-action-w);
   height: 1px;
 }
 
@@ -1943,7 +2124,8 @@ button.btn-good:hover {
 /* The Checked panel (#231) — an LOI checker's two exits behind the one control
    that used to read `Complete`. The wrapper is only there to hold the trigger
    and stop the row toggling under it; it takes no width of its own so the
-   trigger keeps the same 116px every other quick action takes and the column
+   trigger keeps the same --quick-action-w every other quick action takes and
+   the column
    stays aligned whichever control lands in the slot.
 
    The panel is portaled to document.body and fixed-positioned from the
@@ -2208,36 +2390,79 @@ button.btn-good:hover {
   display: flex;
   flex-direction: column;
 }
+/* A ruled page, not a card inside a card. The box used to be a bordered,
+   shadowed panel with a 3px brand edge sitting inside the bordered, shadowed
+   task card — two containers deep for one passage of text, and the coloured
+   margin on top of it was the most borrowed shape in the app. All of that
+   chrome is gone. What replaces it is the ledger the whole design claims to
+   be: the field's name sits in a left margin column, a single hairline divides
+   the margin from the text, and one more hairline closes the block off from
+   the conversation below. Two rules, no container. */
 .loi-terms {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--brand);
-  border-radius: 8px;
-  background: var(--panel);
-  padding: 12px 16px 14px;
-  box-shadow: var(--shadow-sm);
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 2px 0 14px;
 }
-/* The panel's own border is the separator, so the expanded body's sibling
-   hairline would draw a second line 1px away from it. */
+/* The box's own closing hairline is the separator, so the expanded body's
+   sibling hairline would draw a second line 1px away from it. */
 .task-card-expanded > .task-card-terms + * {
   border-top: none;
   padding-top: 4px;
 }
+/* The margin column. Its right-hand hairline is the rule on a ledger page —
+   structure and separator in one stroke, which is why the block needs no box
+   drawn around it. */
 .loi-terms-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 8px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--line-soft);
+  display: block;
+  padding: 1px 14px 0 0;
+  border-right: 1px solid var(--line-soft);
+  text-align: right;
 }
-/* Same mono section label as .thread-head — the two headings are peers. */
+/* Same mono section label as .thread-head — the two headings are peers. Set a
+   step smaller and tracked a step wider than it was, because in the margin it
+   is an annotation rather than a bar across the top of a panel. */
 .loi-terms-title {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
+  line-height: 1.35;
   color: var(--ink-secondary);
   font-weight: 600;
+}
+/* Under about 560px the margin has nowhere to go: the two columns collapse to
+   one and the label sits back above its text, left-aligned, with the vertical
+   rule dropped. The closing hairline still carries the separation. */
+@media (max-width: 560px) {
+  /* The title stacks on a phone: loan name, then the type under it. Side by
+     side there is not enough width for both, and the type was the one getting
+     cut — with zoom off there is no recovering from that. The hairline goes
+     with the side-by-side arrangement it belonged to; stacked, the line break
+     is the separator, and a rule above the type would read as a divider across
+     the row. */
+  .task-card-collapsed-title {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .task-card-collapsed-type {
+    max-width: 100%;
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .loi-terms {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 7px;
+  }
+  .loi-terms-head {
+    padding: 0;
+    border-right: none;
+    text-align: left;
+  }
 }
 .loi-terms-head > :not(.loi-terms-title) { margin-left: auto; }
 /* Free text exactly as typed. `pre-wrap` is the whole formatting story: a
@@ -2246,8 +2471,9 @@ button.btn-good:hover {
    1.45 — a typed list of figures has to read as a list, and lines set as far
    apart as prose read as six separate paragraphs. */
 .loi-terms-body {
-  font-size: 0.86rem;
-  line-height: 1.4;
+  align-self: start;
+  font-size: 0.9rem;
+  line-height: 1.45;
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
@@ -2273,13 +2499,18 @@ button.btn-good:hover {
 /* Held. The bubble's ring, inset rather than outset — the box already sits
    inside a bordered panel, and an outline outside its own edge would land on
    top of the panel's border rather than beside it. */
+/* Held. Now that the box draws no border of its own there is nothing for an
+   inset ring to sit beside, so the ring goes outside the block and takes a
+   small radius to read as a shape rather than as a stray rule. */
 .loi-terms.loi-terms-held {
   outline: 2px solid var(--brand);
-  outline-offset: -2px;
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 /* The box turned into a field in place (#303, ADR-0010 rule 4). Same face and
    size as the text it replaces, so the section does not jump when it opens. */
 .loi-terms-edit {
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2287,8 +2518,8 @@ button.btn-good:hover {
 .loi-terms-edit-field {
   width: 100%;
   box-sizing: border-box;
-  font-size: 0.86rem;
-  line-height: 1.4;
+  font-size: 0.9rem;
+  line-height: 1.45;
   resize: vertical;
   /* Body face on every type, exactly as the read view is. The fixed-width
      exception stays the edit form's LOI field alone — swapping the face when
@@ -2702,6 +2933,23 @@ button.btn-good:hover {
 }
 
 /* ── Poop score ───────────────────────────────────────────── */
+/* How Bad?, in the expanded body. A mono label and the track on one line, in
+   the same idiom as every other section label on the card. */
+.task-card-poop-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 8px;
+}
+.task-card-poop-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-secondary);
+  font-weight: 600;
+}
+
 .poop-track {
   display: inline-flex;
   align-items: center;
@@ -2933,6 +3181,41 @@ button.btn-good:hover {
     gap: 10px;
   }
 
+  /* Phones. There is no zoom to recover from a miss here — the mobile webview
+     has it switched off deliberately — so anything that overflows is simply
+     unreachable rather than pinch-away.
+     The action buttons are narrower here than on desktop, and the way they get
+     to be narrow is the label rather than the box: `button.btn-sm` below keeps
+     its 36px minimum height, which is the part that makes a touch target, and
+     gives back the horizontal padding and the type-size bump it used to take.
+     "Approve Merge" is the longest label that lands here and clears 108px at
+     that size — it was being clipped at 116px with the larger type, which is
+     what a wider box was papering over.
+     Set on :root so the list header's New Task, which reserves the same width
+     to line up with this column, moves with it and cannot end up a different
+     size from the buttons it sits above. */
+  :root {
+    --quick-action-w: 108px;
+  }
+
+  .task-card-grouped {
+    padding-left: 10px;
+    padding-right: 10px;
+    gap: 8px;
+  }
+
+  /* Mini keeps all four of its areas — the markup still renders a pair, and a
+     template that omits an area auto-places the element into an implicit row
+     instead. The tracks just get smaller. */
+  .task-card-grouped-mini {
+    grid-template-columns: minmax(0, 1fr) 96px 56px 32px;
+    column-gap: 8px;
+  }
+
+  /* The pair has its own row and no fixed reservation, so it is free to wrap
+     rather than push. */
+  .task-card-pair { flex-wrap: wrap; }
+
   .app-bar {
     gap: 8px;
   }
@@ -2945,13 +3228,20 @@ button.btn-good:hover {
   }
 
   button.btn-sm {
-    padding: 8px 12px;
-    font-size: 0.82rem;
+    padding: 8px 8px;
+    font-size: 0.78rem;
     min-height: 36px;
   }
   .form-toggle {
     padding: 9px 14px;
     min-height: 38px;
+  }
+  /* Except in the list header, where it is a row action's twin and takes the
+     same mobile metrics `button.btn-sm` above just took. */
+  .task-grid-head-actions .form-toggle {
+    padding: 8px 8px;
+    font-size: 0.78rem;
+    min-height: 36px;
   }
 
   .form-overlay {
@@ -3080,32 +3370,15 @@ button.btn-good:hover {
   gap: 10px;
 }
 
+/* A recessed well inside the metrics panel, not a card inside a card: no
+   border, no shadow, no coloured margin. The five colour variants that used to
+   ride the left edge said nothing the label underneath did not already say, and
+   a tinted rule beside a number is the most borrowed shape in dashboard UI. */
 .stat-card {
   background: var(--bg-soft);
   border-radius: 8px;
   padding: 14px 10px;
   text-align: center;
-  border-left: 3px solid var(--line);
-}
-
-.stat-card-total {
-  border-left-color: var(--ink-secondary);
-}
-
-.stat-card-active {
-  border-left-color: var(--good);
-}
-
-.stat-card-completed {
-  border-left-color: var(--brand);
-}
-
-.stat-card-archived {
-  border-left-color: var(--muted);
-}
-
-.stat-card-cancelled {
-  border-left-color: var(--bad);
 }
 
 .stat-number {
@@ -3580,44 +3853,6 @@ button.btn-good:hover {
 }
 
 /* ── Grouped ("courts") view ──────────────────────────────── */
-/* A compact, mono, ink-on-paper alternative to the flat unified grid. Tasks
-   bucket into courts by whose move it is; the section header carries that
-   meaning, so each row stays quiet — its only colored signal is a red left
-   stripe + red countdown when overdue. Toggled by the Grouped/Flat segment
-   on the list's own section header (GroupSeg in App.tsx) — it lives there
-   because that's what it actually describes, not the top app bar. */
-.seg {
-  margin-left: auto;
-  display: flex;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--bg-soft);
-  border: 1px solid var(--line-soft);
-}
-.seg button {
-  border: 0;
-  background: none;
-  padding: 6px 11px;
-  border-radius: 6px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.seg button:hover { color: var(--ink-secondary); background: none; }
-.seg button.seg-on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow-sm); }
-/* The selected pill is --panel on a --bg-soft track, which separates fine on
-   paper but is 1.05:1 in dark — plus the drop shadow that sells the "raised"
-   read on light is invisible against a dark surface. Lift the fill and give
-   it a hairline so the selected segment is unambiguous. */
-:root[data-theme="dark"] .seg button.seg-on {
-  background: color-mix(in srgb, var(--panel), var(--ink) 10%);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
-}
-.seg button.seg-on:hover { color: var(--ink); }
-.seg button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 .courts { display: grid; gap: 10px; }
 .court { display: grid; gap: 5px; }
@@ -3634,10 +3869,10 @@ button.btn-good:hover {
    active, attached card. The lift rides on the wrapper itself (not the inner
    row) because the wrapper's `overflow: hidden` would clip a descendant's
    outset shadow. No-op under contrast, which intentionally has no shadows. */
-.task-card-grouped-wrap.task-card-grouped-open { box-shadow: var(--shadow-sm); }
+.task-card-grouped-wrap.task-card-grouped-open { box-shadow: var(--shadow-md); }
 
-/* Collapsed grouped row, two lines: stripe | title | action
-                                     stripe | pair  | due    */
+/* Collapsed grouped row, two lines: title | action
+                                     pair  | due   */
 .task-card-grouped {
   display: grid;
   /* The action column is FIXED, deliberately (#116). Every row is its own
@@ -3649,9 +3884,9 @@ button.btn-good:hover {
      Only the title column is elastic (`minmax(0, 1fr)`), so it stays the one
      that gives, via ellipsis. */
   /* One shared width for every quick action, so Claim and Approve Merge are
-     the same control. "Approve Merge" is the longest label that lands here
-     and measures ~112px at this font size — 116px clears it. */
-  --quick-action-w: 116px;
+     the same control. "Approve Merge" is the longest label that lands here and
+     measures ~112px at this font size — 116px clears it. The value lives on
+     :root; the list header reads the same one. */
   /* hamburger (32px) + gap (6px) + button. Reserved on every row, including
      rows with no action, so the two never trade places. */
   --action-col-w: calc(var(--quick-action-w) + 38px);
@@ -3662,14 +3897,17 @@ button.btn-good:hover {
      fixed --pair-col-w reservation (which is what left ~38px of dead space
      between the names and the due stamp on a typical row) and no
      ellipsizing. The action column stays FIXED — see #116 below. */
-  grid-template-columns: 4px minmax(0, 1fr) var(--action-col-w);
+  grid-template-columns: minmax(0, 1fr) var(--action-col-w);
   grid-template-areas:
-    "stripe title action"
-    "stripe pair  due";
+    "title action"
+    "pair  due";
   align-items: center;
   gap: clamp(8px, 1.4vw, 14px);
   row-gap: 6px;
-  padding: 7px 14px 7px 0;
+  /* Symmetric now that the rail is gone. The left inset used to be the 4px
+     stripe column plus the grid gap; it is plain padding here, and matches the
+     right so the row sits square in the card. */
+  padding: 7px 14px;
   min-height: 46px;
   cursor: pointer;
   user-select: none;
@@ -3677,13 +3915,11 @@ button.btn-good:hover {
 .task-card-grouped:hover { background: var(--row-hover); }
 .task-card-grouped:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-/* Thin left stripe — overdue is the only thing loud enough to color it. */
-.task-card-grouped-stripe {
-  grid-area: stripe;
-  align-self: stretch; width: 4px; background: transparent;
-  border-radius: 8px 0 0 8px;
-}
-.task-card-grouped-overdue .task-card-grouped-stripe { background: var(--bad); }
+/* The thin left rail is gone. It was invisible on every row in the app and
+   turned red on one condition, which made it a coloured tab on the edge of a
+   list item rather than structure — and it repeated, in the margin, what the
+   due stamp two columns over already said in words and in red. Overdue now
+   lives on the datum it is about; see .task-card-grouped-due-overdue. */
 
 /* Assigner→assignee, one line: avatar pill + arrow, not two stacked
    "ASSIGNEE"/"ASSIGNER" label rows. */
@@ -3740,8 +3976,16 @@ button.btn-good:hover {
   font-family: "JetBrains Mono", monospace; font-size: 0.85rem; font-weight: 600;
   color: var(--ink-secondary); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+/* Overdue, said once, on the number it is about. The value carries it in size,
+   weight and colour; the label goes red with it but held back a notch, so the
+   pair reads as one signal rather than two things shouting. */
 .task-card-grouped-due-overdue .task-card-grouped-due-label,
 .task-card-grouped-due-overdue .task-card-grouped-due-value { color: var(--bad); }
+.task-card-grouped-due-overdue .task-card-grouped-due-label { opacity: 0.8; }
+.task-card-grouped-due-overdue .task-card-grouped-due-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
 .task-card-grouped-due-done .task-card-grouped-due-value { color: var(--muted); font-weight: 500; }
 
 /* Wraps the primary action + the hamburger menu, so both land together in
@@ -3827,8 +4071,8 @@ button.btn-good:hover {
    content-sized pair resolves per row and walks the due stamp sideways. */
 .task-card-grouped-mini {
   min-height: 34px; padding-top: 4px; padding-bottom: 4px;
-  grid-template-columns: 4px minmax(0, 1fr) 168px 72px 32px;
-  grid-template-areas: "stripe title pair due action";
+  grid-template-columns: minmax(0, 1fr) 168px 72px 32px;
+  grid-template-areas: "title pair due action";
   row-gap: 0;
 }
 /* A mini never renders a quick action — measured 117 of 117 rows carrying

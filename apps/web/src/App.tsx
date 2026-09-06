@@ -118,9 +118,37 @@ const formatRelativeCompleted = (iso?: string): string => {
   return `done ${day}d ago`;
 };
 
-const applyTheme = (theme?: string): void => {
-  const normalized = theme === "dark" || theme === "contrast" ? theme : "light";
-  document.documentElement.setAttribute("data-theme", normalized);
+/* The theme the *host* asked for. Teams tells the tab which of its three
+   themes it is running, and until now that was the whole story. */
+type HostTheme = "light" | "dark" | "contrast";
+const normalizeTheme = (theme?: string): HostTheme =>
+  theme === "dark" || theme === "contrast" ? theme : "light";
+
+/* What the person chose in the app menu. "auto" is the default and means the
+   old behaviour exactly: follow Teams, including live when Teams switches
+   under us. Anything else pins the app and stops it following — which is the
+   point of the control, and the reason it is not the default: a Teams tab that
+   disagrees with Teams should be something you asked for. */
+type ThemeChoice = "auto" | HostTheme;
+const THEME_KEY = "loan-tasks:theme";
+const THEME_CHOICES: ThemeChoice[] = ["auto", "light", "dark", "contrast"];
+const THEME_LABELS: Record<ThemeChoice, string> = {
+  auto: "Match Teams",
+  light: "Light",
+  dark: "Dark",
+  contrast: "High contrast"
+};
+const readThemeChoice = (): ThemeChoice => {
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    return THEME_CHOICES.includes(stored as ThemeChoice) ? (stored as ThemeChoice) : "auto";
+  } catch {
+    return "auto";
+  }
+};
+
+const applyTheme = (theme: HostTheme): void => {
+  document.documentElement.setAttribute("data-theme", theme);
 };
 
 /* ── Grouped ("courts") view helpers ──────────────────────── */
@@ -430,6 +458,29 @@ const PoopDisplay = ({
   );
 };
 
+/* Sliders rather than a cog: what is behind it is a set of view preferences,
+   not system configuration, and the app already has an Admin tab that is the
+   cog-shaped thing. Same stroke weight and cap style as every other icon here.
+   Sized via `.icon-settings` in styles.css; color follows `currentColor`. */
+const SettingsIcon = () => (
+  <svg
+    className="icon-settings"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <line x1="4" y1="8" x2="20" y2="8" />
+    <line x1="4" y1="16" x2="20" y2="16" />
+    <circle cx="10" cy="8" r="2.5" />
+    <circle cx="15" cy="16" r="2.5" />
+  </svg>
+);
+
 /* Standard three-connected-nodes "share" glyph (#58). Hand-rolled inline SVG —
    the app ships no icon library (only the logo SVG + Unicode marks), so this is
    the one reusable share icon every share affordance should use. Sized via
@@ -457,21 +508,6 @@ const ShareIcon = () => (
 /* Funnel glyph for the per-row "filter to this loan" affordance (#57). Inline
    SVG in the ShareIcon idiom — no icon library ships. Sized via `.icon-filter`;
    color follows `currentColor`. */
-const FilterIcon = () => (
-  <svg
-    className="icon-filter"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-    focusable="false"
-  >
-    <path d="M3 5h18l-7 8v6l-4 2v-8z" />
-  </svg>
-);
 
 /* Portaled-panel geometry (#113, #122). The arithmetic — prefer downward, flip
    up when below can't hold it, clamp both axes into the viewport — lives in
@@ -1470,7 +1506,6 @@ const TaskCard = memo(({
   onUpdatePoints,
   onEditTask,
   taskHistory,
-  onFilterLoan,
   onShare,
   onAssign,
   checklist,
@@ -1517,7 +1552,6 @@ const TaskCard = memo(({
   taskHistory: TaskHistoryApi;
   /* FRAUD structured checklist ops (#44). */
   checklist: ChecklistApi;
-  onFilterLoan?: (loanId: string) => void;
   /* Point a specific person at this task (issue #41). Resolves with whether the
      DM actually reached them; rejects on request failure so the card can show
      inline status. */
@@ -2494,6 +2528,22 @@ const TaskCard = memo(({
     <CardMenuScopeProvider>
       <div className="task-card-expanded">
         <Timeline task={task} />
+        {/* How Bad?, moved off the collapsed row. It is a rating the creator
+            sets once and everyone else reads occasionally — not something the
+            row has to answer while you scan it — and five emoji riding the
+            type label were the loudest thing in the densest surface in the
+            app. An unrated task read-only renders nothing: PoopDisplay returns
+            null, so no empty block appears here. */}
+        {(task.points ?? 0) > 0 || (isCreator && !isClosed) ? (
+          <div className="task-card-poop-row">
+            <span className="task-card-poop-label">How Bad?</span>
+            <PoopDisplay
+              count={task.points ?? 0}
+              canEdit={isCreator && !isClosed}
+              onChange={(n) => { void onUpdatePoints(task.id, n); }}
+            />
+          </div>
+        ) : null}
         {fraudActionsBlock}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
         {instructionsBlock}
@@ -2521,7 +2571,6 @@ const TaskCard = memo(({
         onKeyDown={handleHeaderKey}
         title={urgencyTitle}
       >
-        <span className="task-card-grouped-stripe" aria-hidden="true" />
         {/* Assigner→assignee, one line: avatar pill + arrow, not two
             stacked "ASSIGNEE"/"ASSIGNER" label rows. Names never
             truncate — the title's own minmax(0,1fr) column is the one
@@ -2548,42 +2597,28 @@ const TaskCard = memo(({
           </span>
         </span>
         <span className="task-card-collapsed-title">
+          {/* Loan name first and dominant — it is what a person scans for. The
+              type sits beside it, right of a hairline, in ink rather than a
+              whisper: trailing a name of variable width it landed at a
+              different x on every row and was simply not being found. The ↗ is
+              gone (a unicode arrow standing in for an icon, and a colour emoji
+              on mobile); the name is still the link and says so with the same
+              standing underline every link carries now. The rating moved into
+              the expanded body, and the per-row loan filter is gone. */}
+          <span className="task-card-collapsed-folder">
+            {task.taskType !== "OOO" && task.humperdinkLink ? (
+              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
+                <span className="task-card-collapsed-folder-name">{task.folderName}</span>
+              </a>
+            ) : (
+              <span className="task-card-collapsed-folder-name">{task.folderName}</span>
+            )}
+          </span>
           <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
             {TASK_TYPE_LABELS[task.taskType]}
             {stageSuffix(task) && <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>}
-            {!mini && (
-              <PoopDisplay
-                count={task.points ?? 0}
-                canEdit={isCreator && !isClosed}
-                onChange={(n) => { void onUpdatePoints(task.id, n); }}
-              />
-            )}
             {hasUnreadNote && (
               <span className="task-card-unread-dot" aria-label="New note" title="New note" />
-            )}
-          </span>
-          <span className="task-card-collapsed-folder">
-            {task.taskType !== "OOO" && task.humperdinkLink ? (
-              // The loan name opens the Humperdink link directly (#57); the
-              // ↗ marks it as an external link.
-              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
-                <span className="task-card-collapsed-folder-name">{task.folderName}</span>
-                <span className="external-link-icon" aria-hidden="true">↗</span>
-              </a>
-            ) : (
-              // No stored link → the name is inert plain text (#57).
-              <span>{task.folderName}</span>
-            )}
-            {task.taskType !== "OOO" && task.loanId && onFilterLoan && (
-              <button
-                type="button"
-                className="loan-filter-btn"
-                aria-label={`Filter list to loan: ${task.folderName}`}
-                title={`Filter to loan: ${task.folderName}`}
-                onClick={(e) => { stopBubble(e); onFilterLoan(task.loanId!); }}
-              >
-                <FilterIcon />
-              </button>
             )}
           </span>
         </span>
@@ -2700,7 +2735,6 @@ const CardList = ({
   onUpdatePoints,
   onEditTask,
   taskHistory,
-  onFilterLoan,
   onShare,
   onAssign,
   checklist,
@@ -2742,7 +2776,6 @@ const CardList = ({
      would lose it on every list refresh. */
   onEditTask: (taskId: string) => void;
   taskHistory: TaskHistoryApi;
-  onFilterLoan?: (loanId: string) => void;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
   onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
   checklist: ChecklistApi;
@@ -2784,7 +2817,6 @@ const CardList = ({
           onUpdatePoints={onUpdatePoints}
           onEditTask={onEditTask}
           taskHistory={taskHistory}
-          {...(onFilterLoan ? { onFilterLoan } : {})}
           onShare={onShare}
           onAssign={onAssign}
           checklist={checklist}
@@ -2803,19 +2835,127 @@ const CardList = ({
   </div>
 );
 
-/* Grouped/Flat list-view segment (#106 follow-up): lives on the list's own
-   section header, where it actually describes what it changes, rather than
-   floating in the top app bar. */
-const GroupSeg = ({ grouped, onChange }: { grouped: boolean; onChange: (g: boolean) => void }) => (
-  <div className="seg" role="group" aria-label="List grouping">
-    <button type="button" className={grouped ? "seg-on" : ""} aria-pressed={grouped} onClick={() => onChange(true)}>
-      Grouped
-    </button>
-    <button type="button" className={!grouped ? "seg-on" : ""} aria-pressed={!grouped} onClick={() => onChange(false)}>
-      Flat
-    </button>
-  </div>
-);
+/* ── App menu ─────────────────────────────────────────────── */
+/* The settings that are not decisions about a task. Grouped/Flat and Collapse
+   all used to sit on every list header, next to New Task, which put three
+   controls of very different frequency on one line: New Task is pressed all
+   day, the other two are pressed once and then left alone for hours. They are
+   preferences wearing the clothes of actions, so they moved in here and New
+   Task kept the header to itself.
+
+   Theme joined them because it is the same kind of thing, and because until now
+   there was nowhere in the app to change it at all. */
+const AppMenu = ({
+  grouped,
+  onGroupedChange,
+  expandedIds,
+  onCollapseAll,
+  themeChoice,
+  onThemeChange
+}: {
+  grouped: boolean;
+  onGroupedChange: (next: boolean) => void;
+  expandedIds: string[];
+  onCollapseAll: (taskIds: string[]) => void;
+  themeChoice: ThemeChoice;
+  onThemeChange: (next: ThemeChoice) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  /* Closes on an outside press and on Escape, the same two exits every other
+     transient surface in this app answers to. */
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: globalThis.MouseEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const collapseCount = expandedIds.length;
+
+  return (
+    <div className="app-menu" ref={wrapRef}>
+      <button
+        type="button"
+        className="app-menu-trigger"
+        aria-label="App settings"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <SettingsIcon />
+      </button>
+      {open && (
+        <div className="app-menu-panel" role="menu">
+          <div className="app-menu-group" role="group" aria-label="List view">
+            <span className="app-menu-label">View</span>
+            <div className="app-menu-choices">
+              {[
+                { value: true, label: "Grouped" },
+                { value: false, label: "Flat" }
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={grouped === opt.value}
+                  className={`app-menu-choice${grouped === opt.value ? " app-menu-choice-on" : ""}`}
+                  onClick={() => onGroupedChange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="app-menu-group" role="group" aria-label="Appearance">
+            <span className="app-menu-label">Appearance</span>
+            <div className="app-menu-choices app-menu-choices-wrap">
+              {THEME_CHOICES.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={themeChoice === choice}
+                  className={`app-menu-choice${themeChoice === choice ? " app-menu-choice-on" : ""}`}
+                  onClick={() => onThemeChange(choice)}
+                >
+                  {THEME_LABELS[choice]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            role="menuitem"
+            className="app-menu-action"
+            aria-disabled={collapseCount === 0}
+            onClick={() => {
+              if (collapseCount === 0) return;
+              onCollapseAll(expandedIds);
+              setOpen(false);
+            }}
+          >
+            Collapse all
+            {collapseCount > 0 && <span className="app-menu-action-count">{collapseCount}</span>}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 /* New Task, the primary action, sits directly right of the Grouped/Flat
    segment on whichever list header is showing — not in the top app bar,
@@ -2830,115 +2970,7 @@ const NewTaskButton = ({ open, onClick }: { open: boolean; onClick: () => void }
   </button>
 );
 
-/* Collapse all (#177): closes every card currently expanded *in this list*,
-   in one press. The caller passes the ids its own list renders, so the tab /
-   loan-filter / grouping scoping is already done and cards the viewer can't
-   see are never touched.
 
-   One-way by design. An Expand all would write an open entry for every card
-   the viewer never touched — the list rearranging itself under them, which is
-   exactly what #161 took out, only self-inflicted. Collapsing is different:
-   it restores the grid's resting state, which is where every card starts.
-
-   Inert rather than hidden when nothing below is open, so the header's
-   controls don't shuffle as cards open and close — and `aria-disabled` rather
-   than `disabled`, so the button keeps its place in the tab order and a screen
-   reader user can land on it and hear that there is nothing here to collapse.
-
-   `scope` names the list, because the visible label can't: three headers
-   render the same two words, and under a loan filter the button closes that
-   loan's cards only. */
-const CollapseAllButton = ({
-  expandedIds,
-  scope,
-  onCollapse
-}: {
-  expandedIds: string[];
-  scope: string;
-  onCollapse: (taskIds: string[]) => void;
-}) => {
-  const count = expandedIds.length;
-  return (
-    <button
-      type="button"
-      className="btn-sm btn-ghost collapse-all"
-      aria-disabled={count === 0}
-      aria-label={
-        count === 0
-          ? `Collapse all expanded tasks in ${scope} — nothing is expanded`
-          : `Collapse all ${count} expanded task${count === 1 ? "" : "s"} in ${scope}`
-      }
-      onClick={() => {
-        if (count === 0) return;
-        onCollapse(expandedIds);
-      }}
-    >
-      Collapse all
-    </button>
-  );
-};
-
-/* The header above the task list when it's filtered to a single Loan
-   (ADR-0001). Read-only since #266.
-
-   It used to carry an `Edit` button opening the name and the link inline — the
-   app's first post-creation edit surface, open to any authenticated user.
-   ADR-0008 rule 5 narrows a loan edit to the two parties of the task it is made
-   from, and this header stands outside any task: it is a filter over a list, so
-   there is no creator and no assignee here to be one of. A surface with nobody
-   to check cannot carry the rule, and keeping it would mean one editing surface
-   with a rule and another without — the exact drift the ticket closes.
-
-   So the ability is gone rather than weakened, and the heading keeps its job of
-   saying which loan the list is filtered to. The name and the link are still
-   corrected from `Edit Task` on any task on this loan, which is one click from
-   the rows directly below this header. */
-const LoanFilterHeader = ({
-  loan,
-  taskCount,
-  onClear,
-  grouped,
-  onGroupedChange,
-  formOpen,
-  onToggleForm,
-  expandedIds,
-  onCollapseAll
-}: {
-  loan: Loan;
-  taskCount: number;
-  onClear: () => void;
-  grouped: boolean;
-  onGroupedChange: (g: boolean) => void;
-  formOpen: boolean;
-  onToggleForm: () => void;
-  expandedIds: string[];
-  onCollapseAll: (taskIds: string[]) => void;
-}) => {
-  return (
-    <div className="loan-header">
-      <div className="loan-header-main">
-        <span className="loan-header-eyebrow">Loan</span>
-        <div className="loan-header-view">
-          <h2 className="loan-header-name">{loan.name}</h2>
-          {loan.humperdinkLink && (
-            <a className="loan-header-link" href={loan.humperdinkLink} target="_blank" rel="noreferrer">
-              Humperdink <span aria-hidden="true">↗</span>
-            </a>
-          )}
-        </div>
-      </div>
-      <div className="loan-header-meta">
-        <span className="section-count">{taskCount} TASK{taskCount === 1 ? "" : "S"}</span>
-        <GroupSeg grouped={grouped} onChange={onGroupedChange} />
-        <CollapseAllButton expandedIds={expandedIds} scope={loan.name} onCollapse={onCollapseAll} />
-        <NewTaskButton open={formOpen} onClick={onToggleForm} />
-        <button type="button" className="btn-sm btn-ghost" onClick={onClear}>Clear filter</button>
-      </div>
-    </div>
-  );
-};
-
-/* ── Metrics Panel ────────────────────────────────────────── */
 const TYPE_BAR_CLASS: Record<TaskType, string> = {
   LOI: "type-bar type-bar-brand",
   BUDDY_CHAT: "type-bar type-bar-brand",
@@ -3452,7 +3484,6 @@ export const App = () => {
   const [loans, setLoans] = useState<Loan[]>([]);
   /* When set, the task list is filtered to a single Loan and shows its
      editable header (ADR-0001: click a loan name to filter + edit). */
-  const [loanFilterId, setLoanFilterId] = useState<string | null>(null);
   /* Selectable people for the share and handoff pickers (issue #41, ADR-0002).
      Active users; carries roles so the handoff picker can filter to file
      checkers on a Fraud Check. */
@@ -3484,6 +3515,23 @@ export const App = () => {
   /* Grouped ("courts") view toggle — buckets tasks by whose court the ball is
      in instead of one flat list. App-wide viewing preference, persisted so it
      survives reloads. Defaults on. */
+  /* Theme: what the host asked for, what the person chose, and the one effect
+     that decides which of the two wins. Splitting them is what lets "Match
+     Teams" keep following live theme changes while a pinned choice ignores
+     them. */
+  const [hostTheme, setHostTheme] = useState<HostTheme>("light");
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(readThemeChoice);
+  useEffect(() => {
+    applyTheme(themeChoice === "auto" ? hostTheme : themeChoice);
+  }, [themeChoice, hostTheme]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(THEME_KEY, themeChoice);
+    } catch {
+      /* storage unavailable — degrade silently */
+    }
+  }, [themeChoice]);
+
   const GROUPED_KEY = "loan-tasks:grouped";
   const [grouped, setGrouped] = useState<boolean>(() => {
     try {
@@ -3723,8 +3771,8 @@ export const App = () => {
           page?: { subPageId?: string };
           subEntityId?: string;
         };
-        applyTheme(context.app?.theme ?? context.theme);
-        teamsApp.registerOnThemeChangeHandler?.((theme) => applyTheme(theme));
+        setHostTheme(normalizeTheme(context.app?.theme ?? context.theme));
+        teamsApp.registerOnThemeChangeHandler?.((theme) => setHostTheme(normalizeTheme(theme)));
 
         /* Deep link from a bot card → focus that task once it loads.
            teams-js v2 surfaces the link's subEntityId as page.subPageId. */
@@ -3771,7 +3819,7 @@ export const App = () => {
            mock user + selector. In prod surface that sign-in is required.
            No Teams host means no theme signal either, so fall back to the
            OS/browser preference instead of hardcoding light. */
-        applyTheme(window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        setHostTheme(window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         if (!IS_DEV) {
           setError("Unable to sign in. Open this app from Microsoft Teams.");
         }
@@ -4347,9 +4395,6 @@ export const App = () => {
 
   /* Stable so it doesn't defeat TaskCard's memo (#73) — was an inline arrow
      rebuilt inside `cardProps` every render. */
-  const onFilterLoan = useCallback((loanId: string): void => {
-    setLoanFilterId(loanId);
-  }, []);
 
   /* Unified visible-task list. Closed tasks (COMPLETED / CANCELLED /
      ARCHIVED) older than CLOSED_TTL_DAYS drop off the bottom — admins can
@@ -4469,8 +4514,7 @@ export const App = () => {
       onUpdatePoints,
       onEditTask,
       taskHistory: taskHistoryApi,
-      onFilterLoan,
-      onShare,
+          onShare,
       onAssign,
       checklist: checklistApi,
       directory,
@@ -4674,28 +4718,6 @@ export const App = () => {
 
       {/* ── Unified task grid ──────────────────────── */}
       {activeTab === "active" && (() => {
-        // A stale id (loan merged away) simply resolves to undefined → the
-        // list renders unfiltered with no header, which is harmless.
-        const activeLoan = loanFilterId ? loans.find((l) => l.id === loanFilterId) : undefined;
-        if (activeLoan) {
-          const filtered = unifiedTasks.filter((t) => t.loanId === activeLoan.id);
-          return (
-            <>
-              <LoanFilterHeader
-                loan={activeLoan}
-                taskCount={filtered.length}
-                onClear={() => setLoanFilterId(null)}
-                grouped={grouped}
-                onGroupedChange={setGrouped}
-                formOpen={formOpen}
-                onToggleForm={() => setFormOpen((o) => !o)}
-                expandedIds={expandedIdsIn(filtered)}
-                onCollapseAll={collapseAllTasks}
-              />
-              {renderTaskList(filtered, "No tasks for this loan.")}
-            </>
-          );
-        }
         return (
           <>
             <div className="section-head task-grid-head">
@@ -4703,9 +4725,17 @@ export const App = () => {
                 Tasks
                 <span className="section-count">{unifiedTasks.length}</span>
               </h2>
-              <GroupSeg grouped={grouped} onChange={setGrouped} />
-              <CollapseAllButton expandedIds={expandedIdsIn(unifiedTasks)} scope="Tasks" onCollapse={collapseAllTasks} />
-              <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+              <div className="task-grid-head-actions">
+                <AppMenu
+                  grouped={grouped}
+                  onGroupedChange={setGrouped}
+                  expandedIds={expandedIdsIn(unifiedTasks)}
+                  onCollapseAll={collapseAllTasks}
+                  themeChoice={themeChoice}
+                  onThemeChange={setThemeChoice}
+                />
+                <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+              </div>
             </div>
             {renderTaskList(unifiedTasks, "No tasks yet.")}
           </>
@@ -4718,9 +4748,17 @@ export const App = () => {
           <div className="section-head task-grid-head">
             <h2>All Tasks (admin)</h2>
             <span className="section-count">{allTasksAdmin.length} total · no age cutoff</span>
-            <GroupSeg grouped={grouped} onChange={setGrouped} />
-            <CollapseAllButton expandedIds={expandedIdsIn(allTasksAdmin)} scope="All Tasks" onCollapse={collapseAllTasks} />
-            <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+            <div className="task-grid-head-actions">
+              <AppMenu
+                grouped={grouped}
+                onGroupedChange={setGrouped}
+                expandedIds={expandedIdsIn(allTasksAdmin)}
+                onCollapseAll={collapseAllTasks}
+                themeChoice={themeChoice}
+                onThemeChange={setThemeChoice}
+              />
+              <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+            </div>
           </div>
           {renderTaskList(allTasksAdmin, "No tasks yet.")}
         </>

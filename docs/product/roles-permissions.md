@@ -114,7 +114,8 @@ override.
 - **This removed an ability.** Until ADR-0008 rule 5 landed, any signed-in
   person could rename any loan, and the header above a loan-filtered task list
   carried its own edit. That header stands outside any task, so it has no two
-  parties to check, and it is now read-only. Full account of which surface got
+  parties to check. It was made read-only, and has since been removed
+  altogether along with the per-row loan filter that was its only entry point. Full account of which surface got
   which answer: [task-fields.md](task-fields.md#who-may-correct-a-loan).
 - **Filing a task is not affected.** Anyone who may file a task may still mint a
   loan, join an existing one, or fill in a link it was missing.

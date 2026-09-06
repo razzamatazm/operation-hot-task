@@ -42,3 +42,18 @@ humperdinkscrape/
 # they record queue state that is wrong the moment it lands, so they are read
 # once and thrown away. Same reasoning as scripts/debug/ above.
 .scratch/
+
+# Impeccable design-tool local state. The checked-in half is deliberate:
+# .impeccable/config.json records the detector's ignore decisions and why,
+# apps/web/.impeccable/design.json is the design system the live panel renders,
+# and apps/web/.impeccable/live/config.json is how the picker finds the app.
+# Everything below is per-machine and per-session.
+.impeccable/hook.cache.json
+.impeccable/hook.pending.json
+.impeccable/config.local.json
+.impeccable/live/server.json
+.impeccable/live/roots.json
+.impeccable/live/app-root.json
+.impeccable/live/inject-journal.json
+.impeccable/live/sessions/
+.impeccable/live/accept-receipts/
