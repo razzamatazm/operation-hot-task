@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /* The app runs in the Teams mobile webview, where the browser's zoom gestures
-   have no reset control — a stray pinch or double-tap strands the user in a
-   magnified corner. Zoom is suppressed in three places, because no single one
-   covers both platforms, and this test holds all three at once: the viewport
-   meta (Android/Chromium), the `touch-action` and field-size rules in the
-   stylesheet, and the gesture guard in apps/web/src/zoom-guard.ts (iOS, which
+   have no reset control — a stray pinch strands the user in a magnified corner.
+   Zoom is suppressed in three places, because no single one covers every
+   gesture, and this test holds all three at once: the viewport meta
+   (Android/Chromium), the `touch-action` and field-size rules in the
+   stylesheet, and the pinch guard in apps/web/src/zoom-guard.ts (iOS, which
    ignores the other two).
 
    The decision logic in zoom-guard.ts is framework-free, so it runs here under
@@ -18,14 +18,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import {
-  DOUBLE_TAP_MS,
-  DOUBLE_TAP_SLOP_PX,
-  createTapTracker,
-  installZoomGuard,
-  isDoubleTap,
-  isMultiTouch
-} from "../apps/web/src/zoom-guard.ts";
+import { installZoomGuard, isMultiTouch } from "../apps/web/src/zoom-guard.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -50,17 +43,59 @@ test("html and body allow panning but not pinch- or double-tap-zoom", () => {
   const block = css.match(/\bhtml,\s*body\s*\{([^}]*)\}/);
   assert.ok(block, "no `html, body` rule in styles.css");
   // `manipulation` would still permit pinch; only an explicit pan list is
-  // narrow enough to take both gestures away.
+  // narrow enough to take both gestures away. This rule is also what takes
+  // double-tap on iOS, which is why the JS guard doesn't.
   assert.match(block[1], /touch-action:\s*pan-x pan-y/);
   assert.match(block[1], /text-size-adjust:\s*100%/);
 });
 
+test("the hold-to-edit gestures still narrow touch-action to pan-y", () => {
+  // touch-action intersects down the ancestor chain rather than being
+  // overridden, so these only keep working while `pan-y` stays a subset of the
+  // base rule above. If someone narrows the base, this is the pair that breaks.
+  const css = read("apps/web/src/styles.css");
+  for (const sel of [".loi-terms.loi-terms-holdable", ".msg-bubble-holdable"]) {
+    const at = css.indexOf(sel);
+    assert.notEqual(at, -1, `no rule for ${sel}`);
+    const body = css.slice(at, css.indexOf("}", at));
+    assert.match(body, /touch-action:\s*pan-y/, `${sel} lost its pan-y`);
+  }
+});
+
+const COARSE = /@media \(pointer: coarse\) \{([\s\S]*?)\n\}/;
+
 test("fields reach 16px on a touch device, so iOS doesn't zoom on focus", () => {
   const css = read("apps/web/src/styles.css");
-  const query = css.match(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/);
+  const query = css.match(COARSE);
   assert.ok(query, "no coarse-pointer block in styles.css");
   assert.match(query[1], /input, select, textarea/);
-  assert.match(query[1], /font-size:\s*16px/);
+  assert.match(query[1], /font-size:\s*16px !important/);
+});
+
+test("no control rule can outrank the 16px floor", () => {
+  /* The floor is a bare element selector, which loses to every class-scoped
+     field in the app — that is the whole reason it carries `!important`, and
+     the only thing that can beat it now is another `!important`. This is the
+     test that would have caught the first version of the fix, where
+     `.composer textarea` at 0.85rem quietly kept the focus zoom. */
+  const css = read("apps/web/src/styles.css");
+  const coarse = css.match(COARSE)[0];
+  const rest = css.replace(coarse, "");
+  const offenders = [];
+  // Walk every rule outside the coarse block; flag any that both targets a
+  // form control and forces a font-size.
+  for (const [, selector, body] of rest.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!/\b(input|select|textarea)\b/.test(selector)) continue;
+    if (/font-size:[^;]*!important/.test(body)) {
+      offenders.push(selector.trim().replace(/\s+/g, " "));
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `these outrank the touch-device 16px floor and will re-introduce the ` +
+      `iOS focus zoom: ${offenders.join(", ")}`
+  );
 });
 
 test("the entry point installs the guard", () => {
@@ -68,52 +103,12 @@ test("the entry point installs the guard", () => {
   assert.match(main, /installZoomGuard\(document\)/);
 });
 
-/* ── Layer 3: the gesture guard ───────────────────────────── */
-
-test("a lone tap is never a double-tap", () => {
-  assert.equal(isDoubleTap(null, { x: 10, y: 10, t: 0 }), false);
-});
-
-test("two fast taps in the same spot are a double-tap", () => {
-  const first = { x: 100, y: 100, t: 1000 };
-  assert.equal(isDoubleTap(first, { x: 102, y: 98, t: 1120 }), true);
-});
-
-test("two taps outside the time window are two taps", () => {
-  const first = { x: 100, y: 100, t: 1000 };
-  assert.equal(
-    isDoubleTap(first, { x: 100, y: 100, t: 1000 + DOUBLE_TAP_MS + 1 }),
-    false
-  );
-});
-
-test("two taps on different controls are two taps, however fast", () => {
-  const first = { x: 100, y: 100, t: 1000 };
-  assert.equal(
-    isDoubleTap(first, { x: 100 + DOUBLE_TAP_SLOP_PX + 1, y: 100, t: 1010 }),
-    false
-  );
-});
+/* ── Layer 3: the pinch guard ─────────────────────────────── */
 
 test("isMultiTouch fires from the second finger on", () => {
   assert.equal(isMultiTouch(0), false);
   assert.equal(isMultiTouch(1), false);
   assert.equal(isMultiTouch(2), true);
-});
-
-test("the tracker suppresses the second tap of a pair, not the first", () => {
-  const tracker = createTapTracker();
-  assert.equal(tracker.tap({ x: 50, y: 50, t: 0 }), false);
-  assert.equal(tracker.tap({ x: 50, y: 50, t: 100 }), true);
-});
-
-test("a third fast tap starts a fresh pair rather than suppressing again", () => {
-  // Otherwise a rapid run of taps on one control would be dead after the
-  // first two, which is a worse bug than the zoom.
-  const tracker = createTapTracker();
-  tracker.tap({ x: 50, y: 50, t: 0 });
-  tracker.tap({ x: 50, y: 50, t: 100 });
-  assert.equal(tracker.tap({ x: 50, y: 50, t: 200 }), false);
 });
 
 /* A stand-in for `document` that records what was registered and lets a test
@@ -154,28 +149,18 @@ test("a two-finger touchmove is blocked; a one-finger scroll is not", () => {
   assert.equal(target.fire("touchmove", { touches: { length: 1 } }), false);
 });
 
-test("the second touchend of a double-tap is blocked, the first is not", () => {
+test("the guard never touches touchend, so it cannot swallow a tap", () => {
+  /* Cancelling a touchend cancels the synthesized click and focus after it.
+     A JS double-tap blocker lived here briefly and did exactly that: the
+     second of two quick taps — two checks down a checklist, or a tap into a
+     field beside the control just pressed — lost its press. Double-tap zoom is
+     the stylesheet's job, and the stylesheet takes it without touching the
+     click. Don't add a touchend handler back. */
   const target = fakeTarget();
   installZoomGuard(target);
-  const tap = (t) =>
-    target.fire("touchend", {
-      timeStamp: t,
-      changedTouches: [{ clientX: 200, clientY: 300 }]
-    });
-  assert.equal(tap(0), false);
-  assert.equal(tap(150), true);
-});
-
-test("taps far apart in time both go through", () => {
-  const target = fakeTarget();
-  installZoomGuard(target);
-  const tap = (t) =>
-    target.fire("touchend", {
-      timeStamp: t,
-      changedTouches: [{ clientX: 200, clientY: 300 }]
-    });
-  assert.equal(tap(0), false);
-  assert.equal(tap(5000), false);
+  assert.equal(target.handlers.has("touchend"), false);
+  assert.equal(target.handlers.has("touchstart"), false);
+  assert.equal(target.handlers.has("click"), false);
 });
 
 test("uninstalling takes every listener back off", () => {

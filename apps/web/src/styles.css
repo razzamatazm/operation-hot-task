@@ -165,8 +165,10 @@
 
 /* Zoom is off on mobile — see src/zoom-guard.ts for why, and for the iOS half
    of the job. `pan-x pan-y` is the declarative version: scrolling in both
-   directions stays, pinch-zoom and double-tap-zoom go. Anything that needs a
-   narrower gesture set (the hold-to-edit boxes) overrides this on itself.
+   directions stays, pinch-zoom and double-tap-zoom go. A descendant does not
+   override this — the browser intersects the whole ancestor chain — so the
+   hold-to-edit boxes' narrower `pan-y` still works only because it is a subset
+   of this. Narrow the base rule and check them.
    `text-size-adjust` stops the webview reflowing text at its own chosen scale
    once the user can no longer zoom back out of it. */
 html, body {
@@ -870,12 +872,23 @@ input:focus, select:focus, textarea:focus {
 textarea { resize: vertical; }
 
 /* iOS zooms the page in when a field smaller than 16px takes focus, and with
-   zoom pinned off it has no way back out. On a touch device the fields go up
-   to 16px so the trigger never fires; the pointer query keeps desktop, where
-   the behaviour doesn't exist, on the tighter type. */
+   zoom pinned off it has no way back out. On a touch device every field goes
+   up to 16px so the trigger never fires; the pointer query keeps desktop,
+   where the behaviour doesn't exist, on the tighter type.
+
+   `!important` is load-bearing and not laziness. A bare element selector is
+   specificity 0,0,1 and a media query adds none, so without it this rule loses
+   to every class-scoped field in the app — `.composer textarea`,
+   `.msg-edit textarea`, `.checklist-item-input` and the rest all sit at
+   0.85rem and would have kept zooming the page on focus, the message composer
+   being the field people touch most. Sizing them one by one was the
+   alternative and it is a trap: the next field added under 16px inherits the
+   bug silently. This is a blanket platform rule, so it is written as one, and
+   `scripts/zoom-guard-sim-test.mjs` fails if any control rule ever outranks
+   it. */
 @media (pointer: coarse) {
   input, select, textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
 
