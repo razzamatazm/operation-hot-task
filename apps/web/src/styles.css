@@ -55,7 +55,7 @@
      be 3px of blur at 6% opacity, which is under the threshold of visible on
      paper this warm — it cost paint work and a whole design vocabulary and
      showed nothing. It is a transparent no-op now rather than `none`, because
-     several rules compose it with an inset stripe and `none` inside a
+     the celebrating card composes it with a halo shadow and `none` inside a
      box-shadow list voids the entire declaration.
      Depth at rest is carried by the hairlines and the tone step between the
      page and a panel, which is what was doing the work anyway. The lift is
@@ -187,10 +187,11 @@
   --row-hover: rgba(255, 255, 255, 0.08);
   --control-hover: rgba(255, 255, 255, 0.18);
   /* Still no shadows here, but expressed as a transparent no-op rather than
-     `none`. The card's status stripe is drawn as an inset shadow composed with
-     this token, and `none` in a box-shadow list voids the whole declaration —
-     so the literal keyword was quietly deleting the status stripe from the one
-     theme that exists for maximum legibility. */
+     `none`. Any rule that composes this token with a second shadow — the
+     celebrating card's halo today, the status stripes that used to live under
+     it — has its whole declaration voided by the literal keyword, so `none`
+     was silently deleting them from the one theme that exists for maximum
+     legibility. Keep both tokens transparent no-ops. */
   --shadow-sm: 0 0 0 0 transparent;
   --shadow-md: 0 0 0 0 transparent;
   --focus-ring: 0 0 0 2px #18ffff;
@@ -1317,11 +1318,20 @@ button.btn-good:hover {
   box-shadow: var(--shadow-md);
 }
 
-/* One edge, one meaning. The card's left edge belongs to the status stripe and
-   nothing else; a second left border stacked under it meant the same edge was
-   answering two questions at once, and read as decoration rather than signal.
-   "Assigned to you" is already on the row in the ASSIGNEE column, and in the
-   grouped view in the section the row is sitting in. */
+/* No card edge is painted, and there is no rule here that would paint one.
+   Status stripes for open / in-flight / completed / cancelled / archived lived
+   in this spot for a long time and never rendered once — `cardClass` in
+   `App.tsx` has never emitted them, because the grouped row is deliberately
+   mono: the court section the row sits in already says whose court it is, and
+   the row's own due stamp already says the rest. They were deleted on
+   2026-09-06 rather than wired up. The ownership border that used to stack
+   under them on this same edge had already gone the day before.
+
+   The rule that survives them is "one edge, one meaning" — a rule about what an
+   edge may say if one is ever drawn again, not a description of this screen.
+   A new row-level state does not get one: every fact the row carries already
+   has a column, a label or a section, and a tinted tab on the side of a list
+   item is the most recognisable tell of generated UI. */
 
 .task-card-dimmed {
   opacity: 0.55;
@@ -1331,76 +1341,31 @@ button.btn-good:hover {
   opacity: 0.85;
 }
 
-/* ── Status left stripe ───────────────────────────────────── */
-/* OPEN = red (needs a claim), in-flight = orange (warming).
-   Both fade a tinted backdrop from the left to echo the COMPLETED treatment.
-   Closed statuses carry their own stripes below. */
-.task-card-stripe-open {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
-  background: linear-gradient(90deg, var(--bad-bg) 0%, var(--panel) 32%);
-}
-.task-card-stripe-progress {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--hot);
-  background: linear-gradient(90deg, var(--hot-bg) 0%, var(--panel) 32%);
-}
-.task-card.task-card-stripe-open:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad); }
-.task-card.task-card-stripe-progress:hover { box-shadow: var(--shadow-md), inset 3px 0 0 var(--hot); }
+/* Celebrating — a halo pulse for ~3s when the creator's task hits a completion
+   milestone (COMPLETED or LOAN_DOCS MERGE_DONE). The card is already pinned to
+   the top of the grid via the celebrating sort bucket; the pulse just draws the
+   eye. Animation runs twice then settles.
 
-/* ── Closed-status card treatment ─────────────────────────── */
-.task-card-completed {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
-  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
-}
-.task-card-completed:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
-}
-.task-card-completed .task-card-collapsed-folder,
-.task-card-completed .task-card-collapsed-folder a {
-  color: var(--muted);
-}
-.task-card-completed .task-card-collapsed-type {
-  color: var(--ink-secondary);
-}
+   It is a halo and nothing else. It used to compose an inset 3px left edge
+   along with it, which made this the only rule in the app that painted a card
+   edge — for three seconds, in the one place the deleted status stripes had
+   left a survivor. Motion is the channel here; the edge was the stripe's ghost.
 
-.task-card-cancelled {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--bad);
-}
-.task-card-cancelled:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--bad);
-}
-
-/* Archived keeps the "completed green" visual — same stripe and tinted
-   backdrop as COMPLETED. The dim opacity (.task-card-dimmed, applied to
-   every closed card) is what tells the eye it's filed away vs. still
-   actionable. */
-.task-card-archived {
-  box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good);
-  background: linear-gradient(90deg, var(--good-bg) 0%, var(--panel) 32%);
-}
-.task-card-archived:hover {
-  box-shadow: var(--shadow-md), inset 3px 0 0 var(--good);
-}
-.task-card-archived .task-card-collapsed-folder,
-.task-card-archived .task-card-collapsed-folder a {
-  color: var(--muted);
-}
-.task-card-archived .task-card-collapsed-type {
-  color: var(--ink-secondary);
-}
-
-/* Celebrating — green halo pulse for ~3s when the creator's task hits a
-   completion milestone (COMPLETED or LOAN_DOCS MERGE_DONE). The card is
-   already pinned to the top of the grid via the celebrating sort bucket;
-   the pulse just draws the eye. Animation runs twice then settles. */
+   The colour is the `--good` token mixed down, never a literal green: the dark
+   and contrast themes answer that role in their own hue, and the halo followed
+   the light theme into both of them. Only the spread animates — a 0-spread,
+   0-blur shadow draws nothing — so the colour is a single custom property
+   rather than two hand-matched rgba values. */
 .task-card-celebrating {
+  --celebrate-halo: color-mix(in srgb, var(--good) 28%, transparent);
   animation: pulse-celebrate 1.4s ease-in-out 2;
 }
 @keyframes pulse-celebrate {
   0%, 100% {
-    box-shadow: var(--shadow-sm), inset 3px 0 0 var(--good), 0 0 0 0 rgba(46, 160, 67, 0);
+    box-shadow: var(--shadow-sm), 0 0 0 0 var(--celebrate-halo);
   }
   50% {
-    box-shadow: var(--shadow-md), inset 3px 0 0 var(--good), 0 0 0 10px rgba(46, 160, 67, 0.28);
+    box-shadow: var(--shadow-md), 0 0 0 10px var(--celebrate-halo);
   }
 }
 
@@ -1432,17 +1397,26 @@ button.btn-good:hover {
 /* The type, right of a hairline and in full ink. It reads as its own fact
    rather than as the tail of the loan name — trailing a name of variable width
    it landed at a different x on every row, and at a whisper it was simply not
-   being found. It never truncates: the loan name is the elastic one. */
+   being found.
+
+   The cell holds two things that want opposite treatment: words that must
+   give, and a dot that must not. So the cell is the flex row and the WORDS are
+   the block that truncates — `text-overflow` only ever reaches a text-carrying
+   box, which is why this used to be `display: block` with the dot inline inside
+   it. That worked for the ellipsis and lost the dot: the label is not always
+   short (a Fraud Check at final approval reads "Fraud Check - Final Approval
+   Needed"), the cap cuts it at 45% of the title cell, and on a phone the cut
+   landed before the dot and took it off the row. It is the only thing saying a
+   note is waiting, on the surface with no zoom to go looking with.
+
+   The cap and the shrinking stay here. Left unshrinkable — which this briefly
+   was — that one label is wider than a phone, and since it sits in a fixed grid
+   row it pushed the whole board sideways with nothing to escape it. It gives
+   before the row does, and never past 45% so the loan name keeps the space it
+   earned. */
 .task-card-collapsed-type {
-  /* A block, not a flex box, so `text-overflow` can actually reach the text —
-     and it has to, because the label is not always short: a Fraud Check at
-     final approval reads "Fraud Check - Final Approval Needed". Left
-     unshrinkable (which it briefly was) that single label is wider than a
-     phone, and since it sits in a fixed grid row it pushed the whole board
-     sideways with no zoom left to escape it. It gives before the row does, and
-     never past 45% of the title cell so the loan name keeps the space it
-     earned. The unread dot inside it is inline-block and rides along. */
-  display: block;
+  display: flex;
+  align-items: baseline;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 45%;
@@ -1455,6 +1429,12 @@ button.btn-good:hover {
   letter-spacing: 0.12em;
   line-height: 1.4;
   color: var(--ink);
+}
+
+/* The part that gives. */
+.task-card-collapsed-type-text {
+  min-width: 0;
+  flex: 0 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1976,6 +1956,15 @@ button.btn-good:hover {
      the background it used to grow came from the global rule, not from here. */
   --btn-bg: transparent;
   --btn-bg-hover: transparent;
+  /* Neither shrinks nor breaks. It is a two-word label sharing a flex row with
+     an item of arbitrary length, and on the default `flex: 0 1 auto` a long
+     item squeezed it until "+ note" broke across two lines — the plus sitting
+     directly on top of the word. Seeded data hit it at phone width, so it was
+     not an edge case. The item text is the elastic one here (`flex: 1 1 auto`)
+     and wraps as far as it needs to; this label is the fixed thing beside it,
+     the same way the delete button and the stale badge already are. */
+  flex: 0 0 auto;
+  white-space: nowrap;
   align-self: flex-start;
   border: none;
   padding: 0;
@@ -2042,8 +2031,8 @@ button.btn-good:hover {
    left of the primary action button, so a left-anchored panel would drift under
    it and off the card's right edge). As an absolutely-positioned descendant it
    was clipped by `.task-card`'s `overflow: hidden`, which the card needs for
-   its rounded corners and inset status stripe; on a collapsed row that cut away
-   all but an ~8px sliver. z-index sits below `.share-pop-panel`'s 60 — the
+   its rounded corners; on a collapsed row that cut away all but an ~8px
+   sliver. z-index sits below `.share-pop-panel`'s 60 — the
    share popover opens out of this menu and has to layer over it. */
 .task-card-menu-panel {
   position: fixed;
@@ -2102,9 +2091,9 @@ button.btn-good:hover {
 
    The panel is portaled to document.body and fixed-positioned from the
    trigger's rect, like the actions menu and the share popover (#113, #122):
-   `.task-card` keeps `overflow: hidden` for its rounded corners and inset
-   stripe, so an absolutely-positioned descendant would be cut away on a
-   collapsed row. Deliberately its OWN class rather than a reuse of
+   `.task-card` keeps `overflow: hidden` for its rounded corners, so an
+   absolutely-positioned descendant would be cut away on a collapsed row.
+   Deliberately its OWN class rather than a reuse of
    `.share-pop-panel`: that class is what the actions menu's outside-click
    exemption (`keepOpenWithin`) keys off, and this panel is the menu's sibling,
    not something opening out of it — wearing that class would leave the menu
@@ -2222,9 +2211,9 @@ button.btn-good:hover {
 /* Portaled to document.body and fixed-positioned from the trigger's rect (#113)
    — `top`/`left` come from the inline style SharePopover computes. As an
    absolutely-positioned descendant it was clipped away by `.task-card`'s
-   `overflow: hidden`, which the card needs for its rounded corners and inset
-   status stripe. z-index sits above the form overlay's 50 since the create form
-   embeds a share picker too. */
+   `overflow: hidden`, which the card needs for its rounded corners. z-index
+   sits above the form overlay's 50 since the create form embeds a share
+   picker too. */
 .share-pop-panel {
   position: fixed;
   z-index: 60;
@@ -2347,17 +2336,16 @@ button.btn-good:hover {
   animation: fadeIn 0.12s ease-out;
 }
 
-/* ── Standing terms (LOI only, #258 / ADR-0008) ───────────── */
-/* The loan's terms are a standing description of what is being checked, not
-   message number one, so they get a box instead of a chat row. A bordered,
-   shadowed panel raised off the recessed expanded body, with the conversation
-   below it left as bare rows on the background: the two are told apart by
-   shape, which is what makes the split readable without either heading being
-   loud about it. The brand left edge is the same 3px the card uses for a
-   status stripe, borrowed here to mark "this is the document".
+/* ── Standing instructions (#258 / ADR-0008, widened by #300 / ADR-0010) ── */
+/* The standing ask is a description of what is being done, not message number
+   one, so it sits above the conversation rather than inside it. Five of the six
+   task types render it; a FRAUD task renders none, because its standing ask is
+   the outstanding-items list two blocks up.
 
-   Only LOI renders one. The other five types have no field a second person
-   verifies, so the section would be structure without meaning. */
+   Its shape is `.loi-terms` immediately below — a ruled page, not a panel. The
+   3px brand left edge this comment used to describe is gone with the rest of
+   the container chrome, and there is no card edge anywhere in the app to
+   borrow one from. */
 .task-card-terms {
   display: flex;
   flex-direction: column;
@@ -2884,24 +2872,34 @@ button.btn-good:hover {
   50% { opacity: 0.65; }
 }
 
-/* Unread-note dot — sits inline at the end of the collapsed row's type
-   label, pulsing red. */
+/* Unread-note dot — sits at the end of the collapsed row's type label,
+   pulsing. It never shrinks and never shrinks away: it is the flex sibling of
+   the type's words, which are the part allowed to give (see
+   .task-card-collapsed-type). */
 .task-card-unread-dot {
   display: inline-block;
+  flex: 0 0 auto;
   width: 7px;
   height: 7px;
   margin-left: 6px;
   border-radius: 50%;
   background: var(--bad);
+  align-self: center;
   vertical-align: middle;
+  /* Two stops of the same token rather than a literal red. The halo was a
+     hardcoded `rgba(220, 38, 38, …)` — a light-theme red pulsing around a dot
+     that is a rose in the dark theme and a pale red in contrast, because
+     `--bad` names a role and every theme answers it in its own hue. */
+  --unread-halo: color-mix(in srgb, var(--bad) 55%, transparent);
+  --unread-halo-out: color-mix(in srgb, var(--bad) 0%, transparent);
   animation: pulse-unread 1.6s ease-in-out infinite;
   pointer-events: none;
 }
 
 @keyframes pulse-unread {
-  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
-  70% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+  0% { box-shadow: 0 0 0 0 var(--unread-halo); }
+  70% { box-shadow: 0 0 0 8px var(--unread-halo-out); }
+  100% { box-shadow: 0 0 0 0 var(--unread-halo-out); }
 }
 
 /* ── Poop score ───────────────────────────────────────────── */
@@ -3169,24 +3167,6 @@ button.btn-good:hover {
   :root {
     --quick-action-w: 108px;
   }
-
-  .task-card-grouped {
-    padding-left: 10px;
-    padding-right: 10px;
-    gap: 8px;
-  }
-
-  /* Mini keeps all four of its areas — the markup still renders a pair, and a
-     template that omits an area auto-places the element into an implicit row
-     instead. The tracks just get smaller. */
-  .task-card-grouped-mini {
-    grid-template-columns: minmax(0, 1fr) 96px 56px 32px;
-    column-gap: 8px;
-  }
-
-  /* The pair has its own row and no fixed reservation, so it is free to wrap
-     rather than push. */
-  .task-card-pair { flex-wrap: wrap; }
 
   .app-bar {
     gap: 8px;
@@ -3832,7 +3812,7 @@ button.btn-good:hover {
 .card-list-grouped { gap: 5px; }
 
 /* Grouped rows read as a flat mono list, not floating cards — drop the base
-   .task-card elevation so the section header + thin stripe carry the structure
+   .task-card elevation so the section header and its hairline carry the structure
    (the "deliberately mono" grouped layout). The 1px border is kept so each row
    stays legible in the shadow-less contrast theme. */
 .task-card-grouped-wrap { box-shadow: none; }
@@ -3924,11 +3904,12 @@ button.btn-good:hover {
    slots otherwise use. */
 .task-card-pair-name-mine { font-weight: 600; color: var(--ink); }
 
-/* Title block reuses .task-card-collapsed-title; the poop track rides inline
-   with the type label, sized down to the compact grouped scale. */
+/* Title block reuses .task-card-collapsed-title. The two rules that used to
+   follow this one styled a poop track nested inside the type label; the rating
+   moved into the expanded body and nothing has rendered one there since. Same
+   species as the status stripes deleted alongside them — a rule describing a
+   screen that had moved on. */
 .task-card-grouped .task-card-collapsed-title { grid-area: title; padding: 4px 0; }
-.task-card-grouped .task-card-collapsed-type .poop-track { margin-left: 6px; padding: 0; }
-.task-card-grouped .task-card-collapsed-type .poop-slot { font-size: 11px; }
 
 /* Due: label + value on one line, right-aligned under the action column.
    Red when overdue, muted when done. Side by side rather than stacked
@@ -4071,3 +4052,51 @@ button.btn-good:hover {
    deliberately does NOT do is un-fix the action cell — see the #116 note on
    .task-card-grouped for why the reserved width has to survive at every
    width, not just wide ones. */
+
+/* ── Phones: the collapsed row ────────────────────────────── */
+/* These three live down here, after the base rules they refine, and that
+   position is the whole point. They used to sit in the `@media (max-width:
+   480px)` block a thousand lines up — ahead of `.task-card-grouped` and
+   `.task-card-grouped-mini` themselves — and a media query adds no specificity,
+   so every one of them lost to the base rule further down the file and had
+   never applied on a phone. Silently: a rule that loses still parses.
+
+   What that cost was the Done section. A mini row kept its desktop template of
+   `1fr 168px 72px 32px` on a 360px screen, the three fixed tracks ate 272px of
+   it, and the elastic title track — the only one allowed to give — resolved to
+   14px. Closed tasks rendered as two characters of a loan name over an
+   ellipsis. On a surface where zoom is switched off there was no way to read
+   them at all.
+
+   Keep any new phone override for these selectors here, not up there. */
+@media (max-width: 480px) {
+  .task-card-grouped {
+    padding-left: 10px;
+    padding-right: 10px;
+    gap: 8px;
+  }
+
+  /* Mini keeps all four of its areas — the markup still renders a pair, and a
+     template that omits an area auto-places the element into an implicit row
+     instead. The tracks just get smaller. */
+  .task-card-grouped-mini {
+    grid-template-columns: minmax(0, 1fr) 96px 56px 32px;
+    column-gap: 8px;
+  }
+
+  /* The pair has its own row and no fixed reservation, so it is free to wrap
+     rather than push. */
+  .task-card-pair { flex-wrap: wrap; }
+
+  /* The waiting label wraps here rather than ellipsizing. The whole of its
+     information is the name on the end — "WAITING ON HEATH…" is the label
+     spending its width saying the part everybody already knows and cutting the
+     part they don't. It needs 114px against the phone column's 108px, which is
+     six pixels of nothing, and it is a passive span with no touch target, so a
+     second line costs the row nothing it can feel. */
+  .task-card-action-cell .task-card-quick-action-waiting {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+}

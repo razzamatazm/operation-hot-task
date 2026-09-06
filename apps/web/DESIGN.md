@@ -128,11 +128,14 @@ vocabulary, and there are fewer of them than there were: the edge markers were
 deleted in one pass on 2026-09-05, each of them repeating in the margin what the
 row already said in words.
 
-**No card edge is painted at all today.** A status stripe exists in CSS and
-nothing emits it — the row is deliberately mono, because the court section it
-sits in already says whose court it is. So "one edge, one meaning" is a rule
-about what an edge may say if one is drawn again, not a description of the
-current screen.
+**No card edge is painted, and no rule remains that would paint one.** A whole
+status-stripe vocabulary sat in the stylesheet unemitted for a long time — the
+row is deliberately mono, because the court section it sits in already says
+whose court it is — and on 2026-09-06 it was deleted rather than wired up.
+Giving status an edge would have contradicted the pass above, which removed
+every other edge marker in the app the day before. So "one edge, one meaning" is
+a rule about what an edge may say if one is drawn again, not a description of
+the current screen.
 
 **The dark theme is a different room, on purpose.** It is not the warm ledger
 with the lights off; it is an indigo ledger — indigo paper, near-white ink, a
@@ -176,10 +179,10 @@ red.
   and the "active" figure in metrics.
 - **Ledger Gold** (`#a16b07`): caution and review. The middle urgency band, and
   the accent on a review thread.
-- **Ledger Ember** (`#c25e00`): heat. Highest live urgency, in-flight status
-  stripe, and the Loan Docs type bar.
+- **Ledger Ember** (`#c25e00`): heat. Highest live urgency and the Loan Docs
+  type bar.
 - **Ledger Red** (`#b82d35`): failure and demand. Overdue dates, cancellation,
-  errors, the unclaimed-task stripe, and the unread-note dot.
+  errors, and the unread-note dot.
 
 ### Tertiary
 
@@ -316,10 +319,10 @@ sitting still, it gets a hairline and a tone step, not elevation.
 
 **The Never-`none` Rule.** Both shadow tokens are transparent no-ops, never the
 keyword `none` — including in the `contrast` theme, which still has no shadows.
-Several rules compose these tokens with an inset status stripe, and `none`
+The celebrating card composes these tokens with a halo shadow, and `none`
 inside a `box-shadow` list voids the entire declaration. That keyword was
-silently deleting the status stripe from the one theme that exists for maximum
-legibility.
+silently deleting the status stripes from the one theme that exists for maximum
+legibility, and it would take the halo the same way.
 
 ## Shapes
 
@@ -330,9 +333,8 @@ mobile OS. Fully round appears exactly twice and only where the shape is the
 meaning: the person chip, and the small status dot inside a pill.
 
 Everything is bordered. A 1px rule at one of two strengths defines nearly every
-edge in the app, and the status stripe on a task card is an inset shadow rather
-than a border precisely so it can sit on top of an ownership border without the
-two fighting.
+edge in the app, and that rule is the only thing drawing an edge: a task card
+takes a hairline all the way round and no coloured stroke on any side.
 
 ## Components
 
@@ -368,13 +370,13 @@ two fighting.
 - **Border:** 1px faint rule.
 - **Shadow:** none at rest, lifted on hover.
 - **Internal padding:** 12px.
-- **One edge, one meaning.** No card edge is drawn today: a status stripe is
-  defined in CSS and nothing emits it. The rule governs what happens if one
-  returns — it would be status and nothing else. The left edge used to also
-  carry an ownership border, with a creator stripe mirrored on the right; both
-  rules are gone, though both had stopped rendering before they were removed.
-  Either way a new row-level state does not get an edge: those facts already
-  have a column on the row.
+- **One edge, one meaning.** No card edge is drawn, and no rule defines one. The
+  status stripes were deleted on 2026-09-06 after a long career of being defined
+  and never emitted; the ownership border on the left and the creator stripe
+  mirrored on the right went the day before, having also stopped rendering some
+  time earlier. The rule governs what happens if an edge ever returns — it would
+  be status and nothing else — and a new row-level state still does not get one:
+  those facts already have a column on the row.
 - **Dimming is a channel too.** Work that is not yours and not actionable drops
   to 0.55 opacity, brightening on hover. Anything unclaimed stays bright,
   because anyone may take it.
@@ -404,6 +406,12 @@ two fighting.
 declared once, as a token, and read from there. Every alignment defect in this
 system has been the same shape: the same number written down twice, and one
 copy moving.
+
+**The Breakpoint-Order Rule.** A media query adds no specificity, so a
+responsive override placed above the rule it overrides simply loses, silently,
+forever — it still parses, so nothing reports it. Every phone override goes
+*after* its base rule. Three of this app's did not, and the narrowest screen it
+ships on rendered its closed tasks as two characters of a loan name.
 
 **The Empty-Bar Rule.** Nothing goes in the app bar. In production it holds
 admin-only tabs and nothing else, so a control placed there is a control most
@@ -441,8 +449,8 @@ moves a row either way; only the viewer does.
   headings and controls.
 - **Do** replace a field on the collapsed row rather than appending one.
 - **Do** encode every state in at least two channels. Color is never the only
-  signal: status has text, urgency has a stripe and a tooltip and red text, a
-  count has a number.
+  signal: status has the section heading and the row's own button, lateness has
+  the words `OVERDUE BY` and a tooltip alongside the red, a count has a number.
 - **Do** make a filled control take its label color from the on-accent token.
 - **Do** check a new tint against the panel of the theme it lives in, not
   against the light theme's.

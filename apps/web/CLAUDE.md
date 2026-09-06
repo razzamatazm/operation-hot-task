@@ -35,8 +35,16 @@ of a list item — is the single most recognisable tell of generated UI.
 
 The rule that replaced them: **one edge, one meaning.** If a card edge is ever
 drawn again it belongs to status and to nothing else, and a fact that already
-has a column, a label or a section does not also get a margin. Note that no card
-edge is painted at all right now — see *Status = left stripe* below.
+has a column, a label or a section does not also get a margin.
+
+**No card edge is painted, and no rule exists that would paint one** (2026-09-06).
+The status stripes had outlived the classes that were supposed to emit them by
+long enough that a session reasoned from them as if they described the screen
+and asserted a rule about an edge nothing drew. They were deleted rather than
+wired up: the grouped row is deliberately mono, and giving status an edge would
+have contradicted the pass above on the same day it landed. So "one edge, one
+meaning" is a rule about what an edge may say if one ever returns, not a
+description of anything on screen.
 
 **The dark theme is a different room, on purpose** (2026-09-05, settled on
 `prototype/dark-palette-v2`). It is an indigo ledger — indigo paper, near-white
@@ -120,6 +128,12 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   the header's `New Task` all read it. Three of those were literal `116px`
   until the phone breakpoint moved the value and they silently stopped
   agreeing. Never write the number again.
+- **A breakpoint override goes after the rule it overrides.** A media query adds
+  no specificity, so a phone rule written above its base rule loses on source
+  order and never applies — silently, since it parses fine and typechecks
+  nothing. Three of the collapsed row's phone rules were dead this way; see
+  *Mini rows* for what it cost. The task-card ones now live at the bottom of
+  `styles.css` under their own heading. Put new ones there.
 - Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill.
 - App menu (`.app-menu`): the preferences that are not decisions about a task —
   Grouped/Flat, appearance, and Collapse all. Anchored to its own trigger
@@ -145,9 +159,10 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   warm. `--shadow-md` is the real lift and is reserved for things that leave
   the page: hover, an expanded row, menus, modals, toasts.
   Both tokens are transparent no-ops rather than the keyword `none`, including
-  in the contrast theme — several rules compose them with an inset stripe, and
-  `none` inside a `box-shadow` list voids the whole declaration. That keyword is
-  what was quietly deleting the status stripe from the contrast theme.
+  in the contrast theme. Any rule that composes them with a second shadow — the
+  celebrating card's halo today, the deleted status stripes before it — has its
+  whole declaration voided by that keyword, which is what was quietly deleting
+  the stripe from the contrast theme. Keep them no-ops.
 
 ## Task Card Anatomy
 
@@ -340,6 +355,18 @@ minmax(0,1fr) | 168px | 72px | 32px
 title         | pair  | due  | action
 ```
 
+**Under 480px those three tracks shrink to `96px | 56px | 32px`**, and that
+override is at the very bottom of `styles.css`, on purpose. It used to sit in
+the `@media (max-width: 480px)` block a thousand lines earlier — *ahead* of
+`.task-card-grouped-mini` itself — and a media query adds no specificity, so it
+lost to the base rule and had never once applied on a phone. What that cost was
+the whole Done section: at 360px the desktop tracks ate 272px, the elastic title
+was the only one allowed to give, and it resolved to **14px** — closed tasks
+rendered as two characters of a loan name over a bare ellipsis, on the surface
+where zoom is off and there is no way to go and look. Three of the app's phone
+rules were dead this way and no test could see it, because a rule that loses
+still parses. **A breakpoint override goes after the rule it overrides.**
+
 `168px` and `72px` clear the widest pair and done-time measured across the
 closed rows (164px / 65px); `32px` is the hamburger alone. A mini never
 renders a quick action, so reserving the full `--action-col-w` stranded its
@@ -351,9 +378,8 @@ Re-open / Archive — so never `display: none` the action cell on a mini.
 
 ### Panels that escape the card (#113, #122)
 
-`.task-card` keeps `overflow: hidden` — rounded corners, the inset status
-stripe, and the grouped-row shadow all depend on it — so any panel taller
-than a collapsed row has to leave the card instead. Both the share popover
+`.task-card` keeps `overflow: hidden` — the rounded corners depend on it — so
+any panel taller than a collapsed row has to leave the card instead. Both the share popover
 (`.share-pop-panel`, #113) and the hamburger's actions menu
 (`.task-card-menu-panel`, #122) are `createPortal`'d to `document.body` and
 `position: fixed`. So is the handoff popover (ADR-0002), which reuses
@@ -506,6 +532,11 @@ rendering failure on your own tasks. In order:
    handler, at the same `--quick-action-w`. The ball is legitimately in
    someone else's court, so the row says so instead of offering a
    destructive action.
+   **Under 480px it wraps rather than ellipsizing.** The whole of its
+   information is the name on the end, and `WAITING ON HEATH…` is a label
+   spending its width on the part everybody already knows. It wants 114px
+   against the phone column's 108px, and it is a passive span with no touch
+   target, so a second line costs the row nothing anyone can feel.
 2. **`Cancel`** — you created the task, it isn't closed, and `CANCELLED` is
    still an allowed transition. The **creator** condition and the shared
    `canCancelTask` agree since ADR-0003 stripped the admin branch: cancelling
@@ -637,33 +668,34 @@ below it is open, so it holds its place in the tab order and a screen reader
 user can hear that there is nothing to collapse; its accessible name says
 which list it acts on, because three headers render the same two words.
 
-### Status = left stripe — CSS only, nothing renders it
+### There is no status stripe (deleted 2026-09-06)
 
-**No card edge is painted today.** The stripe rules below still exist in
-`styles.css`, but nothing emits their classes: `cardClass` builds only
-`task-card`, `task-card-grouped-wrap`, and the open / dimmed / mini /
-celebrating flags, and the comment beside it says why — the grouped row is
-deliberately mono, because the court section already says whose court it is.
-That predates the 2026-09-05 pass and was not introduced by it.
+**Status is carried by the section the row sits in and by the button the row
+offers, and by nothing else.** There is no card edge, no closed-status
+backdrop, and no rule in `styles.css` that would draw either.
 
-Two consequences worth knowing before you touch any of this. **The stripe
-block is dead CSS** — treat it as a proposal, not as a description of the
-screen, and either wire it up or delete it rather than reasoning from it. And
-**"one edge, one meaning" is a rule about what an edge may say if one is ever
-drawn again**, not a claim that an edge is currently saying it. What that pass
-actually removed from the screen was the overdue rail and the metrics tile
-bars; `.task-card-own` and `.task-card-watching` were already unrendered, so
-removing their rules was dead-code cleanup rather than a visible change.
+For a long time there was a whole vocabulary for one in the stylesheet — a 3px
+inset stripe for open and in-flight, plus tinted gradient backdrops and their
+own stripes for completed, cancelled and archived — and `cardClass` never
+emitted a single one of those classes. Not once, and not recently: the grouped
+row has always been deliberately mono. The 2026-09-05 pass did not create that
+gap, but it did trip over it, asserting a design rule about an edge nothing
+drew and getting caught by a review agent.
 
-Were it live, the 3px colored inset stripe would encode **task status**, not
-urgency. `STATUS_STRIPE_CLASS` →
-- `.task-card-stripe-open` — red (`--bad`): needs a claim.
-- `.task-card-stripe-progress` — orange (`--hot`): in-flight.
-- COMPLETED / CANCELLED / ARCHIVED carry their own closed-status
-  stripes (green / red / gray) plus the gradient backdrop.
+The decision owed by that pass was taken on 2026-09-06: **deleted, not wired
+up.** An edge encoding status would have contradicted, on the same day, the pass
+that removed every other edge marker in the app for being ornament that repeats
+what the row already says in words. The court section is the status channel and
+it is a better one — it is what the whole product is organised around.
 
-Urgency lives on the create form and influences sort/due labels, but
-no longer drives the stripe. OOO tasks have no stripe.
+`cardClass` builds exactly `task-card`, `task-card-grouped-wrap`, and the
+expanded / dimmed / mini / celebrating flags. If you are reading this because
+you want a new row-level state to have a channel: it does not get an edge. See
+**one edge, one meaning** in Aesthetic Direction, and the *Saturated row* rule —
+replace a field, don't add a margin.
+
+Urgency lives on the create form and influences sort and due labels. It never
+drove the stripe either.
 
 ### Expanded body
 
@@ -704,6 +736,13 @@ nested card chrome, in this order:
    viewer's own seat's note field, and a viewer holds one seat or none. An
    existing note drops below the row with the author's full name, not a chip —
    it's a sentence attributed to a person.
+   **The item text is the only elastic thing on that row.** `+ note` is
+   `flex: 0 0 auto` and `nowrap`, the way the delete button and the stale badge
+   beside it already were. Left on the default `flex: 0 1 auto` a long item
+   squeezed the two-word label until it broke across two lines and the plus sat
+   directly on top of the word — seeded data hit it at phone width, so it was
+   never an edge case. Anything new added to this row is fixed too; the text is
+   what gives.
 4. **Instructions** (`.loi-terms`, every type but FRAUD) — the standing ask,
    out of the conversation and into its own box (#258 for the LOI, widened to
    five types by #300,
@@ -996,20 +1035,24 @@ Two consequences worth keeping straight:
 
 ### Card variants (subtle, not loud)
 
-- `task-card-own` and `task-card-watching` — **both markers removed**
-  (2026-09-05). One was a 2px left border for tasks assigned to you, stacked
-  under the status stripe on the same edge, so that edge was answering two
-  questions at once. The other mirrored it on the right for tasks you created.
-  Between them the card carried two coloured margins meaning two unrelated
-  things, which reads as ornament long before anyone decodes it — and both
-  facts are already on the row, in the ASSIGNER and ASSIGNEE columns, and in
-  the grouped view in the section the row is sitting in. The classes are still
-  applied and now style nothing; keep them as the hook if either fact ever
-  needs a channel again, and give it one that is not an edge. See **one edge,
-  one meaning** in Aesthetic Direction.
+- `task-card-own` and `task-card-watching` — **gone entirely.** One was a 2px
+  left border for tasks assigned to you, stacked under the status stripe on the
+  same edge, so that edge was answering two questions at once. The other
+  mirrored it on the right for tasks you created. Between them the card carried
+  two coloured margins meaning two unrelated things, which reads as ornament
+  long before anyone decodes it — and both facts are already on the row, in the
+  ASSIGNER and ASSIGNEE columns, and in the grouped view in the section the row
+  is sitting in. Their rules went on 2026-09-05, having been unrendered for some
+  time before that; the class names themselves are in no file in `apps/web`.
+  If either fact ever needs a channel again, give it one that is not an edge.
+  See **one edge, one meaning** in Aesthetic Direction.
 - `task-card-mini` — half-height closed-row variant (see *Mini rows*).
-- `task-card-celebrating` — green pulse halo applied for ~3s after a
-  creator's task hits a completion milestone.
+- `task-card-celebrating` — a pulse halo applied for ~3s after a creator's task
+  hits a completion milestone. Its colour is `--good` mixed down to 28%, never a
+  literal green, so it follows each theme's answer to that role. It is a halo
+  and nothing more: it used to compose an inset left edge too, which made it the
+  last surviving painter of a card edge in the app, and that went with the
+  stripes on 2026-09-06. Only the spread animates.
 - `task-card-dimmed` — 0.55 opacity (0.85 on hover). Rules:
   - `OPEN` → always bright (anyone may claim).
   - Attached (creator or assignee) + in-flight → bright (it's your work).
@@ -1020,8 +1063,8 @@ Two consequences worth keeping straight:
   note only counts for a Party, so an Observer's card stays dim however
   much note activity the task has (#161).
 
-These layer on top of the status stripe; the stripe wins visually
-because it's an inset shadow, not a border.
+These four are the whole set. There is nothing underneath them — see *There is
+no status stripe* above.
 
 ### Unread-note signal
 
@@ -1030,9 +1073,22 @@ Per-user "I've seen the latest note from someone else" map persists in
 note arrives from the other party, the recipient's card:
 
 - Drops dim (`hasUnreadNote` short-circuits `dimmed`).
-- Pulses a small red `.task-card-unread-dot` (8px, `--bad`) at the end of
-  the collapsed row's type label (`.task-card-collapsed-type`), animated via
+- Pulses a small `.task-card-unread-dot` (7px, `--bad`) at the end of the
+  collapsed row's type label (`.task-card-collapsed-type`), animated via
   `pulse-unread`.
+
+**The dot is the type cell's second child, beside the words, not inside them.**
+The cell is a flex row; `.task-card-collapsed-type-text` is the box that
+truncates and the dot sits next to it at `flex: 0 0 auto`. It was a plain child
+alongside the text, which meant the ellipsis capping the type at 45% of the
+title cell ate the dot too — on a phone a fraud check at final approval lost it
+altogether, and it is the only thing on the row saying a note is waiting. If you
+ever put `text-overflow` back on the cell itself, the dot goes with it.
+
+Its pulse halo reads `--bad` through `color-mix`, not a literal red. It was a
+hardcoded `rgba(220, 38, 38, …)` haloing a dot that is a rose in dark and a pale
+red in contrast, because `--bad` names a role and each theme answers it in its
+own hue.
 
 **Only for a Party.** `hasUnreadNote` comes from `hasUnreadNoteForViewer`
 (`packages/shared/src/notes.ts`), which gates the note check on the viewer
@@ -1093,9 +1149,10 @@ Restrained. Used only at:
 - Form panel slide-in (`@keyframes slideDown`, 150ms)
 - Form-overlay backdrop + in-card cancel flash fade (`@keyframes fadeIn`)
 - Overdue tag pulse (`@keyframes pulse-overdue`, 2s)
-- Unread-note dot pulse (`@keyframes pulse-unread`, 1.6s halo)
-- Celebrating-card green halo pulse (`@keyframes pulse-celebrate`, 1.4s, runs
-  twice then settles)
+- Unread-note dot pulse (`@keyframes pulse-unread`, 1.6s halo, colour mixed
+  from `--bad`)
+- Celebrating-card halo pulse (`@keyframes pulse-celebrate`, 1.4s, runs twice
+  then settles; colour mixed from `--good`, spread only)
 - Notes-thread entry fade/drop-in (`@keyframes drop`)
 - Upward-opening panels and rising toasts — share popover, toast host
   (`@keyframes slideUp`)
@@ -1109,8 +1166,9 @@ it first.
 ## Accessibility Notes
 
 - Every card row is keyboard-focusable (`tabIndex={0}`, Enter/Space).
-- Color is never the only signal: status has text, urgency has a
-  tooltip + stripe + (red) overdue text, poop has a count.
+- Color is never the only signal: status has the section heading and the row's
+  own button, lateness has the words `OVERDUE BY` and a tooltip alongside the
+  red, poop has a count.
 - **Links carry a standing underline**, because the light theme's interactive
   colour is ink and a link that is only ink is indistinguishable from the
   sentence around it. Don't remove it to tidy a dense row.
@@ -1120,8 +1178,9 @@ it first.
   replacing the ring.
 - Theme respects Teams (`light` / `dark` / `contrast`); `contrast`
   intentionally has no shadows — expressed as a transparent no-op, never the
-  keyword `none`, which voids any `box-shadow` list it appears in and was
-  silently deleting that theme's status stripes.
+  keyword `none`, which voids any `box-shadow` list it appears in. That is what
+  used to delete that theme's status stripes, and it would take the celebrating
+  halo the same way.
 
 ## The task form (file and edit)
 

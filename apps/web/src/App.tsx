@@ -366,7 +366,7 @@ const groupedDue = (
   // re-deriving `dueAt < now` locally that let a handed-off fraud check read
   // "OVERDUE BY 2h 45m" while the server, the reminder engine and every other
   // consumer already agreed it wasn't overdue. Delegating means the next status
-  // added to the shared exclusion list reaches the badge and the red row stripe
+  // added to the shared exclusion list reaches the badge and the red due stamp
   // without anyone remembering this file exists.
   if (isOverdue(task, new Date(nowMs))) return { label: "OVERDUE BY", value: cd.text, overdue: true, done: false };
   if (new Date(task.dueAt).getTime() - nowMs <= 4 * 3600000) {
@@ -646,8 +646,8 @@ const useAnchoredPanel = <T extends HTMLElement>({
    trigger's bounding rect (#113). It used to be an absolutely-positioned
    descendant opening upward, which the host `.task-card`'s `overflow: hidden`
    clipped — on a collapsed row most of the panel sat above the card's top edge
-   and was simply cut away. That overflow rule can't go (rounded corners, inset
-   status stripe), so the panel leaves the clipping context instead. It now
+   and was simply cut away. That overflow rule can't go — the rounded corners
+   need it — so the panel leaves the clipping context instead. It now
    prefers to open DOWNWARD and only flips up when there's no room below. */
 const SharePopover = ({
   candidates,
@@ -970,8 +970,8 @@ const AssignPopover = ({
    answerable, not to be the rule.
 
    Portaled and anchored like the hamburger menu and the share popover (#113,
-   #122): `.task-card` keeps `overflow: hidden` for its rounded corners and
-   inset stripe, so anything taller than a collapsed row has to leave the card.
+   #122): `.task-card` keeps `overflow: hidden` for its rounded corners, so
+   anything taller than a collapsed row has to leave the card.
    Escape is handled on the panel with `stopPropagation`, the SharePopover way
    rather than the menu's document listener — a note stage owns a textarea, and
    one keypress should close this panel and nothing else around it. */
@@ -1859,10 +1859,16 @@ const TaskCard = memo(({
   /* Mini = closed bottom-bucket row. Celebrating COMPLETED renders as a
      full-size pulsing card at the top until the creator archives it. */
   const mini = isClosed && !isCelebrating;
-  /* The grouped ("courts") row is deliberately mono: the court section already
-     says "whose court" and the row's own thin stripe encodes overdue, so we
-     carry only the dim, mini, and celebrating-pulse signals — no colored status
-     stripe, closed backdrop, or own/watching accents. */
+  /* The grouped ("courts") row is deliberately mono, and this list is the whole
+     of it. The court section already says whose court the task is in, and the
+     due stamp says its lateness in words and in red, so the row carries only
+     the dim, mini and celebrating-pulse signals.
+
+     Nothing here paints a card edge, and nothing in `styles.css` would if it
+     did: the status, closed-backdrop and own/watching rules that used to sit
+     unemitted behind this list were deleted on 2026-09-06. A new row-level
+     state does not get an edge — see "one edge, one meaning" in
+     `apps/web/CLAUDE.md`. */
   const cardClass = [
     "task-card",
     "task-card-grouped-wrap",
@@ -2610,9 +2616,19 @@ const TaskCard = memo(({
               <span className="task-card-collapsed-folder-name">{task.folderName}</span>
             )}
           </span>
+          {/* The type's WORDS truncate; the unread dot does not. The dot used to
+              be a plain child of this span alongside the text, so the ellipsis
+              that caps the type at 45% of the cell ate the dot too — on a phone
+              a fraud check at final approval lost it entirely, which is the one
+              signal saying a note is waiting, gone on the surface with no zoom
+              to go looking with. So the text gets its own box to be clipped in
+              and the dot sits beside it, still at the end of the type where it
+              has always been. */}
           <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
-            {TASK_TYPE_LABELS[task.taskType]}
-            {stageSuffix(task) && <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>}
+            <span className="task-card-collapsed-type-text">
+              {TASK_TYPE_LABELS[task.taskType]}
+              {stageSuffix(task) && <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>}
+            </span>
             {hasUnreadNote && (
               <span className="task-card-unread-dot" aria-label="New note" title="New note" />
             )}
