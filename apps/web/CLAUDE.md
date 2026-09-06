@@ -10,6 +10,25 @@ workflow, backend contracts, git workflow, agent conventions — starts at
 colors used as signal (good / warn / hot / bad). Not a SaaS-blue dashboard;
 think bookkeeping pad with sharp typography.
 
+**The dark theme is a different room, on purpose** (2026-09-05, settled on
+`prototype/dark-palette-v2`). It is an indigo ledger — indigo paper, near-white
+ink, a lavender accent — not the warm ledger with the lights off. Five whole
+palettes were driven on the live board before this one won, and warm grounds
+(including a faithful dark version of the light theme) were among the ones that
+lost.
+
+Its one standing rule: **the indigo frame carries one warm note and no more.**
+Every signal but `--warn` is rotated to the cool side of its own hue — overdue
+is a rose, `--hot` a coral, "good" a mint, and the eight person chips all come
+from the cool half of the wheel. `--warn` stays a gold, and is the exception
+that fixes the rule's size: one warm accent is a note, two are a second scheme
+arguing with the first.
+
+A second accent round is what settled this. The generic tomato / orange /
+grass-green accents that were here read as borrowed from another app the moment
+the ground went indigo. So a new signal color added to the dark theme gets
+cooled before it lands — the warm slot is taken.
+
 - Display / headings: **Bricolage Grotesque** (700)
 - Body: **DM Sans** (400 / 500 / 600)
 - Mono / metadata / badges: **JetBrains Mono** (uppercase, tracked, small)
@@ -47,6 +66,10 @@ Never hard-code colors. Use the variables:
 | `--control-hover`           | Hover tint for a non-filled inline control|
 | `--shadow-sm`, `--shadow-md`| Card resting / hover elevation           |
 | `--focus-ring`              | `:focus-visible` ring                    |
+
+The four signal rows name each token's **role**, not its hex. The dark theme
+answers them in cool hues (mint / gold / coral / rose) per the aesthetic
+direction above, so "the red one" means `--bad`, not a red.
 
 When adding a new themeable color, add it to **all three** `:root` blocks.
 
