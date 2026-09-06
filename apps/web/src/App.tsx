@@ -7,6 +7,7 @@ import { createTokenCache, sendWithToken } from "./auth-token";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
+import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { bylineOf, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
@@ -1512,6 +1513,7 @@ const TaskCard = memo(({
   onMarkNoteSeen,
   pulsing,
   expandOverride,
+  courtHeld,
   onSetExpand,
   now
 }: {
@@ -1568,6 +1570,10 @@ const TaskCard = memo(({
   pulsing?: boolean;
   /* Per-user persisted manual open/close. undefined = follow the default. */
   expandOverride?: boolean;
+  /* True while this row is pinned to "Needs you" by a court hold
+     (court-latch.ts). The slot needs it for the same reason the section
+     builder does: to say why the row is here after the red dot has gone. */
+  courtHeld?: boolean;
   onSetExpand?: (taskId: string, open: boolean) => void;
   /* Ticking clock (ms) for the row's live countdown. */
   now?: number;
@@ -1607,12 +1613,22 @@ const TaskCard = memo(({
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
+  /* The terminal quick action awaiting its confirm, or null. Same two-step as
+     `cancelStage` and in the same place — the menu panel — because a press that
+     ends a record should ask once, and the app already had exactly one way of
+     asking that on a row. Cancel could not simply be reused: it is a fixed
+     question about a fixed transition, and this one has to name whichever of
+     Complete / Confirm / Approve / Archive was pressed. */
+  const [pendingTerminal, setPendingTerminal] = useState<{ label: string; run: () => void } | null>(null);
   useEffect(() => {
     if (cancelStage !== "done") return;
     const id = setTimeout(() => setCancelStage("idle"), 1200);
     return () => clearTimeout(id);
   }, [cancelStage]);
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  /* Closing the menu withdraws the terminal question with it. Outside press and
+     Escape are dismissals, and a dismissal must not leave a pending Archive
+     armed to fire the next time the panel opens. */
+  const closeMenu = useCallback(() => { setMenuOpen(false); setPendingTerminal(null); }, []);
   const assigneeId = task.assignee?.id;
   /* Deliberately narrower than the component's `isClosed` (`CLOSED_STATUSES`),
      which also covers `CANCELLED`: a cancellation is the creator calling the
@@ -1929,7 +1945,13 @@ const TaskCard = memo(({
      task's state won't take it yet — today only Submit, held until every
      checklist item is checked or noted (#184). Same sentence the server's
      refusal would carry, so the button doesn't teach a different rule. */
-  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string };
+  /* `terminal` marks a press that ENDS the record — Complete, Confirm, the
+     fraud Approve, Archive. It drives two things and only these two: the
+     button's tier (see `quickActionClass`) and whether the press asks first.
+     Deliberately not `kind`: every branch below already sets `kind: "good"`,
+     including the ones that close a task, so the existing field cannot answer
+     this question without being redefined under every caller. */
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; terminal?: boolean };
   let primaryAction: QuickAction | null = null;
   /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
      checker holding it, and only when the server would accept BOTH moves —
@@ -1963,6 +1985,7 @@ const TaskCard = memo(({
       primaryAction = {
         label: fraudQuick.label,
         kind: "good",
+        terminal: CLOSED_STATUSES.includes(target),
         run: needsNote
           ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
           : () => { void onTransition(task.id, target); },
@@ -1998,25 +2021,35 @@ const TaskCard = memo(({
       primaryAction = {
         label: isConfirmingLook(task) ? ACTION_LABELS.CONFIRM : ACTION_LABELS.COMPLETE,
         kind: "good",
+        terminal: true,
         run: () => { void onTransition(task.id, "COMPLETED"); }
       };
     } else if (canApproveMerge(task, user)) {
       primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
     } else if (task.status === "MERGE_APPROVED" && canCompleteTask(task, user)) {
-      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", terminal: true, run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "COMPLETED" && isCreator) {
-      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };
+      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", terminal: true, run: () => { void onTransition(task.id, "ARCHIVED"); } };
     }
     /* Re-open is intentionally NOT a quick-action — it lives in the
        expanded body. Closed mini rows show Archive (creator-only) or
        nothing; clicking the row expands to reveal Re-open. */
   }
-  // One button style for the row's primary action, regardless of kind —
-  // plain filled-brand, matching every other button in this row (Send,
-  // Add note, ...). Used to differentiate good/ghost/danger; that read as
-  // three inconsistent button styles for what's always the row's one
-  // next-step action.
-  const quickActionClass = primaryAction ? "btn-sm task-card-quick-action" : "";
+  /* TWO tiers, and deliberately not more. The slot used to carry one style for
+     every action regardless of kind, on the argument that it is always "the
+     row's one next-step action" — and against a good/ghost/danger split that
+     did read as three inconsistent buttons for one job, that was right.
+
+     What it missed is that the actions are not all one job. `Claim` takes work
+     on and `Archive` closes a record, and down a thirteen-row list the button
+     is the strongest thing on screen while saying nothing about which it is.
+     So: a filled button MOVES THE WORK FORWARD, an outlined one ENDS THE
+     RECORD. One rule, readable down the action column, and no third style —
+     Claim, Merge Done, Send Items, Submit and Approve Merge all keep the fill
+     they have always had. Same 116px track either way; only the paint moves. */
+  const quickActionClass = primaryAction
+    ? `btn-sm task-card-quick-action${primaryAction.terminal ? " task-card-quick-action-terminal" : ""}`
+    : "";
 
   /* Terminal three-way resolution of the action slot when the ladder above
      produced nothing (#117). An empty slot used to read as a rendering
@@ -2040,9 +2073,25 @@ const TaskCard = memo(({
      Mini (closed) rows get none of it; they have no action column. */
   const pendingParty = pendingPartyFor(task);
   const waitingOn = pendingParty === "CREATOR" ? task.createdBy : pendingParty === "ASSIGNEE" ? task.assignee : undefined;
+  /* The pull owns the slot when the pull is what put this row in "Needs you".
+     `pendingPartyFor` knows the chain and nothing about the message pull, so a
+     row lifted here by an unread reply used to sit under the heading "Needs
+     you" reading `Waiting on Suzie` — the section and the slot contradicting
+     each other in the one place both are scanned, which is the promise the
+     whole product is organised around ("the group a task sits in never
+     disagrees with the button it offers", PRODUCT.md).
+
+     Two words, because the pull has two states and the row should say which:
+     `Unread reply` while the dot is still lit, `Read reply` once the viewer has
+     opened it and the court hold is the only thing keeping the row here. Both
+     are still passive spans — the ball is genuinely in the other party's court,
+     so this reports why the row is in front of you and offers no move. */
+  const pulledIntoCourt = hasUnreadNote || courtHeld === true;
   const waitingLabel =
     !primaryAction && waitingOn && waitingOn.id !== user.id
-      ? `Waiting on ${firstName(waitingOn.displayName)}`
+      ? pulledIntoCourt
+        ? (hasUnreadNote ? "Unread reply" : "Read reply")
+        : `Waiting on ${firstName(waitingOn.displayName)}`
       : null;
   /* `transitions` already carries the status's allowed moves, so CANCELLED
      being in it is the same rule the server enforces. */
@@ -2101,6 +2150,27 @@ const TaskCard = memo(({
         <div className="task-card-cancel-confirm task-card-cancel-done" role="status">Cancelled ✓</div>
       )}
     </>
+  );
+
+  /* The terminal confirm. Reuses `.task-card-cancel-confirm` wholesale so the
+     row has one way of asking a question, and follows its wording rule: the
+     answers are answers, not OK and Cancel. The safe answer is second and the
+     acting one carries the pressed action's own word, so nobody confirms
+     "Yes" without seeing what they are saying yes to. */
+  const terminalBlock = showActions && pendingTerminal && (
+    <div className="task-card-cancel-confirm task-card-terminal-confirm" role="alertdialog" aria-label={`Confirm ${pendingTerminal.label}`}>
+      <span>{pendingTerminal.label} this task?</span>
+      <button
+        type="button"
+        className="btn-sm"
+        onClick={() => { const act = pendingTerminal; setPendingTerminal(null); setMenuOpen(false); act.run(); }}
+      >
+        {`Yes, ${pendingTerminal.label.toLowerCase()}`}
+      </button>
+      <button type="button" className="btn-sm btn-ghost" onClick={() => setPendingTerminal(null)}>
+        Keep open
+      </button>
+    </div>
   );
 
   /* The inline note a note-required move posts as its reviewNotes. Shared by
@@ -2449,11 +2519,12 @@ const TaskCard = memo(({
           style={menuPanelStyle}
         >
           {cancelBlock}
-          {cancelStage === "idle" && editMenuItemBlock}
-          {secondaryActionsBlock}
-          {shareMenuItemBlock}
-          {assignMenuItemBlock}
-          {menuTimestamps}
+          {terminalBlock}
+          {cancelStage === "idle" && !pendingTerminal && editMenuItemBlock}
+          {!pendingTerminal && secondaryActionsBlock}
+          {!pendingTerminal && shareMenuItemBlock}
+          {!pendingTerminal && assignMenuItemBlock}
+          {!pendingTerminal && menuTimestamps}
         </div>,
         document.body
       )}
@@ -2699,7 +2770,19 @@ const TaskCard = memo(({
                 className={quickActionClass}
                 disabled={Boolean(primaryAction.blockedReason)}
                 aria-label={primaryAction.blockedReason ? `${primaryAction.label} — ${primaryAction.blockedReason}` : undefined}
-                onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  acknowledgeUnread();
+                  /* A terminal press asks first, in the menu panel, exactly the
+                     way the row's Cancel already does — one confirm component
+                     for the row, not a second one. Everything else fires. */
+                  if (primaryAction!.terminal) {
+                    setPendingTerminal({ label: primaryAction!.label, run: primaryAction!.run });
+                    setMenuOpen(true);
+                  } else {
+                    primaryAction!.run();
+                  }
+                }}
               >
                 {primaryAction.label}
               </button>
@@ -2758,6 +2841,7 @@ const CardList = ({
   onMarkNoteSeen,
   pulsingIds,
   expandOverrides,
+  courtHolds,
   onSetExpand,
   now
 }: {
@@ -2799,6 +2883,7 @@ const CardList = ({
   onMarkNoteSeen?: (taskId: string, at: string) => void;
   pulsingIds?: Set<string>;
   expandOverrides?: Record<string, boolean>;
+  courtHolds?: CourtHolds;
   onSetExpand?: (taskId: string, open: boolean) => void;
   now?: number;
 }) => (
@@ -2840,6 +2925,7 @@ const CardList = ({
           {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
           {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
           {...(expandOverrides?.[task.id] !== undefined ? { expandOverride: expandOverrides[task.id] } : {})}
+          courtHeld={isCourtHeld(courtHolds ?? {}, task.id)}
           {...(onSetExpand ? { onSetExpand } : {})}
         />
       ))
@@ -2983,13 +3069,25 @@ const NewTaskButton = ({ open, onClick }: { open: boolean; onClick: () => void }
 );
 
 
+/* Every type draws the same bar, and the bar is ink.
+
+   It used to spend the four signal roles as a categorical palette — Fraud on
+   `--bad`, Value on `--good`, Loan Docs on `--hot`, and the other three left
+   uncoloured, which is a legend with three blanks in it. The signal tokens name
+   what a colour MEANS, not what it looks like: painting the Fraud Check row red
+   tells an admin that fraud checks are failing, and painting Value green tells
+   them value checks are going well, on a chart that is only counting how many
+   of each got filed. Three of six rows made that claim and three made none.
+
+   A bar chart differentiates by LENGTH. That is the whole job, the lengths are
+   already there, and the labels beside them say which row is which. */
 const TYPE_BAR_CLASS: Record<TaskType, string> = {
-  LOI: "type-bar type-bar-brand",
-  BUDDY_CHAT: "type-bar type-bar-brand",
-  VALUE: "type-bar type-bar-good",
-  FRAUD: "type-bar type-bar-bad",
-  LOAN_DOCS: "type-bar type-bar-hot",
-  OOO: "type-bar type-bar-brand"
+  LOI: "type-bar",
+  BUDDY_CHAT: "type-bar",
+  VALUE: "type-bar",
+  FRAUD: "type-bar",
+  LOAN_DOCS: "type-bar",
+  OOO: "type-bar"
 };
 
 const MetricsPanel = ({
@@ -3594,6 +3692,10 @@ export const App = () => {
     }
   };
   const [expandOverrides, setExpandOverrides] = useState<ExpandOverrides>(() => loadExpand(user.id));
+  /* Court holds (see `court-latch.ts`): tasks pinned to "Needs you" because
+     the viewer opened them there. Session-only on purpose — a hold means
+     "being read right now", so a reload ends it and the list re-sorts. */
+  const [courtHolds, setCourtHolds] = useState<CourtHolds>({});
   /* Task to focus from a Teams deep link (bot card "Open in Hot Task" carries
      the task id as subEntityId). Held until the task is present in `tasks`,
      then expanded + scrolled into view by the effect below. */
@@ -3635,9 +3737,26 @@ export const App = () => {
       /* storage unavailable — degrade silently */
     }
   }, [expandOverrides, expandKey]);
+  /* Opening a card is also where a court hold is taken and released (see
+     `court-latch.ts`). The hold is decided here rather than in the card
+     because this is the one place that already knows both halves: the gesture,
+     and the `seenNotesAt` the pull is measured against.
+
+     Reading `seenNotesAt` from the closure is correct, not stale. The card's
+     header handler calls `acknowledgeUnread()` and then `setExpanded(true)` in
+     one event, so by the time React commits the note as seen this callback has
+     already asked whether it was unread when the viewer pressed — which is the
+     question the hold is about. */
   const setExpandOverride = useCallback((taskId: string, open: boolean): void => {
     setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
-  }, []);
+    setCourtHolds((prev) => {
+      if (!open) return releaseCourt(prev, [taskId]);
+      const t = tasks.find((x) => x.id === taskId);
+      return t && hasUnreadNoteForViewer(t, user, seenNotesAt[taskId])
+        ? holdCourt(prev, taskId)
+        : prev;
+    });
+  }, [tasks, user, seenNotesAt]);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,
      indistinguishable from clicking each row shut — and since nothing clears
@@ -3645,6 +3764,7 @@ export const App = () => {
      viewer opens them again. */
   const collapseAllTasks = useCallback((taskIds: string[]): void => {
     setExpandOverrides((prev) => collapseTasks(prev, taskIds));
+    setCourtHolds((prev) => releaseCourt(prev, taskIds));
   }, []);
   /* Deep-link focus: once the linked task has loaded, jump to the main list,
      expand it, and scroll it into view. Waits for the task to be present so a
@@ -4472,8 +4592,13 @@ export const App = () => {
       // so a Party's bucket and their dot cannot drift apart — the party gate
       // ("an Observer has no move") lives inside it now rather than being
       // restated here, which is how the card came to be missing it (#161).
+      // A held court (court-latch.ts) is the same pull, kept alive while the
+      // viewer has the card open. Reading it inside this branch and no other
+      // is what keeps "only ever ADDS a court, never removes one" true of the
+      // hold as well: a task that closes while open still falls to "done",
+      // because `courtOf` never returns "them"/"pool" for a closed task.
       if (court === "them" || court === "pool") {
-        if (hasUnreadNoteForViewer(t, user, seenNotesAt[t.id])) {
+        if (hasUnreadNoteForViewer(t, user, seenNotesAt[t.id]) || isCourtHeld(courtHolds, t.id)) {
           court = "you";
         }
       }
@@ -4531,6 +4656,7 @@ export const App = () => {
       onMarkNoteSeen: markNoteSeen,
       pulsingIds,
       expandOverrides,
+      courtHolds,
       onSetExpand: setExpandOverride
     };
     /* The toggle only controls court bucketing — both views render the same

@@ -96,12 +96,23 @@ Never hard-code colors. Use the variables:
 | `--on-accent`               | Ink for text/icons on a filled accent    |
 | `--good` / `--good-bg`      | Green urgency, success, "active" stat    |
 | `--warn` / `--warn-bg`      | Yellow urgency, review thread accent     |
-| `--hot`  / `--hot-bg`       | Orange urgency, Loan Docs type bar       |
+| `--hot`  / `--hot-bg`       | Orange urgency                           |
 | `--bad`  / `--bad-bg`       | Red urgency, overdue, cancelled, errors  |
 | `--row-alt`, `--row-hover`  | Striping and hover overlays              |
 | `--control-hover`           | Hover tint for a non-filled inline control|
 | `--shadow-sm`, `--shadow-md`| Flat no-op at rest / real lift when raised |
 | `--focus-ring`              | `:focus-visible` ring                    |
+
+**A signal token is never spent as a category colour** (2026-09-06). The metrics
+type breakdown painted Fraud on `--bad`, Value on `--good` and Loan Docs on
+`--hot`, leaving the other three uncoloured — a legend with three blanks in it,
+and worse, a claim: `--bad` means failure everywhere else in the app, so a red
+Fraud Check row told an admin fraud checks were going wrong on a chart that only
+counts how many got filed. Every bar is `--ink` now and differentiated by
+**length**, which is what a bar chart is for. The `.type-bar-*` variants are
+deleted rather than left unemitted, for the reason the status stripes were. The
+ratio bar's brand-to-hot gradient went with them: the number it draws is already
+printed twice beside it, and a colour ramp implies a scale it does not have.
 
 The four signal rows name each token's **role**, not its hex. The dark theme
 answers them in cool hues (mint / gold / coral / rose) per the aesthetic
@@ -537,6 +548,17 @@ rendering failure on your own tasks. In order:
    spending its width on the part everybody already knows. It wants 114px
    against the phone column's 108px, and it is a passive span with no touch
    target, so a second line costs the row nothing anyone can feel.
+
+   **The message pull owns this slot when the pull is what put the row here**
+   (2026-09-06). `pendingPartyFor` knows the chain and nothing about the pull,
+   so a task lifted into "Needs you" by an unread reply used to sit under that
+   heading reading `Waiting on Johanna` — the section and the slot contradicting
+   each other in the one place both get scanned, which is the promise the whole
+   product is organised around. It now reads `Unread reply` while the dot is
+   lit and `Read reply` once the viewer has opened it and the court hold
+   (below) is the only thing keeping the row in place. Still a passive span
+   either way: the ball is genuinely in the other party's court, and this says
+   why the row is in front of you, not what to do about it.
 2. **`Cancel`** — you created the task, it isn't closed, and `CANCELLED` is
    still an allowed transition. The **creator** condition and the shared
    `canCancelTask` agree since ADR-0003 stripped the admin branch: cancelling
@@ -1106,6 +1128,26 @@ via Add Note, or any state-changing button
 (mock picker) goes through the `trackedUserId` setState-during-render
 guard so user A's seen state can't be written under user B's storage key.
 
+**Opening a pulled task must not move it** (2026-09-06,
+[src/court-latch.ts](src/court-latch.ts)). Acknowledging is what clears the
+pull, the pull is what put the row in "Needs you", and recomputing the court
+therefore relocated the row the moment the viewer opened it — still open,
+several hundred pixels further down a thirteen-row list, and off-screen
+entirely on a phone. #161 removed auto-open because the list must not rearrange
+itself under the viewer; this was the same rule broken from the other side, with
+the viewer's own click as the trigger.
+
+The hold is taken on expand and released on collapse (and by Collapse all,
+which must drop every hold it closes or it strands a row in a section with no
+open card to justify it). `buildCourtSections` reads it **inside** the same
+`them`/`pool` branch the pull reads, which is what keeps "only ever ADDS a
+court, never removes one" true of the hold as well — a task that closes while
+open still falls to Done. Deliberately **not persisted**: a hold means "being
+read right now", so a reload ends it and the list re-sorts, which is why it does
+not live in `expandOverrides` next door even though the two are taken and
+released by the same gesture. Framework-free and plain-values-in, so
+`scripts/court-latch-sim-test.mjs` runs it under node.
+
 ## Tags / Pills
 
 Defined under `/* Tags */` in [apps/web/src/styles.css](src/styles.css).
@@ -1142,6 +1184,37 @@ Light theme's accents are dark enough for white ink; dark and contrast use
 bright pastel fills where white collapses to ~2.8:1 or worse.
 
 Quick-action class composition lives in `quickActionClass` in `TaskCard`.
+
+**The collapsed row's action slot has two tiers, and exactly two** (2026-09-06).
+A filled button **moves the work forward**; an outlined one
+(`.task-card-quick-action-terminal`) **ends the record**. Claim, Merge Done,
+Send Items, Submit and Approve Merge are filled; Complete, Confirm, the fraud
+Approve and Archive are outlined. The flag is `terminal` on the `QuickAction`
+the ladder builds, never `kind` — every branch already sets `kind: "good"`,
+including the ones that close a task, so that field cannot answer this question.
+
+This reverses a narrower rule, and the reason it does is worth keeping. The slot
+used to carry **one** style for every action regardless of kind, replacing a
+good/ghost/danger split that read as three inconsistent buttons for what is
+always the row's one next-step action. That diagnosis was right and this does
+not undo it: the fix is not three styles again, it is one rule with two answers.
+What the single style missed is that the actions are not all one job — `Claim`
+takes work on, `Archive` closes a record, and down a thirteen-row list the
+button is the strongest thing on screen while saying nothing about which it is.
+**Don't add a third tier.** If a new action needs to stand apart, it is either
+moving work forward or ending a record; decide which.
+
+**A terminal press asks before it fires.** `Complete` / `Confirm` / `Approve` /
+`Archive` set `pendingTerminal` and open the menu panel, where
+`.task-card-terminal-confirm` reuses the two-step Cancel confirm's shape — one
+confirm component for the row, not a second one — and drops its red ground.
+That colour belongs to cancelling; these four are the work going right and
+should not be dressed as failure at the moment somebody finishes something. The
+answers are answers (`Yes, archive` / `Keep open`), never OK and Cancel, and
+closing the menu withdraws the question rather than leaving it armed.
+
+Everything else still fires on one press. The point is not a confirm on every
+action, it is a confirm on the ones with no way back from the row.
 
 ## Motion
 
@@ -1570,6 +1643,37 @@ zooming the page on focus, the message composer being the field people touch
 most. Sizing them one at a time is the trap: the next field added under 16px
 inherits the bug silently. It is a blanket platform rule, so it is written as
 one, and a test fails if any control rule ever outranks it.
+
+**The same argument floors the text people read, not just the fields they type
+into** (2026-09-06). The 16px input rule exists because rendered size is the
+only size there is here; that was true of the labels too, and they were not
+covered. Measured on the live board at 390px, the due labels rendered at
+**8.8px**, the waiting label at 9.6px, the person chips at 8.96px and the type
+label at 10.88px — none of them a pixel different from their 1440px size, on the
+one surface with no way to go and look. `OVERDUE BY` is the case that decides
+it: colour is never the only signal here, and the words beside the red date are
+the second channel the accessibility notes claim.
+
+The floor is the **last block in `styles.css`**, under `## Touch floors`, for
+the reason every phone override is at the bottom: a media query adds no
+specificity, so a rule written above the ones it raises loses silently. 11px for
+the mono labels, 12px for the type label and the two list headings. It is scoped
+to `pointer: coarse` rather than to a width, matching the input rule — the
+constraint is the device and the missing zoom, not the viewport, and a narrow
+desktop window can still be dragged wider.
+
+**A press target grows by an overlay, never by a size.** The two menu triggers
+take a 40px `::after` rather than a 40px box, because 32px is not a loose
+number: the row's action column is that hamburger plus 6px plus
+`--quick-action-w`, and the list header is built to land its own trigger on top
+of it. 40 and not 44 — the halo clears each edge by 4px and the quick action
+sits 6px away, so at 44 the two targets would meet and a press in the overlap
+would go to whichever the browser hit-tests first.
+
+Still unfixed and deliberately so: the checklist checkbox (18x18), its `+ note`
+button (37x13) and the loan-name link (114x18). All three sit inside dense rows
+with other controls within a few pixels, so a halo would overlap a neighbouring
+target and steal presses. They need a layout decision, not a floor.
 
 This is a deliberate accessibility trade: someone who needs magnification has
 to use the OS-level zoom rather than the page's. It is the right call inside a
