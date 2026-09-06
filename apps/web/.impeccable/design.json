@@ -162,11 +162,6 @@
         "name": "focus-ring",
         "value": "0 0 0 2px rgba(31, 28, 23, 0.35)",
         "purpose": "The :focus-visible ring. Never strip an outline without replacing it."
-      },
-      {
-        "name": "status-stripe",
-        "value": "inset 3px 0 0 0 currentColor",
-        "purpose": "The card's left status edge, and the only meaning any card edge carries."
       }
     ],
     "motion": [
@@ -253,9 +248,9 @@
       "name": "Task Card",
       "kind": "card",
       "refersTo": "card",
-      "description": "The raised surface. Left inset stripe is status; a left border marks a task assigned to you.",
+      "description": "The raised surface. A hairline all the way round, no coloured stroke on any side: status is carried by the court section the row sits in and by the button the row offers.",
       "html": "<div class=\"ds-card\"><span class=\"ds-card-type\">LOI CHECK</span><div class=\"ds-card-title\">Marbury Ridge — 214 Alder St</div></div>",
-      "css": ".ds-card { background: var(--panel, #fefdfb); color: var(--ink, #14120f); border: 1px solid var(--line-soft, #e8e4dd); border-radius: 8px; padding: 12px; box-shadow: var(--shadow-sm, 0 0 0 0 transparent), inset 3px 0 0 0 var(--hot, #c25e00); transition: box-shadow 0.15s; } .ds-card:hover { box-shadow: var(--shadow-md, 0 6px 18px -6px rgba(26,24,20,0.22)), inset 3px 0 0 0 var(--hot, #c25e00); } .ds-card-type { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.06em; color: var(--muted, #6f6a63); } .ds-card-title { font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 1rem; font-weight: 700; margin-top: 4px; }"
+      "css": ".ds-card { background: var(--panel, #fefdfb); color: var(--ink, #14120f); border: 1px solid var(--line-soft, #e8e4dd); border-radius: 8px; padding: 12px; box-shadow: var(--shadow-sm, 0 0 0 0 transparent); transition: box-shadow 0.15s; } .ds-card:hover { box-shadow: var(--shadow-md, 0 6px 18px -6px rgba(26,24,20,0.22)); } .ds-card-type { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.06em; color: var(--muted, #6f6a63); } .ds-card-title { font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 1rem; font-weight: 700; margin-top: 4px; }"
     },
     {
       "name": "Text Input",
@@ -284,7 +279,7 @@
   ],
   "narrative": {
     "northStar": "The Warm Ledger",
-    "overview": "This is a bookkeeping pad, not a SaaS dashboard. Off-white paper, ink-black text, sharp typography, and narrow bands of color used strictly as signal. The reference object is a ruled accounting page that someone competent has been annotating all morning: dense, ordered, legible at a glance, with nothing decorative competing for the eye. Every color that is not paper or ink is carrying information.\n\nThe system's real subject is a single component — the collapsed task row — and almost every rule here exists to keep that row scannable. It is deliberately saturated: the working assumption is that the row is full, so a new field replaces an existing one rather than joining it. Density is a feature, and the discipline that makes density survivable is that the same fact is always encoded in the same place. Lateness is the number it is about. A person is a colored chip. None of these channels borrow each other's vocabulary, and the edge markers were deleted in one pass because each repeated in the margin what the row already said in words.\n\nThe dark theme is a different room, on purpose. It is not the warm ledger with the lights off; it is an indigo ledger — indigo paper, near-white ink, a lavender accent — settled after five whole palettes were driven live, including a faithful dark rendering of the light theme, which lost. A third theme, contrast, is pure black and white with no shadows at all and a deliberately monochrome person-chip set, because decorative hue variety works against a maximum-legibility promise.\n\nNo card edge is painted at all today. A status stripe exists in CSS and nothing emits it — the row is deliberately mono, because the court section it sits in already says whose court it is. So \"one edge, one meaning\" is a rule about what an edge may say if one is drawn again, not a description of the current screen.",
+    "overview": "This is a bookkeeping pad, not a SaaS dashboard. Off-white paper, ink-black text, sharp typography, and narrow bands of color used strictly as signal. The reference object is a ruled accounting page that someone competent has been annotating all morning: dense, ordered, legible at a glance, with nothing decorative competing for the eye. Every color that is not paper or ink is carrying information.\n\nThe system's real subject is a single component — the collapsed task row — and almost every rule here exists to keep that row scannable. It is deliberately saturated: the working assumption is that the row is full, so a new field replaces an existing one rather than joining it. Density is a feature, and the discipline that makes density survivable is that the same fact is always encoded in the same place. Lateness is the number it is about. A person is a colored chip. None of these channels borrow each other's vocabulary, and the edge markers were deleted in one pass because each repeated in the margin what the row already said in words.\n\nThe dark theme is a different room, on purpose. It is not the warm ledger with the lights off; it is an indigo ledger — indigo paper, near-white ink, a lavender accent — settled after five whole palettes were driven live, including a faithful dark rendering of the light theme, which lost. A third theme, contrast, is pure black and white with no shadows at all and a deliberately monochrome person-chip set, because decorative hue variety works against a maximum-legibility promise.\n\nNo card edge is painted, and no rule remains that would paint one. A whole status-stripe vocabulary sat in the stylesheet unemitted for a long time — the row is deliberately mono, because the court section it sits in already says whose court it is — and on 2026-09-06 it was deleted rather than wired up. So \"one edge, one meaning\" is a rule about what an edge may say if one is drawn again, not a description of the current screen.",
     "keyCharacteristics": [
       "Paper-and-ink ground; color appears only where it means something.",
       "Three fully independent themes, not one theme with a filter over it.",
@@ -341,7 +336,7 @@
       },
       {
         "name": "The One Edge Rule",
-        "body": "No card edge is drawn today: a status stripe is defined in CSS and nothing emits it. The rule governs what happens if one returns — it would be status and nothing else. A fact that already has a column, a label or a section does not also get a margin, and a new state never answers with an edge marker.",
+        "body": "No card edge is drawn, and no rule defines one — the status stripes were deleted on 2026-09-06 after a long career of being defined and never emitted. The rule governs what happens if an edge ever returns — it would be status and nothing else. A fact that already has a column, a label or a section does not also get a margin, and a new state never answers with an edge marker.",
         "section": "elevation"
       },
       {
@@ -351,7 +346,7 @@
       },
       {
         "name": "The Never-none Rule",
-        "body": "Shadow tokens are transparent no-ops, never the keyword none — including in the contrast theme. Several rules compose them with an inset status stripe, and none inside a box-shadow list voids the whole declaration.",
+        "body": "Shadow tokens are transparent no-ops, never the keyword none — including in the contrast theme. The celebrating card composes them with a halo shadow, and none inside a box-shadow list voids the whole declaration.",
         "section": "elevation"
       },
       {
