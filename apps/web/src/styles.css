@@ -1324,8 +1324,8 @@ button.btn-good:hover {
    `App.tsx` has never emitted them, because the grouped row is deliberately
    mono: the court section the row sits in already says whose court it is, and
    the row's own due stamp already says the rest. They were deleted on
-   2026-09-06 rather than wired up, along with the ownership border that used to
-   stack under them on the same edge.
+   2026-09-06 rather than wired up. The ownership border that used to stack
+   under them on this same edge had already gone the day before.
 
    The rule that survives them is "one edge, one meaning" — a rule about what an
    edge may say if one is ever drawn again, not a description of this screen.
@@ -3895,11 +3895,12 @@ button.btn-good:hover {
    slots otherwise use. */
 .task-card-pair-name-mine { font-weight: 600; color: var(--ink); }
 
-/* Title block reuses .task-card-collapsed-title; the poop track rides inline
-   with the type label, sized down to the compact grouped scale. */
+/* Title block reuses .task-card-collapsed-title. The two rules that used to
+   follow this one styled a poop track nested inside the type label; the rating
+   moved into the expanded body and nothing has rendered one there since. Same
+   species as the status stripes deleted alongside them — a rule describing a
+   screen that had moved on. */
 .task-card-grouped .task-card-collapsed-title { grid-area: title; padding: 4px 0; }
-.task-card-grouped .task-card-collapsed-type .poop-track { margin-left: 6px; padding: 0; }
-.task-card-grouped .task-card-collapsed-type .poop-slot { font-size: 11px; }
 
 /* Due: label + value on one line, right-aligned under the action column.
    Red when overdue, muted when done. Side by side rather than stacked
