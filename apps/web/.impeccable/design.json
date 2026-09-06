@@ -1,0 +1,399 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-06T02:00:00.000Z",
+  "title": "Design System: Operation Hot Task",
+  "extensions": {
+    "colorMeta": {
+      "brand": {
+        "role": "primary",
+        "displayName": "Ledger Ink",
+        "canonical": "#1f1c17",
+        "tonalRamp": [
+          "#000000",
+          "#0d0c0a",
+          "#1f1c17",
+          "#3a352d",
+          "#5c554a",
+          "#8a8276",
+          "#c2bcb1",
+          "#e9e6df"
+        ]
+      },
+      "good": {
+        "role": "secondary",
+        "displayName": "Ledger Green",
+        "canonical": "#2e7d4f",
+        "tonalRamp": [
+          "#0b2016",
+          "#143a27",
+          "#1f5c39",
+          "#2e7d4f",
+          "#57a276",
+          "#8bc4a2",
+          "#c1e0cf",
+          "#e8f5ec"
+        ]
+      },
+      "warn": {
+        "role": "secondary",
+        "displayName": "Ledger Gold",
+        "canonical": "#a16b07",
+        "tonalRamp": [
+          "#2a1c02",
+          "#4a3104",
+          "#764e05",
+          "#a16b07",
+          "#c28f2c",
+          "#dbb464",
+          "#efd8a4",
+          "#fef6e0"
+        ]
+      },
+      "hot": {
+        "role": "secondary",
+        "displayName": "Ledger Ember",
+        "canonical": "#c25e00",
+        "tonalRamp": [
+          "#301700",
+          "#552900",
+          "#8c4300",
+          "#c25e00",
+          "#dc8434",
+          "#eeac70",
+          "#f8d3ac",
+          "#fef0e0"
+        ]
+      },
+      "bad": {
+        "role": "secondary",
+        "displayName": "Ledger Red",
+        "canonical": "#b82d35",
+        "tonalRamp": [
+          "#2e0b0d",
+          "#511418",
+          "#851f25",
+          "#b82d35",
+          "#d0605f",
+          "#e29291",
+          "#f1c3c4",
+          "#fce8e9"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#14120f",
+        "tonalRamp": [
+          "#000000",
+          "#14120f",
+          "#38332b",
+          "#55504a",
+          "#6f6a63",
+          "#a9a49b",
+          "#d5d0c7",
+          "#f4f2ee"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Ledger Paper",
+        "canonical": "#f4f2ee",
+        "tonalRamp": [
+          "#14120f",
+          "#38332b",
+          "#55504a",
+          "#6f6a63",
+          "#d5d0c7",
+          "#e8e4dd",
+          "#f4f2ee",
+          "#fefdfb"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Card Stock",
+        "canonical": "#fefdfb",
+        "tonalRamp": [
+          "#14120f",
+          "#38332b",
+          "#55504a",
+          "#6f6a63",
+          "#d5d0c7",
+          "#e8e4dd",
+          "#f4f2ee",
+          "#fefdfb"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page and panel titles. Bricolage Grotesque 700."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "List section headers and card titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Buttons and dense header chrome — the display face at body scale."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All prose: notes, instructions, field values. Never monospace."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Non-prose only: dates, counts, type labels, status pills."
+      }
+    },
+    "shadows": [
+      {
+        "name": "resting",
+        "value": "0 0 0 0 transparent",
+        "purpose": "Deliberate no-op. Surfaces are flat at rest; depth is the tone step plus a hairline."
+      },
+      {
+        "name": "lifted",
+        "value": "0 6px 18px -6px rgba(26, 24, 20, 0.22)",
+        "purpose": "The only real shadow. Hover, an expanded row, and anything floating: menus, modals, toasts."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 2px rgba(31, 28, 23, 0.35)",
+        "purpose": "The :focus-visible ring. Never strip an outline without replacing it."
+      },
+      {
+        "name": "status-stripe",
+        "value": "inset 3px 0 0 0 currentColor",
+        "purpose": "The card's left status edge, and the only meaning any card edge carries."
+      }
+    ],
+    "motion": [
+      {
+        "name": "slide-down",
+        "value": "150ms",
+        "purpose": "Form panel opening."
+      },
+      {
+        "name": "slide-up",
+        "value": "150ms",
+        "purpose": "Upward-opening panels: share popover, toast host."
+      },
+      {
+        "name": "pulse-overdue",
+        "value": "2s",
+        "purpose": "Overdue tag pulse. Used sparingly; the red date already says it."
+      },
+      {
+        "name": "pulse-unread",
+        "value": "1.6s",
+        "purpose": "Halo on the unread-note dot, for a party only."
+      },
+      {
+        "name": "pulse-celebrate",
+        "value": "1.4s, twice",
+        "purpose": "Green halo after a completion milestone, then settles."
+      },
+      {
+        "name": "hover-lift",
+        "value": "shadow swap",
+        "purpose": "Card hover. No transform, no scale."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "shell-max",
+        "value": "1320px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The brand-filled action. One per context.",
+      "html": "<button class=\"ds-btn\">New Task</button>",
+      "css": ".ds-btn { --btn-bg: var(--brand, #1f1c17); --btn-bg-hover: var(--brand-hover, #000000); background: var(--btn-bg); color: var(--on-accent, #fff); border: none; border-radius: 6px; padding: 7px 14px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn:hover { background: var(--btn-bg-hover); } .ds-btn:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 2px rgba(31,28,23,0.35)); }"
+    },
+    {
+      "name": "Good Button",
+      "kind": "button",
+      "refersTo": "button-good",
+      "description": "The positive move on a task: Claim, Complete, Approve. The real primary action in most of the app.",
+      "html": "<button class=\"ds-btn-good\">Claim</button>",
+      "css": ".ds-btn-good { background: var(--good, #2e7d4f); color: var(--on-accent, #fff); border: none; border-radius: 6px; padding: 5px 11px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-good:hover { filter: brightness(0.92); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary and cancel. Outline only, never filled.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: var(--brand, #1f1c17); border: 1px solid var(--brand, #1f1c17); border-radius: 6px; padding: 6px 13px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-ghost:hover { background: var(--brand-soft, #e9e6df); }"
+    },
+    {
+      "name": "Status Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Monospace status pill with a leading dot. One per signal role.",
+      "html": "<span class=\"ds-tag ds-tag-hot\"><span class=\"ds-tag-dot\"></span>IN FLIGHT</span>",
+      "css": ".ds-tag { display: inline-flex; align-items: center; gap: 5px; background: var(--hot-bg, #fef0e0); color: var(--hot, #c25e00); border-radius: 4px; padding: 2px 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.06em; } .ds-tag-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }"
+    },
+    {
+      "name": "Person Chip",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "A person, as initials on one of eight hues hashed off their user id. Held clear of the four signal hues so it never reads as urgency.",
+      "html": "<span class=\"ds-avatar\">TH</span>",
+      "css": ".ds-avatar { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: var(--avatar-2, #1f1c17); color: var(--avatar-ink, #fff); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; }"
+    },
+    {
+      "name": "Task Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The raised surface. Left inset stripe is status; a left border marks a task assigned to you.",
+      "html": "<div class=\"ds-card\"><span class=\"ds-card-type\">LOI CHECK</span><div class=\"ds-card-title\">Marbury Ridge — 214 Alder St</div></div>",
+      "css": ".ds-card { background: var(--panel, #fefdfb); color: var(--ink, #14120f); border: 1px solid var(--line-soft, #e8e4dd); border-radius: 8px; padding: 12px; box-shadow: var(--shadow-sm, 0 0 0 0 transparent), inset 3px 0 0 0 var(--hot, #c25e00); transition: box-shadow 0.15s; } .ds-card:hover { box-shadow: var(--shadow-md, 0 6px 18px -6px rgba(26,24,20,0.22)), inset 3px 0 0 0 var(--hot, #c25e00); } .ds-card-type { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.06em; color: var(--muted, #6f6a63); } .ds-card-title { font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 1rem; font-weight: 700; margin-top: 4px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Panel ground, strong rule, brand focus ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"Folder name\" />",
+      "css": ".ds-input { background: var(--panel, #fefdfb); color: var(--ink, #14120f); border: 1px solid var(--line, #d5d0c7); border-radius: 6px; padding: 7px 10px; font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif; font-size: 14px; width: 100%; } .ds-input::placeholder { color: var(--muted, #6f6a63); } .ds-input:focus-visible { outline: none; border-color: var(--brand, #1f1c17); box-shadow: var(--focus-ring, 0 0 0 2px rgba(31,28,23,0.35)); }"
+    },
+    {
+      "name": "Section Header",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "The app's only grouping device: a heading plus a monospace count chip on a 1px rule.",
+      "html": "<div class=\"ds-section-head\"><h2 class=\"ds-section-title\">Needs you</h2><span class=\"ds-section-count\">4</span></div>",
+      "css": ".ds-section-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #d5d0c7); } .ds-section-title { margin: 0; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 1rem; font-weight: 700; color: var(--ink, #14120f); } .ds-section-count { background: var(--bg-soft, #eae7e0); color: var(--ink-secondary, #55504a); border-radius: 4px; padding: 1px 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; }"
+    },
+    {
+      "name": "Tab Bar",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "Underline-active tabs, no fill. Rendered for admins only.",
+      "html": "<nav class=\"ds-tabs\"><button class=\"ds-tab ds-tab-active\">Tasks</button><button class=\"ds-tab\">Metrics</button></nav>",
+      "css": ".ds-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line-soft, #e8e4dd); } .ds-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 12px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; color: var(--muted, #6f6a63); cursor: pointer; } .ds-tab:hover { color: var(--ink, #14120f); } .ds-tab-active { color: var(--ink, #14120f); border-bottom-color: var(--brand, #1f1c17); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Warm Ledger",
+    "overview": "This is a bookkeeping pad, not a SaaS dashboard. Off-white paper, ink-black text, sharp typography, and narrow bands of color used strictly as signal. The reference object is a ruled accounting page that someone competent has been annotating all morning: dense, ordered, legible at a glance, with nothing decorative competing for the eye. Every color that is not paper or ink is carrying information.\n\nThe system's real subject is a single component — the collapsed task row — and almost every rule here exists to keep that row scannable. It is deliberately saturated: the working assumption is that the row is full, so a new field replaces an existing one rather than joining it. Density is a feature, and the discipline that makes density survivable is that the same fact is always encoded in the same place. Lateness is the number it is about. A person is a colored chip. None of these channels borrow each other's vocabulary, and the edge markers were deleted in one pass because each repeated in the margin what the row already said in words.\n\nThe dark theme is a different room, on purpose. It is not the warm ledger with the lights off; it is an indigo ledger — indigo paper, near-white ink, a lavender accent — settled after five whole palettes were driven live, including a faithful dark rendering of the light theme, which lost. A third theme, contrast, is pure black and white with no shadows at all and a deliberately monochrome person-chip set, because decorative hue variety works against a maximum-legibility promise.\n\nNo card edge is painted at all today. A status stripe exists in CSS and nothing emits it — the row is deliberately mono, because the court section it sits in already says whose court it is. So \"one edge, one meaning\" is a rule about what an edge may say if one is drawn again, not a description of the current screen.",
+    "keyCharacteristics": [
+      "Paper-and-ink ground; color appears only where it means something.",
+      "Three fully independent themes, not one theme with a filter over it.",
+      "A saturated primary row, defended against accretion.",
+      "Typography carries the hierarchy that color is not allowed to carry.",
+      "Restrained motion — a short list of named animations and nothing else.",
+      "Contrast ratios are measured and recorded, not eyeballed."
+    ],
+    "rules": [
+      {
+        "name": "The Role-Not-Hue Rule",
+        "body": "Signal tokens are named for what they mean, never for what color they are. A theme may answer bad with a rose and good with a mint; code that assumes red and green is wrong, not the theme.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Warm Note Rule",
+        "body": "In the dark theme, the indigo frame carries one warm accent and no more. Every signal but warn is rotated to the cool side of its own hue. A new signal color gets cooled before it lands; the warm slot is taken.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three-Theme Rule",
+        "body": "A new themeable color is not done until it exists in all three :root blocks. There is no fallback and no derivation; contrast in particular is authored, not computed.",
+        "section": "colors"
+      },
+      {
+        "name": "The Measured Floor Rule",
+        "body": "Body text clears 4.5:1 against its own panel and hairlines clear the 3:1 UI-component minimum, per theme, verified against that theme's panel rather than assumed from the light one.",
+        "section": "colors"
+      },
+      {
+        "name": "The On-Accent Rule",
+        "body": "Text and icons on a filled accent read the on-accent token, never #fff. The dark and contrast themes use bright pastel fills where white collapses to roughly 2.8:1.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono-Is-Not-Prose Rule",
+        "body": "The monospace face is reserved for non-prose: dates, counts, type labels, section counts, status pills. Prose stays in DM Sans. The two never mix inside a sentence.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Exception That Proves It",
+        "body": "An LOI's request field is drawn in the fixed-width face, because it holds a pasted term sheet and a term sheet only lines up in one.",
+        "section": "typography"
+      },
+      {
+        "name": "The Saturated Row Rule",
+        "body": "The collapsed task row is intentionally full. A new field replaces an existing one; it does not join the queue. If nothing can be given up, the field does not belong on the row.",
+        "section": "layout"
+      },
+      {
+        "name": "The Nothing-Behind-The-Fold Rule",
+        "body": "The collapsed row carries the primary action and the menu, so no actionable control is hidden by collapse.",
+        "section": "layout"
+      },
+      {
+        "name": "The One Edge Rule",
+        "body": "No card edge is drawn today: a status stripe is defined in CSS and nothing emits it. The rule governs what happens if one returns — it would be status and nothing else. A fact that already has a column, a label or a section does not also get a margin, and a new state never answers with an edge marker.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "body": "A surface that has not been interacted with and is not floating gets no shadow. Separation while sitting still is a hairline and a tone step, not elevation.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Never-none Rule",
+        "body": "Shadow tokens are transparent no-ops, never the keyword none — including in the contrast theme. Several rules compose them with an inset status stripe, and none inside a box-shadow list voids the whole declaration.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Underlined Link Rule",
+        "body": "Links carry a standing underline. The interactive colour is ink, so a link that is only ink is indistinguishable from the sentence around it.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Definition Rule",
+        "body": "A measurement two components must agree on is declared once, as a token, and read from there. Every alignment defect in this system has been the same shape: the same number written down twice, and one copy moving.",
+        "section": "layout"
+      },
+      {
+        "name": "The Empty-Bar Rule",
+        "body": "Nothing goes in the app bar. In production it holds admin-only tabs and nothing else, so a control placed there is a control most people never see.",
+        "section": "layout"
+      }
+    ],
+    "dos": [
+      "Do reach for an existing token before defining a color. Every color in the app goes through a custom property on :root.",
+      "Do add any new themeable value to all three themes — light, dark, and contrast — before considering it done.",
+      "Do keep the monospace face for things that are counted or labeled, the body face for anything that reads as a sentence, and the display face for headings and controls.",
+      "Do replace a field on the collapsed row rather than appending one.",
+      "Do encode every state in at least two channels. Color is never the only signal.",
+      "Do make a filled control take its label color from the on-accent token.",
+      "Do check a new tint against the panel of the theme it lives in, not against the light theme's.",
+      "Do give a link a standing underline; the interactive colour is ink, not a hue.",
+      "Do separate a block with a hairline, a margin rule, or a tone step — one device, never a container.",
+      "Do declare a shared measurement once and read it everywhere.",
+      "Do let the label shrink before the box does; a fixed track that cannot give is what pushes a layout past a viewport, and with zoom disabled an overflow is unreachable."
+    ],
+    "donts": [
+      "Don't hardcode a hex value anywhere, including white.",
+      "Don't name anything for its color. The signal tokens are roles; a theme is free to answer bad with a rose.",
+      "Don't add a warm accent to the dark theme. Cool it first — the one warm slot is spoken for.",
+      "Don't introduce a new animation without checking the existing set first. No scroll effects, no parallax, no transitions on color or text.",
+      "Don't let a card move itself. Nothing expands, collapses, or scrolls a row on the user's behalf.",
+      "Don't treat the dark theme as the light theme dimmed. It is a separate room with its own palette.",
+      "Don't put an actionable control behind the collapse.",
+      "Don't add a resting shadow to anything, or write the keyword none into a shadow token.",
+      "Don't put a card inside a card; the inner one becomes a titled passage of the outer one.",
+      "Don't answer a new state with an edge marker."
+    ]
+  }
+}

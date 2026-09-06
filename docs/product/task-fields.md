@@ -270,7 +270,7 @@ all. Deliberately left open rather than guessed at.
 | Surface | Answer |
 |---|---|
 | The two loan fields in `Edit Task` | Kept, narrowed to the task's two parties, open tasks only |
-| The header above a loan-filtered task list | **Editing removed.** It stands outside any task, so it has no two parties to check. It is now a read-only heading with the loan's name and its Humperdink link |
+| The header above a loan-filtered task list | **Gone entirely.** Editing was removed first — it stands outside any task, so it has no two parties to check — and the surface itself went with the per-row loan filter that was its only way in (nobody used it). A loan is corrected from `Edit Task` on a task on that loan, and from nowhere else |
 
 The header's ability went rather than being softened for it: a surface with
 nobody to check cannot carry the rule, and keeping it would have left one editing

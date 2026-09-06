@@ -15,9 +15,19 @@
 - There is no `Leaderboard` tab and no separate `Active`/`Archived` tabs.
   A ranked claims panel lives *inside* Metrics — see
   [claiming-scoring.md](claiming-scoring.md#claims-leaderboard-metrics-panel).
-- `New Task` and a **Grouped / flat-list segment** sit on each list's own
-  section header (above the `Tasks`, `All Tasks`, and per-loan grids) —
-  not in the app bar and not a tab.
+- **`New Task` and an app menu** sit at the right-hand end of each list's own
+  section header (above the `Tasks` and `All Tasks` grids) — not in the app bar
+  and not a tab. The pair is sized and spaced to land on top of the action
+  column in the rows below: the menu over every hamburger, `New Task` over every
+  quick action.
+- The **app menu** holds the settings that are not decisions about a task:
+  the Grouped / flat list toggle, an appearance control, and `Collapse all`.
+  They moved off the list header because they are preferences rather than
+  actions — set once and then left alone, next to a button pressed all day.
+- **Appearance** is `Match Teams` (the default), `Light`, `Dark` or
+  `High contrast`. `Match Teams` is the behaviour the app has always had,
+  including switching live when Teams switches. Any other choice pins the app
+  and stops it following Teams. Persisted per browser.
 - Create-task form: see [task-fields.md](task-fields.md)
 
 ## Unified Task Grid
@@ -49,11 +59,12 @@ Both views share one retention filter and one card component:
   open or close themselves — no status change, new note, or refresh moves a
   row either way (#161). The collapsed row carries the primary action and the
   menu, so nothing actionable is behind the fold.
-- **Collapse all**, on the list header next to Grouped/Flat, shuts every card
-  you have open in the list you're looking at, in one press. Cards behind
-  another tab or loan filter are untouched, and a collapse sticks until you
-  open the card again. There is no Expand all — opening cards you never asked
-  for is the behaviour above that got removed.
+- **Collapse all**, in the app menu, shuts every card you have open in the list
+  you're looking at, in one press, and carries a count of how many are open so
+  you can see whether it is worth pressing. Cards behind another tab are
+  untouched, and a collapse sticks until you open the card again. There is no
+  Expand all — opening cards you never asked for is the behaviour above that
+  got removed.
 
 Full row layout, column semantics, and styling conventions are documented in
 [apps/web/CLAUDE.md](../../apps/web/CLAUDE.md) — that's the canonical
