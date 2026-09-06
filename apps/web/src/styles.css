@@ -1956,6 +1956,15 @@ button.btn-good:hover {
      the background it used to grow came from the global rule, not from here. */
   --btn-bg: transparent;
   --btn-bg-hover: transparent;
+  /* Neither shrinks nor breaks. It is a two-word label sharing a flex row with
+     an item of arbitrary length, and on the default `flex: 0 1 auto` a long
+     item squeezed it until "+ note" broke across two lines — the plus sitting
+     directly on top of the word. Seeded data hit it at phone width, so it was
+     not an edge case. The item text is the elastic one here (`flex: 1 1 auto`)
+     and wraps as far as it needs to; this label is the fixed thing beside it,
+     the same way the delete button and the stale badge already are. */
+  flex: 0 0 auto;
+  white-space: nowrap;
   align-self: flex-start;
   border: none;
   padding: 0;

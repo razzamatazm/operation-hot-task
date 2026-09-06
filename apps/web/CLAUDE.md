@@ -736,6 +736,13 @@ nested card chrome, in this order:
    viewer's own seat's note field, and a viewer holds one seat or none. An
    existing note drops below the row with the author's full name, not a chip —
    it's a sentence attributed to a person.
+   **The item text is the only elastic thing on that row.** `+ note` is
+   `flex: 0 0 auto` and `nowrap`, the way the delete button and the stale badge
+   beside it already were. Left on the default `flex: 0 1 auto` a long item
+   squeezed the two-word label until it broke across two lines and the plus sat
+   directly on top of the word — seeded data hit it at phone width, so it was
+   never an edge case. Anything new added to this row is fixed too; the text is
+   what gives.
 4. **Instructions** (`.loi-terms`, every type but FRAUD) — the standing ask,
    out of the conversation and into its own box (#258 for the LOI, widened to
    five types by #300,
