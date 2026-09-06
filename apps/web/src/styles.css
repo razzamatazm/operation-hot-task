@@ -2083,7 +2083,8 @@ button.btn-good:hover {
    The panel is portaled to document.body and fixed-positioned from the
    trigger's rect, like the actions menu and the share popover (#113, #122):
    `.task-card` keeps `overflow: hidden` for its rounded corners, so an
-   absolutely-positioned descendant would be cut away on a collapsed row. Deliberately its OWN class rather than a reuse of
+   absolutely-positioned descendant would be cut away on a collapsed row.
+   Deliberately its OWN class rather than a reuse of
    `.share-pop-panel`: that class is what the actions menu's outside-click
    exemption (`keepOpenWithin`) keys off, and this panel is the menu's sibling,
    not something opening out of it — wearing that class would leave the menu
