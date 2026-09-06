@@ -418,16 +418,16 @@ noted. That is not the same thing as having no action: the requester needs to
 see that Submit *is* the next step and why it won't go. The slot renders the
 button `disabled` inside `.task-card-quick-action-slot`, with the sentence on
 the wrapper's `title` and the button's `aria-label`. Clicking anywhere in the
-slot expands the card, where the blocking rows carry
-`.checklist-item-blocking`.
+slot expands the card, where the list itself is the answer.
 
-**Nothing is written under the button, and nothing over the list** (#317, #321).
-The slot used to stack a `N to resolve` count beneath the button and the
-checklist head used to repeat the full sentence above the items. Both were
-introductions to a list that introduces itself, on the one card that already
-carries its ask as a list. The disabled button is the signal; the sentence is a
-hover and an `aria-label` away, which keeps a disabled control's explanation on
-the assistive path where taking it off the screen must not take it off.
+**The button is the whole of the signal** (#317, #321, #323). Three other
+things used to say the same fact: a sentence over the checklist, a `N to
+resolve` count under the button, and a warn tint with a left rule on every row
+the gate was waiting for. All three were introductions to a list that
+introduces itself, on the one card whose ask already *is* a list. The disabled
+button is the signal; the sentence is a hover and an `aria-label` away, which
+keeps a disabled control's explanation on the assistive path where taking it off
+the screen must not take it off.
 
 `blockedReason` comes from `packages/shared` — `fraudCardActions(...)` — so the
 view never decides who may submit or when. It also returns `blockedCount`
