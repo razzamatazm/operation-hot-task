@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, getNotesFieldLabel, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, getNotesFieldLabel, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { normalizeHumperdinkLink } from "./validation.js";
@@ -147,14 +147,13 @@ interface QuickAddDraft {
   editField?: EditableField;
 }
 
-const TASK_TYPE_CHOICES: ReadonlyArray<{ label: string; value: TaskType }> = [
-  { label: "LOI Check", value: "LOI" },
-  { label: "Buddy Chat", value: "BUDDY_CHAT" },
-  { label: "Value Check", value: "VALUE" },
-  { label: "Fraud Check", value: "FRAUD" },
-  { label: "Loan Docs", value: "LOAN_DOCS" },
-  { label: "OOO - Out of Office", value: "OOO" }
-];
+/* Built from the shared label table rather than written out, so the card's
+   picker cannot name a type differently from the web form, the DMs and the
+   channel cards. The hand-written copy said `OOO - Out of Office` — the
+   abbreviation and its expansion in one option, which is one of them too
+   many. */
+const TASK_TYPE_CHOICES: ReadonlyArray<{ label: string; value: TaskType }> =
+  TASK_TYPES.map((value) => ({ label: TASK_TYPE_LABELS[value], value }));
 
 const URGENCY_CHOICES: ReadonlyArray<{ label: string; value: UrgencyLevel }> = [
   { label: "Within 24 Hours", value: "GREEN" },

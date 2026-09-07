@@ -1431,18 +1431,35 @@ button.btn-good:hover {
   color: var(--ink);
 }
 
-/* The part that gives. */
+/* The type's own words. They name what the task IS, so they are the part that
+   stays whole; the stage behind them is the part that gives. They keep their
+   own ellipsis as the last resort — a cell narrow enough to cut the word
+   `BUDDY CHAT` should cut it rather than push the row. */
 .task-card-collapsed-type-text {
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* The stage, and the part that gives on a wide screen. Its own box rather than
+   words inside the type's, so a cut lands here and not on the type. */
 .task-card-collapsed-stage {
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 500;
   color: var(--ink-secondary);
+}
+
+/* The hyphen that joins the two on one line. It belongs to that arrangement,
+   so the phone rule that stacks them takes it away rather than leaving what
+   would read as a bullet at the head of the line. */
+.task-card-collapsed-stage-join {
+  white-space: pre;
 }
 
 /* The loan name, promoted to top billing: it is what a person scans for, so it
@@ -2437,7 +2454,28 @@ button.btn-good:hover {
     max-width: 100%;
     padding-left: 0;
     border-left: none;
+    flex-wrap: wrap;
+    row-gap: 1px;
   }
+
+  /* And the stage takes a third line under the type (2026-09-07). Stacking the
+     title bought the type a full-width line, which is still not enough for the
+     long ones: `Fraud Check - Final Approval Needed` wants ~290px of a title
+     cell that resolves to about 200px at 390px, so it rendered as `FRAUD CHECK
+     - FINAL APP…` and the status — the thing that says where the task actually
+     is — was the half that got cut. It wraps in full instead, and the row grows
+     by one line only on the rows that have a stage at all.
+
+     `order: 2` puts it after the unread dot rather than before it, so the dot
+     rides the end of the type on line two instead of being pushed onto a line
+     of its own. */
+  .task-card-collapsed-stage {
+    order: 2;
+    flex: 1 0 100%;
+    white-space: normal;
+    overflow: visible;
+  }
+  .task-card-collapsed-stage-join { display: none; }
 
   .loi-terms {
     grid-template-columns: minmax(0, 1fr);
@@ -3935,6 +3973,16 @@ button.btn-good:hover {
    Sans's bold ceiling (apps/web/CLAUDE.md), one step up from the 500 both
    slots otherwise use. */
 .task-card-pair-name-mine { font-weight: 600; color: var(--ink); }
+
+/* How Bad?, on the pair line and only while the task is unclaimed — see the
+   comment in `TaskCard` for why it lives beside the word `Unclaimed` and
+   nowhere else on the row. Fixed rather than shrinkable: the pair wraps, and a
+   squeezed rating is a different number. It carries no touch target of its own
+   here (the track is read-only), so it can sit against a name. */
+.task-card-pair > .poop-track {
+  flex: 0 0 auto;
+  margin-left: 2px;
+}
 
 /* Title block reuses .task-card-collapsed-title. The two rules that used to
    follow this one styled a poop track nested inside the type label; the rating

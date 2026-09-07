@@ -221,15 +221,30 @@ Each slot has one job. When adding info, replace something — don't append:
   column is the one that gives. Perspective rides here, not on a status
   banner: #36 removed the banner row along with `resolveBanner` /
   `STATUS_BANNER`. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS
-  rides on the **title** as a hyphen suffix.
-- **Title** — type label (e.g. `Loan Docs`), optional ` - <stage>` suffix
-  in lighter weight via `task-card-collapsed-stage`, then folder name with
-  optional `↗` external Humperdink link. Single line, ellipsized.
-- **Poop** — fixed 5-slot inline track. Slots 1..N rendered in full
-  color, remaining slots ghosted (grayscale + low opacity) so the row
-  width never changes. Creator can click any slot to set the score
-  (clicking the current count clears to 0). See `PoopDisplay` /
-  `.poop-track`. Hidden on mini rows.
+  rides on the **title**, beside the type. An unclaimed task also carries the
+  `How Bad?` score here — see *Poop* below.
+- **Title** — the loan name, then the task type beside it behind a hairline,
+  and the type carries an optional stage (`Merge Done`, `Final Approval
+  Needed`) in lighter weight via `task-card-collapsed-stage`. One line on a
+  wide screen; the name is the elastic part and the stage is what gives. See
+  *Grouped collapsed row* for how it stacks under 560px.
+- **Poop** — the `How Bad?` score, and it is on the row **only while the task
+  is unclaimed** (2026-09-07). It answers one question — can I take a
+  five-poop set of loan docs right now — and that question is only live for
+  somebody looking at work nobody holds, so it sits beside the word
+  `Unclaimed` in the pair and leaves with it. Read-only there: a five-slot
+  editable track inside a row that is itself a press target is five touch
+  targets nobody asked for, and the creator rates it in the expanded body or
+  on the edit form. Fixed 5-slot track either way — slots 1..N in full colour,
+  the rest ghosted, so the score reads against its scale rather than as a
+  count of glyphs. See `PoopDisplay` / `.poop-track`. Never on a mini row:
+  `isUnclaimed` is false on every closed task, so nothing extra is needed to
+  keep it off them.
+
+  It rode every row until #329 took it off entirely — five emoji on all ~130
+  rows including the closed ones, which was the loudest thing on the densest
+  surface in the app. This is not that coming back; it is the same fact
+  drawn where it is worth reading.
 - **Due** — label and value side by side, right-aligned, built by
   `groupedDue`. Full
   absolute timestamp shows as `title` tooltip. Red + bold
@@ -254,6 +269,16 @@ Each slot has one job. When adding info, replace something — don't append:
 
 The **whole row** is the expand toggle (`role="button"`, Enter/Space).
 Don't add a chevron; it's redundant.
+
+**Type names come from shared `TASK_TYPE_LABELS`, never from a local table**
+(2026-09-07). `App.tsx` kept its own copy, and the copy had drifted: out of
+office read `OOO - Out of Office` on the board and in the bot's filing card —
+the abbreviation and its expansion in one label, which is one of them too many
+— while every DM and channel card the same task produced said `Out of Office`.
+The web row, the create form, the bot's type picker and the notification copy
+all read the one table now. The same rule the action labels are already under:
+a surface that writes its own wording is a surface that will disagree with the
+others.
 
 ### Grouped collapsed row (`.task-card-grouped`)
 
@@ -313,7 +338,24 @@ pair          | due
   in a fixed grid row it pushed the whole board sideways with no zoom to escape
   it. **Under 560px the pair stacks** — name, then type underneath — and the
   hairline goes with the side-by-side arrangement it belonged to.
-  The rating moved off this block into the expanded body, and the ↗ that used
+
+  **The stage is its own box, and on a phone it takes a third line**
+  (2026-09-07). It used to be words inside the type's own span, so the two
+  truncated together and the ellipsis landed wherever it landed: stacking the
+  title bought the type a full-width line, and `Fraud Check - Final Approval
+  Needed` still wants ~290px of a title cell that resolves to about 200px at
+  390px, so what a person read was `FRAUD CHECK - FINAL APP…`. The half that
+  got cut is the status — where the task actually *is* — on the surface with no
+  zoom to go and look with. Split out, the type names what the task is and
+  stays whole, the stage is the part that gives on a wide screen, and under
+  560px it wraps in full onto a line of its own. Two things ride with that:
+  `stageSuffix` returns **bare words**, because the hyphen belongs to the
+  one-line arrangement and `.task-card-collapsed-stage-join` is dropped when
+  the line breaks; and the stage takes `order: 2` so the unread dot stays at
+  the end of the type rather than being pushed onto a line by itself.
+
+  The rating is back on the row for unclaimed tasks only — see *Poop* under
+  *Collapsed row* — and the ↗ that used
   to follow the loan name is gone: a unicode arrow standing in for an icon,
   which renders as a colour emoji on mobile. The name is still the link and
   says so with the standing underline every link carries.

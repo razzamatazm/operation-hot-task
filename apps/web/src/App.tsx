@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -35,15 +35,6 @@ const INITIAL_USER: UserIdentity = {
    it without prop-drilling. The cache re-acquires expired tokens on its own —
    see auth-token.ts for why holding one is not enough (#175). */
 const tokenCache = createTokenCache(() => authentication.getAuthToken());
-
-const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  LOI: "LOI Check",
-  BUDDY_CHAT: "Buddy Chat",
-  VALUE: "Value Check",
-  FRAUD: "Fraud Check",
-  LOAN_DOCS: "Loan Docs",
-  OOO: "OOO - Out of Office"
-};
 
 /* A failed request, with the server's answer still attached. Everything that
    catches one reads `.message` and always has, which is why this is an `Error`
@@ -386,19 +377,24 @@ const firstName = (displayName: string | undefined): string => {
    picker filters to people who can actually work the task, so a Fraud Check
    never offers someone the server would reject. */
 
-/* LOAN_DOCS and FRAUD have multiple stages between claim and complete. Stage
-   suffix rides on the title as a hyphen suffix so the type label stays terse.
+/* LOAN_DOCS and FRAUD have multiple stages between claim and complete. The
+   stage rides on the title beside the type so the type label stays terse.
    For FRAUD it also disambiguates a released final-approval task sitting in the
-   pool ("Final Approval Needed") from a fresh unclaimed check. */
+   pool ("Final Approval Needed") from a fresh unclaimed check.
+
+   Bare words, no leading `- `. The hyphen is the join between two things that
+   are sitting on one line, so it belongs to the row that draws them and not to
+   the string: on a phone the stage drops to a line of its own under the type
+   (2026-09-07), where a leading hyphen would read as a bullet. */
 const stageSuffix = (task: LoanTask): string => {
   if (task.taskType === "LOAN_DOCS") {
-    if (task.status === "MERGE_DONE") return " - Merge Done";
-    if (task.status === "MERGE_APPROVED") return " - Merge Approved";
+    if (task.status === "MERGE_DONE") return "Merge Done";
+    if (task.status === "MERGE_APPROVED") return "Merge Approved";
     return "";
   }
   if (task.taskType === "FRAUD") {
-    if (task.status === "AWAITING_ITEMS") return " - Outstanding Items";
-    if (task.status === "PENDING_APPROVAL") return task.assignee ? " - Final Approval" : " - Final Approval Needed";
+    if (task.status === "AWAITING_ITEMS") return "Outstanding Items";
+    if (task.status === "PENDING_APPROVAL") return task.assignee ? "Final Approval" : "Final Approval Needed";
     return "";
   }
   return "";
@@ -412,7 +408,9 @@ const PoopDisplay = ({
 }: {
   count: number;
   canEdit: boolean;
-  onChange: (next: number) => void;
+  /* Optional because the read-only track has nothing to call: the collapsed
+     row draws one and holds no rating handler at all. */
+  onChange?: (next: number) => void;
 }) => {
   const safeCount = Math.max(0, Math.min(5, count | 0));
 
@@ -446,7 +444,7 @@ const PoopDisplay = ({
             className={className}
             onClick={(e) => {
               e.stopPropagation();
-              onChange(n === safeCount ? 0 : n);
+              onChange?.(n === safeCount ? 0 : n);
             }}
             aria-label={`Set How Bad? to ${n}`}
             aria-pressed={filled}
@@ -2600,6 +2598,22 @@ const TaskCard = memo(({
               </>
             )}
           </span>
+          {/* How Bad?, back on the row — but only while the task is up for
+              grabs (2026-09-07). The score answers one question, "can I take a
+              five-poop set of loan docs right now", and that question is only
+              live for somebody looking at work nobody holds. #329 took it off
+              the row entirely because five emoji rode every row in the list
+              including the ~117 closed ones, which is the same fact stated
+              wrongly rather than a fact worth hiding. It sits with `Unclaimed`
+              because that word is what makes it relevant, and it leaves with
+              it: the moment somebody claims the task the slot is a person's
+              name and the rating goes back to being reference detail in the
+              expanded body, where its creator still rates it. Read-only here —
+              a five-slot editable track in a row that is itself a press target
+              is five touch targets nobody asked for. */}
+          {isUnclaimed(task) && (task.points ?? 0) > 0 && (
+            <PoopDisplay count={task.points ?? 0} canEdit={false} />
+          )}
         </span>
         <span className="task-card-collapsed-title">
           {/* Loan name first and dominant — it is what a person scans for. The
@@ -2619,19 +2633,28 @@ const TaskCard = memo(({
               <span className="task-card-collapsed-folder-name">{task.folderName}</span>
             )}
           </span>
-          {/* The type's WORDS truncate; the unread dot does not. The dot used to
-              be a plain child of this span alongside the text, so the ellipsis
-              that caps the type at 45% of the cell ate the dot too — on a phone
-              a fraud check at final approval lost it entirely, which is the one
-              signal saying a note is waiting, gone on the surface with no zoom
-              to go looking with. So the text gets its own box to be clipped in
-              and the dot sits beside it, still at the end of the type where it
-              has always been. */}
+          {/* Three children, and which of them may be cut is the whole point.
+              The dot never is: it used to be a plain child alongside the text,
+              so the ellipsis capping the type ate it too, and on a phone a
+              fraud check at final approval lost the one signal saying a note is
+              waiting, on the surface with no zoom to go looking with.
+
+              The stage is its own box rather than words inside the type's, so
+              it is the part that gives — the type names what the task IS and
+              stays whole, and a cut lands on the stage behind it. On a phone
+              (2026-09-07) it stops being cut at all and takes a line of its
+              own under the type: `Fraud Check - Final Approval Needed` wants
+              ~290px against a title cell of about 200px there, so what a person
+              actually read was `FRAUD CHECK - FINAL APP…`. The hyphen is the
+              join for the one-line arrangement and goes with it. */}
           <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
-            <span className="task-card-collapsed-type-text">
-              {TASK_TYPE_LABELS[task.taskType]}
-              {stageSuffix(task) && <span className="task-card-collapsed-stage">{stageSuffix(task)}</span>}
-            </span>
+            <span className="task-card-collapsed-type-text">{TASK_TYPE_LABELS[task.taskType]}</span>
+            {stageSuffix(task) && (
+              <span className="task-card-collapsed-stage">
+                <span className="task-card-collapsed-stage-join" aria-hidden="true">&nbsp;-&nbsp;</span>
+                {stageSuffix(task)}
+              </span>
+            )}
             {hasUnreadNote && (
               <span className="task-card-unread-dot" aria-label="New note" title="New note" />
             )}
