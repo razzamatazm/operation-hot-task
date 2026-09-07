@@ -239,9 +239,23 @@ Each slot has one job. When adding info, replace something — don't append:
   ghosted, so a 3 reads as three *out of five* rather than as three glyphs.
   An unrated task renders no track at all rather than five ghosts. See
   `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
-  every closed task, so nothing extra is needed to keep it off them. **And
-  never on an OOO**, which is unclaimed for its whole life and picked up by
-  nobody — the same exclusion `isPoolNagEligible` carries, for the same reason.
+  every closed task, so nothing extra is needed to keep it off them.
+
+  **An OOO gets one, and it is the case this is most for.** A review pass cut
+  it out on the reasoning that a vacation notice is never picked up. That is
+  wrong: `canClaimTask` opens for it like any other `OPEN` task, the board
+  files it under *Up for grabs* with a `Claim` button, its channel card asks
+  "will be out of the office … and needs coverage. Can you help?", and
+  `TASK_NEEDS_PHRASE` calls it "needs OOO Coverage". Somebody deciding whether
+  to cover an absence is asking precisely what the score answers — a quiet week
+  and a heavy pipeline are not the same ask.
+
+  The two shared rules that *do* exclude an OOO, `isPoolNagEligible` and
+  `isUnclaimedTooLong`, are about **nagging cadence** and not about pickup:
+  don't re-post "cover this holiday" to the channel every twenty minutes, and
+  don't tell somebody their own vacation notice has gone unclaimed too long.
+  Neither says nobody takes it. Don't borrow either for a question about who
+  is looking at the pool.
 
   It rode every row until #329 took it off entirely — five emoji on all ~130
   rows including the closed ones, which was the loudest thing on the densest

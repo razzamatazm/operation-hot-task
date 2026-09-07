@@ -2612,14 +2612,25 @@ const TaskCard = memo(({
               a five-slot editable track in a row that is itself a press target
               is five touch targets nobody asked for.
 
-              An OOO is excluded even though it is unclaimed for its whole life.
-              A vacation notice is born unassigned and stays that way until it
-              auto-completes on the return date, so nobody is ever picking it
-              up and a rating beside its `Unclaimed` answers a question no one
-              is asking. Same exclusion, for the same reason, that
-              `isPoolNagEligible` carries — the pool's questions are not asked
-              of a holiday. */}
-          {isUnclaimed(task) && task.taskType !== "OOO" && (task.points ?? 0) > 0 && (
+              **An OOO is included, and it is the case this is most for.** A
+              review pass excluded it here on the reasoning that a vacation
+              notice is never picked up; that is wrong, and the app says so in
+              four places. `canClaimTask` opens for it like any other OPEN task,
+              the board files it under *Up for grabs* with a `Claim` button, its
+              channel card reads "will be out of the office … and needs
+              coverage. Can you help?", and `TASK_NEEDS_PHRASE` calls it "needs
+              OOO Coverage". Somebody covering an absence is deciding exactly
+              the thing the score exists to answer — a quiet week and a heavy
+              pipeline are not the same ask, and the rating is the only thing on
+              the row that says which one this is.
+
+              The two shared rules that DO exclude an OOO — `isPoolNagEligible`
+              and `isUnclaimedTooLong` — are about nagging cadence, not about
+              pickup: don't re-post "cover this holiday" to the channel every
+              twenty minutes, and don't tell somebody their own vacation notice
+              has gone unclaimed too long. Neither is a claim that nobody takes
+              it. Don't borrow them for a question about the pool. */}
+          {isUnclaimed(task) && (task.points ?? 0) > 0 && (
             <PoopDisplay count={task.points ?? 0} canEdit={false} />
           )}
         </span>
