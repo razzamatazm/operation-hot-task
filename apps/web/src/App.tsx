@@ -2610,8 +2610,16 @@ const TaskCard = memo(({
               name and the rating goes back to being reference detail in the
               expanded body, where its creator still rates it. Read-only here —
               a five-slot editable track in a row that is itself a press target
-              is five touch targets nobody asked for. */}
-          {isUnclaimed(task) && (task.points ?? 0) > 0 && (
+              is five touch targets nobody asked for.
+
+              An OOO is excluded even though it is unclaimed for its whole life.
+              A vacation notice is born unassigned and stays that way until it
+              auto-completes on the return date, so nobody is ever picking it
+              up and a rating beside its `Unclaimed` answers a question no one
+              is asking. Same exclusion, for the same reason, that
+              `isPoolNagEligible` carries — the pool's questions are not asked
+              of a holiday. */}
+          {isUnclaimed(task) && task.taskType !== "OOO" && (task.points ?? 0) > 0 && (
             <PoopDisplay count={task.points ?? 0} canEdit={false} />
           )}
         </span>

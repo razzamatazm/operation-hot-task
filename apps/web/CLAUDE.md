@@ -235,16 +235,29 @@ Each slot has one job. When adding info, replace something — don't append:
   `Unclaimed` in the pair and leaves with it. Read-only there: a five-slot
   editable track inside a row that is itself a press target is five touch
   targets nobody asked for, and the creator rates it in the expanded body or
-  on the edit form. Fixed 5-slot track either way — slots 1..N in full colour,
-  the rest ghosted, so the score reads against its scale rather than as a
-  count of glyphs. See `PoopDisplay` / `.poop-track`. Never on a mini row:
-  `isUnclaimed` is false on every closed task, so nothing extra is needed to
-  keep it off them.
+  on the edit form. Fixed 5-slot track — slots 1..N in full colour, the rest
+  ghosted, so a 3 reads as three *out of five* rather than as three glyphs.
+  An unrated task renders no track at all rather than five ghosts. See
+  `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
+  every closed task, so nothing extra is needed to keep it off them. **And
+  never on an OOO**, which is unclaimed for its whole life and picked up by
+  nobody — the same exclusion `isPoolNagEligible` carries, for the same reason.
 
   It rode every row until #329 took it off entirely — five emoji on all ~130
   rows including the closed ones, which was the loudest thing on the densest
   surface in the app. This is not that coming back; it is the same fact
-  drawn where it is worth reading.
+  drawn only where it is worth reading, on the three or four rows in a list
+  where somebody is deciding whether to take the work.
+
+  **This is an append, and it is the row's one sanctioned one.** Rule 3 under
+  *When Adding UI* says a new field on the collapsed row replaces something
+  rather than being added beside it, and this adds a track next to `Unclaimed`
+  without taking anything away. It is allowed here because the slot it lands in
+  is the one part of the row that is *empty on exactly these rows* — the
+  assignee half of the pair is a dashed placeholder and an italic `Unclaimed`,
+  which is the row saying it has nothing to put there — and because it leaves
+  when that emptiness does. A new field that cannot say both of those things
+  replaces something instead.
 - **Due** — label and value side by side, right-aligned, built by
   `groupedDue`. Full
   absolute timestamp shows as `title` tooltip. Red + bold

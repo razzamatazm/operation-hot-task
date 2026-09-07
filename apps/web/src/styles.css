@@ -1431,23 +1431,34 @@ button.btn-good:hover {
   color: var(--ink);
 }
 
-/* The type's own words. They name what the task IS, so they are the part that
-   stays whole; the stage behind them is the part that gives. They keep their
-   own ellipsis as the last resort — a cell narrow enough to cut the word
-   `BUDDY CHAT` should cut it rather than push the row. */
+/* The type's own words. They name what the task IS, so they are the last thing
+   to be cut — but they are still cuttable, which is the whole reason this cell
+   is allowed to give in the first place: an unshrinkable label here is wider
+   than a phone and pushes the board sideways (see .task-card-collapsed-type).
+   So it keeps a shrink factor and its own ellipsis, and the stage below simply
+   carries a much larger one. */
 .task-card-collapsed-type-text {
   min-width: 0;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* The stage, and the part that gives on a wide screen. Its own box rather than
-   words inside the type's, so a cut lands here and not on the type. */
+   words inside the type's, so a cut lands here and not on the type.
+
+   Shrink 100 against the type's 1, and the size of the number is the point.
+   Flex splits a squeeze in proportion to shrink factor times base width, so it
+   cannot be sequenced — "spend the stage first, then the type" is only ever
+   approximated by making the ratio big enough that the type's share rounds
+   under a character. At 6 it did not: in the 560–780 band, where the two are
+   still side by side and the cell is capped at 45%, a `Fraud Check -
+   Outstanding Items` lost a letter off `FRAUD CHECK` while the stage still had
+   room to give. */
 .task-card-collapsed-stage {
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 0 100 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
