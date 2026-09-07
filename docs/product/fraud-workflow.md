@@ -167,6 +167,48 @@ and seeds the DM conversation thread. (The checklist is the primary surface;
 the note path stays for surfaces that can't build a checklist, e.g. bot
 cards.)
 
+**The web app has no free-text box on the move itself** (2026-09-07). It has
+the checklist and, directly below it, the conversation thread, so a box on the
+hand-back was a third place to put the same words and a decision the checker had
+to make every time.
+
+It is satisfied there by **either** of two things, both of which are places the
+card already has:
+
+- **at least one outstanding item** on the checklist — the normal answer; or
+- **a message the checker has posted to the conversation** — which is how
+  *"nothing outstanding"* gets said. A first pass that finds nothing missing is
+  a real result, and the checker still has to hand the check back, so an
+  items-only rule would leave them unable to move at all.
+
+The second is scoped to the checker's **own** messages, because of the
+requester's replies rather than the opening ask. `reviewNotes` is empty at
+creation — the originating ask lives on the task and is only *rendered* as the
+thread's first row — but the requester posts real messages through the
+exchange, answering items during `Awaiting Items`. By the time a check reaches
+`Pending Approval` its thread reliably holds the requester's words, so a bare
+"has anyone said anything" test would let a checker bounce it back on somebody
+else's message. A withdrawn message does not count either.
+
+It is **not** scoped to the current pass: a checker who wrote something in an
+earlier round and nothing in this one still passes. Messages carry no pass
+marker the way checklist items do (`addedOnPass`), and inferring one from
+timestamps would be guessing. Stamp messages with the pass if this ever needs
+tightening.
+
+Until one holds, the button is disabled and says so. Both the button and the
+transition ask the same shared `handBackSatisfied`, and the refusal reads back
+the same sentence the button carries, so the two cannot drift.
+
+The bot is unaffected. It declares itself note-capable (by not passing
+`noteCapable: false` to `fraudCardActions`) and keeps the note-on-the-transition
+path above, which is the only one an Adaptive Card can take.
+
+One consequence worth knowing: a checklist-only hand-back seeds **no** thread
+message, so a fraud check's conversation starts empty unless somebody actually
+writes something. That is the intended reading — an empty thread means nobody
+had anything to add beyond the list.
+
 ## Reminder Rules
 
 - `Awaiting Items` is a wait on the requester and is **fully silent** — it is

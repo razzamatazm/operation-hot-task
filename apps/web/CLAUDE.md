@@ -96,12 +96,23 @@ Never hard-code colors. Use the variables:
 | `--on-accent`               | Ink for text/icons on a filled accent    |
 | `--good` / `--good-bg`      | Green urgency, success, "active" stat    |
 | `--warn` / `--warn-bg`      | Yellow urgency, review thread accent     |
-| `--hot`  / `--hot-bg`       | Orange urgency, Loan Docs type bar       |
+| `--hot`  / `--hot-bg`       | Orange urgency                           |
 | `--bad`  / `--bad-bg`       | Red urgency, overdue, cancelled, errors  |
 | `--row-alt`, `--row-hover`  | Striping and hover overlays              |
 | `--control-hover`           | Hover tint for a non-filled inline control|
 | `--shadow-sm`, `--shadow-md`| Flat no-op at rest / real lift when raised |
 | `--focus-ring`              | `:focus-visible` ring                    |
+
+**A signal token is never spent as a category colour** (2026-09-06). The metrics
+type breakdown painted Fraud on `--bad`, Value on `--good` and Loan Docs on
+`--hot`, leaving the other three uncoloured — a legend with three blanks in it,
+and worse, a claim: `--bad` means failure everywhere else in the app, so a red
+Fraud Check row told an admin fraud checks were going wrong on a chart that only
+counts how many got filed. Every bar is `--ink` now and differentiated by
+**length**, which is what a bar chart is for. The `.type-bar-*` variants are
+deleted rather than left unemitted, for the reason the status stripes were. The
+ratio bar's brand-to-hot gradient went with them: the number it draws is already
+printed twice beside it, and a colour ramp implies a scale it does not have.
 
 The four signal rows name each token's **role**, not its hex. The dark theme
 answers them in cool hues (mint / gold / coral / rose) per the aesthetic
@@ -234,9 +245,9 @@ Each slot has one job. When adding info, replace something — don't append:
   cannot word it differently. Never fire `ARCHIVED` after it from here: the
   server does both in one write, and a second call is what could leave a task
   completed and not archived.
-  `Send Items` is the one entry that can't complete from the row: it is
-  note-required, so with an empty checklist it expands the card and opens
-  the composer in the body instead of firing. It is worded short (not
+  `Send Items` fires from the row like every other entry, and is disabled with
+  a reason while the checklist is empty (2026-09-07) — it used to open a note
+  composer in the body instead. It is worded short (not
   "Send Outstanding Items") because the slot never resizes to its label. When no action
   applies the slot resolves three ways (see *Empty action slot* below).
   Hidden on mini.
@@ -537,6 +548,17 @@ rendering failure on your own tasks. In order:
    spending its width on the part everybody already knows. It wants 114px
    against the phone column's 108px, and it is a passive span with no touch
    target, so a second line costs the row nothing anyone can feel.
+
+   **The message pull owns this slot when the pull is what put the row here**
+   (2026-09-06). `pendingPartyFor` knows the chain and nothing about the pull,
+   so a task lifted into "Needs you" by an unread reply used to sit under that
+   heading reading `Waiting on Johanna` — the section and the slot contradicting
+   each other in the one place both get scanned, which is the promise the whole
+   product is organised around. It now reads `Unread reply` while the dot is
+   lit and `Read reply` once the viewer has opened it and the court hold
+   (below) is the only thing keeping the row in place. Still a passive span
+   either way: the ball is genuinely in the other party's court, and this says
+   why the row is in front of you, not what to do about it.
 2. **`Cancel`** — you created the task, it isn't closed, and `CANCELLED` is
    still an allowed transition. The **creator** condition and the shared
    `canCancelTask` agree since ADR-0003 stripped the admin branch: cancelling
@@ -553,6 +575,63 @@ rendering failure on your own tasks. In order:
    criteria listed "Observer — neither creator nor assignee → reserved
    spacer, unchanged"; the slot reading as a missing control was judged
    worse than telling an observer whose move it is.
+
+### A hand-back needs items (2026-09-07)
+
+The two moves that enter `AWAITING_ITEMS` — the checker's first send
+(`Send Items`) and a bounce-back from final approval (`Send Back`) — cannot go
+out empty. The server has always enforced "a note **or** at least one checklist
+item", and this app used to satisfy it either way, revealing a textarea when the
+list was empty.
+
+**That box is gone.** The outstanding items are the checklist, and anything else
+the checker wants to say is a message in the conversation directly below it. A
+free-text box between the two asked the checker to sort every sentence into one
+of three places, and put the same content in a different shape depending on
+which they picked.
+
+**Two ways through, and they are the card's two existing places for words.**
+Shared `handBackSatisfied` owns the rule:
+
+1. **At least one checklist item** — the normal answer.
+2. **A message the checker has posted themselves** — the answer when there is
+   *nothing* outstanding. That is a real result of a first pass, not an edge
+   case: the checker still has to hand the check back, and a checklist-only
+   rule would lock them out of the flow with no way to move at all.
+
+Scoped to the viewer's **own** messages on purpose, and the reason is the
+requester's replies rather than the opening ask. `reviewNotes` is empty at
+creation — the originating ask lives in the task's own field and is only
+*rendered* as the thread's first row — but the requester posts real messages
+through the exchange, answering items during `AWAITING_ITEMS`. By the time a
+check reaches `PENDING_APPROVAL` its thread reliably holds the requester's
+words, so a bare "has anyone said anything" test would let a checker bounce it
+back on somebody else's message. A withdrawn message is a tombstone and does not
+count either.
+
+**It is not scoped to the current pass.** A checker who wrote something in an
+earlier round and nothing in this one still passes the gate. There is no pass
+marker on a message the way there is on a checklist item (`addedOnPass`), and
+approximating one from timestamps would be guessing. If this matters, stamp
+messages with the pass rather than comparing dates here.
+
+Until one of the two holds, the move is **offered and disabled** carrying
+`Add an outstanding item, or a note in the conversation saying there is nothing
+outstanding` — the same `blockedReason` treatment `Submit` gets, on the
+wrapper's `title` and the button's `aria-label`. The sentence names both exits
+deliberately: naming only the checklist leaves a checker with nothing to list
+staring at a dead button on a check that is going fine.
+
+**The server asks the same function**, and its refusal reads the same sentence
+back, so the button and the API cannot drift. **The bot is untouched:**
+`fraudCardActions` takes `{ noteCapable: false }` from this app and nothing from
+the bot, whose Adaptive Card has a text input and no way to build a checklist, so
+its note-on-the-transition path still works. Don't fold the gate into
+`fraudCardActions`'s default — that would take the bot's only route away.
+
+A checker may add checklist items at any live status (`canEditChecklist`),
+including `PENDING_APPROVAL`, which is what keeps `Send Back` reachable rather
+than a dead end once the requester has resolved everything.
 
 ### A blocked primary action (#184)
 
@@ -721,14 +800,22 @@ nested card chrome, in this order:
    Horizontal at every width — the old vertical dot-list pushed the notes
    thread far down the card (#92) — and wraps to a second line rather than
    scrolling. It's the first child so the sibling-hairline rule skips it.
-2. **FRAUD note composer**, and only when the row's own note-required move
-   has opened it. The body carries no fraud *buttons* at all: the phase's
-   forward move rides the collapsed row (`fraudQuick`) and the alternatives
-   (`Send Back`, `Release`) sit in the hamburger with the rest of the
-   secondary ladder. A lone `Send Back` used to float here directly above
-   the checklist, where it read as part of the outstanding-items list
-   rather than as the card's action. The composer stays because the row
-   can't host a textarea — it has nowhere else to go.
+2. **Nothing.** The body carries no fraud buttons and no fraud composer. The
+   phase's forward move rides the collapsed row (`fraudQuick`) and the
+   alternatives (`Send Back`, `Release`) sit in the hamburger with the rest of
+   the secondary ladder. A lone `Send Back` used to float here directly above
+   the checklist, where it read as part of the outstanding-items list rather
+   than as the card's action.
+
+   **The outstanding-items composer is gone** (2026-09-07). A hand-back used to
+   reveal a textarea, placeholdered `Describe what's outstanding…` on an empty
+   checklist and `Optional note for the thread…` on a full one. Both were a
+   third place to type on a card that already has two: the checklist below,
+   which is what the outstanding items ARE, and the conversation below that,
+   which is where anything else a checker wants to say belongs. It also asked
+   the checker to decide which of the two a given sentence was, every time.
+   Now the items go in the list and the words go in the thread, and there is no
+   third answer. See *A hand-back needs items* under Empty action slot.
 3. **Checklist** (FRAUD outstanding items), when there is one. Each row is
    checkbox → adder's colored initials chip (same per-person color as the
    header's assigner→assignee pair, `avatarStyle`) → text → the note
@@ -982,9 +1069,9 @@ rule on every open card.
 Everything else (Edit Task, Re-open, Add a note, Unclaim, Cancel, Archive,
 Restore, Share, Assign/Reassign, Undo Merge Done, and FRAUD's Send Back /
 Release) lives in the collapsed row's hamburger, not here — there is no actions card in the body
-anymore. `Send Back` is note-required, so it opens its composer inside the
-menu panel; that is fine, the panel already hosts the `Add a note` field and
-its Esc handler exempts text fields.
+anymore. `Send Back` is one press now: it used to open a note composer inside
+the menu panel, and since 2026-09-07 it fires straight, or sits disabled with a
+reason while the checklist is empty.
 
 ### Timestamps in the hamburger (#166)
 
@@ -1106,6 +1193,26 @@ via Add Note, or any state-changing button
 (mock picker) goes through the `trackedUserId` setState-during-render
 guard so user A's seen state can't be written under user B's storage key.
 
+**Opening a pulled task must not move it** (2026-09-06,
+[src/court-latch.ts](src/court-latch.ts)). Acknowledging is what clears the
+pull, the pull is what put the row in "Needs you", and recomputing the court
+therefore relocated the row the moment the viewer opened it — still open,
+several hundred pixels further down a thirteen-row list, and off-screen
+entirely on a phone. #161 removed auto-open because the list must not rearrange
+itself under the viewer; this was the same rule broken from the other side, with
+the viewer's own click as the trigger.
+
+The hold is taken on expand and released on collapse (and by Collapse all,
+which must drop every hold it closes or it strands a row in a section with no
+open card to justify it). `buildCourtSections` reads it **inside** the same
+`them`/`pool` branch the pull reads, which is what keeps "only ever ADDS a
+court, never removes one" true of the hold as well — a task that closes while
+open still falls to Done. Deliberately **not persisted**: a hold means "being
+read right now", so a reload ends it and the list re-sorts, which is why it does
+not live in `expandOverrides` next door even though the two are taken and
+released by the same gesture. Framework-free and plain-values-in, so
+`scripts/court-latch-sim-test.mjs` runs it under node.
+
 ## Tags / Pills
 
 Defined under `/* Tags */` in [apps/web/src/styles.css](src/styles.css).
@@ -1142,6 +1249,37 @@ Light theme's accents are dark enough for white ink; dark and contrast use
 bright pastel fills where white collapses to ~2.8:1 or worse.
 
 Quick-action class composition lives in `quickActionClass` in `TaskCard`.
+
+**The collapsed row's action slot has two tiers, and exactly two** (2026-09-06).
+A filled button **moves the work forward**; an outlined one
+(`.task-card-quick-action-terminal`) **ends the record**. Claim, Merge Done,
+Send Items, Submit and Approve Merge are filled; Complete, Confirm, the fraud
+Approve and Archive are outlined. The flag is `terminal` on the `QuickAction`
+the ladder builds, never `kind` — every branch already sets `kind: "good"`,
+including the ones that close a task, so that field cannot answer this question.
+
+This reverses a narrower rule, and the reason it does is worth keeping. The slot
+used to carry **one** style for every action regardless of kind, replacing a
+good/ghost/danger split that read as three inconsistent buttons for what is
+always the row's one next-step action. That diagnosis was right and this does
+not undo it: the fix is not three styles again, it is one rule with two answers.
+What the single style missed is that the actions are not all one job — `Claim`
+takes work on, `Archive` closes a record, and down a thirteen-row list the
+button is the strongest thing on screen while saying nothing about which it is.
+**Don't add a third tier.** If a new action needs to stand apart, it is either
+moving work forward or ending a record; decide which.
+
+**A terminal press asks before it fires.** `Complete` / `Confirm` / `Approve` /
+`Archive` set `pendingTerminal` and open the menu panel, where
+`.task-card-terminal-confirm` reuses the two-step Cancel confirm's shape — one
+confirm component for the row, not a second one — and drops its red ground.
+That colour belongs to cancelling; these four are the work going right and
+should not be dressed as failure at the moment somebody finishes something. The
+answers are answers (`Yes, archive` / `Keep open`), never OK and Cancel, and
+closing the menu withdraws the question rather than leaving it armed.
+
+Everything else still fires on one press. The point is not a confirm on every
+action, it is a confirm on the ones with no way back from the row.
 
 ## Motion
 
@@ -1570,6 +1708,37 @@ zooming the page on focus, the message composer being the field people touch
 most. Sizing them one at a time is the trap: the next field added under 16px
 inherits the bug silently. It is a blanket platform rule, so it is written as
 one, and a test fails if any control rule ever outranks it.
+
+**The same argument floors the text people read, not just the fields they type
+into** (2026-09-06). The 16px input rule exists because rendered size is the
+only size there is here; that was true of the labels too, and they were not
+covered. Measured on the live board at 390px, the due labels rendered at
+**8.8px**, the waiting label at 9.6px, the person chips at 8.96px and the type
+label at 10.88px — none of them a pixel different from their 1440px size, on the
+one surface with no way to go and look. `OVERDUE BY` is the case that decides
+it: colour is never the only signal here, and the words beside the red date are
+the second channel the accessibility notes claim.
+
+The floor is the **last block in `styles.css`**, under `## Touch floors`, for
+the reason every phone override is at the bottom: a media query adds no
+specificity, so a rule written above the ones it raises loses silently. 11px for
+the mono labels, 12px for the type label and the two list headings. It is scoped
+to `pointer: coarse` rather than to a width, matching the input rule — the
+constraint is the device and the missing zoom, not the viewport, and a narrow
+desktop window can still be dragged wider.
+
+**A press target grows by an overlay, never by a size.** The two menu triggers
+take a 40px `::after` rather than a 40px box, because 32px is not a loose
+number: the row's action column is that hamburger plus 6px plus
+`--quick-action-w`, and the list header is built to land its own trigger on top
+of it. 40 and not 44 — the halo clears each edge by 4px and the quick action
+sits 6px away, so at 44 the two targets would meet and a press in the overlap
+would go to whichever the browser hit-tests first.
+
+Still unfixed and deliberately so: the checklist checkbox (18x18), its `+ note`
+button (37x13) and the loan-name link (114x18). All three sit inside dense rows
+with other controls within a few pixels, so a halo would overlap a neighbouring
+target and steal presses. They need a layout decision, not a floor.
 
 This is a deliberate accessibility trade: someone who needs magnification has
 to use the OS-level zoom rather than the page's. It is the right call inside a

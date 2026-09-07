@@ -7,6 +7,7 @@ import { createTokenCache, sendWithToken } from "./auth-token";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
+import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { bylineOf, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
@@ -1512,6 +1513,7 @@ const TaskCard = memo(({
   onMarkNoteSeen,
   pulsing,
   expandOverride,
+  courtHeld,
   onSetExpand,
   now
 }: {
@@ -1568,17 +1570,15 @@ const TaskCard = memo(({
   pulsing?: boolean;
   /* Per-user persisted manual open/close. undefined = follow the default. */
   expandOverride?: boolean;
-  onSetExpand?: (taskId: string, open: boolean) => void;
+  /* True while this row is pinned to "Needs you" by a court hold
+     (court-latch.ts). The slot needs it for the same reason the section
+     builder does: to say why the row is here after the red dot has gone. */
+  courtHeld?: boolean;
+  onSetExpand?: (taskId: string, open: boolean, pulled?: boolean) => void;
   /* Ticking clock (ms) for the row's live countdown. */
   now?: number;
 }) => {
   const [noteText, setNoteText] = useState("");
-  /* FRAUD note-required moves (Send Outstanding Items / Send Back) reveal an
-     inline textarea whose text posts as the transition's reviewNotes. `fraudNote`
-     holds the draft; `openFraudNote` is the target status of the move whose box
-     is open (null = none). The server also rejects a blank note. */
-  const [fraudNote, setFraudNote] = useState("");
-  const [openFraudNote, setOpenFraudNote] = useState<TaskStatus | null>(null);
   /* "Add a note" on a COMPLETED card (#45): the button reveals an inline field
      whose text posts to the server-atomic completed-note endpoint (task stays
      COMPLETED). `completedNoteOpen` toggles the field; `completedNote` is the
@@ -1607,12 +1607,22 @@ const TaskCard = memo(({
   /* Two-step cancel: confirm row → 1s "Cancelled" flash → server refresh
      drops the task from the grid since cancelled rows are filtered out. */
   const [cancelStage, setCancelStage] = useState<"idle" | "confirming" | "done">("idle");
+  /* The terminal quick action awaiting its confirm, or null. Same two-step as
+     `cancelStage` and in the same place — the menu panel — because a press that
+     ends a record should ask once, and the app already had exactly one way of
+     asking that on a row. Cancel could not simply be reused: it is a fixed
+     question about a fixed transition, and this one has to name whichever of
+     Complete / Confirm / Approve / Archive was pressed. */
+  const [pendingTerminal, setPendingTerminal] = useState<{ label: string; run: () => void } | null>(null);
   useEffect(() => {
     if (cancelStage !== "done") return;
     const id = setTimeout(() => setCancelStage("idle"), 1200);
     return () => clearTimeout(id);
   }, [cancelStage]);
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  /* Closing the menu withdraws the terminal question with it. Outside press and
+     Escape are dismissals, and a dismissal must not leave a pending Archive
+     armed to fire the next time the panel opens. */
+  const closeMenu = useCallback(() => { setMenuOpen(false); setPendingTerminal(null); }, []);
   const assigneeId = task.assignee?.id;
   /* Deliberately narrower than the component's `isClosed` (`CLOSED_STATUSES`),
      which also covers `CANCELLED`: a cancellation is the creator calling the
@@ -1736,7 +1746,11 @@ const TaskCard = memo(({
      rule is what keeps the button from claiming there is something to collapse
      when there isn't. */
   const expanded = isTaskExpanded(expandOverride);
-  const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open);
+  /* The third argument answers "is the message pull what put this row where it
+     is", which decides whether opening it takes a court hold. The card is the
+     one that knows, and telling App keeps App's callback free of `tasks` — see
+     `setExpandOverride`. Read at render, so it is the state at the press. */
+  const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open, hasUnreadNote);
   /* Acknowledge an unread note: clears the undim lock and the red dot.
      Triggered by an explicit user gesture (header click/key, or sending
      a reply). */
@@ -1902,8 +1916,13 @@ const TaskCard = memo(({
      surfaces show the same set. Empty for non-FRAUD. `fraudQuick` is the phase's
      one forward move, promoted to the collapsed quick-action slot; the leftovers
      (Send Back, Release) live in the expanded body. */
-  const fraudActions = fraudCardActions(task, user);
-  const fraudHasChecklist = (task.checklist?.length ?? 0) > 0;
+  /* `noteCapable: false` — this app has no free-text box on a fraud move any
+     more (2026-09-07). The outstanding items are the checklist and anything
+     else the checker wants to say is a message in the conversation beside it,
+     so a third place to type was one too many. Shared answers the empty-list
+     case with a blocked button instead of a composer. The bot keeps its note
+     path: an Adaptive Card has a text input and no way to build a list. */
+  const fraudActions = fraudCardActions(task, user, { noteCapable: false });
   /* Prefer the plain one-tap move (Submit / Approve). Falling back to the
      note-required one is what puts `Send Items` in the row on a CLAIMED check,
      where the checker has no plain move and the slot otherwise sat empty while
@@ -1914,22 +1933,19 @@ const TaskCard = memo(({
     fraudActions.find((a) => a.kind === "transition") ??
     fraudActions.find((a) => a.kind === "transitionWithNote");
   /* The promoted move already rides the collapsed row (#97) — don't render its
-     button a second time in the expanded body. When it's note-required and the
-     checklist is empty the body still hosts its note box (see
-     promotedNoteTarget); the button is what's deduped, not the composer. */
+     button a second time in the hamburger. */
   const expandedFraudActions = fraudActions.filter((a) => a !== fraudQuick);
-  /* A populated checklist already satisfies the server's "items or note" rule,
-     so a promoted note-required move fires straight from the row; only an empty
-     checklist still needs the note box gate (#84). */
-  const promotedNoteTarget =
-    fraudQuick && fraudQuick.kind === "transitionWithNote" && !fraudHasChecklist
-      ? fraudQuick.targetStatus
-      : undefined;
   /* `blockedReason` is set when the move is the phase's forward step but the
      task's state won't take it yet — today only Submit, held until every
      checklist item is checked or noted (#184). Same sentence the server's
      refusal would carry, so the button doesn't teach a different rule. */
-  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string };
+  /* `terminal` marks a press that ENDS the record — Complete, Confirm, the
+     fraud Approve, Archive. It drives two things and only these two: the
+     button's tier (see `quickActionClass`) and whether the press asks first.
+     Deliberately not `kind`: every branch below already sets `kind: "good"`,
+     including the ones that close a task, so the existing field cannot answer
+     this question without being redefined under every caller. */
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; terminal?: boolean };
   let primaryAction: QuickAction | null = null;
   /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
      checker holding it, and only when the server would accept BOTH moves —
@@ -1956,16 +1972,15 @@ const TaskCard = memo(({
       primaryAction = { label: ACTION_LABELS.CLAIM, kind: "good", run: () => { void onClaim(task.id); } };
     } else if (fraudQuick && fraudQuick.targetStatus) {
       const target = fraudQuick.targetStatus;
-      /* Note-required with an empty checklist: the row can't host a textarea, so
-         the button opens the card and reveals the composer in the body rather
-         than firing a move the server would reject. */
-      const needsNote = promotedNoteTarget !== undefined;
+      /* One tap. `Send Items` with an empty checklist used to open the card and
+         reveal a composer here; it is now blocked by `blockedReason` like
+         `Submit` is, and the slot's own click handler opens the card so the
+         checker lands on the list they need to fill in. */
       primaryAction = {
         label: fraudQuick.label,
         kind: "good",
-        run: needsNote
-          ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
-          : () => { void onTransition(task.id, target); },
+        terminal: CLOSED_STATUSES.includes(target),
+        run: () => { void onTransition(task.id, target); },
         /* Both carried through under the names shared gives them — the count
            rides alongside the sentence rather than being recomputed here, so the
            narrow action column can't disagree with the tooltip beside it. */
@@ -1998,25 +2013,35 @@ const TaskCard = memo(({
       primaryAction = {
         label: isConfirmingLook(task) ? ACTION_LABELS.CONFIRM : ACTION_LABELS.COMPLETE,
         kind: "good",
+        terminal: true,
         run: () => { void onTransition(task.id, "COMPLETED"); }
       };
     } else if (canApproveMerge(task, user)) {
       primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
     } else if (task.status === "MERGE_APPROVED" && canCompleteTask(task, user)) {
-      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", run: () => { void onTransition(task.id, "COMPLETED"); } };
+      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", terminal: true, run: () => { void onTransition(task.id, "COMPLETED"); } };
     } else if (task.status === "COMPLETED" && isCreator) {
-      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", run: () => { void onTransition(task.id, "ARCHIVED"); } };
+      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", terminal: true, run: () => { void onTransition(task.id, "ARCHIVED"); } };
     }
     /* Re-open is intentionally NOT a quick-action — it lives in the
        expanded body. Closed mini rows show Archive (creator-only) or
        nothing; clicking the row expands to reveal Re-open. */
   }
-  // One button style for the row's primary action, regardless of kind —
-  // plain filled-brand, matching every other button in this row (Send,
-  // Add note, ...). Used to differentiate good/ghost/danger; that read as
-  // three inconsistent button styles for what's always the row's one
-  // next-step action.
-  const quickActionClass = primaryAction ? "btn-sm task-card-quick-action" : "";
+  /* TWO tiers, and deliberately not more. The slot used to carry one style for
+     every action regardless of kind, on the argument that it is always "the
+     row's one next-step action" — and against a good/ghost/danger split that
+     did read as three inconsistent buttons for one job, that was right.
+
+     What it missed is that the actions are not all one job. `Claim` takes work
+     on and `Archive` closes a record, and down a thirteen-row list the button
+     is the strongest thing on screen while saying nothing about which it is.
+     So: a filled button MOVES THE WORK FORWARD, an outlined one ENDS THE
+     RECORD. One rule, readable down the action column, and no third style —
+     Claim, Merge Done, Send Items, Submit and Approve Merge all keep the fill
+     they have always had. Same 116px track either way; only the paint moves. */
+  const quickActionClass = primaryAction
+    ? `btn-sm task-card-quick-action${primaryAction.terminal ? " task-card-quick-action-terminal" : ""}`
+    : "";
 
   /* Terminal three-way resolution of the action slot when the ladder above
      produced nothing (#117). An empty slot used to read as a rendering
@@ -2040,9 +2065,25 @@ const TaskCard = memo(({
      Mini (closed) rows get none of it; they have no action column. */
   const pendingParty = pendingPartyFor(task);
   const waitingOn = pendingParty === "CREATOR" ? task.createdBy : pendingParty === "ASSIGNEE" ? task.assignee : undefined;
+  /* The pull owns the slot when the pull is what put this row in "Needs you".
+     `pendingPartyFor` knows the chain and nothing about the message pull, so a
+     row lifted here by an unread reply used to sit under the heading "Needs
+     you" reading `Waiting on Suzie` — the section and the slot contradicting
+     each other in the one place both are scanned, which is the promise the
+     whole product is organised around ("the group a task sits in never
+     disagrees with the button it offers", PRODUCT.md).
+
+     Two words, because the pull has two states and the row should say which:
+     `Unread reply` while the dot is still lit, `Read reply` once the viewer has
+     opened it and the court hold is the only thing keeping the row here. Both
+     are still passive spans — the ball is genuinely in the other party's court,
+     so this reports why the row is in front of you and offers no move. */
+  const pulledIntoCourt = hasUnreadNote || courtHeld === true;
   const waitingLabel =
     !primaryAction && waitingOn && waitingOn.id !== user.id
-      ? `Waiting on ${firstName(waitingOn.displayName)}`
+      ? pulledIntoCourt
+        ? (hasUnreadNote ? "Unread reply" : "Read reply")
+        : `Waiting on ${firstName(waitingOn.displayName)}`
       : null;
   /* `transitions` already carries the status's allowed moves, so CANCELLED
      being in it is the same rule the server enforces. */
@@ -2058,30 +2099,18 @@ const TaskCard = memo(({
     !CLOSED_STATUSES.includes(task.status) &&
     canNoteTask;
 
-  /* Fire a FRAUD move. Plain transition and release are one-tap; a note-required
-     move (Send Outstanding Items / Send Back) posts the (optional) note as the
-     transition's reviewNotes. With the structured checklist (#44) the note is
-     optional context — a non-empty checklist is the payload — so the move sends
-     even with an empty note as long as there are items. */
+  /* Fire a FRAUD move. Every one of them is one tap now, including the two that
+     hand back — the checklist is the payload the server asks for, so there is
+     nothing to compose on the way out. A hand-back with an empty checklist never
+     reaches here: shared `fraudCardActions` blocks the button first. */
   const runFraudAction = (action: FraudCardAction): void => {
+    if (action.blockedReason) return;
     acknowledgeUnread();
     if (action.kind === "release") {
       void onRelease(task.id);
     } else if ((action.kind === "transition" || action.kind === "transitionWithNote") && action.targetStatus) {
-      // transitionWithNote only reaches here when the checklist already has
-      // items (see noteRequired below), so it's safe to fire note-free.
       void onTransition(task.id, action.targetStatus);
     }
-  };
-  const submitFraudNote = (target: TaskStatus): void => {
-    const note = fraudNote.trim();
-    // The server rejects an empty hand-back with no note AND no checklist; the
-    // button mirrors that so the checklist path sends note-free.
-    if (!note && !fraudHasChecklist) return;
-    acknowledgeUnread();
-    void onTransition(task.id, target, note || undefined);
-    setFraudNote("");
-    setOpenFraudNote(null);
   };
 
   const cancelBlock = (
@@ -2103,78 +2132,52 @@ const TaskCard = memo(({
     </>
   );
 
-  /* The inline note a note-required move posts as its reviewNotes. Shared by
-     the body's own buttons and by the move promoted to the collapsed row —
-     the row can't host a textarea, so its button opens the card and reveals
-     this composer here. */
-  const fraudNoteBox = (target: TaskStatus) => (
-    <div className="task-card-fraud-note">
-      <textarea
-        rows={2}
-        placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
-        value={fraudNote}
-        onChange={(e) => setFraudNote(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(target); } }}
-        autoFocus
-      />
-      <div className="task-card-fraud-note-actions">
-        <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(target)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
-          Send
-        </button>
-        <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
-          Cancel
-        </button>
-      </div>
+  /* The terminal confirm. Reuses `.task-card-cancel-confirm` wholesale so the
+     row has one way of asking a question, and follows its wording rule: the
+     answers are answers, not OK and Cancel. The safe answer is second and the
+     acting one carries the pressed action's own word, so nobody confirms
+     "Yes" without seeing what they are saying yes to. */
+  const terminalBlock = showActions && pendingTerminal && (
+    <div className="task-card-cancel-confirm task-card-terminal-confirm" role="alertdialog" aria-label={`Confirm ${pendingTerminal.label}`}>
+      <span>{pendingTerminal.label} this task?</span>
+      <button
+        type="button"
+        className="btn-sm"
+        onClick={() => { const act = pendingTerminal; setPendingTerminal(null); setMenuOpen(false); act.run(); }}
+      >
+        {`Yes, ${pendingTerminal.label.toLowerCase()}`}
+      </button>
+      <button type="button" className="btn-sm btn-ghost" onClick={() => setPendingTerminal(null)}>
+        Keep open
+      </button>
     </div>
   );
 
-  /* The expanded body carries no fraud *buttons*. The phase's forward move
-     rides the collapsed row (fraudQuick) and the alternatives sit in the
-     hamburger (fraudMenuActions) — a lone `Send Back` floating above the
-     outstanding items read as part of the checklist rather than as the
-     card's action. All that's left here is the composer the row's own
-     note-required move opens, which has nowhere else to go: the row can't
-     host a textarea. */
-  const promotedNoteOpen = promotedNoteTarget !== undefined && openFraudNote === promotedNoteTarget;
-  const fraudActionsBlock = showActions && cancelStage === "idle" && promotedNoteOpen && promotedNoteTarget && (
-    <div className="task-card-fraud">{fraudNoteBox(promotedNoteTarget)}</div>
-  );
+  /* The alternatives to the phase's forward move (#39) — `Send Back`'s bounce
+     and `Release`'s hand-off to the checker pool. Both are steps sideways or
+     backwards, so they live in the menu next to `Send back to checker` and
+     `Undo Merge Done` rather than in the body. Same set the bot DM cards
+     render, minus the note path the bot still has and this app no longer does.
 
-  /* The alternatives to the phase's forward move (#39) — `Send Back`'s
-     bounce and `Release`'s hand-off to the checker pool. Both are steps
-     sideways or backwards, so they live in the menu next to `Send back to checker`
-     and `Undo Merge Done` rather than in the body. Rendered inside the
-     hamburger; the note box opens in place, which the panel already
-     supports (its Esc handler exempts text fields). Same set the bot DM
-     cards render. */
-  const fraudMenuActions = expandedFraudActions.map((action) => {
-    // A populated checklist already satisfies the server's
-    // "items or note" rule, so a transitionWithNote action
-    // fires immediately in that case — only an empty
-    // checklist still needs the note box gate (#84).
-    const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
-    const noteOpen = noteRequired && openFraudNote === action.targetStatus;
-    return (
-      <div key={action.label} className="task-card-fraud-action">
-        <button
-          type="button"
-          className="btn-sm btn-ghost"
-          aria-expanded={noteRequired ? noteOpen : undefined}
-          onClick={() => {
-            if (noteRequired && action.targetStatus) {
-              setFraudNote("");
-              setOpenFraudNote(noteOpen ? null : action.targetStatus);
-            } else {
-              runFraudAction(action);
-            }
-          }}
-        >
-          {action.label}
-        </button>
-        {noteOpen && action.targetStatus && fraudNoteBox(action.targetStatus)}
-      </div>
-    );
-  });
+     A hand-back with an empty checklist is offered and disabled rather than
+     opening a composer — `blockedReason` from shared `fraudCardActions`, the
+     same treatment `Submit` gets and the same sentence the server's refusal
+     would carry. The explanation rides `title` and `aria-label` so a disabled
+     control keeps it on the assistive path. */
+  const fraudMenuActions = expandedFraudActions.map((action) => (
+    <div key={action.label} className="task-card-fraud-action">
+      <button
+        type="button"
+        className="btn-sm btn-ghost"
+        disabled={Boolean(action.blockedReason)}
+        title={action.blockedReason}
+        aria-label={action.blockedReason ? `${action.label} — ${action.blockedReason}` : undefined}
+        onClick={() => runFraudAction(action)}
+      >
+        {action.label}
+      </button>
+    </div>
+  ));
 
   /* Everything else — the actions-menu ladder, rendered inside the
      hamburger (see actionsMenu below), not in the expanded body. */
@@ -2449,11 +2452,12 @@ const TaskCard = memo(({
           style={menuPanelStyle}
         >
           {cancelBlock}
-          {cancelStage === "idle" && editMenuItemBlock}
-          {secondaryActionsBlock}
-          {shareMenuItemBlock}
-          {assignMenuItemBlock}
-          {menuTimestamps}
+          {terminalBlock}
+          {cancelStage === "idle" && !pendingTerminal && editMenuItemBlock}
+          {!pendingTerminal && secondaryActionsBlock}
+          {!pendingTerminal && shareMenuItemBlock}
+          {!pendingTerminal && assignMenuItemBlock}
+          {!pendingTerminal && menuTimestamps}
         </div>,
         document.body
       )}
@@ -2546,7 +2550,6 @@ const TaskCard = memo(({
             />
           </div>
         ) : null}
-        {fraudActionsBlock}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
         {instructionsBlock}
         <div className="thread">{notesBlock}</div>
@@ -2699,7 +2702,19 @@ const TaskCard = memo(({
                 className={quickActionClass}
                 disabled={Boolean(primaryAction.blockedReason)}
                 aria-label={primaryAction.blockedReason ? `${primaryAction.label} — ${primaryAction.blockedReason}` : undefined}
-                onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); primaryAction!.run(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  acknowledgeUnread();
+                  /* A terminal press asks first, in the menu panel, exactly the
+                     way the row's Cancel already does — one confirm component
+                     for the row, not a second one. Everything else fires. */
+                  if (primaryAction!.terminal) {
+                    setPendingTerminal({ label: primaryAction!.label, run: primaryAction!.run });
+                    setMenuOpen(true);
+                  } else {
+                    primaryAction!.run();
+                  }
+                }}
               >
                 {primaryAction.label}
               </button>
@@ -2758,6 +2773,7 @@ const CardList = ({
   onMarkNoteSeen,
   pulsingIds,
   expandOverrides,
+  courtHolds,
   onSetExpand,
   now
 }: {
@@ -2799,7 +2815,8 @@ const CardList = ({
   onMarkNoteSeen?: (taskId: string, at: string) => void;
   pulsingIds?: Set<string>;
   expandOverrides?: Record<string, boolean>;
-  onSetExpand?: (taskId: string, open: boolean) => void;
+  courtHolds?: CourtHolds;
+  onSetExpand?: (taskId: string, open: boolean, pulled?: boolean) => void;
   now?: number;
 }) => (
   <div className="card-list card-list-grouped">
@@ -2840,6 +2857,7 @@ const CardList = ({
           {...(seenNotesAt?.[task.id] !== undefined ? { seenNoteAt: seenNotesAt[task.id] } : {})}
           {...(onMarkNoteSeen ? { onMarkNoteSeen } : {})}
           {...(expandOverrides?.[task.id] !== undefined ? { expandOverride: expandOverrides[task.id] } : {})}
+          courtHeld={isCourtHeld(courtHolds ?? {}, task.id)}
           {...(onSetExpand ? { onSetExpand } : {})}
         />
       ))
@@ -2983,13 +3001,25 @@ const NewTaskButton = ({ open, onClick }: { open: boolean; onClick: () => void }
 );
 
 
+/* Every type draws the same bar, and the bar is ink.
+
+   It used to spend the four signal roles as a categorical palette — Fraud on
+   `--bad`, Value on `--good`, Loan Docs on `--hot`, and the other three left
+   uncoloured, which is a legend with three blanks in it. The signal tokens name
+   what a colour MEANS, not what it looks like: painting the Fraud Check row red
+   tells an admin that fraud checks are failing, and painting Value green tells
+   them value checks are going well, on a chart that is only counting how many
+   of each got filed. Three of six rows made that claim and three made none.
+
+   A bar chart differentiates by LENGTH. That is the whole job, the lengths are
+   already there, and the labels beside them say which row is which. */
 const TYPE_BAR_CLASS: Record<TaskType, string> = {
-  LOI: "type-bar type-bar-brand",
-  BUDDY_CHAT: "type-bar type-bar-brand",
-  VALUE: "type-bar type-bar-good",
-  FRAUD: "type-bar type-bar-bad",
-  LOAN_DOCS: "type-bar type-bar-hot",
-  OOO: "type-bar type-bar-brand"
+  LOI: "type-bar",
+  BUDDY_CHAT: "type-bar",
+  VALUE: "type-bar",
+  FRAUD: "type-bar",
+  LOAN_DOCS: "type-bar",
+  OOO: "type-bar"
 };
 
 const MetricsPanel = ({
@@ -3594,6 +3624,10 @@ export const App = () => {
     }
   };
   const [expandOverrides, setExpandOverrides] = useState<ExpandOverrides>(() => loadExpand(user.id));
+  /* Court holds (see `court-latch.ts`): tasks pinned to "Needs you" because
+     the viewer opened them there. Session-only on purpose — a hold means
+     "being read right now", so a reload ends it and the list re-sorts. */
+  const [courtHolds, setCourtHolds] = useState<CourtHolds>({});
   /* Task to focus from a Teams deep link (bot card "Open in Hot Task" carries
      the task id as subEntityId). Held until the task is present in `tasks`,
      then expanded + scrolled into view by the effect below. */
@@ -3635,8 +3669,29 @@ export const App = () => {
       /* storage unavailable — degrade silently */
     }
   }, [expandOverrides, expandKey]);
-  const setExpandOverride = useCallback((taskId: string, open: boolean): void => {
+  /* Opening a card is also where a court hold is taken and released (see
+     `court-latch.ts`).
+
+     `pulled` is passed IN rather than looked up here, and that is load-bearing,
+     not a style choice. This callback rides in `cardProps` to every `TaskCard`,
+     which is `React.memo`'d, so its identity has to be stable across renders —
+     and `tasks` is replaced wholesale by every `refresh()`, which runs after
+     essentially every mutation in the app. Closing over `tasks` to find the
+     task by id therefore gave this a new identity after every action and
+     re-rendered the entire list, defeating the memo for every card rather than
+     just the one being opened. The caller is a card that already holds its own
+     `task` and has already computed the answer; asking it costs nothing and
+     keeps the dependency array empty. See the memo discipline in
+     apps/web/CLAUDE.md — this is the exact trap it names.
+
+     The card evaluates `pulled` at render, so it still reflects the state at the
+     moment of the press: the header handler calls `acknowledgeUnread()` and
+     `setExpanded(true)` in one event, and the value was read before either. */
+  const setExpandOverride = useCallback((taskId: string, open: boolean, pulled?: boolean): void => {
     setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
+    setCourtHolds((prev) =>
+      open ? (pulled ? holdCourt(prev, taskId) : prev) : releaseCourt(prev, [taskId])
+    );
   }, []);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,
@@ -3645,6 +3700,7 @@ export const App = () => {
      viewer opens them again. */
   const collapseAllTasks = useCallback((taskIds: string[]): void => {
     setExpandOverrides((prev) => collapseTasks(prev, taskIds));
+    setCourtHolds((prev) => releaseCourt(prev, taskIds));
   }, []);
   /* Deep-link focus: once the linked task has loaded, jump to the main list,
      expand it, and scroll it into view. Waits for the task to be present so a
@@ -3656,7 +3712,12 @@ export const App = () => {
     }
     const target = focusTaskId;
     setActiveTab("active");
-    setExpandOverride(target, true);
+    /* Same hold a click would take, so a bot link onto a task carrying an
+       unread reply doesn't land you on it and then re-sort it out from under
+       you. An effect may read `tasks` freely — unlike `setExpandOverride`, it
+       is not a memoized prop, so nothing downstream depends on its identity. */
+    const linked = tasks.find((t) => t.id === target);
+    setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
     const raf = requestAnimationFrame(() => {
       document.getElementById(`task-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -4472,8 +4533,13 @@ export const App = () => {
       // so a Party's bucket and their dot cannot drift apart — the party gate
       // ("an Observer has no move") lives inside it now rather than being
       // restated here, which is how the card came to be missing it (#161).
+      // A held court (court-latch.ts) is the same pull, kept alive while the
+      // viewer has the card open. Reading it inside this branch and no other
+      // is what keeps "only ever ADDS a court, never removes one" true of the
+      // hold as well: a task that closes while open still falls to "done",
+      // because `courtOf` never returns "them"/"pool" for a closed task.
       if (court === "them" || court === "pool") {
-        if (hasUnreadNoteForViewer(t, user, seenNotesAt[t.id])) {
+        if (hasUnreadNoteForViewer(t, user, seenNotesAt[t.id]) || isCourtHeld(courtHolds, t.id)) {
           court = "you";
         }
       }
@@ -4531,6 +4597,7 @@ export const App = () => {
       onMarkNoteSeen: markNoteSeen,
       pulsingIds,
       expandOverrides,
+      courtHolds,
       onSetExpand: setExpandOverride
     };
     /* The toggle only controls court bucketing — both views render the same

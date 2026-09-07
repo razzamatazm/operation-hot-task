@@ -1566,6 +1566,23 @@ button.btn-good:hover {
   max-width: var(--quick-action-w);
 }
 
+/* The second of the slot's two tiers: a press that ENDS the record. Outlined
+   rather than filled, so the eye is not pulled to Archive the way it is pulled
+   to Claim, and so one glance down the action column separates work being moved
+   forward from work being closed out.
+
+   Built the way every non-filled button here is built — by setting the fill
+   tokens, never by declaring `background` on `:hover`, which loses to
+   `button:hover` on specificity and hands the brand fill straight back under
+   the cursor (#171). Same track and same metrics as the filled tier: only the
+   paint changes, so the column cannot go ragged between two rows. */
+.task-card-quick-action-terminal {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--brand-soft);
+  color: var(--brand);
+  border: 1px solid var(--line);
+}
+
 .task-card-quick-action-empty {
   display: block;
   width: var(--quick-action-w);
@@ -1693,25 +1710,23 @@ button.btn-good:hover {
 .thread .composer { align-items: center; }
 
 /* ── FRAUD two-phase actions (#39) ────────────────────────── */
-/* The role-aware forward moves sit on their own full-width block above the
-   generic action buttons (Unclaim / Cancel / ...). Note-required moves reveal
-   an inline note box whose text posts as the transition's reviewNotes. */
-.task-card-fraud {
-  flex-basis: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+/* The seat's alternatives to the phase's forward move (Send Back / Release),
+   rendered in the hamburger. There is no note box here any more: the two moves
+   that hand a check back used to reveal a textarea, and on 2026-09-07 that came
+   out — the outstanding items are the checklist and anything else is a message
+   in the conversation, so a hand-back with an empty list is a disabled button
+   with a reason rather than a third place to type. The `.task-card-fraud`
+   wrapper and every `.task-card-fraud-note` rule went with it rather than being
+   left defined-and-unemitted, which is how this stylesheet previously came to
+   describe a status stripe nothing drew. */
 .task-card-fraud-action {
   display: flex;
   flex-direction: column;
   gap: 6px;
   align-items: flex-start;
 }
-/* Inline reveal-a-note editors: the FRAUD note-required moves and the #45
-   "Add a note" affordance on a COMPLETED card share one full-width
-   textarea-over-button-row look. */
-.task-card-fraud-note,
+/* The #45 "Add a note" affordance on a COMPLETED card: a full-width
+   textarea over a button row. */
 .task-card-note-add {
   flex-basis: 100%;
   width: 100%;
@@ -1719,7 +1734,6 @@ button.btn-good:hover {
   flex-direction: column;
   gap: 6px;
 }
-.task-card-fraud-note textarea,
 .task-card-note-add textarea {
   width: 100%;
   resize: vertical;
@@ -1733,13 +1747,11 @@ button.btn-good:hover {
   font-size: 0.82rem;
   line-height: 1.35;
 }
-.task-card-fraud-note textarea:focus,
 .task-card-note-add textarea:focus {
   outline: none;
   border-color: var(--brand);
   box-shadow: var(--focus-ring);
 }
-.task-card-fraud-note-actions,
 .task-card-note-add-actions {
   display: flex;
   gap: 8px;
@@ -2325,6 +2337,19 @@ button.btn-good:hover {
   font-size: 0.82rem;
   color: var(--ink);
 }
+/* The terminal confirm borrows the cancel confirm's shape and drops its
+   colour. The red ground belongs to cancelling — it is the destructive move,
+   and a question that means "you are about to destroy something" should look
+   like one. Completing, Approving and Archiving are the work going RIGHT: they
+   deserve the pause, because none of them can be undone from the row, but
+   dressing them in the failure colour would tell somebody their finished task
+   went wrong at the moment they finished it. Neutral panel, ordinary hairline,
+   which is what every other non-alarming surface in the app is made of. */
+.task-card-terminal-confirm {
+  background: var(--panel);
+  border-color: var(--line);
+}
+
 .task-card-cancel-done {
   background: var(--bad-bg);
   border-color: var(--bad);
@@ -3371,17 +3396,19 @@ button.btn-good:hover {
   color: var(--ink);
 }
 
+/* One bar, one colour, differentiated by length — see `TYPE_BAR_CLASS`. The
+   four `.type-bar-*` variants that painted the signal roles as a categorical
+   palette are deleted rather than left unemitted: a rule nothing draws is how
+   this stylesheet ended up asserting a status-stripe vocabulary that had not
+   rendered in months. If a type ever needs to stand out here, it gets weight or
+   an annotation, not a hue borrowed from the four that mean something. */
 .type-bar {
   height: 100%;
+  background: var(--ink);
   border-radius: 3px;
   min-width: 4px;
   transition: width 0.3s ease;
 }
-
-.type-bar-brand { background: var(--brand); }
-.type-bar-good { background: var(--good); }
-.type-bar-bad { background: var(--bad); }
-.type-bar-hot { background: var(--hot); }
 
 .type-count {
   font-family: "JetBrains Mono", monospace;
@@ -3484,9 +3511,14 @@ button.btn-good:hover {
   overflow: hidden;
 }
 
+/* Flat ink, not a gradient. The two-stop brand-to-hot fill said nothing: the
+   ratio it draws is already printed twice beside it, as a count and as a
+   percentage, so the bar is the third telling and the gradient was decoration
+   on top of that — and a colour ramp implies a scale the number does not have,
+   since `--hot` means heat everywhere else in the app. */
 .ratio-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--brand), var(--hot));
+  background: var(--ink);
   border-radius: 4px;
   min-width: 4px;
   transition: width 0.3s ease;
@@ -4098,5 +4130,85 @@ button.btn-good:hover {
     white-space: normal;
     overflow-wrap: anywhere;
     line-height: 1.25;
+  }
+}
+
+/* ── Touch floors ─────────────────────────────────────────── */
+/* The last block in the file, deliberately, and for the reason the phone
+   overrides above it are: a media query adds no specificity, so a floor
+   written anywhere above the rules it raises loses on source order and never
+   applies. Everything here overrides a class-scoped rule, so everything here
+   has to sit below every one of them.
+
+   Why a floor exists at all: zoom is off in the Teams mobile webview, in three
+   layers and on purpose (see *Zoom is off on mobile* in CLAUDE.md). That makes
+   rendered size the only size there is — there is no pinch to recover a label
+   that came out too small, and no address bar to escape to. The stylesheet
+   already accepts that premise for form fields one block up, where `input,
+   select, textarea` are floored at 16px so iOS does not zoom on focus and
+   strand somebody magnified. This is the same argument applied to the text
+   people READ rather than type into, which is the half that was missing:
+   measured on the live board at a 390px viewport, the due labels rendered at
+   8.8px, the waiting label at 9.6px and the type label at 10.88px, and none of
+   them changed by a pixel between 1440px and 390px.
+
+   `OVERDUE BY` is the case that matters most. Colour is never the only signal
+   here, and the words next to the red date are the second channel — a channel
+   set at 8.8px on the only surface where it cannot be enlarged is one the
+   accessibility notes claim and the screen does not deliver.
+
+   Scoped to `pointer: coarse` rather than to a width, matching the input rule:
+   the constraint is the device and the missing zoom, not the viewport. A
+   narrow desktop window can still be dragged wider, and its type stays tight. */
+@media (pointer: coarse) {
+  /* 11px floor: the mono labels. Small on purpose — they are counted and
+     labelled things, not prose — but legible at arm's length. */
+  .task-card-grouped-due-label,
+  .task-card-action-cell .task-card-quick-action-waiting,
+  .task-card-pair-avatar,
+  .task-card-poop-label,
+  .app-menu-label,
+  .checklist-adder,
+  .section-count {
+    font-size: 11px;
+  }
+
+  /* 12px floor: the things that are read rather than glanced at. The type
+     label and its stage suffix name what the task IS, and the two headings
+     introduce a list somebody is about to work down. */
+  .task-card-collapsed-type-text,
+  .task-card-collapsed-stage,
+  .checklist-title,
+  .task-card-checklist .checklist-title,
+  .thread-head {
+    font-size: 12px;
+  }
+
+  /* A 40px press target on the two menu triggers, drawn as an overlay rather
+     than as a size. Both are 32px boxes, and 32px is not a loose number: the
+     row's action column is that hamburger plus a 6px gap plus
+     `--quick-action-w`, and the list header is built to land its own trigger on
+     top of it so the right edge of the list reads as one column. Growing the
+     box would walk that alignment on exactly the screen with the least room to
+     absorb it, so the box holds its size and only the touch area grows.
+
+     40px, not 44px: the halo extends 4px past each edge, and the quick action
+     sits 6px away. At 44px the two targets would meet, and a press landing in
+     the overlap goes to whichever the browser hit-tests first — which on this
+     row means Archive sometimes catching a press meant for the menu. */
+  .task-card-menu-trigger,
+  .app-menu-trigger {
+    position: relative;
+  }
+
+  .task-card-menu-trigger::after,
+  .app-menu-trigger::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    transform: translate(-50%, -50%);
   }
 }

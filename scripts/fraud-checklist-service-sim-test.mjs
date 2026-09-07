@@ -357,10 +357,16 @@ await check("non-empty checklist satisfies Send Outstanding Items with NO free-t
   assert.equal(sent.checklistPass, 1);
 });
 
-await check("Send Outstanding Items still rejected with neither a note nor a checklist item", async () => {
+await check("Send Outstanding Items still rejected with nothing to hand back at all", async () => {
+  /* No item, no note on the transition, and nothing the checker has said in the
+     thread. The sentence comes from shared `handBackBlockReason` so the refusal
+     and the web button's disabled hint cannot drift. */
   const { service } = await setup();
   const id = await claimedFraud(service);
-  await assert.rejects(() => service.transitionStatus(id, "AWAITING_ITEMS", CHECKER), /note or at least one checklist item/i);
+  await assert.rejects(
+    () => service.transitionStatus(id, "AWAITING_ITEMS", CHECKER),
+    /add an outstanding item, or a note in the conversation/i
+  );
 });
 
 await check("creator resolves an item with a per-item note during AWAITING_ITEMS", async () => {

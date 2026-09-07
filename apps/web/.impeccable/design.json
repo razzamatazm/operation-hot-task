@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-06T02:00:00.000Z",
+  "generatedAt": "2026-09-06T16:40:24-07:00",
   "title": "Design System: Operation Hot Task",
   "extensions": {
     "colorMeta": {
@@ -123,40 +123,93 @@
           "#f4f2ee",
           "#fefdfb"
         ]
+      },
+      "avatar-1": {
+        "role": "tertiary",
+        "displayName": "Person Chip 1 (collides with Ledger Gold)",
+        "canonical": "#a16b07",
+        "note": "Byte-identical to --warn. Recorded as a known exception, not fixed.",
+        "tonalRamp": [
+          "#2a1c02",
+          "#4a3104",
+          "#764e05",
+          "#a16b07",
+          "#c28f2c",
+          "#dbb464",
+          "#efd8a4",
+          "#fef6e0"
+        ]
+      },
+      "avatar-2": {
+        "role": "tertiary",
+        "displayName": "Person Chip 2 (the retired SaaS blue)",
+        "canonical": "#2c5ea0",
+        "note": "The exact blue removed as --brand on 2026-09-05, still live in the avatar palette.",
+        "tonalRamp": [
+          "#0a1524",
+          "#132840",
+          "#1e4372",
+          "#2c5ea0",
+          "#5885bd",
+          "#8db0d6",
+          "#c2d5ea",
+          "#e6eef7"
+        ]
       }
     },
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Page and panel titles. Bricolage Grotesque 700."
+        "purpose": "Bricolage 700, 1.6rem. The two big figures on the metrics panel and nothing else; there is no page-title face."
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "List section headers and card titles."
+        "purpose": "Bricolage 700, 1rem. Modal and confirmation titles."
+      },
+      "subhead": {
+        "displayName": "Subhead",
+        "purpose": "Bricolage 700, 0.95rem. List section headings and the loan name on a collapsed row; the two agree by design."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Buttons and dense header chrome — the display face at body scale."
+        "purpose": "Bricolage 600, 0.82rem. The base button and dense header chrome: the display face at body scale."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "All prose: notes, instructions, field values. Never monospace."
+        "purpose": "DM Sans 400, 14px. The document base and full-width form fields."
+      },
+      "body-sm": {
+        "displayName": "Body Small",
+        "purpose": "DM Sans 400, 0.85rem. Prose inside a card: notes, message bubbles, leaderboard names. Most sentences in the app are read at this size, not the 14px base."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "DM Sans 600, 0.78rem. Small buttons, field labels, menu items. The busiest step in the stylesheet."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Non-prose only: dates, counts, type labels, status pills."
+        "purpose": "JetBrains Mono 500/600, 0.68rem, 0.06em. Status pills, ratio captions, counts. Non-prose only."
+      },
+      "micro-label": {
+        "displayName": "Micro Label",
+        "purpose": "JetBrains Mono 600, ~0.6rem uppercase. The collapsed row's mono chrome; the tier the coarse-pointer touch floor raises to 11px."
       }
     },
     "shadows": [
       {
         "name": "resting",
         "value": "0 0 0 0 transparent",
-        "purpose": "Deliberate no-op. Surfaces are flat at rest; depth is the tone step plus a hairline."
+        "purpose": "Deliberate no-op, never the keyword none. Surfaces are flat at rest; depth is the tone step plus a hairline."
       },
       {
         "name": "lifted",
         "value": "0 6px 18px -6px rgba(26, 24, 20, 0.22)",
         "purpose": "The only real shadow. Hover, an expanded row, and anything floating: menus, modals, toasts."
+      },
+      {
+        "name": "modal",
+        "value": "0 6px 18px -6px rgba(26, 24, 20, 0.22), 0 16px 40px -16px rgba(0, 0, 0, 0.35)",
+        "purpose": "A panel that has left the page entirely. Composed on the lifted token, with a 2px border rather than a hairline."
       },
       {
         "name": "focus-ring",
@@ -200,6 +253,14 @@
       {
         "name": "shell-max",
         "value": "1320px"
+      },
+      {
+        "name": "metrics-stack",
+        "value": "768px"
+      },
+      {
+        "name": "coarse-pointer",
+        "value": "(pointer: coarse)"
       }
     ]
   },
@@ -208,25 +269,25 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The brand-filled action. One per context.",
-      "html": "<button class=\"ds-btn\">New Task</button>",
-      "css": ".ds-btn { --btn-bg: var(--brand, #1f1c17); --btn-bg-hover: var(--brand-hover, #000000); background: var(--btn-bg); color: var(--on-accent, #fff); border: none; border-radius: 6px; padding: 7px 14px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn:hover { background: var(--btn-bg-hover); } .ds-btn:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 2px rgba(31,28,23,0.35)); }"
+      "description": "The brand fill. One per context. Ink, not a hue.",
+      "html": "<button class=\"ds-btn-primary\">New Task</button>",
+      "css": ".ds-btn-primary { background: var(--brand, #1f1c17); color: var(--on-accent, #fff); border: none; border-radius: 5px; padding: 7px 14px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-primary:hover { background: var(--brand-hover, #000); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(31, 28, 23, 0.35); }"
     },
     {
       "name": "Good Button",
       "kind": "button",
       "refersTo": "button-good",
-      "description": "The positive move on a task: Claim, Complete, Approve. The real primary action in most of the app.",
+      "description": "The positive move on a task: Claim, Merge Done, Submit. The real primary action in most of the app.",
       "html": "<button class=\"ds-btn-good\">Claim</button>",
-      "css": ".ds-btn-good { background: var(--good, #2e7d4f); color: var(--on-accent, #fff); border: none; border-radius: 6px; padding: 5px 11px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-good:hover { filter: brightness(0.92); }"
+      "css": ".ds-btn-good { background: var(--good, #2e7d4f); color: var(--on-accent, #fff); border: none; border-radius: 5px; padding: 6px 10px; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-good:hover { background: #256942; } .ds-btn-good:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(31, 28, 23, 0.35); }"
     },
     {
       "name": "Ghost Button",
       "kind": "button",
       "refersTo": "button-ghost",
-      "description": "Secondary and cancel. Outline only, never filled.",
+      "description": "Secondary and cancel. Outline only, never filled. Opts out of the fill through its tokens, never by declaring background on :hover.",
       "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
-      "css": ".ds-btn-ghost { background: transparent; color: var(--brand, #1f1c17); border: 1px solid var(--brand, #1f1c17); border-radius: 6px; padding: 6px 13px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-ghost:hover { background: var(--brand-soft, #e9e6df); }"
+      "css": ".ds-btn-ghost { background: transparent; color: var(--brand, #1f1c17); border: 1px solid var(--line, #d5d0c7); border-radius: 5px; padding: 7px 14px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-btn-ghost:hover { background: var(--brand-soft, #e9e6df); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(31, 28, 23, 0.35); }"
     },
     {
       "name": "Status Tag",
@@ -234,7 +295,7 @@
       "refersTo": "tag",
       "description": "Monospace status pill with a leading dot. One per signal role.",
       "html": "<span class=\"ds-tag ds-tag-hot\"><span class=\"ds-tag-dot\"></span>IN FLIGHT</span>",
-      "css": ".ds-tag { display: inline-flex; align-items: center; gap: 5px; background: var(--hot-bg, #fef0e0); color: var(--hot, #c25e00); border-radius: 4px; padding: 2px 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.06em; } .ds-tag-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }"
+      "css": ".ds-tag { display: inline-flex; align-items: center; gap: 5px; background: var(--hot-bg, #fef0e0); color: var(--hot, #c25e00); border-radius: 4px; padding: 3px 9px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.06em; } .ds-tag-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }"
     },
     {
       "name": "Person Chip",
@@ -242,7 +303,7 @@
       "refersTo": null,
       "description": "A person, as initials on one of eight hues hashed off their user id. Held clear of the four signal hues so it never reads as urgency.",
       "html": "<span class=\"ds-avatar\">TH</span>",
-      "css": ".ds-avatar { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: var(--avatar-2, #1f1c17); color: var(--avatar-ink, #fff); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; }"
+      "css": ".ds-avatar { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: var(--avatar-3, #1f7a6c); color: var(--avatar-ink, #fff); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; }"
     },
     {
       "name": "Task Card",
@@ -263,10 +324,10 @@
     {
       "name": "Section Header",
       "kind": "nav",
-      "refersTo": null,
-      "description": "The app's only grouping device: a heading plus a monospace count chip on a 1px rule.",
-      "html": "<div class=\"ds-section-head\"><h2 class=\"ds-section-title\">Needs you</h2><span class=\"ds-section-count\">4</span></div>",
-      "css": ".ds-section-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #d5d0c7); } .ds-section-title { margin: 0; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 1rem; font-weight: 700; color: var(--ink, #14120f); } .ds-section-count { background: var(--bg-soft, #eae7e0); color: var(--ink-secondary, #55504a); border-radius: 4px; padding: 1px 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem; font-weight: 500; }"
+      "refersTo": "tag",
+      "description": "The only grouping device in the app: a heading, a monospace count chip, and a hairline. The count chip on --bg-soft is the system's one recorded contrast exception at 4.3:1.",
+      "html": "<div class=\"ds-section-head\"><h2>Needs you</h2><span class=\"ds-section-count\">7</span></div>",
+      "css": ".ds-section-head { display: flex; align-items: center; gap: 10px; padding: 10px 0 6px; border-bottom: 1px solid var(--line, #d5d0c7); } .ds-section-head h2 { margin: 0; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink, #14120f); } .ds-section-count { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.72rem; color: var(--muted, #6f6a63); background: var(--bg-soft, #eae7e0); padding: 2px 7px; border-radius: 3px; } @media (pointer: coarse) { .ds-section-count { font-size: 11px; } }"
     },
     {
       "name": "Tab Bar",
@@ -275,23 +336,55 @@
       "description": "Underline-active tabs, no fill. Rendered for admins only.",
       "html": "<nav class=\"ds-tabs\"><button class=\"ds-tab ds-tab-active\">Tasks</button><button class=\"ds-tab\">Metrics</button></nav>",
       "css": ".ds-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line-soft, #e8e4dd); } .ds-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 12px; font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; color: var(--muted, #6f6a63); cursor: pointer; } .ds-tab:hover { color: var(--ink, #14120f); } .ds-tab-active { color: var(--ink, #14120f); border-bottom-color: var(--brand, #1f1c17); }"
+    },
+    {
+      "name": "Row Quick Action (forward tier)",
+      "kind": "button",
+      "refersTo": "quick-action",
+      "description": "Tier one of the collapsed row's action slot: a filled press that MOVES THE WORK FORWARD. Claim, Merge Done, Send Items, Submit, Approve Merge. Fixed 116px track so the action column never goes ragged.",
+      "html": "<button class=\"ds-quick-action\">Claim</button>",
+      "css": ".ds-quick-action { width: 100%; max-width: 116px; white-space: nowrap; background: var(--good, #2e7d4f); color: var(--on-accent, #fff); border: none; border-radius: 5px; padding: 6px 10px; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-quick-action:hover { background: #256942; } .ds-quick-action:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(31, 28, 23, 0.35); }"
+    },
+    {
+      "name": "Row Quick Action (terminal tier)",
+      "kind": "button",
+      "refersTo": "quick-action-terminal",
+      "description": "Tier two, added 2026-09-06: an outlined press that ENDS THE RECORD. Complete, Confirm, Approve, Archive. Same track and metrics as the filled tier so only the paint changes, and it asks before it fires. There is no third tier.",
+      "html": "<button class=\"ds-quick-action-terminal\">Archive</button>",
+      "css": ".ds-quick-action-terminal { width: 100%; max-width: 116px; white-space: nowrap; background: transparent; color: var(--brand, #1f1c17); border: 1px solid var(--line, #d5d0c7); border-radius: 5px; padding: 6px 10px; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: background 0.15s; } .ds-quick-action-terminal:hover { background: var(--brand-soft, #e9e6df); } .ds-quick-action-terminal:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(31, 28, 23, 0.35); }"
+    },
+    {
+      "name": "Terminal Confirm",
+      "kind": "custom",
+      "refersTo": "quick-action-terminal",
+      "description": "The pause in front of a press that cannot be undone from the row. Borrows the two-step Cancel confirm's shape and drops its red ground: red belongs to cancelling, and completing is the work going right.",
+      "html": "<div class=\"ds-terminal-confirm\" role=\"alertdialog\" aria-label=\"Confirm Archive\"><span class=\"ds-terminal-confirm-q\">Archive this task?</span><button class=\"ds-terminal-confirm-yes\">Archive</button><button class=\"ds-terminal-confirm-no\">Keep</button></div>",
+      "css": ".ds-terminal-confirm { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line, #d5d0c7); border-radius: 6px; background: var(--panel, #fefdfb); color: var(--ink, #14120f); font-family: 'DM Sans', sans-serif; font-size: 0.82rem; } .ds-terminal-confirm-q { margin-right: auto; } .ds-terminal-confirm-yes, .ds-terminal-confirm-no { border-radius: 5px; padding: 6px 10px; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; } .ds-terminal-confirm-yes { background: var(--brand, #1f1c17); color: var(--on-accent, #fff); border: none; } .ds-terminal-confirm-yes:hover { background: var(--brand-hover, #000); } .ds-terminal-confirm-no { background: transparent; color: var(--brand, #1f1c17); border: 1px solid var(--line, #d5d0c7); } .ds-terminal-confirm-no:hover { background: var(--brand-soft, #e9e6df); }"
+    },
+    {
+      "name": "Waiting Label",
+      "kind": "custom",
+      "refersTo": "quick-action",
+      "description": "The passive resolution of the action slot when the ball is in someone else's court. Reads 'Unread reply' then 'Read reply' when the message pull is what put the row in Needs you, so the slot never contradicts the heading above it; otherwise 'Waiting on <first name>'. Never a button.",
+      "html": "<span class=\"ds-waiting-label\">Unread reply</span>",
+      "css": ".ds-waiting-label { display: block; width: 116px; text-align: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.6rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted, #6f6a63); } @media (pointer: coarse) { .ds-waiting-label { font-size: 11px; } }"
     }
   ],
   "narrative": {
     "northStar": "The Warm Ledger",
-    "overview": "This is a bookkeeping pad, not a SaaS dashboard. Off-white paper, ink-black text, sharp typography, and narrow bands of color used strictly as signal. The reference object is a ruled accounting page that someone competent has been annotating all morning: dense, ordered, legible at a glance, with nothing decorative competing for the eye. Every color that is not paper or ink is carrying information.\n\nThe system's real subject is a single component — the collapsed task row — and almost every rule here exists to keep that row scannable. It is deliberately saturated: the working assumption is that the row is full, so a new field replaces an existing one rather than joining it. Density is a feature, and the discipline that makes density survivable is that the same fact is always encoded in the same place. Lateness is the number it is about. A person is a colored chip. None of these channels borrow each other's vocabulary, and the edge markers were deleted in one pass because each repeated in the margin what the row already said in words.\n\nThe dark theme is a different room, on purpose. It is not the warm ledger with the lights off; it is an indigo ledger — indigo paper, near-white ink, a lavender accent — settled after five whole palettes were driven live, including a faithful dark rendering of the light theme, which lost. A third theme, contrast, is pure black and white with no shadows at all and a deliberately monochrome person-chip set, because decorative hue variety works against a maximum-legibility promise.\n\nNo card edge is painted, and no rule remains that would paint one. A whole status-stripe vocabulary sat in the stylesheet unemitted for a long time — the row is deliberately mono, because the court section it sits in already says whose court it is — and on 2026-09-06 it was deleted rather than wired up. So \"one edge, one meaning\" is a rule about what an edge may say if one is drawn again, not a description of the current screen.",
+    "overview": "This is a bookkeeping pad, not a SaaS dashboard. Off-white paper, ink-black text, sharp typography, and narrow bands of color used strictly as signal. The reference object is a ruled accounting page that someone competent has been annotating all morning: dense, ordered, legible at a glance, with nothing decorative competing for the eye. Every color that is not paper or ink is carrying information.\n\nThe system's real subject is a single component, the collapsed task row, and almost every rule here exists to keep that row scannable. It is deliberately saturated: the working assumption is that the row is full, so a new field replaces an existing one rather than joining it. Density is a feature, and the discipline that makes density survivable is that the same fact is always encoded in the same place. Lateness is the number it is about. A person is a colored chip. None of these channels borrow each other's vocabulary, and the edge markers were deleted in one pass because each repeated in the margin what the row already said in words.\n\nThe dark theme is a different room, on purpose. It is not the warm ledger with the lights off; it is an indigo ledger, settled after five whole palettes were driven live, including a faithful dark rendering of the light theme, which lost. A third theme, contrast, is pure black and white with no shadows at all and a deliberately monochrome person-chip set.\n\nRendered size is the only size on a phone. Zoom is disabled in the Teams mobile webview, in three layers and on purpose, so on 2026-09-06 the stylesheet gained a type floor for the text people read, matching the floor it already applied to the text they type into.",
     "keyCharacteristics": [
       "Paper-and-ink ground; color appears only where it means something.",
       "Three fully independent themes, not one theme with a filter over it.",
       "A saturated primary row, defended against accretion.",
       "Typography carries the hierarchy that color is not allowed to carry.",
-      "Restrained motion — a short list of named animations and nothing else.",
+      "Restrained motion: a short list of named animations and nothing else.",
       "Contrast ratios are measured and recorded, not eyeballed."
     ],
     "rules": [
       {
         "name": "The Role-Not-Hue Rule",
-        "body": "Signal tokens are named for what they mean, never for what color they are. A theme may answer bad with a rose and good with a mint; code that assumes red and green is wrong, not the theme.",
+        "body": "Signal tokens are named for what they mean, never for what color they are. A theme may answer bad with a rose and good with a mint; code that assumes red and green is wrong, not the theme. The corollary, learned on the metrics panel: a chart that only counts how many of a thing were filed may not borrow a signal token to tell its categories apart, because painting Fraud Check in --bad claims fraud checks are failing. Categories get length, weight or an annotation. One bar, one color.",
         "section": "colors"
       },
       {
@@ -306,12 +399,17 @@
       },
       {
         "name": "The Measured Floor Rule",
-        "body": "Body text clears 4.5:1 against its own panel and hairlines clear the 3:1 UI-component minimum, per theme, verified against that theme's panel rather than assumed from the light one.",
+        "body": "Body text clears 4.5:1 against its own panel and hairlines clear the 3:1 UI-component minimum, per theme, verified against that theme's panel rather than assumed from the light one. Verify against the tone the text actually sits on, not the panel behind it: the section-count chip is the standing counterexample, passing at 5:1 on --panel and failing at 4.3:1 on --bg-soft.",
         "section": "colors"
       },
       {
         "name": "The On-Accent Rule",
-        "body": "Text and icons on a filled accent read the on-accent token, never #fff. The dark and contrast themes use bright pastel fills where white collapses to roughly 2.8:1.",
+        "body": "Text and icons on a filled accent read on-accent, never #fff. The light theme's accents are dark enough for white ink; the dark and contrast themes use bright pastel fills where white collapses to roughly 2.8:1.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Hardcode Rule",
+        "body": "There is exactly one literal color left in the stylesheet: #256942, the hover fill on the filled green button, with no --good-hover token behind it. It is a known exception, scoped out rather than fixed. Nothing new joins it.",
         "section": "colors"
       },
       {
@@ -321,7 +419,12 @@
       },
       {
         "name": "The One Exception That Proves It",
-        "body": "An LOI's request field is drawn in the fixed-width face, because it holds a pasted term sheet and a term sheet only lines up in one.",
+        "body": "An LOI's request field is drawn in the fixed-width face, because it holds a pasted term sheet and a term sheet only lines up in one. That is the single prose-shaped box allowed a mono face, and it earns it by being tabular data wearing a paragraph's clothes.",
+        "section": "typography"
+      },
+      {
+        "name": "The Touch Floor Rule",
+        "body": "On a coarse pointer, mono chrome floors at 11px and anything read rather than glanced at floors at 12px. Measured at a 390px viewport before the floor landed: due labels at 8.8px, the waiting label at 9.6px, the type label at 10.88px, none different from their 1440px size. The floor block is the last block in styles.css and must stay there.",
         "section": "typography"
       },
       {
@@ -335,60 +438,82 @@
         "section": "layout"
       },
       {
-        "name": "The One Edge Rule",
-        "body": "No card edge is drawn, and no rule defines one — the status stripes were deleted on 2026-09-06 after a long career of being defined and never emitted. The rule governs what happens if an edge ever returns — it would be status and nothing else. A fact that already has a column, a label or a section does not also get a margin, and a new state never answers with an edge marker.",
-        "section": "elevation"
+        "name": "The Grow-The-Target-Not-The-Box Rule",
+        "body": "A press target that is too small on a phone gets a transparent ::after overlay, not a bigger box, because the menu trigger's 32px is load-bearing on the action column's alignment. 40px rather than 44px: at 44px the overlay would meet the quick action 6px away and Archive would catch presses meant for the menu.",
+        "section": "layout"
+      },
+      {
+        "name": "The List Does Not Move Itself Rule",
+        "body": "The list never re-sorts under a viewer. Opening a task carrying an unread reply marks it seen, which would drop the message pull and relocate the row mid-read, so a pulled task is held in the section it was opened in until it is collapsed again. The hold is deliberately not persisted: it means somebody is reading this right now, and a reload legitimately re-sorts.",
+        "section": "layout"
       },
       {
         "name": "The Flat-At-Rest Rule",
-        "body": "A surface that has not been interacted with and is not floating gets no shadow. Separation while sitting still is a hairline and a tone step, not elevation.",
+        "body": "A surface that has not been interacted with and is not floating gets no shadow. If a component needs to look separated while sitting still, it gets a hairline and a tone step, not elevation.",
         "section": "elevation"
       },
       {
         "name": "The Never-none Rule",
-        "body": "Shadow tokens are transparent no-ops, never the keyword none — including in the contrast theme. The celebrating card composes them with a halo shadow, and none inside a box-shadow list voids the whole declaration.",
+        "body": "Both shadow tokens are transparent no-ops, never the keyword none, including in the contrast theme which has no shadows. The celebrating card composes them with a halo shadow, and none inside a box-shadow list voids the entire declaration.",
         "section": "elevation"
-      },
-      {
-        "name": "The Underlined Link Rule",
-        "body": "Links carry a standing underline. The interactive colour is ink, so a link that is only ink is indistinguishable from the sentence around it.",
-        "section": "typography"
       },
       {
         "name": "The One Definition Rule",
         "body": "A measurement two components must agree on is declared once, as a token, and read from there. Every alignment defect in this system has been the same shape: the same number written down twice, and one copy moving.",
-        "section": "layout"
+        "section": "components"
+      },
+      {
+        "name": "The Breakpoint-Order Rule",
+        "body": "A media query adds no specificity, so a responsive override placed above the rule it overrides simply loses, silently, forever. Every phone override goes after its base rule. The corollary: a block that raises values across many class-scoped rules must sit below all of them, which is why the touch floors are the last block in the file.",
+        "section": "components"
       },
       {
         "name": "The Empty-Bar Rule",
         "body": "Nothing goes in the app bar. In production it holds admin-only tabs and nothing else, so a control placed there is a control most people never see.",
-        "section": "layout"
+        "section": "components"
+      },
+      {
+        "name": "The Two-Tier Action Rule",
+        "body": "The collapsed row's action slot has two tiers and exactly two. A filled button moves the work forward: Claim, Merge Done, Send Items, Submit, Approve Merge. An outlined one ends the record: Complete, Confirm, Approve, Archive. Same track, same metrics, only the paint changes. This narrows the earlier single-style rule rather than reverting it: the good/ghost/danger split really did read as three inconsistent buttons for one job, and the answer is one rule with two answers, not three styles again. A third tier is not available.",
+        "section": "components"
+      },
+      {
+        "name": "The Neutral Confirm Rule",
+        "body": "A terminal press asks before it fires, in the two-step Cancel confirm's shape with its red ground dropped. Red belongs to cancelling, which is the destructive move; completing and archiving are the work going right, and dressing them in the failure color would tell somebody their finished task went wrong at the moment they finished it.",
+        "section": "components"
       }
     ],
     "dos": [
-      "Do reach for an existing token before defining a color. Every color in the app goes through a custom property on :root.",
-      "Do add any new themeable value to all three themes — light, dark, and contrast — before considering it done.",
+      "Do reach for an existing token before defining a color. Every color in the app goes through a custom property on :root, with one recorded exception.",
+      "Do add any new themeable value to all three themes, light, dark, and contrast, before considering it done.",
       "Do keep the monospace face for things that are counted or labeled, the body face for anything that reads as a sentence, and the display face for headings and controls.",
+      "Do pick a step off the recorded ramp. Nine steps is already more than a dense app needs; a tenth has to displace one.",
       "Do replace a field on the collapsed row rather than appending one.",
       "Do encode every state in at least two channels. Color is never the only signal.",
       "Do make a filled control take its label color from the on-accent token.",
-      "Do check a new tint against the panel of the theme it lives in, not against the light theme's.",
-      "Do give a link a standing underline; the interactive colour is ink, not a hue.",
-      "Do separate a block with a hairline, a margin rule, or a tone step — one device, never a container.",
+      "Do check a new tint against the panel of the theme it lives in, and against the tone the text actually sits on rather than the one behind it.",
+      "Do give a link a standing underline. The light theme's interactive color is ink.",
+      "Do separate a block with a hairline, a margin rule, or a tone step. One device, never a container.",
       "Do declare a shared measurement once and read it everywhere.",
-      "Do let the label shrink before the box does; a fixed track that cannot give is what pushes a layout past a viewport, and with zoom disabled an overflow is unreachable."
+      "Do let the label shrink before the box does. On a surface with zoom disabled an overflow is unreachable rather than merely awkward.",
+      "Do put a coarse-pointer floor at the bottom of the stylesheet, below every rule it raises, and grow a press target with an overlay rather than a size.",
+      "Do ask before a press that cannot be undone from the row, in the neutral confirm shape."
     ],
     "donts": [
-      "Don't hardcode a hex value anywhere, including white.",
-      "Don't name anything for its color. The signal tokens are roles; a theme is free to answer bad with a rose.",
-      "Don't add a warm accent to the dark theme. Cool it first — the one warm slot is spoken for.",
-      "Don't introduce a new animation without checking the existing set first. No scroll effects, no parallax, no transitions on color or text.",
-      "Don't let a card move itself. Nothing expands, collapses, or scrolls a row on the user's behalf.",
-      "Don't treat the dark theme as the light theme dimmed. It is a separate room with its own palette.",
-      "Don't put an actionable control behind the collapse.",
+      "Don't hardcode a hex value anywhere, including white. The green button's hover is the one that got away and is not a precedent.",
+      "Don't name anything for its color. The signal tokens are roles.",
+      "Don't borrow a signal token to tell categories apart. A chart that counts things has no failing state to report, and a gradient implies a scale the number does not have.",
+      "Don't add a warm accent to the dark theme. Cool it first; the one warm slot is spoken for.",
       "Don't add a resting shadow to anything, or write the keyword none into a shadow token.",
-      "Don't put a card inside a card; the inner one becomes a titled passage of the outer one.",
-      "Don't answer a new state with an edge marker."
+      "Don't put a card inside a card.",
+      "Don't answer a new state with an edge marker. A colored border or stripe on the side of a card is the most recognizable tell of generated UI, and a fact with a column or a label does not also need a margin.",
+      "Don't add a third tier to the row's action slot. Filled moves work forward, outlined ends the record; a new action picks one.",
+      "Don't dress a successful ending in the failure color. Red is for cancelling and for failing.",
+      "Don't introduce a new animation without checking the existing set first. No scroll effects, no parallax, no transitions on color or text.",
+      "Don't let a card move itself, and don't let the list move under a reader.",
+      "Don't let the section a row sits in disagree with the button it offers.",
+      "Don't treat the dark theme as the light theme dimmed.",
+      "Don't put an actionable control behind the collapse."
     ]
   }
 }
