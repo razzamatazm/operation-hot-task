@@ -125,8 +125,9 @@ await check("CLAIMED → AWAITING_ITEMS goes through on the checker's own thread
 });
 
 await check("the requester's own note does not satisfy the checker's hand-back", async () => {
-  /* A fraud check opens with the requester's ask already in the thread, so a
-     bare "the thread has a message" test would gate nothing at all. */
+  /* The requester posts real messages through the exchange, so a bare "the
+     thread has a message" test would let a checker hand back on somebody
+     else's words rather than their own finding. */
   const { service } = await setup();
   const id = await createClaimedFraud(service);
   await service.addReviewNote(id, "Anything you need from me?", CREATOR);

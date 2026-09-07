@@ -139,9 +139,10 @@ check("nothing outstanding: the checker's own message is the other way through",
   assert.equal(handBackSatisfied(spoke, CHECKER), true);
   assert.equal(handBackBlockReason(spoke, CHECKER), undefined);
 
-  /* The requester's opening ask is already the thread's first row on every
-     fraud check ever filed, so "the thread has a message" would gate nothing.
-     It has to be the checker's OWN message. */
+  /* The requester posts real messages through the exchange — answering items
+     during AWAITING_ITEMS — so by PENDING_APPROVAL the thread reliably holds
+     their words. A bare "has anyone said anything" test would let a checker
+     bounce a check back on somebody else's message. It has to be their OWN. */
   const onlyTheAsk = makeFraudTask({ status: "CLAIMED", reviewNotes: [msg({ id: CREATOR.id, displayName: "Suzie" })] });
   assert.equal(handBackSatisfied(onlyTheAsk, CHECKER), false);
   assert.equal(handBackBlockReason(onlyTheAsk, CHECKER), HAND_BACK_REASON);

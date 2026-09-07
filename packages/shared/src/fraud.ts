@@ -29,10 +29,16 @@ export interface FraudCardAction {
 
 /* Has the checker said anything of their own on this task? The second half of
    what satisfies a hand-back, and deliberately scoped to the VIEWER's own
-   messages rather than to the thread being non-empty: a fraud check opens with
-   the requester's original ask already sitting in the thread as its first row,
-   so "the thread has a message" is true of every fraud check ever filed and
-   would gate nothing at all. A withdrawn message is a tombstone, not a finding,
+   messages rather than to the thread being non-empty.
+
+   The reason is the requester's replies, not the opening ask. `reviewNotes` is
+   empty at creation — the originating ask lives in the task's own field and is
+   only *rendered* as the thread's first row — but the requester posts real
+   messages all through the exchange, answering items during AWAITING_ITEMS.
+   So by the time a check reaches PENDING_APPROVAL its thread is reliably
+   non-empty with the requester's words, and a bare "has anyone said anything"
+   test would let a checker bounce it back on somebody else's message. It has
+   to be the checker's own. A withdrawn message is a tombstone, not a finding,
    so it does not count either.
 
    Not scoped to the current pass. There is no pass marker on a message the way

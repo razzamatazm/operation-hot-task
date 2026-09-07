@@ -181,9 +181,20 @@ card already has:
   a real result, and the checker still has to hand the check back, so an
   items-only rule would leave them unable to move at all.
 
-The second is scoped to the checker's **own** messages. A fraud check opens with
-the requester's ask already in the thread, so a bare "the thread is non-empty"
-test would gate nothing; a withdrawn message does not count either.
+The second is scoped to the checker's **own** messages, because of the
+requester's replies rather than the opening ask. `reviewNotes` is empty at
+creation — the originating ask lives on the task and is only *rendered* as the
+thread's first row — but the requester posts real messages through the
+exchange, answering items during `Awaiting Items`. By the time a check reaches
+`Pending Approval` its thread reliably holds the requester's words, so a bare
+"has anyone said anything" test would let a checker bounce it back on somebody
+else's message. A withdrawn message does not count either.
+
+It is **not** scoped to the current pass: a checker who wrote something in an
+earlier round and nothing in this one still passes. Messages carry no pass
+marker the way checklist items do (`addedOnPass`), and inferring one from
+timestamps would be guessing. Stamp messages with the pass if this ever needs
+tightening.
 
 Until one holds, the button is disabled and says so. Both the button and the
 transition ask the same shared `handBackSatisfied`, and the refusal reads back

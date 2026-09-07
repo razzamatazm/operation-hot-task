@@ -1574,7 +1574,7 @@ const TaskCard = memo(({
      (court-latch.ts). The slot needs it for the same reason the section
      builder does: to say why the row is here after the red dot has gone. */
   courtHeld?: boolean;
-  onSetExpand?: (taskId: string, open: boolean) => void;
+  onSetExpand?: (taskId: string, open: boolean, pulled?: boolean) => void;
   /* Ticking clock (ms) for the row's live countdown. */
   now?: number;
 }) => {
@@ -1746,7 +1746,11 @@ const TaskCard = memo(({
      rule is what keeps the button from claiming there is something to collapse
      when there isn't. */
   const expanded = isTaskExpanded(expandOverride);
-  const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open);
+  /* The third argument answers "is the message pull what put this row where it
+     is", which decides whether opening it takes a court hold. The card is the
+     one that knows, and telling App keeps App's callback free of `tasks` — see
+     `setExpandOverride`. Read at render, so it is the state at the press. */
+  const setExpanded = (open: boolean): void => onSetExpand?.(task.id, open, hasUnreadNote);
   /* Acknowledge an unread note: clears the undim lock and the red dot.
      Triggered by an explicit user gesture (header click/key, or sending
      a reply). */
@@ -2812,7 +2816,7 @@ const CardList = ({
   pulsingIds?: Set<string>;
   expandOverrides?: Record<string, boolean>;
   courtHolds?: CourtHolds;
-  onSetExpand?: (taskId: string, open: boolean) => void;
+  onSetExpand?: (taskId: string, open: boolean, pulled?: boolean) => void;
   now?: number;
 }) => (
   <div className="card-list card-list-grouped">
@@ -3666,25 +3670,29 @@ export const App = () => {
     }
   }, [expandOverrides, expandKey]);
   /* Opening a card is also where a court hold is taken and released (see
-     `court-latch.ts`). The hold is decided here rather than in the card
-     because this is the one place that already knows both halves: the gesture,
-     and the `seenNotesAt` the pull is measured against.
+     `court-latch.ts`).
 
-     Reading `seenNotesAt` from the closure is correct, not stale. The card's
-     header handler calls `acknowledgeUnread()` and then `setExpanded(true)` in
-     one event, so by the time React commits the note as seen this callback has
-     already asked whether it was unread when the viewer pressed — which is the
-     question the hold is about. */
-  const setExpandOverride = useCallback((taskId: string, open: boolean): void => {
+     `pulled` is passed IN rather than looked up here, and that is load-bearing,
+     not a style choice. This callback rides in `cardProps` to every `TaskCard`,
+     which is `React.memo`'d, so its identity has to be stable across renders —
+     and `tasks` is replaced wholesale by every `refresh()`, which runs after
+     essentially every mutation in the app. Closing over `tasks` to find the
+     task by id therefore gave this a new identity after every action and
+     re-rendered the entire list, defeating the memo for every card rather than
+     just the one being opened. The caller is a card that already holds its own
+     `task` and has already computed the answer; asking it costs nothing and
+     keeps the dependency array empty. See the memo discipline in
+     apps/web/CLAUDE.md — this is the exact trap it names.
+
+     The card evaluates `pulled` at render, so it still reflects the state at the
+     moment of the press: the header handler calls `acknowledgeUnread()` and
+     `setExpanded(true)` in one event, and the value was read before either. */
+  const setExpandOverride = useCallback((taskId: string, open: boolean, pulled?: boolean): void => {
     setExpandOverrides((prev) => ({ ...prev, [taskId]: open }));
-    setCourtHolds((prev) => {
-      if (!open) return releaseCourt(prev, [taskId]);
-      const t = tasks.find((x) => x.id === taskId);
-      return t && hasUnreadNoteForViewer(t, user, seenNotesAt[taskId])
-        ? holdCourt(prev, taskId)
-        : prev;
-    });
-  }, [tasks, user, seenNotesAt]);
+    setCourtHolds((prev) =>
+      open ? (pulled ? holdCourt(prev, taskId) : prev) : releaseCourt(prev, [taskId])
+    );
+  }, []);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,
      indistinguishable from clicking each row shut — and since nothing clears
@@ -3704,7 +3712,12 @@ export const App = () => {
     }
     const target = focusTaskId;
     setActiveTab("active");
-    setExpandOverride(target, true);
+    /* Same hold a click would take, so a bot link onto a task carrying an
+       unread reply doesn't land you on it and then re-sort it out from under
+       you. An effect may read `tasks` freely — unlike `setExpandOverride`, it
+       is not a memoized prop, so nothing downstream depends on its identity. */
+    const linked = tasks.find((t) => t.id === target);
+    setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
     const raf = requestAnimationFrame(() => {
       document.getElementById(`task-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });

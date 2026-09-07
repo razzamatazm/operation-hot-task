@@ -599,10 +599,21 @@ Shared `handBackSatisfied` owns the rule:
    case: the checker still has to hand the check back, and a checklist-only
    rule would lock them out of the flow with no way to move at all.
 
-Scoped to the viewer's **own** messages on purpose. A fraud check opens with the
-requester's ask already sitting in the thread as its first row, so "the thread is
-non-empty" is true of every fraud check ever filed and would gate nothing. A
-withdrawn message is a tombstone and does not count either.
+Scoped to the viewer's **own** messages on purpose, and the reason is the
+requester's replies rather than the opening ask. `reviewNotes` is empty at
+creation — the originating ask lives in the task's own field and is only
+*rendered* as the thread's first row — but the requester posts real messages
+through the exchange, answering items during `AWAITING_ITEMS`. By the time a
+check reaches `PENDING_APPROVAL` its thread reliably holds the requester's
+words, so a bare "has anyone said anything" test would let a checker bounce it
+back on somebody else's message. A withdrawn message is a tombstone and does not
+count either.
+
+**It is not scoped to the current pass.** A checker who wrote something in an
+earlier round and nothing in this one still passes the gate. There is no pass
+marker on a message the way there is on a checklist item (`addedOnPass`), and
+approximating one from timestamps would be guessing. If this matters, stamp
+messages with the pass rather than comparing dates here.
 
 Until one of the two holds, the move is **offered and disabled** carrying
 `Add an outstanding item, or a note in the conversation saying there is nothing
