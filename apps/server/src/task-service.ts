@@ -63,6 +63,8 @@ import {
   ACTION_LABELS,
   emptyRequestFieldRefusal,
   NEEDS_FIXES_NOTE_REQUIRED,
+  handBackBlockReason,
+  handBackSatisfied,
   oooDatesOutOfOrder,
   OOO_DATE_RANGE_REFUSAL,
   isWithinBusinessHours,
@@ -1059,15 +1061,21 @@ export class TaskService {
 
     // FRAUD hand-back: entering AWAITING_ITEMS — the checker's initial pass
     // (CLAIMED → AWAITING_ITEMS) or a bounce-back (PENDING_APPROVAL →
-    // AWAITING_ITEMS) — cannot go out empty. With the structured checklist (#44)
-    // a non-empty checklist IS the payload, so it satisfies the requirement on
-    // its own; otherwise the outstanding-items free-text note (which rides in on
-    // reviewNotes and seeds the thread) is still required, preserving the #50
-    // note-only path (e.g. from a bot card that can't build a checklist).
+    // AWAITING_ITEMS) — cannot go out empty. Three ways to satisfy it, and the
+    // rule for two of them lives in shared `handBackSatisfied` because the web
+    // button asks the same question before it enables:
+    //   1. a non-empty checklist (#44) — the normal answer;
+    //   2. a message the acting checker already posted to the thread, which is
+    //      how "nothing outstanding" gets said now that the web app has no
+    //      free-text box on the move itself (2026-09-07);
+    //   3. the outstanding-items note riding in on `reviewNotes`, which seeds
+    //      the thread — the #50 note-only path, still open for a bot card that
+    //      can't build a checklist.
+    // The refusal reads back the shared sentence, so a caller that gets here
+    // anyway is told the same thing the button would have said.
     const outstandingNote = next === "AWAITING_ITEMS" ? reviewNotes?.trim() : undefined;
-    const hasChecklistItems = (task.checklist?.length ?? 0) > 0;
-    if (next === "AWAITING_ITEMS" && !outstandingNote && !hasChecklistItems) {
-      throw new Error("Sending outstanding items requires a note or at least one checklist item");
+    if (next === "AWAITING_ITEMS" && !outstandingNote && !handBackSatisfied(task, user)) {
+      throw new Error(handBackBlockReason(task, user));
     }
 
     /* The LOI checker's two exits (#231, ADR-0007). Both write the thread from

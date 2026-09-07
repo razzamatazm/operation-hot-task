@@ -27,15 +27,55 @@ export interface FraudCardAction {
   blockedCount?: number;
 }
 
-/* Why a hand-back is blocked on a surface that cannot take a note, or
-   `undefined` when it isn't. The two moves that enter AWAITING_ITEMS — the
-   checker's first send and a bounce-back from final approval — cannot go out
-   empty; the server enforces "a note or at least one checklist item". A surface
-   with no note field therefore has exactly one way to satisfy it, and this is
-   the sentence it says so with. Phrased like `submitBlockReason` next door,
-   because a checker meets both gates in the same slot. */
-export const handBackBlockReason = (task: LoanTask): string | undefined =>
-  (task.checklist?.length ?? 0) > 0 ? undefined : "Add at least one outstanding item first";
+/* Has the checker said anything of their own on this task? The second half of
+   what satisfies a hand-back, and deliberately scoped to the VIEWER's own
+   messages rather than to the thread being non-empty: a fraud check opens with
+   the requester's original ask already sitting in the thread as its first row,
+   so "the thread has a message" is true of every fraud check ever filed and
+   would gate nothing at all. A withdrawn message is a tombstone, not a finding,
+   so it does not count either.
+
+   Not scoped to the current pass. There is no pass marker on a message the way
+   there is on a checklist item (`addedOnPass`), and inventing one to catch a
+   checker who wrote something last round and nothing this round would be a lot
+   of machinery for a case where they did, in fact, write something. If that
+   turns out to matter, stamp messages with the pass rather than approximating
+   it with a timestamp comparison here. */
+const hasOwnMessage = (task: LoanTask, viewer: Pick<UserIdentity, "id">): boolean =>
+  (task.reviewNotes ?? []).some((note) => note.by?.id === viewer.id && !note.deleted);
+
+/* Does this task carry what a hand-back has to carry? The two moves that enter
+   AWAITING_ITEMS — the checker's first send and a bounce-back from final
+   approval — cannot go out empty, because a hand-back with no content is a
+   status change that tells the requester nothing about what to do next.
+
+   Two ways to satisfy it, and they are the two places the card already has for
+   words: the outstanding-items checklist, and the conversation beside it. Items
+   are the normal answer. The conversation is the answer when the checker has
+   nothing outstanding to list and needs to say so — a real outcome of a first
+   pass, not an edge case, and one that a checklist-only rule locks out of the
+   flow entirely, with no way to hand the check back at all.
+
+   One owner, because the button and the server both ask it. A gate the view
+   evaluates separately is a gate the two can disagree about, which is how a row
+   comes to offer a move the API refuses. */
+export const handBackSatisfied = (task: LoanTask, viewer: Pick<UserIdentity, "id">): boolean =>
+  (task.checklist?.length ?? 0) > 0 || hasOwnMessage(task, viewer);
+
+/* Why a hand-back is blocked, or `undefined` when it isn't — the one phrasing,
+   shared by the button's disabled hint and the transition's refusal so a checker
+   reads the same sentence wherever they meet the gate. It names BOTH exits,
+   because a checker with nothing to list has to be told that the conversation is
+   the way through; naming only the checklist leaves them at a dead button on a
+   check that is going fine. Phrased like `submitBlockReason` next door: a
+   checker meets both gates in the same slot. */
+export const handBackBlockReason = (
+  task: LoanTask,
+  viewer: Pick<UserIdentity, "id">
+): string | undefined =>
+  handBackSatisfied(task, viewer)
+    ? undefined
+    : "Add an outstanding item, or a note in the conversation saying there is nothing outstanding";
 
 /* What a surface can carry alongside the move. A bot's Adaptive Card has a text
    input and no way to build a checklist, so it keeps the note-only path the
@@ -68,7 +108,7 @@ export const fraudCardActions = (
   /* On a surface with no note field the checklist is the only payload, so an
      empty one blocks the move here rather than being discovered at the server.
      Note-capable surfaces are unaffected and still get an unblocked button. */
-  const handBackBlocked = options?.noteCapable === false ? handBackBlockReason(task) : undefined;
+  const handBackBlocked = options?.noteCapable === false ? handBackBlockReason(task, viewer) : undefined;
   if (task.status === "CLAIMED") {
     return seat === "checker"
       ? [{

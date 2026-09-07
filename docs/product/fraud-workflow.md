@@ -167,19 +167,36 @@ and seeds the DM conversation thread. (The checklist is the primary surface;
 the note path stays for surfaces that can't build a checklist, e.g. bot
 cards.)
 
-**The web app no longer offers the note half** (2026-09-07). It has the
-checklist and, directly below it, the conversation thread, so a free-text box
-on the hand-back itself was a third place to put the same words and a decision
-the checker had to make every time. There, a hand-back requires **at least one
-outstanding item**, and the button sits disabled with that reason until there
-is one. The server rule above is unchanged and the bot's note-only path is
-untouched — the surface declares what it can carry, via `noteCapable` on
-`fraudCardActions`, rather than the rule changing underneath both.
+**The web app has no free-text box on the move itself** (2026-09-07). It has
+the checklist and, directly below it, the conversation thread, so a box on the
+hand-back was a third place to put the same words and a decision the checker had
+to make every time.
+
+It is satisfied there by **either** of two things, both of which are places the
+card already has:
+
+- **at least one outstanding item** on the checklist — the normal answer; or
+- **a message the checker has posted to the conversation** — which is how
+  *"nothing outstanding"* gets said. A first pass that finds nothing missing is
+  a real result, and the checker still has to hand the check back, so an
+  items-only rule would leave them unable to move at all.
+
+The second is scoped to the checker's **own** messages. A fraud check opens with
+the requester's ask already in the thread, so a bare "the thread is non-empty"
+test would gate nothing; a withdrawn message does not count either.
+
+Until one holds, the button is disabled and says so. Both the button and the
+transition ask the same shared `handBackSatisfied`, and the refusal reads back
+the same sentence the button carries, so the two cannot drift.
+
+The bot is unaffected. It declares itself note-capable (by not passing
+`noteCapable: false` to `fraudCardActions`) and keeps the note-on-the-transition
+path above, which is the only one an Adaptive Card can take.
 
 One consequence worth knowing: a checklist-only hand-back seeds **no** thread
-message, so a fraud check's conversation now starts empty unless somebody
-actually writes something. That is the intended reading — an empty thread means
-nobody had anything to add beyond the list.
+message, so a fraud check's conversation starts empty unless somebody actually
+writes something. That is the intended reading — an empty thread means nobody
+had anything to add beyond the list.
 
 ## Reminder Rules
 

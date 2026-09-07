@@ -588,17 +588,35 @@ list was empty.
 the checker wants to say is a message in the conversation directly below it. A
 free-text box between the two asked the checker to sort every sentence into one
 of three places, and put the same content in a different shape depending on
-which they picked. So the web app now has exactly one way to satisfy the rule,
-and a hand-back with an empty checklist is **offered and disabled**, carrying
-`Add at least one outstanding item first` — the same `blockedReason` treatment
-`Submit` gets, on the wrapper's `title` and the button's `aria-label`.
+which they picked.
 
-**The server rule is unchanged, and so is the bot.** `fraudCardActions` takes
-`{ noteCapable: false }` from this app and nothing from the bot, whose Adaptive
-Card has a text input and no way to build a checklist. The note-only path stays
-open for it, which is why this is an option on the shared function rather than a
-new rule inside it. Don't move the gate into the server or into
-`fraudCardActions`'s default; both would take the bot's only route away.
+**Two ways through, and they are the card's two existing places for words.**
+Shared `handBackSatisfied` owns the rule:
+
+1. **At least one checklist item** — the normal answer.
+2. **A message the checker has posted themselves** — the answer when there is
+   *nothing* outstanding. That is a real result of a first pass, not an edge
+   case: the checker still has to hand the check back, and a checklist-only
+   rule would lock them out of the flow with no way to move at all.
+
+Scoped to the viewer's **own** messages on purpose. A fraud check opens with the
+requester's ask already sitting in the thread as its first row, so "the thread is
+non-empty" is true of every fraud check ever filed and would gate nothing. A
+withdrawn message is a tombstone and does not count either.
+
+Until one of the two holds, the move is **offered and disabled** carrying
+`Add an outstanding item, or a note in the conversation saying there is nothing
+outstanding` — the same `blockedReason` treatment `Submit` gets, on the
+wrapper's `title` and the button's `aria-label`. The sentence names both exits
+deliberately: naming only the checklist leaves a checker with nothing to list
+staring at a dead button on a check that is going fine.
+
+**The server asks the same function**, and its refusal reads the same sentence
+back, so the button and the API cannot drift. **The bot is untouched:**
+`fraudCardActions` takes `{ noteCapable: false }` from this app and nothing from
+the bot, whose Adaptive Card has a text input and no way to build a checklist, so
+its note-on-the-transition path still works. Don't fold the gate into
+`fraudCardActions`'s default — that would take the bot's only route away.
 
 A checker may add checklist items at any live status (`canEditChecklist`),
 including `PENDING_APPROVAL`, which is what keeps `Send Back` reachable rather

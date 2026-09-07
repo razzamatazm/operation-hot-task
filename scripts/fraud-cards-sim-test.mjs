@@ -16,7 +16,7 @@
  */
 import assert from "node:assert/strict";
 
-import { fraudCardActions } from "../packages/shared/dist/fraud.js";
+import { fraudCardActions, handBackBlockReason, handBackSatisfied } from "../packages/shared/dist/fraud.js";
 import { fraudSeat } from "../packages/shared/dist/fraud-seat.js";
 import { botPrimaryAdvance } from "../packages/shared/dist/workflow.js";
 
@@ -110,14 +110,17 @@ check("CLAIMED: checker sees Send Outstanding Items (note), creator sees nothing
    The bot is the reason this is an option and not the rule. Its Adaptive Card
    has a text input and no way to build a list, so it keeps the note-only path,
    and the default has to stay note-capable for it. */
-check("noteCapable false: a hand-back with an empty checklist is blocked, not offered", () => {
+const HAND_BACK_REASON =
+  "Add an outstanding item, or a note in the conversation saying there is nothing outstanding";
+
+check("noteCapable false: a hand-back with nothing to say is blocked, not offered", () => {
   const claimed = makeFraudTask({ status: "CLAIMED" });
   assert.deepEqual(fraudCardActions(claimed, CHECKER, { noteCapable: false }), [
     {
       kind: "transitionWithNote",
       label: "Send Items",
       targetStatus: "AWAITING_ITEMS",
-      blockedReason: "Add at least one outstanding item first",
+      blockedReason: HAND_BACK_REASON,
       blockedCount: 0
     }
   ]);
@@ -125,6 +128,30 @@ check("noteCapable false: a hand-back with an empty checklist is blocked, not of
   assert.deepEqual(fraudCardActions(claimed, CHECKER), [
     { kind: "transitionWithNote", label: "Send Items", targetStatus: "AWAITING_ITEMS" }
   ]);
+});
+
+check("nothing outstanding: the checker's own message is the other way through", () => {
+  /* The case a checklist-only rule locks out. A first pass that finds nothing
+     missing is a real outcome, and the checker still has to hand the check
+     back — so saying so in the conversation opens the move. */
+  const msg = (by) => ({ id: "m1", text: "Looked at all of it, nothing outstanding.", by, at: "2026-09-07T00:00:00.000Z" });
+  const spoke = makeFraudTask({ status: "CLAIMED", reviewNotes: [msg({ id: CHECKER.id, displayName: "Alexa" })] });
+  assert.equal(handBackSatisfied(spoke, CHECKER), true);
+  assert.equal(handBackBlockReason(spoke, CHECKER), undefined);
+
+  /* The requester's opening ask is already the thread's first row on every
+     fraud check ever filed, so "the thread has a message" would gate nothing.
+     It has to be the checker's OWN message. */
+  const onlyTheAsk = makeFraudTask({ status: "CLAIMED", reviewNotes: [msg({ id: CREATOR.id, displayName: "Suzie" })] });
+  assert.equal(handBackSatisfied(onlyTheAsk, CHECKER), false);
+  assert.equal(handBackBlockReason(onlyTheAsk, CHECKER), HAND_BACK_REASON);
+
+  // A withdrawn message is a tombstone, not a finding.
+  const withdrawn = makeFraudTask({
+    status: "CLAIMED",
+    reviewNotes: [{ ...msg({ id: CHECKER.id, displayName: "Alexa" }), deleted: true }]
+  });
+  assert.equal(handBackSatisfied(withdrawn, CHECKER), false);
 });
 
 check("noteCapable false: one checklist item is enough to unblock the hand-back", () => {
@@ -139,7 +166,7 @@ check("noteCapable false: one checklist item is enough to unblock the hand-back"
      status, which is what keeps this reachable rather than a dead end. */
   const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
   const [, sendBack] = fraudCardActions(pending, CHECKER, { noteCapable: false });
-  assert.equal(sendBack.blockedReason, "Add at least one outstanding item first");
+  assert.equal(sendBack.blockedReason, HAND_BACK_REASON);
   const pendingWithItem = makeFraudTask({ status: "PENDING_APPROVAL", checklist: [item] });
   const [approve, unblocked] = fraudCardActions(pendingWithItem, CHECKER, { noteCapable: false });
   assert.equal(unblocked.blockedReason, undefined);

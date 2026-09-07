@@ -97,15 +97,43 @@ const createClaimedFraud = async (service) => {
 
 console.log("FRAUD two-phase lifecycle — TaskService sim");
 
-await check("CLAIMED → AWAITING_ITEMS is rejected without a note", async () => {
+await check("CLAIMED → AWAITING_ITEMS is rejected when there is nothing to hand back", async () => {
+  /* No checklist, no note on the transition, and nothing the checker has said
+     in the thread. The refusal reads back shared `handBackBlockReason` — the
+     same sentence the web button carries while disabled — so a caller that gets
+     here anyway is told what the button would have told them. */
   const { service } = await setup();
   const id = await createClaimedFraud(service);
   await assert.rejects(
     () => service.transitionStatus(id, "AWAITING_ITEMS", CHECKER),
-    /requires a note/i
+    /add an outstanding item, or a note in the conversation/i
   );
   const after = await service.getTask(id);
   assert.equal(after.status, "CLAIMED", "task stays CLAIMED when the hand-back is rejected");
+});
+
+await check("CLAIMED → AWAITING_ITEMS goes through on the checker's own thread message", async () => {
+  /* "Nothing outstanding" is a real result of a first pass, and the checker
+     still has to hand the check back. Saying so in the conversation is what
+     opens the move now that the hand-back has no free-text box of its own. */
+  const { service } = await setup();
+  const id = await createClaimedFraud(service);
+  await service.addReviewNote(id, "Looked at all of it, nothing outstanding.", CHECKER);
+  const moved = await service.transitionStatus(id, "AWAITING_ITEMS", CHECKER);
+  assert.equal(moved.status, "AWAITING_ITEMS");
+  assert.equal((moved.checklist ?? []).length, 0, "no items, and none invented");
+});
+
+await check("the requester's own note does not satisfy the checker's hand-back", async () => {
+  /* A fraud check opens with the requester's ask already in the thread, so a
+     bare "the thread has a message" test would gate nothing at all. */
+  const { service } = await setup();
+  const id = await createClaimedFraud(service);
+  await service.addReviewNote(id, "Anything you need from me?", CREATOR);
+  await assert.rejects(
+    () => service.transitionStatus(id, "AWAITING_ITEMS", CHECKER),
+    /add an outstanding item, or a note in the conversation/i
+  );
 });
 
 await check("hand-back with a note succeeds, records it, and DMs only the creator", async () => {
