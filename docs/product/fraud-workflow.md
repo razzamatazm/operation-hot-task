@@ -167,6 +167,20 @@ and seeds the DM conversation thread. (The checklist is the primary surface;
 the note path stays for surfaces that can't build a checklist, e.g. bot
 cards.)
 
+**The web app no longer offers the note half** (2026-09-07). It has the
+checklist and, directly below it, the conversation thread, so a free-text box
+on the hand-back itself was a third place to put the same words and a decision
+the checker had to make every time. There, a hand-back requires **at least one
+outstanding item**, and the button sits disabled with that reason until there
+is one. The server rule above is unchanged and the bot's note-only path is
+untouched — the surface declares what it can carry, via `noteCapable` on
+`fraudCardActions`, rather than the rule changing underneath both.
+
+One consequence worth knowing: a checklist-only hand-back seeds **no** thread
+message, so a fraud check's conversation now starts empty unless somebody
+actually writes something. That is the intended reading — an empty thread means
+nobody had anything to add beyond the list.
+
 ## Reminder Rules
 
 - `Awaiting Items` is a wait on the requester and is **fully silent** — it is

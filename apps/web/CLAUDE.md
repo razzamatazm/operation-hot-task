@@ -245,9 +245,9 @@ Each slot has one job. When adding info, replace something — don't append:
   cannot word it differently. Never fire `ARCHIVED` after it from here: the
   server does both in one write, and a second call is what could leave a task
   completed and not archived.
-  `Send Items` is the one entry that can't complete from the row: it is
-  note-required, so with an empty checklist it expands the card and opens
-  the composer in the body instead of firing. It is worded short (not
+  `Send Items` fires from the row like every other entry, and is disabled with
+  a reason while the checklist is empty (2026-09-07) — it used to open a note
+  composer in the body instead. It is worded short (not
   "Send Outstanding Items") because the slot never resizes to its label. When no action
   applies the slot resolves three ways (see *Empty action slot* below).
   Hidden on mini.
@@ -576,6 +576,34 @@ rendering failure on your own tasks. In order:
    spacer, unchanged"; the slot reading as a missing control was judged
    worse than telling an observer whose move it is.
 
+### A hand-back needs items (2026-09-07)
+
+The two moves that enter `AWAITING_ITEMS` — the checker's first send
+(`Send Items`) and a bounce-back from final approval (`Send Back`) — cannot go
+out empty. The server has always enforced "a note **or** at least one checklist
+item", and this app used to satisfy it either way, revealing a textarea when the
+list was empty.
+
+**That box is gone.** The outstanding items are the checklist, and anything else
+the checker wants to say is a message in the conversation directly below it. A
+free-text box between the two asked the checker to sort every sentence into one
+of three places, and put the same content in a different shape depending on
+which they picked. So the web app now has exactly one way to satisfy the rule,
+and a hand-back with an empty checklist is **offered and disabled**, carrying
+`Add at least one outstanding item first` — the same `blockedReason` treatment
+`Submit` gets, on the wrapper's `title` and the button's `aria-label`.
+
+**The server rule is unchanged, and so is the bot.** `fraudCardActions` takes
+`{ noteCapable: false }` from this app and nothing from the bot, whose Adaptive
+Card has a text input and no way to build a checklist. The note-only path stays
+open for it, which is why this is an option on the shared function rather than a
+new rule inside it. Don't move the gate into the server or into
+`fraudCardActions`'s default; both would take the bot's only route away.
+
+A checker may add checklist items at any live status (`canEditChecklist`),
+including `PENDING_APPROVAL`, which is what keeps `Send Back` reachable rather
+than a dead end once the requester has resolved everything.
+
 ### A blocked primary action (#184)
 
 The ladder can also produce an action the task's **state** won't take yet —
@@ -743,14 +771,22 @@ nested card chrome, in this order:
    Horizontal at every width — the old vertical dot-list pushed the notes
    thread far down the card (#92) — and wraps to a second line rather than
    scrolling. It's the first child so the sibling-hairline rule skips it.
-2. **FRAUD note composer**, and only when the row's own note-required move
-   has opened it. The body carries no fraud *buttons* at all: the phase's
-   forward move rides the collapsed row (`fraudQuick`) and the alternatives
-   (`Send Back`, `Release`) sit in the hamburger with the rest of the
-   secondary ladder. A lone `Send Back` used to float here directly above
-   the checklist, where it read as part of the outstanding-items list
-   rather than as the card's action. The composer stays because the row
-   can't host a textarea — it has nowhere else to go.
+2. **Nothing.** The body carries no fraud buttons and no fraud composer. The
+   phase's forward move rides the collapsed row (`fraudQuick`) and the
+   alternatives (`Send Back`, `Release`) sit in the hamburger with the rest of
+   the secondary ladder. A lone `Send Back` used to float here directly above
+   the checklist, where it read as part of the outstanding-items list rather
+   than as the card's action.
+
+   **The outstanding-items composer is gone** (2026-09-07). A hand-back used to
+   reveal a textarea, placeholdered `Describe what's outstanding…` on an empty
+   checklist and `Optional note for the thread…` on a full one. Both were a
+   third place to type on a card that already has two: the checklist below,
+   which is what the outstanding items ARE, and the conversation below that,
+   which is where anything else a checker wants to say belongs. It also asked
+   the checker to decide which of the two a given sentence was, every time.
+   Now the items go in the list and the words go in the thread, and there is no
+   third answer. See *A hand-back needs items* under Empty action slot.
 3. **Checklist** (FRAUD outstanding items), when there is one. Each row is
    checkbox → adder's colored initials chip (same per-person color as the
    header's assigner→assignee pair, `avatarStyle`) → text → the note
@@ -1004,9 +1040,9 @@ rule on every open card.
 Everything else (Edit Task, Re-open, Add a note, Unclaim, Cancel, Archive,
 Restore, Share, Assign/Reassign, Undo Merge Done, and FRAUD's Send Back /
 Release) lives in the collapsed row's hamburger, not here — there is no actions card in the body
-anymore. `Send Back` is note-required, so it opens its composer inside the
-menu panel; that is fine, the panel already hosts the `Add a note` field and
-its Esc handler exempts text fields.
+anymore. `Send Back` is one press now: it used to open a note composer inside
+the menu panel, and since 2026-09-07 it fires straight, or sits disabled with a
+reason while the checklist is empty.
 
 ### Timestamps in the hamburger (#166)
 

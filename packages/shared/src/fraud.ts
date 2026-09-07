@@ -27,6 +27,27 @@ export interface FraudCardAction {
   blockedCount?: number;
 }
 
+/* Why a hand-back is blocked on a surface that cannot take a note, or
+   `undefined` when it isn't. The two moves that enter AWAITING_ITEMS — the
+   checker's first send and a bounce-back from final approval — cannot go out
+   empty; the server enforces "a note or at least one checklist item". A surface
+   with no note field therefore has exactly one way to satisfy it, and this is
+   the sentence it says so with. Phrased like `submitBlockReason` next door,
+   because a checker meets both gates in the same slot. */
+export const handBackBlockReason = (task: LoanTask): string | undefined =>
+  (task.checklist?.length ?? 0) > 0 ? undefined : "Add at least one outstanding item first";
+
+/* What a surface can carry alongside the move. A bot's Adaptive Card has a text
+   input and no way to build a checklist, so it keeps the note-only path the
+   server still honours. The web app has the checklist itself and a conversation
+   thread beside it, so it took its free-text box out (2026-09-07): the
+   outstanding items ARE the list, and anything else a checker wants to say is a
+   message, not a third place to type. Default is note-capable, so the bot and
+   any future caller keep the older, more permissive path unless they opt out. */
+export interface FraudActionOptions {
+  noteCapable?: boolean;
+}
+
 /* Seat-aware fraud buttons by (status, seat) (#39). Empty for non-FRAUD tasks
    and for any (state, seat) with no action:
      - CLAIMED           → checker: Send Outstanding Items (note)
@@ -35,14 +56,27 @@ export interface FraudCardAction {
                            creator: Release for any fraud checker (while assigned)
    `botPrimaryAdvance` gives the single forward step; this adds the extra
    seat-specific buttons (Send Back, Release) the primary advance can't express. */
-export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id" | "roles">): FraudCardAction[] => {
+export const fraudCardActions = (
+  task: LoanTask,
+  viewer?: Pick<UserIdentity, "id" | "roles">,
+  options?: FraudActionOptions
+): FraudCardAction[] => {
   if (task.taskType !== "FRAUD" || !viewer) {
     return [];
   }
   const seat = fraudSeat(task, viewer);
+  /* On a surface with no note field the checklist is the only payload, so an
+     empty one blocks the move here rather than being discovered at the server.
+     Note-capable surfaces are unaffected and still get an unblocked button. */
+  const handBackBlocked = options?.noteCapable === false ? handBackBlockReason(task) : undefined;
   if (task.status === "CLAIMED") {
     return seat === "checker"
-      ? [{ kind: "transitionWithNote", label: ACTION_LABELS.SEND_OUTSTANDING_ITEMS, targetStatus: "AWAITING_ITEMS" }]
+      ? [{
+          kind: "transitionWithNote",
+          label: ACTION_LABELS.SEND_OUTSTANDING_ITEMS,
+          targetStatus: "AWAITING_ITEMS",
+          ...(handBackBlocked ? { blockedReason: handBackBlocked, blockedCount: 0 } : {})
+        }]
       : [];
   }
   if (task.status === "AWAITING_ITEMS") {
@@ -66,7 +100,12 @@ export const fraudCardActions = (task: LoanTask, viewer?: Pick<UserIdentity, "id
     if (seat === "checker") {
       return [
         { kind: "transition", label: ACTION_LABELS.APPROVE, targetStatus: "COMPLETED" },
-        { kind: "transitionWithNote", label: ACTION_LABELS.SEND_BACK, targetStatus: "AWAITING_ITEMS" }
+        {
+          kind: "transitionWithNote",
+          label: ACTION_LABELS.SEND_BACK,
+          targetStatus: "AWAITING_ITEMS",
+          ...(handBackBlocked ? { blockedReason: handBackBlocked, blockedCount: 0 } : {})
+        }
       ];
     }
     if (seat === "requester") {

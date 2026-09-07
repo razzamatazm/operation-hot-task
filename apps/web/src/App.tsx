@@ -1579,12 +1579,6 @@ const TaskCard = memo(({
   now?: number;
 }) => {
   const [noteText, setNoteText] = useState("");
-  /* FRAUD note-required moves (Send Outstanding Items / Send Back) reveal an
-     inline textarea whose text posts as the transition's reviewNotes. `fraudNote`
-     holds the draft; `openFraudNote` is the target status of the move whose box
-     is open (null = none). The server also rejects a blank note. */
-  const [fraudNote, setFraudNote] = useState("");
-  const [openFraudNote, setOpenFraudNote] = useState<TaskStatus | null>(null);
   /* "Add a note" on a COMPLETED card (#45): the button reveals an inline field
      whose text posts to the server-atomic completed-note endpoint (task stays
      COMPLETED). `completedNoteOpen` toggles the field; `completedNote` is the
@@ -1918,8 +1912,13 @@ const TaskCard = memo(({
      surfaces show the same set. Empty for non-FRAUD. `fraudQuick` is the phase's
      one forward move, promoted to the collapsed quick-action slot; the leftovers
      (Send Back, Release) live in the expanded body. */
-  const fraudActions = fraudCardActions(task, user);
-  const fraudHasChecklist = (task.checklist?.length ?? 0) > 0;
+  /* `noteCapable: false` — this app has no free-text box on a fraud move any
+     more (2026-09-07). The outstanding items are the checklist and anything
+     else the checker wants to say is a message in the conversation beside it,
+     so a third place to type was one too many. Shared answers the empty-list
+     case with a blocked button instead of a composer. The bot keeps its note
+     path: an Adaptive Card has a text input and no way to build a list. */
+  const fraudActions = fraudCardActions(task, user, { noteCapable: false });
   /* Prefer the plain one-tap move (Submit / Approve). Falling back to the
      note-required one is what puts `Send Items` in the row on a CLAIMED check,
      where the checker has no plain move and the slot otherwise sat empty while
@@ -1930,17 +1929,8 @@ const TaskCard = memo(({
     fraudActions.find((a) => a.kind === "transition") ??
     fraudActions.find((a) => a.kind === "transitionWithNote");
   /* The promoted move already rides the collapsed row (#97) — don't render its
-     button a second time in the expanded body. When it's note-required and the
-     checklist is empty the body still hosts its note box (see
-     promotedNoteTarget); the button is what's deduped, not the composer. */
+     button a second time in the hamburger. */
   const expandedFraudActions = fraudActions.filter((a) => a !== fraudQuick);
-  /* A populated checklist already satisfies the server's "items or note" rule,
-     so a promoted note-required move fires straight from the row; only an empty
-     checklist still needs the note box gate (#84). */
-  const promotedNoteTarget =
-    fraudQuick && fraudQuick.kind === "transitionWithNote" && !fraudHasChecklist
-      ? fraudQuick.targetStatus
-      : undefined;
   /* `blockedReason` is set when the move is the phase's forward step but the
      task's state won't take it yet — today only Submit, held until every
      checklist item is checked or noted (#184). Same sentence the server's
@@ -1978,17 +1968,15 @@ const TaskCard = memo(({
       primaryAction = { label: ACTION_LABELS.CLAIM, kind: "good", run: () => { void onClaim(task.id); } };
     } else if (fraudQuick && fraudQuick.targetStatus) {
       const target = fraudQuick.targetStatus;
-      /* Note-required with an empty checklist: the row can't host a textarea, so
-         the button opens the card and reveals the composer in the body rather
-         than firing a move the server would reject. */
-      const needsNote = promotedNoteTarget !== undefined;
+      /* One tap. `Send Items` with an empty checklist used to open the card and
+         reveal a composer here; it is now blocked by `blockedReason` like
+         `Submit` is, and the slot's own click handler opens the card so the
+         checker lands on the list they need to fill in. */
       primaryAction = {
         label: fraudQuick.label,
         kind: "good",
         terminal: CLOSED_STATUSES.includes(target),
-        run: needsNote
-          ? () => { setFraudNote(""); setExpanded(true); setOpenFraudNote(target); }
-          : () => { void onTransition(task.id, target); },
+        run: () => { void onTransition(task.id, target); },
         /* Both carried through under the names shared gives them — the count
            rides alongside the sentence rather than being recomputed here, so the
            narrow action column can't disagree with the tooltip beside it. */
@@ -2107,30 +2095,18 @@ const TaskCard = memo(({
     !CLOSED_STATUSES.includes(task.status) &&
     canNoteTask;
 
-  /* Fire a FRAUD move. Plain transition and release are one-tap; a note-required
-     move (Send Outstanding Items / Send Back) posts the (optional) note as the
-     transition's reviewNotes. With the structured checklist (#44) the note is
-     optional context — a non-empty checklist is the payload — so the move sends
-     even with an empty note as long as there are items. */
+  /* Fire a FRAUD move. Every one of them is one tap now, including the two that
+     hand back — the checklist is the payload the server asks for, so there is
+     nothing to compose on the way out. A hand-back with an empty checklist never
+     reaches here: shared `fraudCardActions` blocks the button first. */
   const runFraudAction = (action: FraudCardAction): void => {
+    if (action.blockedReason) return;
     acknowledgeUnread();
     if (action.kind === "release") {
       void onRelease(task.id);
     } else if ((action.kind === "transition" || action.kind === "transitionWithNote") && action.targetStatus) {
-      // transitionWithNote only reaches here when the checklist already has
-      // items (see noteRequired below), so it's safe to fire note-free.
       void onTransition(task.id, action.targetStatus);
     }
-  };
-  const submitFraudNote = (target: TaskStatus): void => {
-    const note = fraudNote.trim();
-    // The server rejects an empty hand-back with no note AND no checklist; the
-    // button mirrors that so the checklist path sends note-free.
-    if (!note && !fraudHasChecklist) return;
-    acknowledgeUnread();
-    void onTransition(task.id, target, note || undefined);
-    setFraudNote("");
-    setOpenFraudNote(null);
   };
 
   const cancelBlock = (
@@ -2173,78 +2149,31 @@ const TaskCard = memo(({
     </div>
   );
 
-  /* The inline note a note-required move posts as its reviewNotes. Shared by
-     the body's own buttons and by the move promoted to the collapsed row —
-     the row can't host a textarea, so its button opens the card and reveals
-     this composer here. */
-  const fraudNoteBox = (target: TaskStatus) => (
-    <div className="task-card-fraud-note">
-      <textarea
-        rows={2}
-        placeholder={fraudHasChecklist ? "Optional note for the thread…" : "Describe what's outstanding…"}
-        value={fraudNote}
-        onChange={(e) => setFraudNote(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitFraudNote(target); } }}
-        autoFocus
-      />
-      <div className="task-card-fraud-note-actions">
-        <button type="button" className="btn-sm btn-good" onClick={() => submitFraudNote(target)} disabled={!fraudNote.trim() && !fraudHasChecklist}>
-          Send
-        </button>
-        <button type="button" className="btn-sm btn-ghost" onClick={() => { setOpenFraudNote(null); setFraudNote(""); }}>
-          Cancel
-        </button>
-      </div>
+  /* The alternatives to the phase's forward move (#39) — `Send Back`'s bounce
+     and `Release`'s hand-off to the checker pool. Both are steps sideways or
+     backwards, so they live in the menu next to `Send back to checker` and
+     `Undo Merge Done` rather than in the body. Same set the bot DM cards
+     render, minus the note path the bot still has and this app no longer does.
+
+     A hand-back with an empty checklist is offered and disabled rather than
+     opening a composer — `blockedReason` from shared `fraudCardActions`, the
+     same treatment `Submit` gets and the same sentence the server's refusal
+     would carry. The explanation rides `title` and `aria-label` so a disabled
+     control keeps it on the assistive path. */
+  const fraudMenuActions = expandedFraudActions.map((action) => (
+    <div key={action.label} className="task-card-fraud-action">
+      <button
+        type="button"
+        className="btn-sm btn-ghost"
+        disabled={Boolean(action.blockedReason)}
+        title={action.blockedReason}
+        aria-label={action.blockedReason ? `${action.label} — ${action.blockedReason}` : undefined}
+        onClick={() => runFraudAction(action)}
+      >
+        {action.label}
+      </button>
     </div>
-  );
-
-  /* The expanded body carries no fraud *buttons*. The phase's forward move
-     rides the collapsed row (fraudQuick) and the alternatives sit in the
-     hamburger (fraudMenuActions) — a lone `Send Back` floating above the
-     outstanding items read as part of the checklist rather than as the
-     card's action. All that's left here is the composer the row's own
-     note-required move opens, which has nowhere else to go: the row can't
-     host a textarea. */
-  const promotedNoteOpen = promotedNoteTarget !== undefined && openFraudNote === promotedNoteTarget;
-  const fraudActionsBlock = showActions && cancelStage === "idle" && promotedNoteOpen && promotedNoteTarget && (
-    <div className="task-card-fraud">{fraudNoteBox(promotedNoteTarget)}</div>
-  );
-
-  /* The alternatives to the phase's forward move (#39) — `Send Back`'s
-     bounce and `Release`'s hand-off to the checker pool. Both are steps
-     sideways or backwards, so they live in the menu next to `Send back to checker`
-     and `Undo Merge Done` rather than in the body. Rendered inside the
-     hamburger; the note box opens in place, which the panel already
-     supports (its Esc handler exempts text fields). Same set the bot DM
-     cards render. */
-  const fraudMenuActions = expandedFraudActions.map((action) => {
-    // A populated checklist already satisfies the server's
-    // "items or note" rule, so a transitionWithNote action
-    // fires immediately in that case — only an empty
-    // checklist still needs the note box gate (#84).
-    const noteRequired = action.kind === "transitionWithNote" && !fraudHasChecklist;
-    const noteOpen = noteRequired && openFraudNote === action.targetStatus;
-    return (
-      <div key={action.label} className="task-card-fraud-action">
-        <button
-          type="button"
-          className="btn-sm btn-ghost"
-          aria-expanded={noteRequired ? noteOpen : undefined}
-          onClick={() => {
-            if (noteRequired && action.targetStatus) {
-              setFraudNote("");
-              setOpenFraudNote(noteOpen ? null : action.targetStatus);
-            } else {
-              runFraudAction(action);
-            }
-          }}
-        >
-          {action.label}
-        </button>
-        {noteOpen && action.targetStatus && fraudNoteBox(action.targetStatus)}
-      </div>
-    );
-  });
+  ));
 
   /* Everything else — the actions-menu ladder, rendered inside the
      hamburger (see actionsMenu below), not in the expanded body. */
@@ -2617,7 +2546,6 @@ const TaskCard = memo(({
             />
           </div>
         ) : null}
-        {fraudActionsBlock}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
         {instructionsBlock}
         <div className="thread">{notesBlock}</div>

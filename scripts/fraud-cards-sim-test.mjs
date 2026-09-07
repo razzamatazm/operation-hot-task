@@ -100,6 +100,54 @@ check("CLAIMED: checker sees Send Outstanding Items (note), creator sees nothing
   assert.deepEqual(botPrimaryAdvance(t), { status: "AWAITING_ITEMS", label: "Send Items" });
 });
 
+// --- noteCapable: a surface with no free-text box ---------------------------
+/* The web app took its outstanding-items composer out (2026-09-07): the items
+   are the checklist and anything else is a message in the conversation beside
+   it. That leaves the checklist as the only way to satisfy the server's "a note
+   or at least one item" rule, so a surface declaring it cannot take a note gets
+   the hand-back blocked here rather than refused at the API.
+
+   The bot is the reason this is an option and not the rule. Its Adaptive Card
+   has a text input and no way to build a list, so it keeps the note-only path,
+   and the default has to stay note-capable for it. */
+check("noteCapable false: a hand-back with an empty checklist is blocked, not offered", () => {
+  const claimed = makeFraudTask({ status: "CLAIMED" });
+  assert.deepEqual(fraudCardActions(claimed, CHECKER, { noteCapable: false }), [
+    {
+      kind: "transitionWithNote",
+      label: "Send Items",
+      targetStatus: "AWAITING_ITEMS",
+      blockedReason: "Add at least one outstanding item first",
+      blockedCount: 0
+    }
+  ]);
+  // The bot's call is untouched: same task, same seat, no block.
+  assert.deepEqual(fraudCardActions(claimed, CHECKER), [
+    { kind: "transitionWithNote", label: "Send Items", targetStatus: "AWAITING_ITEMS" }
+  ]);
+});
+
+check("noteCapable false: one checklist item is enough to unblock the hand-back", () => {
+  const item = { id: "a", text: "bank statement", checked: false, addedBy: "checker", addedOnPass: 1 };
+  const claimed = makeFraudTask({ status: "CLAIMED", checklist: [item] });
+  assert.deepEqual(fraudCardActions(claimed, CHECKER, { noteCapable: false }), [
+    { kind: "transitionWithNote", label: "Send Items", targetStatus: "AWAITING_ITEMS" }
+  ]);
+
+  /* Send Back at final approval is the same move from the other end of the
+     loop, so it takes the same gate. The checker may add items at any live
+     status, which is what keeps this reachable rather than a dead end. */
+  const pending = makeFraudTask({ status: "PENDING_APPROVAL" });
+  const [, sendBack] = fraudCardActions(pending, CHECKER, { noteCapable: false });
+  assert.equal(sendBack.blockedReason, "Add at least one outstanding item first");
+  const pendingWithItem = makeFraudTask({ status: "PENDING_APPROVAL", checklist: [item] });
+  const [approve, unblocked] = fraudCardActions(pendingWithItem, CHECKER, { noteCapable: false });
+  assert.equal(unblocked.blockedReason, undefined);
+  // Approve is a plain move and never took a note, so the option cannot touch it.
+  assert.equal(approve.blockedReason, undefined);
+  assert.equal(approve.label, "Approve");
+});
+
 // --- AWAITING_ITEMS ---------------------------------------------------------
 check("AWAITING_ITEMS: creator sees Submit (plain), checker sees nothing", () => {
   const t = makeFraudTask({ status: "AWAITING_ITEMS" });
