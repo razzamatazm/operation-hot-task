@@ -360,6 +360,31 @@ The cost is a line of white space on the rows that use neither, and it is
 deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
 
+**The two reservations are per-cell, and that is why a row can need both at
+once.** A released Fraud Check is unclaimed *and* carries a stage — the two
+`unassignInPlace` paths (the creator's "release for any fraud checker" at
+`PENDING_APPROVAL`, and the sweep when a checker loses the FILE_CHECKER role, at
+any live status) leave a FRAUD task unassigned without moving its status. So
+`Fraud Check / Final Approval Needed` over `Suzie → Unclaimed 💩💩💩` is a real
+row, not a hypothetical, and it is the one the whole feature is aimed at:
+somebody deciding whether to pick up a half-finished check. It renders at the
+same 121px as every other active row, because each cell reserves its own line
+rather than the row reserving one total. `Final Approval Needed` is in fact
+*only* reachable in this state — `stageSuffix` returns it precisely when a
+`PENDING_APPROVAL` check has no assignee.
+
+The LOAN_DOCS stages never collide this way: `canUnclaimTask` and
+`canReturnToPool` are both `CLAIMED`-only, and both release paths are FRAUD-only,
+so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
+
+**One case still varies, by 2px.** A first name long enough to push the pair
+past its 194px cell (about eleven characters — `Bartholomew → Unclaimed`) wraps
+the *names* onto two lines and the rating onto a third. The reservation is a
+floor, not a cap, so that row grows. Left alone deliberately: capping it would
+mean ellipsizing a first name, which is a standing rule against, and the
+alternative is reserving a third line on every row to accommodate a name nobody
+on the team has.
+
 - **pair** — assigner → assignee on one line, now sharing a row only with
   the due stamp. No fixed width; overflow **wraps** (`flex-wrap: wrap`),
   and first names are never ellipsized, which is a standing rule. The
