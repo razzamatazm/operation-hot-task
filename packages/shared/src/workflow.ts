@@ -1362,6 +1362,32 @@ export const isPoolNagEligible = (task: Pick<LoanTask, "taskType" | "status" | "
 export const inPoolSince = (task: Pick<LoanTask, "pooledSince" | "createdAt">): string =>
   task.pooledSince ?? task.createdAt;
 
+/* Is this the task's FIRST time up for grabs, rather than a second offering of
+   something somebody already had a go at (2026-09-10)?
+
+   Asked by the collapsed row, which shows the How Bad? rating on a task in the
+   pool and deliberately does not re-show it on one coming back: the score is
+   the ask as its filer sized it and describes a whole job, and half a job that
+   has been handed back is not that job any more.
+
+   Derived from `inPoolSince` rather than from `pooledSince` directly, and the
+   difference is not cosmetic. `pooledSince` is absent on a task nobody has
+   held — that is the field's contract, and `inPoolSince` is the accessor built
+   on it — but "absent" is not the only way to say never-left: the dev seed
+   writes it equal to `createdAt` on the tasks it files, and any fixture or
+   import that stamps both fields at once is entitled to. Comparing the arrival
+   instant to the filing instant is true under either spelling, where a bare
+   `!task.pooledSince` silently answers "yes, it has been dropped" to every
+   seeded open task in the app.
+
+   Not to be confused with `canReturnToPool`, which is one specific door. This
+   answers for all four that stamp the field — the creator's return to pool, the
+   fraud release for any checker, the sweep when a checker loses the role, and a
+   reopen landing at OPEN — because it reads what they wrote rather than
+   naming them. */
+export const isFirstTimeInPool = (task: Pick<LoanTask, "pooledSince" | "createdAt">): boolean =>
+  inPoolSince(task) === task.createdAt;
+
 /* Whether an unclaimed task is due another ask of the room (ADR-0005).
 
    Anchored to the last nag. The fallback to `createdAt` is what makes a task

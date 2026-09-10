@@ -229,7 +229,8 @@ Each slot has one job. When adding info, replace something — don't append:
   wide screen; the name is the elastic part and the stage is what gives. See
   *Grouped collapsed row* for how it stacks under 560px.
 - **Poop** — the `How Bad?` score, and it is on the row **only while the task
-  is unclaimed** (2026-09-07). It answers one question — can I take a
+  is unclaimed and out for the first time** (2026-09-07, narrowed 2026-09-10).
+  It answers one question — can I take a
   five-poop set of loan docs right now — and that question is only live for
   somebody looking at work nobody holds, so it sits beside the word
   `Unclaimed` in the pair and leaves with it. Read-only there: a five-slot
@@ -240,6 +241,21 @@ Each slot has one job. When adding info, replace something — don't append:
   An unrated task renders no track at all rather than five ghosts. See
   `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
   every closed task, so nothing extra is needed to keep it off them.
+
+  **A task that has been dropped and re-offered does not get one**
+  (2026-09-10). The score is the ask as its filer sized it and it describes a
+  whole job; a check somebody has already been half-way through is not that job
+  any more, so quoting the original number on the way back out is a number
+  attached to the wrong piece of work. The first time out is when it means what
+  it says.
+
+  The test is shared `isFirstTimeInPool`, which compares when the task arrived
+  in the pool against when it was filed. **Not** a bare `!task.pooledSince`:
+  that field is absent on a never-held task in production, but the dev seed
+  writes it equal to `createdAt`, and any fixture or import is entitled to do
+  the same. Reading the field directly took the rating off every seeded open
+  task on the board, which is how the first attempt at this rule announced
+  itself. The comparison is true under both spellings.
 
   **An OOO gets one, and it is the case this is most for.** A review pass cut
   it out on the reasoning that a vacation notice is never picked up. That is
@@ -360,20 +376,22 @@ The cost is a line of white space on the rows that use neither, and it is
 deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
 
-**The two reservations are per-cell, and that is why a row can need both at
-once.** A released Fraud Check is unclaimed *and* carries a stage — the two
-`unassignInPlace` paths (the creator's "release for any fraud checker" at
-`PENDING_APPROVAL`, and the sweep when a checker loses the FILE_CHECKER role, at
-any live status) leave a FRAUD task unassigned without moving its status. So
-`Fraud Check / Final Approval Needed` over `Suzie → Unclaimed 💩💩💩` is a real
-row, not a hypothetical, and it is the one the whole feature is aimed at:
-somebody deciding whether to pick up a half-finished check. It renders at the
-same 121px as every other active row, because each cell reserves its own line
-rather than the row reserving one total. `Final Approval Needed` is in fact
-*only* reachable in this state — `stageSuffix` returns it precisely when a
-`PENDING_APPROVAL` check has no assignee.
+**The two reservations are per-cell, not one total for the row**, which is what
+makes them independent: whichever combination a row draws, it is the same
+height. Worth keeping even though the one row that could have needed both at
+once no longer does — see the rating rule directly below, which took it away on
+2026-09-10. A rule that happens to make a collision unreachable is not a reason
+to build a layout that would break if it came back.
 
-The LOAN_DOCS stages never collide this way: `canUnclaimTask` and
+For the record, that collision was: a released Fraud Check is unclaimed *and*
+carries a stage, because the two `unassignInPlace` paths (the creator's "release
+for any fraud checker" at `PENDING_APPROVAL`, and the sweep when a checker loses
+the FILE_CHECKER role, at any live status) clear the assignee without moving the
+status. `Final Approval Needed` is in fact *only* reachable there —
+`stageSuffix` returns it precisely when a `PENDING_APPROVAL` check has no
+assignee. Such a row now draws its status line and no rating.
+
+The LOAN_DOCS stages never collide this way either: `canUnclaimTask` and
 `canReturnToPool` are both `CLAIMED`-only, and both release paths are FRAUD-only,
 so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
 

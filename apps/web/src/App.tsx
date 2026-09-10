@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isFirstTimeInPool, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
@@ -2629,8 +2629,25 @@ const TaskCard = memo(({
               pickup: don't re-post "cover this holiday" to the channel every
               twenty minutes, and don't tell somebody their own vacation notice
               has gone unclaimed too long. Neither is a claim that nobody takes
-              it. Don't borrow them for a question about the pool. */}
-          {isUnclaimed(task) && (task.points ?? 0) > 0 && (
+              it. Don't borrow them for a question about the pool.
+
+              **A task that has been dropped and re-offered does not get one**
+              (2026-09-10, the user's call). The score is the ask as its filer
+              sized it, and it describes a whole job; a check somebody has
+              already been through half of is not that job any more, so
+              re-displaying it on the way back out is quoting a number at the
+              wrong piece of work. The first time out is when it means what it
+              says.
+
+              Shared `isFirstTimeInPool` is the test, so the rule is a named
+              question rather than a field poked at from a view. It compares
+              when the task arrived in the pool against when it was filed, which
+              is true under both spellings of never-left — the field absent, or
+              stamped equal to `createdAt` the way the dev seed writes it. A
+              bare `!task.pooledSince` reads as "this has been dropped" on every
+              seeded open task in the app, which is how this shipped wrong for
+              about ten minutes. */}
+          {isUnclaimed(task) && isFirstTimeInPool(task) && (task.points ?? 0) > 0 && (
             <PoopDisplay count={task.points ?? 0} canEdit={false} />
           )}
         </span>
