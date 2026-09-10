@@ -2469,13 +2469,38 @@ button.btn-good:hover {
     row-gap: 1px;
   }
 
+  /* Every active row is the same height, stage or no stage (2026-09-10). The
+     third line is *reserved* rather than added: without this, a list is a
+     mixture of two-line and three-line rows depending on whether a task's type
+     happens to have stages at all, and the rows jump about under a thumb
+     scrolling past them. Uniform rows are what makes a list scannable — the eye
+     learns one rhythm and keeps it — and the cost is one line of white space
+     under the short types, which is a cost worth paying on the surface where
+     everything else is already fighting for width.
+
+     Two lines of the type's own metric (`1.4` line-height, twice) plus the
+     `row-gap` a real wrapped stage puts between them — without that 1px the
+     reservation is a pixel short of the thing it reserves for, and a list ends
+     up 120px and 121px rows, which is the whole bug wearing a smaller hat. In
+     `em` so it follows the `pointer: coarse` floor rather than assuming today's
+     value, which is why that floor also names this cell and not only its
+     children.
+
+     Mini rows are excluded, and not incidentally: a closed task never has a
+     stage (`stageSuffix` answers only on live LOAN_DOCS and FRAUD statuses), so
+     reserving a line there would add one to every row in Done and buy nothing.
+     They are half-height on purpose. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
+    min-height: calc(2.8em + 1px);
+  }
+
   /* And the stage takes a third line under the type (2026-09-07). Stacking the
      title bought the type a full-width line, which is still not enough for the
      long ones: `Fraud Check - Final Approval Needed` wants ~290px of a title
      cell that resolves to about 200px at 390px, so it rendered as `FRAUD CHECK
      - FINAL APP…` and the status — the thing that says where the task actually
-     is — was the half that got cut. It wraps in full instead, and the row grows
-     by one line only on the rows that have a stage at all.
+     is — was the half that got cut. It wraps in full instead, into a line every
+     active row now reserves whether it has a stage or not.
 
      `order: 2` puts it after the unread dot rather than before it, so the dot
      rides the end of the type on line two instead of being pushed onto a line
@@ -2485,6 +2510,26 @@ button.btn-good:hover {
     flex: 1 0 100%;
     white-space: normal;
     overflow: visible;
+  }
+
+  /* The pair reserves its second line for the same reason the type cell does,
+     and it is the other half of "every active row is one height". The rating
+     wraps under `Suzie → Unclaimed` rather than sitting beside it, and it has
+     to: the pair cell is 194px at 390px and the names alone take about 172 of
+     them, so nothing that keeps five slots and un-truncated first names fits on
+     that line. Both are standing rules — first names never ellipsize, and the
+     track is a fixed five so a 3 reads against its scale.
+
+     So the line is reserved rather than fought over, and the rows that have no
+     rating hold the space anyway. Its three parts, in order: the avatar chip
+     that sets the first line's height, the flex `row-gap` between the two, and
+     the rating's own line box.
+
+     If the rating ever leaves this slot, this reservation goes with it — a
+     blank line under every pair, reserved for nothing, is exactly the ornament
+     the row's own rules refuse. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-pair {
+    min-height: calc(20px + 2px + 1.3em);
   }
   .task-card-collapsed-stage-join { display: none; }
 
@@ -4234,7 +4279,15 @@ button.btn-good:hover {
 
   /* 12px floor: the things that are read rather than glanced at. The type
      label and its stage suffix name what the task IS, and the two headings
-     introduce a list somebody is about to work down. */
+     introduce a list somebody is about to work down.
+
+     The floor sits on the type CELL as well as on the two boxes inside it,
+     which the children would inherit anyway. It is there so the cell's own
+     `em` resolves against the floored size: the phone rule that reserves the
+     stage's line (see the 560px block) is written in `em` precisely so it
+     follows this floor instead of hard-coding what the floor happens to be
+     today. */
+  .task-card-collapsed-type,
   .task-card-collapsed-type-text,
   .task-card-collapsed-stage,
   .checklist-title,

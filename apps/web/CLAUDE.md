@@ -314,8 +314,10 @@ grids can't share tracks, a content-sized column resolves differently per
 row and the list goes ragged (#116, which measured 86px of hamburger drift
 across one screen).
 
-An active row is **two lines at every width** — there is no responsive
-reflow, deliberately. The pair used to share one line with the title and
+An active row is **two grid lines at every width** — there is no responsive
+reflow, deliberately. (Two grid lines, not two lines of text: under 560px the
+title cell holds the name, the type and a reserved line for the stage, and the
+pair cell reserves a second line of its own. See *one height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -326,6 +328,37 @@ minmax(0,1fr) | 154px
 title         | action
 pair          | due
 ```
+
+**Under 560px every active row is one height, and that height is the tallest
+one** (2026-09-10). Two of the row's cells grow by a line on some rows and not
+others — the type cell when a task has a stage, the pair cell when an unclaimed
+task carries a rating — so a list came out as a mixture of shorter and taller
+cards depending on facts that have nothing to do with each other. Both lines
+are now **reserved** on every active row rather than added to the rows that use
+them: `.task-card-collapsed-type` takes a two-line `min-height` and
+`.task-card-pair` takes a two-line one of its own, both in the phone block.
+
+Three things about that pair of rules:
+
+- **They are written in `em` plus the gap they reserve for**, not in measured
+  pixels — the type cell's is `calc(2.8em + 1px)`, two lines of its own 1.4
+  line-height plus the `row-gap` a really-wrapped stage puts between them. A
+  pixel short and the list renders 120px and 121px rows, which is the same bug
+  at a size nobody can name but everybody can feel. The `em` is why the
+  `pointer: coarse` floor names `.task-card-collapsed-type` itself and not only
+  the two boxes inside it: the reservation has to follow the floored size
+  rather than assume today's value.
+- **Mini rows are excluded** (`:not(.task-card-grouped-mini)`). A closed task
+  never has a stage and never carries a rating, so reserving either line there
+  would add height to every row in Done and buy nothing. Minis are half-height
+  on purpose.
+- **A reservation belongs to the thing it reserves for.** If the rating leaves
+  the pair, its `min-height` goes with it. A blank line held for nothing is
+  ornament, which is the one thing this row's rules refuse.
+
+The cost is a line of white space on the rows that use neither, and it is
+deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
+this is the surface where a thumb is doing the scrolling.
 
 - **pair** — assigner → assignee on one line, now sharing a row only with
   the due stamp. No fixed width; overflow **wraps** (`flex-wrap: wrap`),
