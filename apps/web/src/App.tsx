@@ -2604,8 +2604,8 @@ const TaskCard = memo(({
               live for somebody looking at work nobody holds. #329 took it off
               the row entirely because five emoji rode every row in the list
               including the ~117 closed ones, which is the same fact stated
-              wrongly rather than a fact worth hiding. It sits with `Unclaimed`
-              because that word is what makes it relevant, and it leaves with
+              wrongly rather than a fact worth hiding. It lives in the pair
+              because `Unclaimed` is what makes it relevant, and it leaves with
               it: the moment somebody claims the task the slot is a person's
               name and the rating goes back to being reference detail in the
               expanded body, where its creator still rates it. Read-only here —

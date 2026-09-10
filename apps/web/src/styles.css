@@ -2512,21 +2512,31 @@ button.btn-good:hover {
     overflow: visible;
   }
 
-  /* The pair reserves its second line for the same reason the type cell does,
-     and it is the other half of "every active row is one height". The rating
-     wraps under `Suzie → Unclaimed` rather than sitting beside it, and it has
-     to: the pair cell is 194px at 390px and the names alone take about 172 of
-     them, so nothing that keeps five slots and un-truncated first names fits on
-     that line. Both are standing rules — first names never ellipsize, and the
+  /* The rating takes the line ABOVE the names (2026-09-10, the user's call),
+     not the one below. It has to take a line of its own either way: the pair
+     cell is 194px at 390px and the names alone want about 172 of them, so
+     nothing that keeps five slots and un-truncated first names fits beside them
+     — both of those are standing rules, first names never ellipsize and the
      track is a fixed five so a 3 reads against its scale.
 
-     So the line is reserved rather than fought over, and the rows that have no
-     rating hold the space anyway. Its three parts, in order: the avatar chip
-     that sets the first line's height, the flex `row-gap` between the two, and
-     the rating's own line box.
+     `order: -1` rather than a DOM move, so the markup keeps saying what the
+     rating is about: it is the pair's rating, sitting inside the pair, and on a
+     wide screen it is still a sibling on the same line as `Unclaimed`. Only the
+     phone's wrapped arrangement flips. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-pair > .poop-track {
+    order: -1;
+    flex: 1 0 100%;
+    margin-left: 0;
+  }
+
+  /* The pair reserves that line on every active row, which is the other half of
+     "every active row is one height" — the rows with no rating hold the space
+     anyway, so the names sit at the same y whether a rating is above them or
+     not. Its three parts: the avatar chip that sets the names' line height, the
+     flex `row-gap`, and the rating's own line box.
 
      If the rating ever leaves this slot, this reservation goes with it — a
-     blank line under every pair, reserved for nothing, is exactly the ornament
+     blank line inside every pair, reserved for nothing, is exactly the ornament
      the row's own rules refuse. */
   .task-card-grouped:not(.task-card-grouped-mini) .task-card-pair {
     min-height: calc(20px + 2px + 1.3em);

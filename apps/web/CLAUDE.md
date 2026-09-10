@@ -232,8 +232,12 @@ Each slot has one job. When adding info, replace something — don't append:
   is unclaimed and out for the first time** (2026-09-07, narrowed 2026-09-10).
   It answers one question — can I take a
   five-poop set of loan docs right now — and that question is only live for
-  somebody looking at work nobody holds, so it sits beside the word
-  `Unclaimed` in the pair and leaves with it. Read-only there: a five-slot
+  somebody looking at work nobody holds, so it lives in the pair — the slot
+  holding the word `Unclaimed` — and leaves with it. It sits **beside** that
+  word on a wide screen and, under 560px where it has to take a line of its
+  own, **above** the names rather than below them (2026-09-10, the user's
+  call), via `order: -1` rather than a DOM move so the markup keeps saying
+  whose rating it is. Read-only there: a five-slot
   editable track inside a row that is itself a press target is five touch
   targets nobody asked for, and the creator rates it in the expanded body or
   on the edit form. Fixed 5-slot track — slots 1..N in full colour, the rest
