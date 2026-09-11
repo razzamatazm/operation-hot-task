@@ -538,13 +538,17 @@ messages, and never went through the message handler.
 
 ### If filing from the bot is ever wanted again
 
-This is not a rebuild-from-scratch. The removal is a single commit, and its
-parent holds a complete, working implementation:
+This is not a rebuild-from-scratch. The removal landed as **PR #336**, and the
+commit on `main` immediately before it holds a complete, working implementation.
 
-- **Commit:** `6b89ff2aefc9eac5189046f6a328afefa512f334` (PR #336). Everything
-  removed is in its diff, and `git show 6b89ff2^:apps/server/src/bot.ts` is the
-  whole flow as it last ran.
-- **What that commit took out:** the `QuickAddDraft` state machine and its
+- **Where to look:** PR #336's diff, or on `main`, the commit *before* the one
+  whose subject begins "Take task creation off the bot". `git log --oneline -1
+  --grep "Take task creation off the bot"` finds it; the parent of that commit
+  has the flow as it last ran, in `apps/server/src/bot.ts`.
+- **Deliberately not a raw SHA.** The branch commits are squash-merged, so the
+  hash this work was developed under does not exist on `main` and dies with the
+  branch. The PR number and the commit subject are the durable handles.
+- **What was taken out:** the `QuickAddDraft` state machine and its
   per-person-per-conversation draft map, the step prompts and their parsers
   (task type, urgency, Poops, start and return dates, Humperdink link), the
   review message with field-level edits, the create confirmation, the message

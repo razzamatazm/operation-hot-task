@@ -3,7 +3,6 @@ import path from "node:path";
 import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
-import { normalizeHumperdinkLink } from "./validation.js";
 
 interface StoredReference {
   key: string;
@@ -127,7 +126,7 @@ const normalizeText = (raw: string): string =>
    not name a command that no longer exists or promise one that might: filing a
    task is the app's job and this is the only route. */
 const RETIRED_QUICK_ADD_REPLY =
-  "Tasks are created in the Loan Tasks tab, not here — open the tab to file one. I still post task cards and carry your replies.";
+  "Tasks are created in the Loan Tasks tab, not here. Open the tab to file one. I still post task cards and carry your replies.";
 
 class ReferenceStore {
   private chain: Promise<void> = Promise.resolve();
@@ -1009,7 +1008,7 @@ class LoanTasksBot extends ActivityHandler {
     const command = normalizeText(cleanText.trim()).replace(/^\/?bot /, "");
 
     if (command === "new" || command === "back" || command === "cancel") {
-      await context.sendActivity(RETIRED_QUICK_ADD_REPLY);
+      await context.sendActivity(`\`/bot ${command}\` was removed. ${RETIRED_QUICK_ADD_REPLY}`);
       return;
     }
 
