@@ -21,7 +21,10 @@
  * never a torn file. The filesystem is the only thing stubbed.
  *
  * #280 gave the bot's card-record store the same guarantee; these cover the
- * stores it missed: tasks, loans and the bot's conversation references.
+ * stores it missed: tasks, loans and the bot's conversation references (#331),
+ * then admin settings, users and the activity-feed state (#339). Settings is
+ * the quiet one: its read swallowed the parse error and answered "no channel
+ * chosen", which sends a notification to every channel instead of one.
  *
  * Run: `node --test scripts/store-read-during-write-sim-test.mjs`.
  */
@@ -31,8 +34,11 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
 import { ReferenceStore } from "../apps/server/dist/bot.js";
+import { SettingsStore } from "../apps/server/dist/settings-store.js";
 import { LoanStore, TaskStore } from "../apps/server/dist/store.js";
+import { UserStore } from "../apps/server/dist/user-store.js";
 
 const root = mkdtempSync(path.join(os.tmpdir(), "store-read-during-write-"));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -187,5 +193,67 @@ test("conversation references read while a save is half-written come back as sav
   assert.deepEqual(
     assertRead(await read, "read").map((entry) => entry.key),
     ["channel:general", "dm:creator-1"]
+  );
+});
+
+test("the notification channel read while a save is half-written is the one just saved", async () => {
+  // The failure here was silent: the torn read was caught and answered with
+  // empty settings, and empty means "no channel chosen" — broadcast to all.
+  const file = fileIn("admin-settings.json");
+  const store = new SettingsStore(file);
+  await store.init();
+  await store.setNotificationChannelId("19:chosen@thread.tacv2");
+
+  const hold = holdNextWrite(file);
+  const saving = store.setNotificationChannelId("19:moved@thread.tacv2");
+  await hold.truncated;
+  const channel = outcome(store.getNotificationChannelId());
+  const settings = outcome(store.read());
+  await hold.release();
+  await saving;
+
+  assert.equal(assertRead(await channel, "getNotificationChannelId"), "19:moved@thread.tacv2");
+  assert.deepEqual(assertRead(await settings, "read"), { notificationChannelId: "19:moved@thread.tacv2" });
+});
+
+test("a user looked up while a save is half-written comes back as saved", async () => {
+  const file = fileIn("users.json");
+  const store = new UserStore(file);
+  await store.init();
+  await store.seed({ id: "checker-1", displayName: "Casey Checker", roles: ["LOAN_OFFICER"] });
+
+  const hold = holdNextWrite(file);
+  const saving = store.setRoles("checker-1", ["FILE_CHECKER"]);
+  await hold.truncated;
+  const found = outcome(store.get("checker-1"));
+  const identity = outcome(store.getIdentity("checker-1"));
+  const listed = outcome(store.list());
+  await hold.release();
+  await saving;
+
+  assert.deepEqual(assertRead(await found, "get")?.roles, ["FILE_CHECKER"]);
+  assert.deepEqual(assertRead(await identity, "getIdentity")?.roles, ["FILE_CHECKER"]);
+  assert.deepEqual(
+    assertRead(await listed, "list").map((user) => user.roles),
+    [["FILE_CHECKER"]]
+  );
+});
+
+test("activity-feed state read while a save is half-written comes back as saved", async () => {
+  const file = fileIn("activity-feed-state.json");
+  const store = new ActivityFeedStateStore(file);
+  await store.init();
+  await store.upsertUser({ id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] });
+
+  const hold = holdNextWrite(file);
+  const saving = store.upsertUser({ id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] });
+  await hold.truncated;
+  const read = outcome(store.read());
+  await hold.release();
+  await saving;
+
+  assert.deepEqual(
+    assertRead(await read, "read").users.map((user) => user.id),
+    ["creator-1", "checker-1"]
   );
 });

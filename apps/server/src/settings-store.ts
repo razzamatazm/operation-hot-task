@@ -24,7 +24,16 @@ export class SettingsStore {
     }
   }
 
+  /* Queued behind any save (#339). A save rewrites the whole file, truncating
+     before it fills, and a read landing in that gap used to parse nothing, fall
+     into the catch below and answer "no channel chosen" — which broadcasts the
+     next notification to every channel instead of the one an admin picked.
+     The queue's own read stays off the queue, or a save would wait on itself. */
   async read(): Promise<AdminSettings> {
+    return this.enqueue(() => this.readUnqueued());
+  }
+
+  private async readUnqueued(): Promise<AdminSettings> {
     try {
       const raw = await fs.readFile(this.filePath, "utf8");
       return JSON.parse(raw) as AdminSettings;
@@ -40,7 +49,7 @@ export class SettingsStore {
   /* Pass null/undefined to clear the selection (revert to broadcast-to-all). */
   async setNotificationChannelId(channelId: string | null | undefined): Promise<void> {
     await this.enqueue(async () => {
-      const settings = await this.read();
+      const settings = await this.readUnqueued();
       if (channelId) {
         settings.notificationChannelId = channelId;
       } else {
@@ -50,8 +59,12 @@ export class SettingsStore {
     });
   }
 
-  private async enqueue(operation: () => Promise<void>): Promise<void> {
-    this.chain = this.chain.then(operation, operation);
-    return this.chain;
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(operation, operation);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 }

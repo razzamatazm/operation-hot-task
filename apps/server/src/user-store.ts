@@ -67,13 +67,18 @@ export class UserStore {
     await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
   }
 
+  /* Queued behind any save (#339): a save rewrites the whole file, truncating
+     before it fills, and a read landing in that gap parses a torn file and
+     throws — failing whatever request was resolving that person. Inside a
+     queued operation, call `read` directly: queuing from there would wait on
+     itself. */
   async list(): Promise<PersistedUser[]> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.users.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }
 
   async get(id: string): Promise<PersistedUser | undefined> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.users.find((user) => user.id === id);
   }
 
@@ -243,8 +248,12 @@ export class UserStore {
     return removed;
   }
 
-  private async enqueue(operation: () => Promise<void>): Promise<void> {
-    this.chain = this.chain.then(operation, operation);
-    return this.chain;
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(operation, operation);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 }
