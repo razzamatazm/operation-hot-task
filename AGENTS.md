@@ -19,7 +19,9 @@ Humperdink userscript).
   `users.json` — that file is gitignored and starts empty, and the dev user
   switcher offers whoever is in it — but never edits a person already there,
   so roles and deactivations survive. `-- --keep` re-seeds without clearing
-  what's there. **Run this once on a fresh clone**, or the switcher has nobody
+  what's there. Every seeded loan holds the link its tasks show, so the
+  loan-merge question is reachable on fresh data: as Suzie, edit the claimed
+  Loan Docs task on Castillo and paste Alvarez's link (the reset prints the exact link). **Run this once on a fresh clone**, or the switcher has nobody
   to offer.
 - `npm run build` — production-style build
 - `npm run lint` — typecheck (`tsc --noEmit`); there is no ESLint
