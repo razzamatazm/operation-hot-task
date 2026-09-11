@@ -492,24 +492,91 @@ What this means in practice:
 - `shareTask`'s reachability probe (`canReachDm`) stays on the request path,
   because `delivered` is part of the response body.
 
-## Bot v1 Scope
+## Bot Scope
 
 - Notifications/reminders
 - One-tap claim from channel cards
-- Quick add via `/bot new`
+- Note replies, the fraud advance buttons, and user-specific card refresh
 
-## Bot Quick Add Flow
+**The bot does not create tasks.** The app is the only place a task is filed.
 
-- Ask Folder Name
-- Ask task type
-- Ask urgency for non-OOO
-- Ask return date for OOO
-- Ask Poops
-- Ask notes
-- Ask Humperdink Link for non-OOO
-- Show final review with field-level edits
-- Show explicit final create confirmation
-- Support `/bot back`
+## Why the bot's task creation was removed (#315)
+
+The bot used to carry a full step-by-step task builder behind `/bot new`:
+Folder Name, task type, urgency or return dates, Poops, notes, Humperdink link,
+a review message with field-level edits, and a final create confirmation. It was
+removed, along with `/bot back` and `/bot cancel`, and the `new` command is gone
+from the Teams manifest.
+
+The reasoning:
+
+- **Nobody used it.** Every task is filed through the tab. The flow was a second
+  filing route kept alive for no traffic.
+- **A second route cannot be kept honest for free.** It re-asked every field the
+  create form asks, in its own words, and it had to re-learn every rule the form
+  learns. It had already fallen behind on two: it stored the literal text
+  `No additional notes` when somebody skipped the notes step — which since #300
+  is the first thing a person reads on the card, under a heading promising to say
+  what the task is for — and it never learned that a Fraud Check may be filed on
+  its outstanding items alone (ADR-0010 rule 3), because it never asked for
+  outstanding items at all.
+- **Deleted rather than hidden.** Closing the entrance and keeping the machinery
+  would have left several hundred lines that nothing reaches and nothing tests,
+  which is how the two drifts above went unnoticed in the first place.
+
+Existing tasks that already carry `No additional notes` in their request field
+are deliberately left alone. Rewriting somebody's stored request text after the
+fact is worse than stale words, and nothing new can produce it.
+
+What a typed message to the bot gets now: one line saying tasks are created in
+the tab. `help` says the same thing. The retired commands are answered by name
+rather than ignored, so muscle memory gets an explanation.
+
+Everything else the bot does is untouched. Claim, the fraud advance buttons,
+note replies and card refresh all arrive as card actions rather than typed
+messages, and never went through the message handler.
+
+### If filing from the bot is ever wanted again
+
+This is not a rebuild-from-scratch. The removal landed as **PR #336**, and the
+commit on `main` immediately before it holds a complete, working implementation.
+
+- **Where to look:** PR #336's diff, or on `main`, the commit *before* the one
+  whose subject begins "Take task creation off the bot". `git log --oneline -1
+  --grep "Take task creation off the bot"` finds it; the parent of that commit
+  has the flow as it last ran, in `apps/server/src/bot.ts`.
+- **Deliberately not a raw SHA.** The branch commits are squash-merged, so the
+  hash this work was developed under does not exist on `main` and dies with the
+  branch. The PR number and the commit subject are the durable handles.
+- **What was taken out:** the `QuickAddDraft` state machine and its
+  per-person-per-conversation draft map, the step prompts and their parsers
+  (task type, urgency, Poops, start and return dates, Humperdink link), the
+  review message with field-level edits, the create confirmation, the message
+  handler branches for `/bot new`, `/bot back` and `/bot cancel`, the
+  `BotTaskCreator` wiring from the server into the flow, and the `new` entry in
+  both Teams manifests.
+
+What would have to be **fixed, not just restored**, before it could be trusted
+again — these are live bugs in that code, not new requirements:
+
+1. **The skipped-notes filler.** It writes the literal text
+   `No additional notes` into the request field. That was the whole of #315. A
+   restored flow has to either refuse a skip the way it already refuses a bad
+   urgency or a bad date, or leave the field genuinely empty and let every
+   surface that draws the Instructions box handle its absence.
+2. **Fraud Checks.** It never asks for outstanding items, so it cannot satisfy
+   ADR-0010 rule 3 honestly — it only got past the rule by leaning on the
+   filler. A restored flow either collects outstanding items, requires a written
+   request for a Fraud Check specifically, or stops offering the type.
+3. **Whatever has changed since.** The deeper lesson is that a second filing
+   route has to re-learn every rule the create form learns. Before restoring,
+   diff the fields and rules the web form asks for against the ones that flow
+   asks for, rather than assuming the list is still the one it was written
+   against.
+
+The reason to check all three rather than reverting straight is that both of the
+first two drifted silently, in a flow nobody was walking and no test covered. A
+revert reinstates the drift along with the feature.
 
 ## Activity Feed
 

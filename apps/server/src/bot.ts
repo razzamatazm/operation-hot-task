@@ -1,9 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, CreateTaskInput, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, UrgencyLevel, UserIdentity, botAdvanceFor, computeDueAtFromReturnDate, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, getNotesFieldLabel, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
-import { normalizeHumperdinkLink } from "./validation.js";
 
 interface StoredReference {
   key: string;
@@ -117,226 +116,17 @@ export const correctedDetailSnapshot = (
   };
 };
 
-type BotTaskCreateInput = Pick<CreateTaskInput, "folderName" | "taskType" | "urgency" | "points" | "notes" | "startDate" | "returnDate" | "humperdinkLink">;
-type BotTaskCreator = (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>;
-
-type QuickAddStep =
-  | "FOLDER_NAME"
-  | "TASK_TYPE"
-  | "START_DATE"
-  | "RETURN_DATE"
-  | "URGENCY"
-  | "POINTS"
-  | "NOTES"
-  | "HUMPERDINK"
-  | "REVIEW"
-  | "CONFIRM_CREATE";
-type EditableField = "FOLDER_NAME" | "TASK_TYPE" | "START_DATE" | "RETURN_DATE" | "URGENCY" | "POINTS" | "NOTES" | "HUMPERDINK";
-
-interface QuickAddDraft {
-  step: QuickAddStep;
-  history: QuickAddStep[];
-  folderName?: string;
-  taskType?: TaskType;
-  startDate?: string;
-  returnDate?: string;
-  urgency?: UrgencyLevel;
-  points?: number;
-  notes?: string;
-  humperdinkLink?: string;
-  editField?: EditableField;
-}
-
-/* Built from the shared label table rather than written out, so the card's
-   picker cannot name a type differently from the web form, the DMs and the
-   channel cards. The hand-written copy said `OOO - Out of Office` — the
-   abbreviation and its expansion in one option, which is one of them too
-   many. */
-const TASK_TYPE_CHOICES: ReadonlyArray<{ label: string; value: TaskType }> =
-  TASK_TYPES.map((value) => ({ label: TASK_TYPE_LABELS[value], value }));
-
-const URGENCY_CHOICES: ReadonlyArray<{ label: string; value: UrgencyLevel }> = [
-  { label: "Within 24 Hours", value: "GREEN" },
-  { label: "End of Day", value: "YELLOW" },
-  { label: "Within 1 Hour", value: "ORANGE" },
-  { label: "Urgent Now", value: "RED" }
-];
-const REVIEW_ACTIONS = [
-  "Create task",
-  "Edit Folder Name",
-  "Edit Task Type",
-  "Edit Start Date",
-  "Edit Return Date",
-  "Edit Urgency",
-  "Edit Poops",
-  "Edit Notes",
-  "Edit Humperdink Link",
-  "Cancel"
-] as const;
-const CONFIRM_CREATE_ACTIONS = ["Confirm create", "Back to review", "Cancel"] as const;
-const formatPoops = (points: number): string => "💩".repeat(Math.max(1, Math.min(5, Math.trunc(points))));
-
 const normalizeText = (raw: string): string =>
   raw
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
 
-const parseTaskType = (text: string): TaskType | undefined => {
-  const normalized = normalizeText(text);
-  const matched = TASK_TYPE_CHOICES.find((choice) => normalizeText(choice.label) === normalized);
-  if (matched) {
-    return matched.value;
-  }
-
-  if (normalized === "loi") {
-    return "LOI";
-  }
-  if (normalized === "buddy chat" || normalized === "buddy_chat") {
-    return "BUDDY_CHAT";
-  }
-  if (normalized === "value") {
-    return "VALUE";
-  }
-  if (normalized === "fraud") {
-    return "FRAUD";
-  }
-  if (normalized === "loan docs" || normalized === "loan_docs") {
-    return "LOAN_DOCS";
-  }
-  if (normalized === "ooo" || normalized === "out of office" || normalized === "ooo - out of office") {
-    return "OOO";
-  }
-  return undefined;
-};
-
-const parseUrgency = (text: string): UrgencyLevel | undefined => {
-  const normalized = normalizeText(text);
-  const matched = URGENCY_CHOICES.find((choice) => normalizeText(choice.label) === normalized);
-  if (matched) {
-    return matched.value;
-  }
-
-  if (normalized.startsWith("green")) {
-    return "GREEN";
-  }
-  if (normalized.startsWith("yellow")) {
-    return "YELLOW";
-  }
-  if (normalized.startsWith("orange")) {
-    return "ORANGE";
-  }
-  if (normalized.startsWith("red")) {
-    return "RED";
-  }
-  if (normalized.includes("anytime")) {
-    return "GREEN";
-  }
-  if (
-    normalized.includes("within 24 hours") ||
-    normalized.includes("24 hours") ||
-    normalized.includes("24 hour")
-  ) {
-    return "GREEN";
-  }
-  if (normalized.includes("end of day")) {
-    return "YELLOW";
-  }
-  if (normalized.includes("1 hour") || normalized.includes("one hour")) {
-    return "ORANGE";
-  }
-  if (normalized.includes("urgent")) {
-    return "RED";
-  }
-  return undefined;
-};
-const parsePoints = (text: string): number | undefined => {
-  const value = Number.parseInt(text.trim(), 10);
-  if (!Number.isInteger(value) || value < 1 || value > 5) {
-    return undefined;
-  }
-  return value;
-};
-
-const isNoAdditionalNotes = (text: string): boolean => normalizeText(text) === "no additional notes";
-const parseStartDate = (text: string): string | undefined => {
-  const trimmed = text.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return undefined;
-  }
-  if (Number.isNaN(new Date(`${trimmed}T00:00:00`).getTime())) {
-    return undefined;
-  }
-  return trimmed;
-};
-const parseReturnDate = (text: string): string | undefined => {
-  const trimmed = text.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return undefined;
-  }
-  let dueAt: string;
-  try {
-    dueAt = computeDueAtFromReturnDate(trimmed);
-  } catch {
-    return undefined;
-  }
-  if (new Date(dueAt).getTime() <= Date.now()) {
-    return undefined;
-  }
-  return trimmed;
-};
-const isSkip = (text: string): boolean => {
-  const normalized = normalizeText(text);
-  return normalized === "skip" || normalized === "none" || normalized === "n/a";
-};
-const formatField = (value: string | undefined): string => (value && value.trim().length > 0 ? value : "Not provided");
-const urgencyLabel = (urgency: UrgencyLevel): string => URGENCY_CHOICES.find((choice) => choice.value === urgency)?.label ?? urgency;
-const taskTypeLabel = (taskType: TaskType): string => TASK_TYPE_CHOICES.find((choice) => choice.value === taskType)?.label ?? taskType;
-const notesPromptLabel = (taskType?: TaskType): string => `${getNotesFieldLabel(taskType)} (type your notes, or choose No additional notes):`;
-/* The review menu's entry for the request field, worded per type from the same
-   table as the summary line above it (#301). "Edit Notes" under a line reading
-   "Coverage Notes: ..." is one bot message naming one field two ways. The
-   canonical action stays "Edit Notes" — it is an identifier the handler
-   switches on, not something anybody reads. */
-const editNotesAction = (taskType?: TaskType): string => `Edit ${getNotesFieldLabel(taskType)}`;
-const normalizeReviewAction = (text: string): string => normalizeText(text).replace(/\s+/g, " ");
-/* Takes the draft's type so the per-type wording it just offered comes back as
-   the action it stands for. Bare "Edit Notes" is still accepted whatever the
-   type: it is what a draft mid-flight was offered before this shipped, and what
-   somebody types rather than presses. */
-export const parseReviewAction = (text: string, taskType?: TaskType): string | undefined => {
-  const normalized = normalizeReviewAction(text);
-  if (normalized === normalizeReviewAction(editNotesAction(taskType))) {
-    return "Edit Notes";
-  }
-  return REVIEW_ACTIONS.find((action) => normalizeReviewAction(action) === normalized);
-};
-const parseConfirmCreateAction = (text: string): string | undefined => {
-  const normalized = normalizeReviewAction(text);
-  return CONFIRM_CREATE_ACTIONS.find((action) => normalizeReviewAction(action) === normalized);
-};
-const isEditableStep = (step: QuickAddStep): step is EditableField =>
-  step === "FOLDER_NAME" || step === "TASK_TYPE" || step === "START_DATE" || step === "RETURN_DATE" || step === "URGENCY" || step === "POINTS" || step === "NOTES" || step === "HUMPERDINK";
-
-/* Exported for `scripts/instructions-box-sim-test.mjs`, which asserts that what
-   the review menu offers and what a press of it resolves to are the same round
-   trip on every task type. */
-export const reviewActionsForDraft = (draft: QuickAddDraft): string[] => {
-  const shown =
-    draft.taskType === "OOO"
-      ? REVIEW_ACTIONS.filter((action) => action !== "Edit Urgency" && action !== "Edit Humperdink Link")
-      : REVIEW_ACTIONS.filter((action) => action !== "Edit Start Date" && action !== "Edit Return Date");
-  return shown.map((action) => (action === "Edit Notes" ? editNotesAction(draft.taskType) : action));
-};
-
-const toBotUserIdentity = (context: TurnContext): UserIdentity => {
-  const from = context.activity.from;
-  return {
-    id: from?.aadObjectId ?? from?.id ?? "teams-user",
-    displayName: from?.name ?? "Teams User",
-    roles: ["LOAN_OFFICER"]
-  };
-};
+/* One sentence, said to anybody who types at the bot (#315). Deliberately does
+   not name a command that no longer exists or promise one that might: filing a
+   task is the app's job and this is the only route. */
+const RETIRED_QUICK_ADD_REPLY =
+  "Tasks are created in the Loan Tasks tab, not here. Open the tab to file one. I still post task cards and carry your replies.";
 
 class ReferenceStore {
   private chain: Promise<void> = Promise.resolve();
@@ -1011,11 +801,8 @@ const channelDisplayName = (activity: { channelData?: unknown }): string | undef
 };
 
 class LoanTasksBot extends ActivityHandler {
-  private readonly drafts = new Map<string, QuickAddDraft>();
-
   constructor(
     private readonly onReference: (reference: Partial<ConversationReference>, scope: "DM" | "CHANNEL", displayName?: string) => Promise<void>,
-    private readonly onQuickAddTask: (input: BotTaskCreateInput, user: UserIdentity) => Promise<LoanTask>,
     /* Resolve a tapped Claim button (`from.aadObjectId` + `taskId`) into a
        claim. Returns a normalized outcome the bot renders back into the card. */
     private readonly onClaim: (taskId: string, aadObjectId: string | undefined, displayName: string) => Promise<ClaimOutcome>,
@@ -1201,506 +988,37 @@ class LoanTasksBot extends ActivityHandler {
     return cardMessageResponse("Sorry, I didn't recognise that action.");
   }
 
+  /* Typed messages to the bot (#315). There is exactly one answer now: point at
+     the app. The bot used to carry a full step-by-step task builder behind
+     `/bot new`, re-asking every field the create form asks and holding a draft
+     per person per conversation; it was removed because nobody filed through
+     it, and an unused second filing route cannot be kept honest. It had already
+     drifted — it stamped the literal text `No additional notes` into the
+     request field when somebody skipped the step, which since #300 is the first
+     thing a person reads on the card, and it never learned that a Fraud Check
+     may be filed on its outstanding items alone.
+
+     The retired commands are answered by name rather than falling through to
+     the generic line, so somebody with `/bot new` in muscle memory is told what
+     happened instead of being ignored. Everything else the bot does — channel
+     cards, note DMs, Claim and the advance buttons — is untouched: those arrive
+     as card actions, not as typed messages, and never came through here. */
   private async handleMessage(context: TurnContext): Promise<void> {
     const cleanText = TurnContext.removeRecipientMention(context.activity) ?? context.activity.text ?? "";
-    const text = cleanText.trim();
-    const command = normalizeText(text);
-    const key = this.quickAddKey(context);
+    const command = normalizeText(cleanText.trim()).replace(/^\/?bot /, "");
 
-    if (command === "help" || command === "/bot help" || command === "bot help") {
-      await this.sendHelp(context);
+    if (command === "new" || command === "back" || command === "cancel") {
+      await context.sendActivity(`\`/bot ${command}\` was removed. ${RETIRED_QUICK_ADD_REPLY}`);
       return;
     }
 
-    if (command === "cancel" || command === "/bot cancel" || command === "bot cancel") {
-      this.drafts.delete(key);
-      await context.sendActivity("Quick add cancelled.");
-      return;
-    }
-
-    if (command === "new" || command === "/bot new" || command === "bot new") {
-      this.drafts.set(key, { step: "FOLDER_NAME", history: [] });
-      await context.sendActivity("New task started. Enter task description:");
-      return;
-    }
-
-    const draft = this.drafts.get(key);
-
-    if (command === "back" || command === "/bot back" || command === "bot back") {
-      if (!draft) {
-        await context.sendActivity("No active quick add. Send `/bot new` to start.");
-        return;
-      }
-      await this.goBack(context, key, draft);
-      return;
-    }
-
-    if (!draft) {
-      await context.sendActivity("Loan Tasks bot is connected. Send `/bot new` to add a task, or `help`.");
-      return;
-    }
-
-    if (draft.step === "FOLDER_NAME") {
-      const folderName = text.trim();
-      if (!folderName) {
-        await context.sendActivity("Description cannot be blank. Enter task description:");
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { folderName, step: "TASK_TYPE" });
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity(
-        MessageFactory.suggestedActions(
-          TASK_TYPE_CHOICES.map((choice) => choice.label),
-          "Choose task type:"
-        )
-      );
-      return;
-    }
-
-    if (draft.step === "TASK_TYPE") {
-      const parsed = parseTaskType(text);
-      if (!parsed) {
-        await context.sendActivity(
-          MessageFactory.suggestedActions(
-            TASK_TYPE_CHOICES.map((choice) => choice.label),
-            "Pick one of the task types:"
-          )
-        );
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { taskType: parsed, step: parsed === "OOO" ? "START_DATE" : "URGENCY" });
-      if (parsed === "OOO") {
-        delete nextDraft.urgency;
-        delete nextDraft.humperdinkLink;
-      } else {
-        delete nextDraft.startDate;
-        delete nextDraft.returnDate;
-      }
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      if (nextDraft.step === "START_DATE") {
-        await context.sendActivity("Enter start date (first day out) in YYYY-MM-DD (PT):");
-        return;
-      }
-      await context.sendActivity(
-        MessageFactory.suggestedActions(
-          URGENCY_CHOICES.map((choice) => choice.label),
-          "Choose urgency:"
-        )
-      );
-      return;
-    }
-
-    if (draft.step === "START_DATE") {
-      const parsed = parseStartDate(text);
-      if (!parsed) {
-        await context.sendActivity("Enter a start date in YYYY-MM-DD (PT):");
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { startDate: parsed, step: "RETURN_DATE" });
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
-      return;
-    }
-
-    if (draft.step === "RETURN_DATE") {
-      const parsed = parseReturnDate(text);
-      if (!parsed) {
-        await context.sendActivity("Enter a future return date in YYYY-MM-DD (PT):");
-        return;
-      }
-      if (draft.startDate && parsed < draft.startDate) {
-        await context.sendActivity("Return date must be on or after the start date. Enter return date in YYYY-MM-DD (PT):");
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { returnDate: parsed, step: "POINTS" });
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
-      return;
-    }
-
-    if (draft.step === "POINTS") {
-      const parsed = parsePoints(text);
-      if (!parsed) {
-        await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Pick a poop value from 1 to 5:"));
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { points: parsed, step: "NOTES" });
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity(
-        MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(nextDraft.taskType))
-      );
-      return;
-    }
-
-    if (draft.step === "URGENCY") {
-      const parsed = parseUrgency(text);
-      if (!parsed) {
-        await context.sendActivity(
-          MessageFactory.suggestedActions(
-            URGENCY_CHOICES.map((choice) => choice.label),
-            "Pick one urgency level:"
-          )
-        );
-        return;
-      }
-
-      const nextDraft = this.updateDraft(draft, { urgency: parsed, step: "POINTS" });
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
-      return;
-    }
-
-    if (draft.step === "NOTES") {
-      const noteText = text.trim();
-      const notes = noteText.length > 0 && !isNoAdditionalNotes(noteText) ? noteText : "No additional notes";
-      const nextStep: QuickAddStep = draft.taskType === "OOO" ? "REVIEW" : "HUMPERDINK";
-      const nextDraft = this.updateDraft(draft, { notes, step: nextStep });
-      this.drafts.set(key, nextDraft);
-      if (nextDraft.step === "REVIEW") {
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-      await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Humperdink Link (paste URL or choose Skip):"));
-      return;
-    }
-
-    if (draft.step === "HUMPERDINK") {
-      const trimmed = text.trim();
-      const skipOrEmpty = isSkip(trimmed) || trimmed.length === 0;
-      const normalized = skipOrEmpty ? "" : normalizeHumperdinkLink(trimmed);
-      if (!skipOrEmpty && (normalized === null || normalized === "")) {
-        await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Please enter a valid URL (http/https), or choose Skip:"));
-        return;
-      }
-
-      const humperdinkLink = skipOrEmpty ? undefined : (normalized as string);
-      const nextDraft = this.updateDraft(draft, { step: "REVIEW" });
-      if (humperdinkLink) {
-        nextDraft.humperdinkLink = humperdinkLink;
-      } else {
-        delete nextDraft.humperdinkLink;
-      }
-      this.drafts.set(key, nextDraft);
-      await this.sendReview(context, nextDraft);
-      return;
-    }
-
-    if (draft.step === "REVIEW") {
-      const action = parseReviewAction(text, draft.taskType);
-      if (!action) {
-        await this.sendReview(context, draft);
-        return;
-      }
-
-      if (action === "Cancel") {
-        this.drafts.delete(key);
-        await context.sendActivity("Quick add cancelled.");
-        return;
-      }
-
-      if (action === "Create task") {
-        const nextDraft = this.updateDraft(draft, { step: "CONFIRM_CREATE" });
-        this.drafts.set(key, nextDraft);
-        await this.sendCreateConfirmation(context, nextDraft);
-        return;
-      }
-
-      if (action === "Edit Folder Name") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "FOLDER_NAME", editField: "FOLDER_NAME" }));
-        await context.sendActivity(draft.taskType === "OOO" ? "Enter OOO description:" : "Enter task description:");
-        return;
-      }
-
-      if (action === "Edit Task Type") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "TASK_TYPE", editField: "TASK_TYPE" }));
-        await context.sendActivity(MessageFactory.suggestedActions(TASK_TYPE_CHOICES.map((choice) => choice.label), "Choose task type:"));
-        return;
-      }
-
-      if (action === "Edit Urgency") {
-        if (draft.taskType === "OOO") {
-          await this.sendReview(context, draft);
-          return;
-        }
-        this.drafts.set(key, this.updateDraft(draft, { step: "URGENCY", editField: "URGENCY" }));
-        await context.sendActivity(MessageFactory.suggestedActions(URGENCY_CHOICES.map((choice) => choice.label), "Choose urgency:"));
-        return;
-      }
-
-      if (action === "Edit Poops") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "POINTS", editField: "POINTS" }));
-        await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
-        return;
-      }
-
-      if (action === "Edit Start Date") {
-        if (draft.taskType !== "OOO") {
-          await this.sendReview(context, draft);
-          return;
-        }
-        this.drafts.set(key, this.updateDraft(draft, { step: "START_DATE", editField: "START_DATE" }));
-        await context.sendActivity("Enter start date (first day out) in YYYY-MM-DD (PT):");
-        return;
-      }
-
-      if (action === "Edit Return Date") {
-        if (draft.taskType !== "OOO") {
-          await this.sendReview(context, draft);
-          return;
-        }
-        this.drafts.set(key, this.updateDraft(draft, { step: "RETURN_DATE", editField: "RETURN_DATE" }));
-        await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
-        return;
-      }
-
-      if (action === "Edit Notes") {
-        this.drafts.set(key, this.updateDraft(draft, { step: "NOTES", editField: "NOTES" }));
-        await context.sendActivity(MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(draft.taskType)));
-        return;
-      }
-
-      if (action === "Edit Humperdink Link") {
-        if (draft.taskType === "OOO") {
-          await this.sendReview(context, draft);
-          return;
-        }
-        this.drafts.set(key, this.updateDraft(draft, { step: "HUMPERDINK", editField: "HUMPERDINK" }));
-        await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Humperdink Link (paste URL or choose Skip):"));
-        return;
-      }
-
-      return;
-    }
-
-    if (draft.step === "CONFIRM_CREATE") {
-      const action = parseConfirmCreateAction(text);
-      if (!action) {
-        await this.sendCreateConfirmation(context, draft);
-        return;
-      }
-
-      if (action === "Cancel") {
-        this.drafts.delete(key);
-        await context.sendActivity("Quick add cancelled.");
-        return;
-      }
-
-      if (action === "Back to review") {
-        const nextDraft = this.updateDraft(draft, { step: "REVIEW" });
-        this.drafts.set(key, nextDraft);
-        await this.sendReview(context, nextDraft);
-        return;
-      }
-
-      await this.completeQuickAdd(context, key);
-      return;
-    }
-  }
-
-  private updateDraft(draft: QuickAddDraft, updates: Partial<QuickAddDraft>, options?: { pushHistory?: boolean }): QuickAddDraft {
-    const next = { ...draft, ...updates };
-    const pushHistory = options?.pushHistory ?? true;
-    const previousStep = draft.step;
-
-    if (!isEditableStep(next.step)) {
-      delete next.editField;
-    } else if (next.editField) {
-      const editing = next.editField;
-      if (next.step !== editing) {
-        next.step = "REVIEW";
-        delete next.editField;
-      }
-    }
-
-    if (pushHistory && next.step !== previousStep) {
-      next.history = [...draft.history, previousStep];
-    } else if (!next.history) {
-      next.history = [...draft.history];
-    }
-
-    return next;
-  }
-
-  private async goBack(context: TurnContext, key: string, draft: QuickAddDraft): Promise<void> {
-    const previousStep = draft.history.at(-1);
-    if (!previousStep) {
-      await context.sendActivity("You are already at the first step. Enter task description:");
-      return;
-    }
-
-    const nextHistory = draft.history.slice(0, -1);
-    const nextDraft = this.updateDraft(
-      draft,
-      {
-        step: previousStep,
-        history: nextHistory
-      },
-      { pushHistory: false }
-    );
-    delete nextDraft.editField;
-    this.drafts.set(key, nextDraft);
-    await this.promptForStep(context, nextDraft);
-  }
-
-  private async promptForStep(context: TurnContext, draft: QuickAddDraft): Promise<void> {
-    if (draft.step === "FOLDER_NAME") {
-      await context.sendActivity(draft.taskType === "OOO" ? "Enter OOO description:" : "Enter task description:");
-      return;
-    }
-    if (draft.step === "TASK_TYPE") {
-      await context.sendActivity(MessageFactory.suggestedActions(TASK_TYPE_CHOICES.map((choice) => choice.label), "Choose task type:"));
-      return;
-    }
-    if (draft.step === "URGENCY") {
-      await context.sendActivity(MessageFactory.suggestedActions(URGENCY_CHOICES.map((choice) => choice.label), "Choose urgency:"));
-      return;
-    }
-    if (draft.step === "POINTS") {
-      await context.sendActivity(MessageFactory.suggestedActions(["1", "2", "3", "4", "5"], "Choose Poops (1-5):"));
-      return;
-    }
-    if (draft.step === "START_DATE") {
-      await context.sendActivity("Enter start date (first day out) in YYYY-MM-DD (PT):");
-      return;
-    }
-    if (draft.step === "RETURN_DATE") {
-      await context.sendActivity("Enter return date in YYYY-MM-DD (PT):");
-      return;
-    }
-    if (draft.step === "NOTES") {
-      await context.sendActivity(MessageFactory.suggestedActions(["No additional notes"], notesPromptLabel(draft.taskType)));
-      return;
-    }
-    if (draft.step === "HUMPERDINK") {
-      await context.sendActivity(MessageFactory.suggestedActions(["Skip"], "Humperdink Link (paste URL or choose Skip):"));
-      return;
-    }
-    if (draft.step === "REVIEW") {
-      await this.sendReview(context, draft);
-      return;
-    }
-    await this.sendCreateConfirmation(context, draft);
-  }
-
-  private async sendReview(context: TurnContext, draft: QuickAddDraft): Promise<void> {
-    const lines = [
-      `${draft.taskType === "OOO" ? "Vacation Description" : "Folder Name"}: ${formatField(draft.folderName)}`,
-      `Task Type: ${draft.taskType ? taskTypeLabel(draft.taskType) : "Not provided"}`,
-      ...(draft.taskType === "OOO"
-        ? [`Start Date: ${formatField(draft.startDate)}`, `Return Date: ${formatField(draft.returnDate)}`]
-        : [`Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`]),
-      `Poops: ${formatPoops(draft.points ?? 1)} (${draft.points ?? 1})`,
-      `${getNotesFieldLabel(draft.taskType)}: ${formatField(draft.notes)}`,
-      ...(draft.taskType === "OOO" ? [] : [`Humperdink Link: ${formatField(draft.humperdinkLink)}`])
-    ];
-    await context.sendActivity(
-      MessageFactory.suggestedActions(
-        reviewActionsForDraft(draft),
-        `Review task details:\n${lines.join("\n")}\nChoose an action:`
-      )
-    );
-  }
-
-  private async sendCreateConfirmation(context: TurnContext, draft: QuickAddDraft): Promise<void> {
-    const lines = [
-      `${draft.taskType === "OOO" ? "Vacation Description" : "Folder Name"}: ${formatField(draft.folderName)}`,
-      `Task Type: ${draft.taskType ? taskTypeLabel(draft.taskType) : "Not provided"}`,
-      ...(draft.taskType === "OOO"
-        ? [`Start Date: ${formatField(draft.startDate)}`, `Return Date: ${formatField(draft.returnDate)}`]
-        : [`Urgency: ${draft.urgency ? urgencyLabel(draft.urgency) : "Not provided"}`]),
-      `Poops: ${formatPoops(draft.points ?? 1)} (${draft.points ?? 1})`
-    ];
-    await context.sendActivity(
-      MessageFactory.suggestedActions(
-        [...CONFIRM_CREATE_ACTIONS],
-        `Confirm task creation:\n${lines.join("\n")}\nType "Back" to revisit earlier steps, or choose an action:`
-      )
-    );
-  }
-
-  private async completeQuickAdd(context: TurnContext, key: string): Promise<void> {
-    const draft = this.drafts.get(key);
-    if (!draft?.folderName || !draft.taskType || !draft.notes) {
-      this.drafts.delete(key);
-      await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
-      return;
-    }
-    if (draft.taskType === "OOO" && (!draft.startDate || !draft.returnDate)) {
-      this.drafts.delete(key);
-      await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
-      return;
-    }
-    if (draft.taskType !== "OOO" && !draft.urgency) {
-      this.drafts.delete(key);
-      await context.sendActivity("Quick add state was incomplete. Please run `/bot new` again.");
-      return;
-    }
-
-    const user = toBotUserIdentity(context);
-    const payload: BotTaskCreateInput = {
-      folderName: draft.folderName,
-      taskType: draft.taskType,
-      points: draft.points ?? 1,
-      notes: draft.notes,
-      ...(draft.taskType === "OOO" && draft.startDate ? { startDate: draft.startDate } : {}),
-      ...(draft.taskType === "OOO" && draft.returnDate ? { returnDate: draft.returnDate } : {}),
-      ...(draft.taskType !== "OOO" && draft.urgency ? { urgency: draft.urgency } : {}),
-      ...(draft.taskType !== "OOO" && draft.humperdinkLink ? { humperdinkLink: draft.humperdinkLink } : {})
-    };
-
-    try {
-      const task = await this.onQuickAddTask(payload, user);
-      this.drafts.delete(key);
-      await context.sendActivity(
-        `Task created: ${task.folderName}\nType: ${taskTypeLabel(task.taskType)}\n${
-          task.taskType === "OOO" ? `Out: ${draft.startDate} → ${draft.returnDate}` : `Urgency: ${urgencyLabel(task.urgency)}`
-        }\nPoops: ${formatPoops(task.points)} (${task.points})\nStatus: ${task.status}`
-      );
-    } catch (error) {
-      this.drafts.delete(key);
-      await context.sendActivity(`Could not create task: ${error instanceof Error ? error.message : "Unknown error"}`);
-    }
+    await this.sendHelp(context);
   }
 
   private async sendHelp(context: TurnContext): Promise<void> {
     await context.sendActivity(
-      "Commands:\n- `/bot new` start quick add\n- `/bot back` go to previous step\n- `/bot cancel` cancel current quick add\n- `help` show this message"
+      `Loan Tasks bot is connected. ${RETIRED_QUICK_ADD_REPLY}`
     );
-  }
-
-  private quickAddKey(context: TurnContext): string {
-    const user = context.activity.from?.aadObjectId ?? context.activity.from?.id ?? "teams-user";
-    const conversation = context.activity.conversation?.id ?? "conversation";
-    return `${user}:${conversation}`;
   }
 
   private async capture(context: TurnContext): Promise<void> {
@@ -1761,7 +1079,6 @@ export class TeamsBotClient {
      this the claim card was fire-and-forget: its activity id was discarded, so
      its Complete button could never be taken away once the task moved on. */
   private readonly detailCards: ThreadStore;
-  private taskCreator?: BotTaskCreator;
   private taskClaimer?: (taskId: string, user: UserIdentity) => Promise<LoanTask>;
   private userResolver?: (aadObjectId: string) => Promise<UserIdentity | undefined>;
   private noteAdder?: (taskId: string, text: string, user: UserIdentity) => Promise<LoanTask>;
@@ -1802,12 +1119,6 @@ export class TeamsBotClient {
             await this.onDmUser(dmAadObjectId, dmUserId);
           }
         },
-        async (input, user) => {
-          if (!this.taskCreator) {
-            throw new Error("Quick add is not configured on server");
-          }
-          return this.taskCreator(input, user);
-        },
         async (taskId, aadObjectId, displayName) => this.handleClaim(taskId, aadObjectId, displayName),
         async (taskId, text, aadObjectId, carried) => this.handleNoteReply(taskId, text, aadObjectId, carried),
         async (taskId, targetStatus, aadObjectId, reviewNotes) => this.handleTransition(taskId, targetStatus, aadObjectId, reviewNotes),
@@ -1828,10 +1139,6 @@ export class TeamsBotClient {
      update repair itself the first time someone taps a button on it. */
   setCardResync(resync: (taskId: string) => Promise<void>): void {
     this.cardResync = resync;
-  }
-
-  setTaskCreator(taskCreator: BotTaskCreator): void {
-    this.taskCreator = taskCreator;
   }
 
   /* Wire the one-tap Claim button to the task service. `resolveUser` maps a
