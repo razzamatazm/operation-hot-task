@@ -2537,9 +2537,19 @@ button.btn-good:hover {
 
      If the rating ever leaves this slot, this reservation goes with it — a
      blank line inside every pair, reserved for nothing, is exactly the ornament
-     the row's own rules refuse. */
+     the row's own rules refuse.
+
+     `align-content: flex-end` is what makes the reservation invisible, and it
+     is the whole reason this looked wrong before (2026-09-10). Equal row
+     heights are not the same thing as a list that lines up: with the lines
+     packed to the top, a rated row put its names 10px below where an unrated
+     row put them, so the names zigzagged down the list while every card
+     measured the same. Anchoring the wrapped lines to the bottom of the box
+     lands the names on one baseline across every row, rated or not, and the
+     reserved space opens above them where the rating goes. */
   .task-card-grouped:not(.task-card-grouped-mini) .task-card-pair {
     min-height: calc(20px + 2px + 1.3em);
+    align-content: flex-end;
   }
   .task-card-collapsed-stage-join { display: none; }
 

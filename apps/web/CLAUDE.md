@@ -240,9 +240,17 @@ Each slot has one job. When adding info, replace something — don't append:
   whose rating it is. Read-only there: a five-slot
   editable track inside a row that is itself a press target is five touch
   targets nobody asked for, and the creator rates it in the expanded body or
-  on the edit form. Fixed 5-slot track — slots 1..N in full colour, the rest
-  ghosted, so a 3 reads as three *out of five* rather than as three glyphs.
-  An unrated task renders no track at all rather than five ghosts. See
+  on the edit form.
+
+  **The row shows the earned slots only; the expanded body shows all five**
+  (`showScale`, 2026-09-10). Ghosting the unearned slots is what makes a 3 read
+  as three *out of five*, and that is right under the `How Bad?` label in the
+  body, where the track has room around it. On the row it is wrong: one brown
+  glyph trailed by four grey ones reads as debris beside a name, not as a
+  scale. The count out of five stays on the `title` and the `aria-label`, so
+  nothing is lost but the blobs. Editing always draws five whatever this says —
+  the unearned slots *are* the control.
+  An unrated task renders no track at all. See
   `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
   every closed task, so nothing extra is needed to keep it off them.
 
@@ -379,6 +387,16 @@ Three things about that pair of rules:
 The cost is a line of white space on the rows that use neither, and it is
 deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
+
+**Equal heights are not the same thing as a list that lines up**, and getting
+the first without the second is worse than neither. With the pair's lines packed
+to the top of its reserved box, a rated row put its names 10px lower than an
+unrated one: every card measured 121px and the names still zigzagged down the
+list, which reads as mess without naming itself. `align-content: flex-end` on
+the pair anchors its lines to the bottom of the box, so the names land on one
+baseline on every row and the reserved space opens above them where the rating
+goes. If you reserve space anywhere on this row, decide which edge the content
+holds to as part of the same change.
 
 **The two reservations are per-cell, not one total for the row**, which is what
 makes them independent: whichever combination a row draws, it is the same

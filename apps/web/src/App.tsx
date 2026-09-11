@@ -404,10 +404,19 @@ const stageSuffix = (task: LoanTask): string => {
 const PoopDisplay = ({
   count,
   canEdit,
+  showScale = true,
   onChange
 }: {
   count: number;
   canEdit: boolean;
+  /* Draw the unearned slots as ghosts, so the score reads against its scale.
+     Right in the expanded body, where the track sits under a `How Bad?` label
+     with room around it — and wrong on the collapsed row, where four grey
+     blobs trailing one brown one read as debris rather than as a scale
+     (2026-09-10, off the rendered row). The row shows the earned slots and
+     nothing else; the count out of five is still on the `title` and the
+     `aria-label` for anyone who wants it. */
+  showScale?: boolean;
   /* Optional because the read-only track has nothing to call: the collapsed
      row draws one and holds no rating handler at all. */
   onChange?: (next: number) => void;
@@ -420,6 +429,9 @@ const PoopDisplay = ({
     ? `How Bad? ${safeCount}/5 — click to rate`
     : `How Bad? ${safeCount}/5`;
 
+  /* Editing always needs all five — the unearned slots are the control. */
+  const slots = canEdit || showScale ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5].slice(0, safeCount);
+
   return (
     <span
       className={`poop-track${canEdit ? " poop-track-editable" : ""}`}
@@ -427,7 +439,7 @@ const PoopDisplay = ({
       title={titleText}
       aria-label={titleText}
     >
-      {[1, 2, 3, 4, 5].map((n) => {
+      {slots.map((n) => {
         const filled = n <= safeCount;
         const className = `poop-slot${filled ? " poop-slot-on" : ""}`;
         if (!canEdit) {
@@ -2648,7 +2660,7 @@ const TaskCard = memo(({
               seeded open task in the app, which is how this shipped wrong for
               about ten minutes. */}
           {isUnclaimed(task) && isFirstTimeInPool(task) && (task.points ?? 0) > 0 && (
-            <PoopDisplay count={task.points ?? 0} canEdit={false} />
+            <PoopDisplay count={task.points ?? 0} canEdit={false} showScale={false} />
           )}
         </span>
         <span className="task-card-collapsed-title">
