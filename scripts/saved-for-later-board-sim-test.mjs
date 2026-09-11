@@ -635,7 +635,7 @@ test("in Grouped view the section sits right after Needs you, on the Tasks board
     /s\.key === "you" && savedSection\}/,
     "rendered directly after the Needs you court, whether or not Needs you has any tasks"
   );
-  assert.match(APP_SOURCE, /renderTaskList\(unifiedTasks, "No tasks yet\.", savedForLater\)/, "the Tasks board passes them");
+  assert.match(APP_SOURCE, /renderTaskList\(boardTasks, "No tasks yet\.", savedForLater\)/, "the Tasks board passes them");
   assert.match(APP_SOURCE, /renderTaskList\(allTasksAdmin, "No tasks yet\."\)/, "admin All Tasks does not");
 });
 

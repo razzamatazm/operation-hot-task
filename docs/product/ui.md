@@ -71,6 +71,22 @@ persisted per browser:
   the viewer has saved tasks and no tasks, the section shows on its own, as it
   does in Grouped view, with no `No tasks yet.` under it.
 
+Separately, the app menu's **Show** row narrows the Tasks board (#334), and it
+combines with either view:
+
+- **Everyone — the default.** The whole list above.
+- **Mine.** Only tasks the viewer filed or holds now, plus **every unclaimed
+  task, whoever filed it** — unclaimed work is never filtered out. Observer
+  tasks go, and so do closed tasks the viewer was not a Party to, so Done under
+  Mine is the viewer's own finished work. While it is on, the heading reads
+  `My tasks`, its count is the number shown, and a `Show everyone` link beside
+  it switches back; an empty result reads `Nothing of yours right now` with the
+  same link. Collapse all acts on the filtered list. A link that opens a task
+  Mine hides (a Share DM, say) switches the board back to Everyone, so the link
+  never lands on a card that is not there. Persisted per browser. It
+  is a view over the list the app already has, not a server filter, and the
+  admin All Tasks tab and the admin Tasks tab count ignore it.
+
 Both views share one retention filter and one card component:
 - Closed tasks render as half-height "mini rows" at the bottom of the grid
   (no poop/action columns) rather than living in a separate archived view.

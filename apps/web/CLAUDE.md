@@ -147,7 +147,11 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   `styles.css` under their own heading. Put new ones there.
 - Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill.
 - App menu (`.app-menu`): the preferences that are not decisions about a task —
-  Grouped/Flat, appearance, and Collapse all. Anchored to its own trigger
+  Grouped/Flat, Show (Everyone/Mine, Tasks board only), appearance, and
+  Collapse all. Show is its own row rather than a third View choice because it
+  combines with both, and the list it narrows comes from `visibleBoardTasks` in
+  [src/board-filter.ts](src/board-filter.ts), which every consumer of the board
+  list reads. Anchored to its own trigger
   rather than portalled; the app bar is not clipped, so there is nothing to
   escape and no placement to compute. Closes on outside press and Escape, the
   same two exits every transient surface here answers to.

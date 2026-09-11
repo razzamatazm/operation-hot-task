@@ -8,6 +8,7 @@ import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
+import { BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardShow, isOnMineBoard, parseBoardShow, visibleBoardTasks } from "./board-filter";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
@@ -2947,6 +2948,8 @@ const CardList = ({
 const AppMenu = ({
   grouped,
   onGroupedChange,
+  show,
+  onShowChange,
   expandedIds,
   onCollapseAll,
   themeChoice,
@@ -2954,6 +2957,11 @@ const AppMenu = ({
 }: {
   grouped: boolean;
   onGroupedChange: (next: boolean) => void;
+  /* The Show row (#334). Only the Tasks board passes it: the admin All Tasks
+     list always shows everything, so a Show row there would be a control that
+     does nothing. */
+  show?: BoardShow;
+  onShowChange?: (next: BoardShow) => void;
   expandedIds: string[];
   onCollapseAll: (taskIds: string[]) => void;
   themeChoice: ThemeChoice;
@@ -3016,6 +3024,26 @@ const AppMenu = ({
               ))}
             </div>
           </div>
+
+          {show !== undefined && onShowChange && (
+            <div className="app-menu-group" role="group" aria-label="Which tasks to show">
+              <span className="app-menu-label">Show</span>
+              <div className="app-menu-choices">
+                {BOARD_SHOW_CHOICES.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={show === opt.value}
+                    className={`app-menu-choice${show === opt.value ? " app-menu-choice-on" : ""}`}
+                    onClick={() => onShowChange(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="app-menu-group" role="group" aria-label="Appearance">
             <span className="app-menu-label">Appearance</span>
@@ -3645,6 +3673,24 @@ export const App = () => {
     }
   }, [grouped]);
 
+  /* Show: Everyone or Mine (#334). Same arrangement as Grouped/Flat above —
+     per browser, survives a reload — and a separate setting from it, since the
+     two combine. The rule itself is `board-filter.ts`. */
+  const [boardShow, setBoardShow] = useState<BoardShow>(() => {
+    try {
+      return parseBoardShow(window.localStorage.getItem(BOARD_SHOW_KEY));
+    } catch {
+      return "everyone";
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(BOARD_SHOW_KEY, boardShow);
+    } catch {
+      /* storage unavailable — degrade silently */
+    }
+  }, [boardShow]);
+
   /* Ticking clock for the live countdowns. Both views (flat and courts) use the
      same compact row, so this runs always. 30s cadence matches the granularity
      of the "Xh Ym" / "Nm" labels. */
@@ -3774,6 +3820,12 @@ export const App = () => {
        you. An effect may read `tasks` freely — unlike `setExpandOverride`, it
        is not a memoized prop, so nothing downstream depends on its identity. */
     const linked = tasks.find((t) => t.id === target);
+    /* A link is a request to see this task. With Mine on, one the viewer only
+       observes — a Share DM is the usual way here — would open a card that is
+       not on the board and scroll to nothing, so the board goes back to
+       Everyone, which the heading and the missing `Show everyone` link then say
+       out loud (#334). */
+    if (linked && !isOnMineBoard(linked, user)) setBoardShow("everyone");
     setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
     const raf = requestAnimationFrame(() => {
       document.getElementById(`task-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -4690,6 +4742,17 @@ export const App = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tasks, user.id]);
 
+  /* What the Tasks board actually renders: `unifiedTasks` narrowed by the Show
+     setting. The heading, its count, the sections, Done, the empty state and
+     Collapse all all read this one list, so they cannot describe different
+     sets. Any further narrowing of the board goes through `visibleBoardTasks`,
+     not beside it. */
+  const boardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: boardShow, viewer: user }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [unifiedTasks, boardShow, user.id]);
+
+  /* The admin-only Tasks tab counts the unfiltered board on purpose (#334): the
+     tab names the list, and Mine is a view over it. */
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
 
   /* Re-bucket an already-filtered task list (closed-task TTL applied)
@@ -5014,18 +5077,29 @@ export const App = () => {
 
       {/* ── Unified task grid ──────────────────────── */}
       {activeTab === "active" && (() => {
+        /* Mine is visibly on (#334): the heading says so, and the way back sits
+           beside it rather than only inside the menu that turned it on. */
+        const mine = boardShow === "mine";
+        const showEveryone = (
+          <button type="button" className="board-show-everyone" onClick={() => setBoardShow("everyone")}>
+            Show everyone
+          </button>
+        );
         return (
           <>
             <div className="section-head task-grid-head">
               <h2>
-                Tasks
-                <span className="section-count">{unifiedTasks.length}</span>
+                {mine ? "My tasks" : "Tasks"}
+                <span className="section-count">{boardTasks.length}</span>
               </h2>
+              {mine && showEveryone}
               <div className="task-grid-head-actions">
                 <AppMenu
                   grouped={grouped}
                   onGroupedChange={setGrouped}
-                  expandedIds={expandedIdsIn(unifiedTasks)}
+                  show={boardShow}
+                  onShowChange={setBoardShow}
+                  expandedIds={expandedIdsIn(boardTasks)}
                   onCollapseAll={collapseAllTasks}
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
@@ -5033,7 +5107,13 @@ export const App = () => {
                 <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
               </div>
             </div>
-            {renderTaskList(unifiedTasks, "No tasks yet.", savedForLater)}
+            {mine && boardTasks.length === 0 ? (
+              <div className="empty-card">
+                Nothing of yours right now. {showEveryone}
+              </div>
+            ) : (
+              renderTaskList(boardTasks, "No tasks yet.", savedForLater)
+            )}
           </>
         );
       })()}
