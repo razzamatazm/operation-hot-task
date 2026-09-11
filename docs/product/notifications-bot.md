@@ -536,6 +536,44 @@ Everything else the bot does is untouched. Claim, the fraud advance buttons,
 note replies and card refresh all arrive as card actions rather than typed
 messages, and never went through the message handler.
 
+### If filing from the bot is ever wanted again
+
+This is not a rebuild-from-scratch. The removal is a single commit, and its
+parent holds a complete, working implementation:
+
+- **Commit:** `6b89ff2aefc9eac5189046f6a328afefa512f334` (PR #336). Everything
+  removed is in its diff, and `git show 6b89ff2^:apps/server/src/bot.ts` is the
+  whole flow as it last ran.
+- **What that commit took out:** the `QuickAddDraft` state machine and its
+  per-person-per-conversation draft map, the step prompts and their parsers
+  (task type, urgency, Poops, start and return dates, Humperdink link), the
+  review message with field-level edits, the create confirmation, the message
+  handler branches for `/bot new`, `/bot back` and `/bot cancel`, the
+  `BotTaskCreator` wiring from the server into the flow, and the `new` entry in
+  both Teams manifests.
+
+What would have to be **fixed, not just restored**, before it could be trusted
+again — these are live bugs in that code, not new requirements:
+
+1. **The skipped-notes filler.** It writes the literal text
+   `No additional notes` into the request field. That was the whole of #315. A
+   restored flow has to either refuse a skip the way it already refuses a bad
+   urgency or a bad date, or leave the field genuinely empty and let every
+   surface that draws the Instructions box handle its absence.
+2. **Fraud Checks.** It never asks for outstanding items, so it cannot satisfy
+   ADR-0010 rule 3 honestly — it only got past the rule by leaning on the
+   filler. A restored flow either collects outstanding items, requires a written
+   request for a Fraud Check specifically, or stops offering the type.
+3. **Whatever has changed since.** The deeper lesson is that a second filing
+   route has to re-learn every rule the create form learns. Before restoring,
+   diff the fields and rules the web form asks for against the ones that flow
+   asks for, rather than assuming the list is still the one it was written
+   against.
+
+The reason to check all three rather than reverting straight is that both of the
+first two drifted silently, in a flow nobody was walking and no test covered. A
+revert reinstates the drift along with the feature.
+
 ## Activity Feed
 
 - Left-rail icon dot is not used
