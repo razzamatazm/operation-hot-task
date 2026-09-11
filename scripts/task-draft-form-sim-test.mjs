@@ -371,8 +371,8 @@ test("there is one way to forget a draft, and every ending goes through it", () 
   assert.match(FORM_SOURCE, /const forgetDraft = \(\): void => \{/, "one named thing");
   assert.equal(
     FORM_SOURCE.match(/forgetDraft\(\);/g).length,
-    3,
-    "used by exactly the three endings: a create, the discard prompt, and Start fresh (#285)"
+    4,
+    "used by exactly the four endings: a create, the discard prompt, Start fresh (#285), and Save for later (#343, ADR-0011 rule 5)"
   );
 });
 

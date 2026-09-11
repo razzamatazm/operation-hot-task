@@ -43,6 +43,17 @@ persisted per browser:
   (`Finished` when applicable → `Needs you` → `Up for grabs` → `In flight` →
   `Done`) by `buildCourtSections`. Court definitions and the message-pull rule
   live in [CONTEXT.md](../../CONTEXT.md#the-four-courts).
+
+  **Saved for Later** sits right after `Needs you` (and keeps that place when
+  `Needs you` is empty). It lists the new tasks the viewer put aside with
+  **Save for later** on the create form, newest saved first, with a count in the
+  heading. It is not a court and holds no tasks: only its owner ever sees it,
+  it is hidden when they have none, and it does not collapse. Each row is the
+  loan as it was typed (or `No loan yet`), the task type and `saved N ago`, and
+  nothing else: no who-to-whom, due time or poop rating. Tapping a row does
+  nothing yet. See
+  [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md). Flat view
+  does not show them yet.
 - **Flat view.** One list, no sections, sorted into 4 buckets newest-first
   within each: Celebrating (just completed by the viewer) → `OPEN` →
   in-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED` /

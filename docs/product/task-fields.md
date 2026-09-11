@@ -280,6 +280,21 @@ click away in the list directly beneath that header.
 
 ## Create Task Fields
 
+**Save for later** (#343,
+[ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md)) sits
+between `Cancel` and `Create Task` on the create form, in the secondary style.
+It never appears when editing a task. Nothing on the form is required to press
+it; it is only unavailable on a form nobody has typed into. It keeps the whole
+form on the server under the person who saved it, closes the form, and clears
+the form's autosave, and the task then appears in that person's **Saved for
+Later** section on the board (see [ui.md](ui.md)). It files no task, sends no
+notification, mints no loan and counts toward nothing, and nobody else can see
+it, admins included. The loan is kept exactly as typed and is only resolved
+when the task is finally created. There is no expiry and no limit on how many
+one person holds. A form opened from Humperdink is the same create form, so it
+has the button too. Reopening, deleting and the Cancel prompt are not built
+yet.
+
 - Required fields:
   - Folder Name
   - Task Type: `LOI`, `Buddy Chat`, `Value`, `Fraud`, `Loan Docs`, `OOO`

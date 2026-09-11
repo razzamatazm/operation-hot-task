@@ -10,6 +10,8 @@ import { TeamsBotClient } from "./bot.js";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { SettingsStore } from "./settings-store.js";
 import { LoanLinkCollisionError, LoanService } from "./loan-service.js";
+import { SavedForLaterStore } from "./saved-for-later-store.js";
+import { savedForLaterRoutes } from "./saved-for-later-routes.js";
 import {
   amendFolderNameSchema,
   amendNotesSchema,
@@ -72,7 +74,7 @@ const toCreateInput = (body: unknown) => {
   };
 };
 
-export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient, settingsStore: SettingsStore, loanService: LoanService): Router => {
+export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient, settingsStore: SettingsStore, loanService: LoanService, savedForLater: SavedForLaterStore): Router => {
   const router = Router();
 
   /* Resolve the caller: verify the SSO token (or accept dev headers), then
@@ -117,6 +119,11 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       throw new AuthError("Can't remove the last active admin", 403);
     }
   };
+
+  /* Saved for Later tasks (#343, ADR-0011). In their own module, handed only
+     the caller's identity and their own store, so they cannot reach anything
+     above that notifies, broadcasts or touches a task. */
+  savedForLaterRoutes(router, getActor, savedForLater);
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, clients: sse.count() });

@@ -1657,6 +1657,31 @@ beside it. What keeps it honest:
   still see. `folderNameRef` is on the typeahead input for this reason; it used
   to be an edit-mode-only refusal target.
 
+**Save for later puts a new task aside** (#343,
+[ADR-0011](../../docs/adr/0011-saved-for-later-is-private-server-state.md)). A
+ghost button between `Cancel` and `Create Task`, create mode only, so Create Task
+stays the one filled button. What keeps it honest:
+
+- **Pressable once the form is touched, and nothing else is asked.** "Touched"
+  is `formHasChanges` against `opening.fresh`, the autosave's own yardstick, so
+  the button and the autosave never disagree, and a form restored from the
+  autosave can be put aside without typing into it again.
+- **The whole form is kept**, including a Fraud seeder item still in its box,
+  folded in the way Create folds it. The server's shape for it is held to the
+  autosave's field list by `scripts/saved-for-later-sim-test.mjs`.
+- **Save, then forget the autosave, then close**, and only once the save
+  landed. A failed save is toasted by App and leaves the form open.
+- **The board section is its own component**, `SavedForLaterSection` in
+  [src/saved-for-later.tsx](src/saved-for-later.tsx), lifted out for the reason
+  `thread.tsx` was. App renders it right after the `you` court inside
+  `renderTaskList`, and only the Tasks board passes it anything. A row is
+  `.saved-row`: loan name, type, `saved N ago`, and no more, because a saved
+  task has no pair, due stamp or action to draw. It is not a `TaskCard` and not
+  a court; `tasks` never holds one.
+- **The list is emptied on every identity change** before the new one loads,
+  and a load or save that comes back for the previous person is dropped, so a
+  shared machine never shows one person's saved tasks under another's name.
+
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request
 field is one — on the other five the paste box and its button took a paste

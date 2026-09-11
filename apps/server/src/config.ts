@@ -34,6 +34,13 @@ export const config = {
   loansFile: process.env.LOANS_FILE
     ? resolveServerPath(process.env.LOANS_FILE, "data/loans.json")
     : path.join(path.dirname(resolveServerPath(process.env.DATA_FILE, "data/tasks.json")), "loans.json"),
+  /* Saved for Later tasks (#343, ADR-0011) live beside the tasks file too, and
+     for the same reason as loans: a custom DATA_FILE keeps them isolated with
+     it. They are private to one person each, so a test or an alternate deploy
+     writing into the repo's own data dir would be worse here than anywhere. */
+  savedForLaterFile: process.env.SAVED_FOR_LATER_FILE
+    ? resolveServerPath(process.env.SAVED_FOR_LATER_FILE, "data/saved-for-later.json")
+    : path.join(path.dirname(resolveServerPath(process.env.DATA_FILE, "data/tasks.json")), "saved-for-later.json"),
   frontendDist: resolveServerPath(process.env.FRONTEND_DIST, "../web/dist"),
   businessTimezone: process.env.BUSINESS_TIMEZONE ?? DEFAULT_CONFIG.businessTimezone,
   businessStartHour: parseNumber(process.env.BUSINESS_START_HOUR, DEFAULT_CONFIG.businessStartHour),

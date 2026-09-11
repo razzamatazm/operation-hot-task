@@ -96,6 +96,12 @@ interface TaskFormProps {
      created; rejects only when the create itself fails (App has already shown
      the error toast) so the form stays open for a retry. */
   onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
+  /* Put this new task aside (#343, ADR-0011): App keeps the whole form on the
+     server and lists it in the board's Saved for Later section. Resolves once it
+     is saved; rejects only when the save fails (App has already shown the
+     error) so the form stays open. Absent means no Save for later button, and
+     App never passes it to edit mode. */
+  onSaveForLater?: (form: CreateFormValues) => Promise<void>;
   /* Values the form opens with (#194). Omitted — the everyday case — opens it
      blank, exactly as before. The defaults and the FRAUD seeder / recipient
      picker / OOO date fields all live in `create-form-state.ts`; see there for
@@ -106,7 +112,7 @@ interface TaskFormProps {
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, initialValues, edit }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, edit }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -219,6 +225,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
      didn't register my click," and a disabled `Creating…` corrects that. Edit
      mode's Save rides the same flag for the same reason. */
   const [submitting, setSubmitting] = useState(false);
+  /* Save for later's own in-flight flag (#343), for the reason `submitting`
+     exists: held for the whole save so a second press can't store two copies,
+     and doubling as the button's `Saving…`. Create waits on it too. */
+  const [savingForLater, setSavingForLater] = useState(false);
   /* Humperdink import (#194). `importText` is the paste target — the human
      presses paste, the app never reads the clipboard itself. `imported` is the
      button's own confirmation, cleared the moment the text changes so the label
@@ -542,7 +552,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
     event.preventDefault();
     // Re-entry guard (#115). Covers every submit path, not just the button:
     // Enter in a text field and held/repeated Enter both land here.
-    if (submitting) return;
+    if (submitting || savingForLater) return;
     if (editing) {
       await handleSave();
       return;
@@ -791,6 +801,38 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
   const confirmDiscard = (): void => {
     forgetDraft();
     onClose();
+  };
+
+  /* ── Save for later (#343, ADR-0011) ─────────────────────────
+     Pressable on any form somebody has touched, and nothing else is asked of
+     it: no loan, no note, no urgency. "Touched" is the autosave's own yardstick,
+     `formHasChanges` against a blank-slate open, so the button and the autosave
+     never disagree about whether there is anything here to keep — and a form
+     restored from the autosave, which is typing somebody did, can be put aside
+     without typing into it again.
+
+     What is kept is the whole form. On a Fraud Check that includes an
+     outstanding item still sitting in the seeder's box, folded into the list
+     the way Create folds it, because it is typing the button just counted.
+
+     Once the save has landed the autosave is cleared, since nothing is at risk
+     any more, and the form closes. A failed save does neither: App has shown
+     the error and the form stays open with everything in it. */
+  const worthSavingForLater = formHasChanges(opening.fresh, form, seedDraft);
+  const saveForLater = async (): Promise<void> => {
+    if (!onSaveForLater || submitting || savingForLater) return;
+    const pendingItem = form.taskType === "FRAUD" ? seedDraft.trim() : "";
+    const values = pendingItem ? { ...form, initialItems: [...form.initialItems, pendingItem] } : form;
+    setSavingForLater(true);
+    try {
+      await onSaveForLater(values);
+      forgetDraft();
+      onClose();
+    } catch {
+      /* save failed — App surfaced the error; leave the form open to retry */
+    } finally {
+      setSavingForLater(false);
+    }
   };
 
   return (
@@ -1284,7 +1326,20 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
               {/* Cancel asks first on a form with anything in it (#283). Same
                   door as Escape, so the two can never answer differently. */}
               <button type="button" className="btn-ghost" onClick={requestClose}>Cancel</button>
-              <button type="submit" disabled={submitting}>
+              {/* Save for later (#343): the create form only, between the two
+                  exits and in the secondary style, so Create Task stays the
+                  one filled button. */}
+              {!editing && onSaveForLater && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={!worthSavingForLater || submitting || savingForLater}
+                  onClick={saveForLater}
+                >
+                  {savingForLater ? "Saving…" : "Save for later"}
+                </button>
+              )}
+              <button type="submit" disabled={submitting || savingForLater}>
                 {editing ? (submitting ? "Saving…" : "Save") : (submitting ? "Creating…" : "Create Task")}
               </button>
             </div>

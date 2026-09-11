@@ -1,4 +1,4 @@
-import { fraudFilingRefusal, oooDatesOutOfOrder } from "@loan-tasks/shared";
+import { TASK_TYPES, URGENCY_LEVELS, fraudFilingRefusal, oooDatesOutOfOrder } from "@loan-tasks/shared";
 import { z } from "zod";
 
 const SCHEME_PREFIX_RE = /^[a-z][a-z0-9+.-]*:/i;
@@ -265,4 +265,36 @@ export const checklistItemCheckedSchema = z.object({
    actor's seat's, derived server-side, so the payload never names it. */
 export const checklistItemNoteSchema = z.object({
   note: z.string().max(1000)
+});
+
+/* A Saved for Later task's form (#343, ADR-0011): the new task form as it
+   stood, every field and nothing else.
+
+   Shape only. Nothing is required and nothing is checked for sense, because
+   putting half a task aside is the point: an empty loan name, an empty note and
+   an OOO with no dates are all valid saves. The rules that make a task fileable
+   run when it is finally created, through the create schema like any other.
+
+   Strict, so a stray field is refused rather than kept, and held to the web
+   form's own field list by `scripts/saved-for-later-sim-test.mjs`. */
+export const savedForLaterFormSchema = z
+  .object({
+    folderName: z.string(),
+    loanId: z.string(),
+    taskType: z.enum(TASK_TYPES),
+    urgency: z.enum(URGENCY_LEVELS),
+    startDate: z.string(),
+    returnDate: z.string(),
+    notes: z.string(),
+    humperdinkLink: z.string(),
+    points: z.number().int().min(0).max(5),
+    initialItems: z.array(z.string()),
+    pickerMode: z.enum(["share", "assign"]),
+    recipientUserId: z.string(),
+    recipientNote: z.string()
+  })
+  .strict();
+
+export const savedForLaterBodySchema = z.object({
+  form: savedForLaterFormSchema
 });

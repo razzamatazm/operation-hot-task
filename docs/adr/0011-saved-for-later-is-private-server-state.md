@@ -1,6 +1,9 @@
 # 0011. Saved for Later is private server state, and never a task
 
-Status: Accepted, not yet built. Settled while triaging #337.
+Status: Accepted, partly built. Settled while triaging #337. Built so far
+(#343): saving a new task for later, the server store and its owner-only
+routes, and the Grouped view section. Not yet built: reopening, deleting, Flat
+view, removal with the owner, and the Cancel prompt.
 
 ## Context
 
