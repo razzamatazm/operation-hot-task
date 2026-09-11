@@ -2379,11 +2379,40 @@ export class TaskService {
       return;
     }
 
+    /* Async work happens either side of the change, never inside it: tasks are
+       loaded before, notifications sent after. The decision itself (which
+       signals are new, which reminders are due) is made against the feed file as
+       it stands at this change's turn, so an overlapping evaluation sees what
+       this one recorded and a user saved meanwhile is kept (#341). */
     const currentTasks = tasks ?? (await this.store.allTasks());
-    const snapshot = await this.activityFeedState.read();
-    const knownUsers = this.collectKnownUsers(snapshot.users, currentTasks);
-    snapshot.users = knownUsers;
+    const notifications = await this.activityFeedState.change((snapshot) => {
+      const decided = this.decideActivitySignals(snapshot, currentTasks, { now, allowReminders, alertOnNewSignals });
+      return { state: decided.state, decision: decided.notifications };
+    });
 
+    for (const note of notifications) {
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: note.task,
+        actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+        message: note.message,
+        target: "ACTIVITY_FEED",
+        recipientUserIds: note.recipientUserIds
+      }, now);
+    }
+  }
+
+  /* Synchronous on purpose: it runs inside the activity-feed store's single
+     change step. */
+  private decideActivitySignals(
+    snapshot: { signals: ActivitySignalState[]; users: KnownUserState[] },
+    currentTasks: LoanTask[],
+    { now, allowReminders, alertOnNewSignals }: { now: Date; allowReminders: boolean; alertOnNewSignals: boolean }
+  ): {
+    state: { signals: ActivitySignalState[]; users: KnownUserState[] };
+    notifications: Array<{ recipientUserIds: string[]; task: LoanTask; message: string }>;
+  } {
+    const knownUsers = this.collectKnownUsers(snapshot.users, currentTasks);
     const activeSignals = this.collectActiveSignals(currentTasks, knownUsers, now);
     const existingByKey = new Map(snapshot.signals.map((signal) => [signal.key, signal]));
     const notifications: Array<{ recipientUserIds: string[]; task: LoanTask; message: string }> = [];
@@ -2436,19 +2465,7 @@ export class TaskService {
       nextSignals.push(nextState);
     }
 
-    snapshot.signals = nextSignals;
-    await this.activityFeedState.replace(snapshot);
-
-    for (const note of notifications) {
-      await this.notify({
-        type: "TASK_STATUS_CHANGED",
-        task: note.task,
-        actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-        message: note.message,
-        target: "ACTIVITY_FEED",
-        recipientUserIds: note.recipientUserIds
-      }, now);
-    }
+    return { state: { signals: nextSignals, users: knownUsers }, notifications };
   }
 
   private collectKnownUsers(seedUsers: KnownUserState[], tasks: LoanTask[]): KnownUserState[] {
