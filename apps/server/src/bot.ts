@@ -169,8 +169,11 @@ export class ReferenceStore {
    that made a card silently skip its update once a loan edit corrected every
    task on a loan at once (#280). Lenient as it always was: a record file that
    can't be read at all reads as "no cards", which costs card edits rather than
-   failing the notification that wanted them. */
-class ThreadStore {
+   failing the notification that wanted them.
+
+   Exported, like `ReferenceStore`, only so the read-during-write sim can hold
+   one of its saves open. */
+export class ThreadStore {
   private readonly file: JsonFile<StoredThread[]>;
 
   constructor(filePath: string) {

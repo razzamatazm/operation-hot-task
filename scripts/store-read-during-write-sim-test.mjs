@@ -38,7 +38,7 @@ import path from "node:path";
 import { after, test } from "node:test";
 
 import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
-import { ReferenceStore } from "../apps/server/dist/bot.js";
+import { ReferenceStore, ThreadStore } from "../apps/server/dist/bot.js";
 import { JsonFile } from "../apps/server/dist/json-file.js";
 import { SettingsStore } from "../apps/server/dist/settings-store.js";
 import { LoanStore, TaskStore } from "../apps/server/dist/store.js";
@@ -378,30 +378,96 @@ test("activity-feed state read while a save is half-written comes back as saved"
   );
 });
 
+test("card records read while a save is half-written come back as saved", async () => {
+  // Lenient, so the failure here never threw: a torn read came back as "no
+  // cards" and the card edit that wanted the record was silently skipped (#280).
+  const file = fileIn("bot-task-threads.json");
+  const store = new ThreadStore(file);
+  await store.init();
+  const post = (n) => ({ reference: { conversation: { id: "19:general@thread.tacv2" } }, activityId: `activity-${n}` });
+  await store.save({ taskId: "task-1", posts: [post(1)] });
+
+  const hold = holdNextWrite(file);
+  const saving = store.save({ taskId: "task-2", posts: [post(2)] });
+  await hold.truncated;
+  const found = outcome(store.get("task-1"));
+  const all = outcome(store.read());
+  await hold.release();
+  await saving;
+
+  assert.equal(assertRead(await found, "get")?.posts[0]?.activityId, "activity-1", "task-1's card record is still there");
+  assert.deepEqual(
+    assertRead(await all, "read").map((entry) => entry.taskId),
+    ["task-1", "task-2"]
+  );
+});
+
 // --- 3. Nothing else touches the filesystem --------------------------------
 
-/* Which server modules may import the filesystem, and why. Anything else that
+/* Which server modules may use the filesystem, and for what. Anything else that
    wants to keep state in a file builds on `JsonFile`, so it inherits the
    guarantee instead of re-deriving it — which is how there came to be seven
-   copies, and how #331 and #339 each found a store the last fix missed. */
-const MAY_IMPORT_FS = new Map([
-  ["json-file.ts", "the one module that reads and writes data files"],
-  ["index.ts", "checks whether the built web app exists before serving it"]
+   copies, and how #331 and #339 each found a store the last fix missed.
+
+   `only` narrows an entry to the filesystem calls it exists for, so the
+   start-up check can't quietly grow a data write. */
+const FS_ALLOWED = new Map([
+  ["json-file.ts", { why: "the one module that reads and writes data files" }],
+  ["index.ts", { why: "checks whether the built web app exists before serving it", only: ["existsSync"] }]
 ]);
+
+/* Every way a module can reach the filesystem: a static, bare or dynamic import
+   or a require, of Node's own module or a common wrapper around it. */
+const FS_SPECIFIER = String.raw`["'](?:node:fs(?:\/promises)?|fs(?:\/promises)?|fs-extra|graceful-fs)["']`;
+const REACHES_FS = new RegExp(String.raw`(?:\bfrom|\bimport|\bimport\s*\(|\brequire\s*\()\s*${FS_SPECIFIER}`, "g");
+const reachesFs = (source) => source.match(REACHES_FS) ?? [];
+
+test("the guard recognises every way of reaching the filesystem", () => {
+  const reaching = [
+    `import fs from "node:fs";`,
+    `import { promises as fs } from "node:fs";`,
+    `import { readFile } from 'node:fs/promises';`,
+    `import * as fs from "fs";`,
+    `import "node:fs";`,
+    `const fs = await import("node:fs/promises");`,
+    `const fs = require("fs");`,
+    `import fse from "fs-extra";`,
+    `const gfs = require('graceful-fs');`
+  ];
+  for (const source of reaching) {
+    assert.equal(reachesFs(source).length, 1, `not caught: ${source}`);
+  }
+  for (const source of [`import path from "node:path";`, `import { JsonFile } from "./json-file.js";`, `// the fs module`]) {
+    assert.equal(reachesFs(source).length, 0, `wrongly caught: ${source}`);
+  }
+});
 
 test("no server module touches the filesystem except the shared file store", () => {
   const src = path.join(repoRoot, "apps/server/src");
-  const importsFs = /from\s+["'](?:node:)?fs(?:\/promises)?["']|require\(\s*["'](?:node:)?fs(?:\/promises)?["']\s*\)/;
-  const offenders = fs
-    .readdirSync(src, { recursive: true })
-    .filter((name) => /\.(ts|tsx|mts|cts)$/.test(name))
-    .filter((name) => !MAY_IMPORT_FS.has(name))
-    .filter((name) => importsFs.test(fs.readFileSync(path.join(src, name), "utf8")))
-    .sort();
+  const modules = fs.readdirSync(src, { recursive: true }).filter((name) => /\.(ts|tsx|mts|cts)$/.test(name));
+  const sourceOf = (name) => fs.readFileSync(path.join(src, name), "utf8");
 
+  const offenders = modules
+    .filter((name) => !FS_ALLOWED.has(name))
+    .filter((name) => reachesFs(sourceOf(name)).length > 0)
+    .sort();
   assert.deepEqual(
     offenders,
     [],
-    `these modules import the filesystem directly; keep state through JsonFile instead: ${offenders.join(", ")}`
+    `these modules reach the filesystem directly; keep state through JsonFile instead: ${offenders.join(", ")}`
   );
+
+  for (const [name, { only }] of FS_ALLOWED) {
+    assert.ok(modules.includes(name), `${name} is allowed the filesystem but no longer exists; drop it from the list`);
+    if (!only) continue;
+    const source = sourceOf(name);
+    assert.equal(reachesFs(source).length, 1, `${name} may reach the filesystem once, as \`import fs from "node:fs"\``);
+    assert.match(source, /\bimport\s+fs\s+from\s+["']node:fs["']/, `${name} may reach the filesystem only as \`import fs from "node:fs"\``);
+    const calls = [...new Set([...source.matchAll(/\bfs\.(\w+)/g)].map((match) => match[1]))];
+    assert.deepEqual(
+      calls.filter((call) => !only.includes(call)),
+      [],
+      `${name} may only call ${only.join(", ")} on the filesystem`
+    );
+  }
 });
