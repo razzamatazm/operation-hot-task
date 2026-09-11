@@ -206,7 +206,9 @@ activity, and does not move the task in any list)
 **Back-end access**:
 The whole of what _admin_ means. Managing users and roles, system config, and
 seeing every task. Admin is not a second identity: it confers no power over
-anyone else's work, and never a _Seat_.
+anyone else's work, and never a _Seat_. A _Saved for Later task_ is not a task,
+so "every task" never includes one: admins cannot see them and metrics do not
+count them. See [ADR-0011](docs/adr/0011-saved-for-later-is-private-server-state.md).
 
 ### The four courts
 
@@ -290,6 +292,23 @@ The single unified list, sorted by status then due, with no sections — the
 Assigner / Assignee columns carry whose-court on every row. The user-selectable
 counterpart to Grouped view.
 _Avoid_: sections (the flat list intentionally has none)
+
+### Saved for Later
+
+**Saved for Later task**:
+A new task someone has put aside on purpose before filing it. It is not a task
+yet: it belongs only to the person who saved it, no one else can see it, and it
+notifies, counts, and scores nothing until it is created, at which point it
+stops existing as a Saved for Later task. It follows that person to any device.
+_Avoid_: "draft" (already means the form's autosave and an un-handed-off fraud
+item), "parked", "unfinished" (reads as the opposite of the Finished section),
+"saved task" (every filed task is saved)
+
+**Autosave**:
+The form's quiet, accidental safety net: one unfinished new-task form per
+person, kept in that browser only. Distinct from a _Saved for Later task_,
+which is deliberate, listed, and kept on the server.
+_Avoid_: "draft" for either
 
 ### Loan model
 
