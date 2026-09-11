@@ -78,7 +78,13 @@ import {
   shouldSendReminder,
   SYSTEM_ACTOR
 } from "@loan-tasks/shared";
-import { ActivityFeedStateStore, ActivitySignalState, ActivitySignalType, KnownUserState } from "./activity-feed-state.js";
+import {
+  ActivityFeedStateData,
+  ActivityFeedStateStore,
+  ActivitySignalState,
+  ActivitySignalType,
+  KnownUserState
+} from "./activity-feed-state.js";
 import { v4 as uuid } from "uuid";
 import { LoanService } from "./loan-service.js";
 import { NotificationProvider } from "./notifications.js";
@@ -91,6 +97,13 @@ import { TaskStore } from "./store.js";
 // requester and stays fully silent (isOverdue already returns false for it).
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "PENDING_APPROVAL"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+
+/* One activity-feed alert an evaluation decided to send. */
+interface ActivityFeedAlert {
+  recipientUserIds: string[];
+  task: LoanTask;
+  message: string;
+}
 const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
 /* History details open a sentence ("Urgency changed from…"), and the request
    field's noun is stored lowercase because every other use of it is
@@ -2383,7 +2396,11 @@ export class TaskService {
        loaded before, notifications sent after. The decision itself (which
        signals are new, which reminders are due) is made against the feed file as
        it stands at this change's turn, so an overlapping evaluation sees what
-       this one recorded and a user saved meanwhile is kept (#341). */
+       this one recorded and a user saved meanwhile is kept (#341).
+       Tasks loaded here keep their order: the change is queued before another
+       evaluation's task load can finish. A `tasks` list handed in (the
+       maintenance pass) can be older than an evaluation that saves before it,
+       and signals for tasks it no longer shows active are dropped. */
     const currentTasks = tasks ?? (await this.store.allTasks());
     const notifications = await this.activityFeedState.change((snapshot) => {
       const decided = this.decideActivitySignals(snapshot, currentTasks, { now, allowReminders, alertOnNewSignals });
@@ -2405,17 +2422,14 @@ export class TaskService {
   /* Synchronous on purpose: it runs inside the activity-feed store's single
      change step. */
   private decideActivitySignals(
-    snapshot: { signals: ActivitySignalState[]; users: KnownUserState[] },
+    snapshot: ActivityFeedStateData,
     currentTasks: LoanTask[],
     { now, allowReminders, alertOnNewSignals }: { now: Date; allowReminders: boolean; alertOnNewSignals: boolean }
-  ): {
-    state: { signals: ActivitySignalState[]; users: KnownUserState[] };
-    notifications: Array<{ recipientUserIds: string[]; task: LoanTask; message: string }>;
-  } {
+  ): { state: ActivityFeedStateData; notifications: ActivityFeedAlert[] } {
     const knownUsers = this.collectKnownUsers(snapshot.users, currentTasks);
     const activeSignals = this.collectActiveSignals(currentTasks, knownUsers, now);
     const existingByKey = new Map(snapshot.signals.map((signal) => [signal.key, signal]));
-    const notifications: Array<{ recipientUserIds: string[]; task: LoanTask; message: string }> = [];
+    const notifications: ActivityFeedAlert[] = [];
     const nextSignals: ActivitySignalState[] = [];
     const nowIso = now.toISOString();
 

@@ -20,7 +20,7 @@ export interface KnownUserState {
   roles: UserIdentity["roles"];
 }
 
-interface ActivityFeedStateData {
+export interface ActivityFeedStateData {
   signals: ActivitySignalState[];
   users: KnownUserState[];
 }
