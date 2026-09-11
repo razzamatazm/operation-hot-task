@@ -128,7 +128,9 @@ const normalizeText = (raw: string): string =>
 const RETIRED_QUICK_ADD_REPLY =
   "Tasks are created in the Loan Tasks tab, not here. Open the tab to file one. I still post task cards and carry your replies.";
 
-class ReferenceStore {
+/* Exported only so the read-during-write sim can hold one of its saves open;
+   nothing outside this file constructs one. */
+export class ReferenceStore {
   private chain: Promise<void> = Promise.resolve();
 
   constructor(private readonly filePath: string) {}
@@ -142,14 +144,21 @@ class ReferenceStore {
     }
   }
 
+  /* Queued behind any save, as `ThreadStore.read` is: `save` rewrites the whole
+     file, and a read landing between its truncate and its fill throws (#331).
+     The queue's own read stays off the queue, or `save` would wait on itself. */
   async read(): Promise<StoredReference[]> {
+    return this.enqueue(() => this.readUnqueued());
+  }
+
+  private async readUnqueued(): Promise<StoredReference[]> {
     const raw = await fs.readFile(this.filePath, "utf8");
     return JSON.parse(raw) as StoredReference[];
   }
 
   async save(reference: StoredReference): Promise<void> {
     await this.enqueue(async () => {
-      const entries = await this.read();
+      const entries = await this.readUnqueued();
       const idx = entries.findIndex((entry) => entry.key === reference.key);
       if (idx >= 0) {
         // Keep a previously captured friendly label when this save lacks one
@@ -167,9 +176,13 @@ class ReferenceStore {
     });
   }
 
-  private async enqueue(operation: () => Promise<void>): Promise<void> {
-    this.chain = this.chain.then(operation, operation);
-    return this.chain;
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(operation, operation);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 }
 
