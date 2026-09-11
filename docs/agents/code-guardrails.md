@@ -19,6 +19,24 @@ still calls `upsertTask`.
 
 Guards may stay outside the closure; the value you are writing may not.
 
+## State in a file goes through `JsonFile`, and only `JsonFile`
+
+Every server store keeps its state in a JSON file, and every one of them is
+built on `JsonFile`: it creates the file, and it runs every read and every
+change for that file through one queue. A save rewrites the whole file,
+truncating before it fills, so a read that skipped the queue could land in the
+gap — which threw in one store and silently answered "nothing here" in another
+(#331, #339). That was fixed store by store until there were seven copies of the
+fix, and each fix found a store the last one had missed.
+
+So a new store composes `JsonFile`; it does not import `node:fs`. The
+read-during-write sim fails if any server module other than `JsonFile` (and the
+start-up check for the built web app) imports the filesystem.
+
+A change is `update(apply)`, and `apply` is synchronous on purpose: it cannot
+await a lookup, so it cannot wait on its own queue. Work out anything you need
+to look up before you call `update`, and keep only the change inside it.
+
 ## Changing a product rule touches four places
 
 1. `packages/shared` — types + workflow predicate

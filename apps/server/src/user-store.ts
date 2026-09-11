@@ -1,7 +1,6 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { UserIdentity, UserRole } from "@loan-tasks/shared";
 import { AuthIdentity } from "./auth.js";
+import { JsonFile } from "./json-file.js";
 
 /* Persisted user record. `id` is the AAD `oid` (stable across email/name
    changes). Roles are the source of truth for permissions in the DB-only
@@ -38,47 +37,34 @@ const toIdentity = (user: PersistedUser): UserIdentity => ({
   ...(user.email ? { email: user.email } : {})
 });
 
+/* Built on `JsonFile`, so a lookup waits behind a save (#339). That matters
+   here more than it looks: the user record is saved on every authenticated
+   request, so a lookup landing mid-save — and failing that request — was not a
+   rare event. */
 export class UserStore {
-  private readonly filePath: string;
-  private chain: Promise<void> = Promise.resolve();
+  private readonly file: JsonFile<DataShape>;
 
   constructor(filePath: string) {
-    this.filePath = filePath;
+    this.file = new JsonFile<DataShape>(filePath, {
+      empty: () => ({ users: [] }),
+      decode: (parsed) => {
+        const raw = parsed as Partial<DataShape>;
+        return { users: Array.isArray(raw.users) ? raw.users.map(normalize) : [] };
+      }
+    });
   }
 
   async init(): Promise<void> {
-    const dir = path.dirname(this.filePath);
-    await fs.mkdir(dir, { recursive: true });
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.writeFile(this.filePath, JSON.stringify({ users: [] }, null, 2), "utf8");
-    }
+    await this.file.init();
   }
 
-  private async read(): Promise<DataShape> {
-    const raw = await fs.readFile(this.filePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<DataShape>;
-    const users = Array.isArray(parsed.users) ? parsed.users.map(normalize) : [];
-    return { users };
-  }
-
-  private async write(data: DataShape): Promise<void> {
-    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
-  }
-
-  /* Queued behind any save (#339): a save rewrites the whole file, truncating
-     before it fills, and a read landing in that gap parses a torn file and
-     throws — failing whatever request was resolving that person. Inside a
-     queued operation, call `read` directly: queuing from there would wait on
-     itself. */
   async list(): Promise<PersistedUser[]> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.users.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }
 
   async get(id: string): Promise<PersistedUser | undefined> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.users.find((user) => user.id === id);
   }
 
@@ -102,8 +88,7 @@ export class UserStore {
        - token path, new user: default LOAN_OFFICER (promote via admin). */
   async upsertOnLogin(identity: AuthIdentity): Promise<UserIdentity> {
     let resolved!: UserIdentity;
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const now = new Date().toISOString();
       const index = data.users.findIndex((user) => user.id === identity.id);
       const existing = index >= 0 ? data.users[index] : undefined;
@@ -126,8 +111,8 @@ export class UserStore {
       } else {
         data.users.push(record);
       }
-      await this.write(data);
       resolved = toIdentity(record);
+      return data;
     });
     return resolved;
   }
@@ -135,36 +120,33 @@ export class UserStore {
   /* Admin role management (onboarding + future admin UI). */
   async setRoles(id: string, roles: UserRole[]): Promise<PersistedUser | undefined> {
     let updated: PersistedUser | undefined;
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const index = data.users.findIndex((user) => user.id === id);
       if (index < 0) {
-        return;
+        return undefined;
       }
       data.users[index] = { ...data.users[index]!, roles };
       updated = data.users[index];
-      await this.write(data);
+      return data;
     });
     return updated;
   }
 
   /* Capture the Teams user id for bot DMs (Phase 3). */
   async setTeamsUserId(id: string, teamsUserId: string): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const index = data.users.findIndex((user) => user.id === id);
       if (index < 0) {
-        return;
+        return undefined;
       }
       data.users[index] = { ...data.users[index]!, teamsUserId };
-      await this.write(data);
+      return data;
     });
   }
 
   /* Onboarding seed: upsert a user with explicit roles (id = AAD oid). */
   async seed(entry: { id: string; displayName: string; email?: string; roles: UserRole[] }): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const now = new Date().toISOString();
       const index = data.users.findIndex((user) => user.id === entry.id);
       const existing = index >= 0 ? data.users[index] : undefined;
@@ -184,7 +166,7 @@ export class UserStore {
       } else {
         data.users.push(record);
       }
-      await this.write(data);
+      return data;
     });
   }
 
@@ -193,11 +175,10 @@ export class UserStore {
   async createByAdmin(entry: { id: string; displayName: string; email?: string; roles: UserRole[] }): Promise<PersistedUser> {
     let created!: PersistedUser;
     let conflict = false;
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       if (data.users.some((user) => user.id === entry.id)) {
         conflict = true;
-        return;
+        return undefined;
       }
       const now = new Date().toISOString();
       created = {
@@ -210,7 +191,7 @@ export class UserStore {
         ...(entry.email ? { email: entry.email } : {})
       };
       data.users.push(created);
-      await this.write(data);
+      return data;
     });
     if (conflict) {
       throw new Error("User already exists");
@@ -221,15 +202,14 @@ export class UserStore {
   /* Admin: activate / deactivate. */
   async setActive(id: string, active: boolean): Promise<PersistedUser | undefined> {
     let updated: PersistedUser | undefined;
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const index = data.users.findIndex((user) => user.id === id);
       if (index < 0) {
-        return;
+        return undefined;
       }
       data.users[index] = { ...data.users[index]!, active };
       updated = data.users[index];
-      await this.write(data);
+      return data;
     });
     return updated;
   }
@@ -237,23 +217,11 @@ export class UserStore {
   /* Admin: permanently remove a user. Returns true if a record was deleted. */
   async remove(id: string): Promise<boolean> {
     let removed = false;
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const next = data.users.filter((user) => user.id !== id);
       removed = next.length !== data.users.length;
-      if (removed) {
-        await this.write({ users: next });
-      }
+      return removed ? { users: next } : undefined;
     });
     return removed;
-  }
-
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(operation, operation);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 }

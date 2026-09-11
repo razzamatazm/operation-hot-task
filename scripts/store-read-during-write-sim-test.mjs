@@ -1,15 +1,25 @@
 #!/usr/bin/env node
 /*
- * A read that lands while a save is half-written (#331).
+ * A read that lands while a save is half-written (#331, #339).
  *
- * The file-backed stores rewrite their whole file on every save, and a
- * whole-file write truncates before it fills. A read taken in that gap got an
- * empty or partial file, `JSON.parse` threw, and the caller's work was dropped.
- * A loan rename made the gap routine: it saves one task, starts that task's
- * card correction in the background, and saves the next task while the
- * correction is looking the first one up — so a channel card silently kept the
- * old loan name. The loan-card correction sim caught it in CI and was written
- * off as a flaky test (#320).
+ * The server keeps its state in JSON files and rewrites a whole file on every
+ * save, and a whole-file write truncates before it fills. A read taken in that
+ * gap got an empty or partial file. Depending on the store it threw, or quietly
+ * answered "nothing here": a loan rename left a channel card on the old name
+ * (#331), and admin settings answered "no channel chosen", broadcasting a
+ * notification to every channel (#339).
+ *
+ * It was fixed one store at a time until there were seven copies of the same
+ * queue. Now there is one: `JsonFile` owns reading and writing a data file, and
+ * every store is built on it. So this file checks three things:
+ *
+ *   1. `JsonFile` itself — a read waits behind a save, a change is one
+ *      read-change-write step, a failed change stays contained, and an
+ *      unreadable file behaves as its store declares.
+ *   2. Each store, through its own interface — so a store that bypassed
+ *      `JsonFile` would be caught by the promise it breaks, not by inspection.
+ *   3. That nothing else in the server touches the filesystem, so an eighth
+ *      store can't quietly bring the problem back.
  *
  * On a fast local disk the gap closes too quickly to land in on purpose, so
  * looping a test does not reproduce it. These checks hold one save open
@@ -17,14 +27,7 @@
  * save finish only once any file read that started has come back. No sleeps:
  * a read that goes to the file mid-save always sees the torn file, and a read
  * that waits its turn never touches the file until the save is done. The
- * promise under test: the read returns the saved state, never an error and
- * never a torn file. The filesystem is the only thing stubbed.
- *
- * #280 gave the bot's card-record store the same guarantee; these cover the
- * stores it missed: tasks, loans and the bot's conversation references (#331),
- * then admin settings, users and the activity-feed state (#339). Settings is
- * the quiet one: its read swallowed the parse error and answered "no channel
- * chosen", which sends a notification to every channel instead of one.
+ * filesystem is the only thing stubbed.
  *
  * Run: `node --test scripts/store-read-during-write-sim-test.mjs`.
  */
@@ -36,10 +39,12 @@ import { after, test } from "node:test";
 
 import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
 import { ReferenceStore } from "../apps/server/dist/bot.js";
+import { JsonFile } from "../apps/server/dist/json-file.js";
 import { SettingsStore } from "../apps/server/dist/settings-store.js";
 import { LoanStore, TaskStore } from "../apps/server/dist/store.js";
 import { UserStore } from "../apps/server/dist/user-store.js";
 
+const repoRoot = path.resolve(import.meta.dirname, "..");
 const root = mkdtempSync(path.join(os.tmpdir(), "store-read-during-write-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 let dirs = 0;
@@ -50,8 +55,8 @@ const fileIn = (name) => {
   return path.join(dir, name);
 };
 
-/* Hold the next save to `file` open between the truncate and the fill. Every
-   store here goes through the shared `fs.promises` object, so wrapping its
+/* Hold the next save to `file` open between the truncate and the fill. All
+   file access goes through the shared `fs.promises` object, so wrapping its
    `writeFile` and `readFile` for the length of one save is the whole seam.
 
    `release` is what keeps this deterministic. Letting the fill go the instant
@@ -99,6 +104,24 @@ const holdNextWrite = (file) => {
   return { truncated, release };
 };
 
+/* Count the saves to `file` until `stop` is called. */
+const countWrites = (file) => {
+  const { writeFile } = fs.promises;
+  let count = 0;
+  fs.promises.writeFile = (target, ...rest) => {
+    if (target === file) count += 1;
+    return writeFile.call(fs.promises, target, ...rest);
+  };
+  return {
+    get count() {
+      return count;
+    },
+    stop: () => {
+      fs.promises.writeFile = writeFile;
+    }
+  };
+};
+
 /* A read's outcome, captured the moment it settles, so a rejection during the
    hold is reported as the failure it is rather than as an unhandled rejection. */
 const outcome = (promise) =>
@@ -111,6 +134,103 @@ const assertRead = (result, label) => {
   assert.ok(result.ok, `${label} failed mid-save: ${result.error?.message}`);
   return result.value;
 };
+
+// --- 1. The one file store ------------------------------------------------
+
+const counterFile = async (options = {}) => {
+  const file = fileIn("counter.json");
+  const store = new JsonFile(file, { empty: () => ({ count: 0 }), ...options });
+  await store.init();
+  return { file, store };
+};
+
+test("a read while a save is half-written returns what was saved", async () => {
+  const { file, store } = await counterFile();
+  await store.update(() => ({ count: 1 }));
+
+  const hold = holdNextWrite(file);
+  const saving = store.update((current) => ({ count: current.count + 1 }));
+  await hold.truncated;
+  const read = outcome(store.read());
+  await hold.release();
+
+  assert.deepEqual(await saving, { count: 2 }, "the change resolves with what it saved");
+  assert.deepEqual(assertRead(await read, "read"), { count: 2 });
+});
+
+test("a change is handed the file as it is at its turn, so changes never overwrite each other", async () => {
+  const { store } = await counterFile();
+  // Queued back to back, each change must see the one before it.
+  await Promise.all(
+    Array.from({ length: 20 }, () => store.update((current) => ({ count: current.count + 1 })))
+  );
+  assert.deepEqual(await store.read(), { count: 20 });
+});
+
+test("a change that returns nothing saves nothing", async () => {
+  const { file, store } = await counterFile();
+  await store.update(() => ({ count: 5 }));
+
+  const writes = countWrites(file);
+  const result = await store.update(() => undefined);
+  writes.stop();
+
+  assert.equal(result, undefined);
+  assert.equal(writes.count, 0, "the file was not rewritten");
+  assert.deepEqual(await store.read(), { count: 5 });
+});
+
+test("a change that throws fails only its caller, and the file and the queue carry on", async () => {
+  const { store } = await counterFile();
+  await store.update(() => ({ count: 1 }));
+
+  const failing = store.update(() => {
+    throw new Error("bad change");
+  });
+  const after = store.update((current) => ({ count: current.count + 1 }));
+
+  await assert.rejects(failing, /bad change/);
+  assert.deepEqual(await after, { count: 2 }, "the next change still ran, on the untouched file");
+  assert.deepEqual(await store.read(), { count: 2 });
+});
+
+test("init creates a missing file with the empty value and leaves an existing one alone", async () => {
+  const fresh = fileIn("fresh.json");
+  await new JsonFile(fresh, { empty: () => ({ items: [] }) }).init();
+  assert.deepEqual(JSON.parse(fs.readFileSync(fresh, "utf8")), { items: [] });
+
+  const existing = fileIn("existing.json");
+  fs.writeFileSync(existing, JSON.stringify({ items: ["kept"] }));
+  await new JsonFile(existing, { empty: () => ({ items: [] }) }).init();
+  assert.deepEqual(JSON.parse(fs.readFileSync(existing, "utf8")), { items: ["kept"] });
+});
+
+test("an unreadable file throws by default, and reads as empty for a store that says so", async () => {
+  const strictFile = fileIn("strict.json");
+  fs.writeFileSync(strictFile, "{not json");
+  await assert.rejects(new JsonFile(strictFile, { empty: () => [] }).read(), SyntaxError);
+
+  const lenientFile = fileIn("lenient.json");
+  fs.writeFileSync(lenientFile, "{not json");
+  assert.deepEqual(await new JsonFile(lenientFile, { empty: () => [], lenient: true }).read(), []);
+});
+
+test("decode shapes what is read and encode shapes what is saved", async () => {
+  const file = fileIn("shaped.json");
+  const store = new JsonFile(file, {
+    empty: () => ({ names: [] }),
+    decode: (parsed) => ({ names: Array.isArray(parsed?.names) ? parsed.names : [] }),
+    encode: (value) => ({ names: value.names.map((name) => name.trim()) })
+  });
+  fs.writeFileSync(file, JSON.stringify({ other: true }));
+  await store.init();
+
+  assert.deepEqual(await store.read(), { names: [] }, "a file missing the field decodes to the store's shape");
+  await store.update(() => ({ names: ["  Dana  "] }));
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { names: ["Dana"] });
+});
+
+// --- 2. Every store, through its own interface ---------------------------
 
 const at = "2026-09-11T12:00:00.000Z";
 const task = (id, name) => ({
@@ -255,5 +375,33 @@ test("activity-feed state read while a save is half-written comes back as saved"
   assert.deepEqual(
     assertRead(await read, "read").users.map((user) => user.id),
     ["creator-1", "checker-1"]
+  );
+});
+
+// --- 3. Nothing else touches the filesystem --------------------------------
+
+/* Which server modules may import the filesystem, and why. Anything else that
+   wants to keep state in a file builds on `JsonFile`, so it inherits the
+   guarantee instead of re-deriving it — which is how there came to be seven
+   copies, and how #331 and #339 each found a store the last fix missed. */
+const MAY_IMPORT_FS = new Map([
+  ["json-file.ts", "the one module that reads and writes data files"],
+  ["index.ts", "checks whether the built web app exists before serving it"]
+]);
+
+test("no server module touches the filesystem except the shared file store", () => {
+  const src = path.join(repoRoot, "apps/server/src");
+  const importsFs = /from\s+["'](?:node:)?fs(?:\/promises)?["']|require\(\s*["'](?:node:)?fs(?:\/promises)?["']\s*\)/;
+  const offenders = fs
+    .readdirSync(src, { recursive: true })
+    .filter((name) => /\.(ts|tsx|mts|cts)$/.test(name))
+    .filter((name) => !MAY_IMPORT_FS.has(name))
+    .filter((name) => importsFs.test(fs.readFileSync(path.join(src, name), "utf8")))
+    .sort();
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `these modules import the filesystem directly; keep state through JsonFile instead: ${offenders.join(", ")}`
   );
 });

@@ -1,5 +1,4 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { JsonFile } from "./json-file.js";
 
 /* Mutable admin-managed settings, persisted to a JSON file (separate from the
    env-var `config`). Currently just the channel group notifications post to;
@@ -10,36 +9,24 @@ export interface AdminSettings {
   notificationChannelId?: string;
 }
 
+/* Built on `JsonFile`, so a read waits behind a save. Before that, a read
+   landing mid-save fell into the lenient path below and answered "no channel
+   chosen", broadcasting a notification to every channel instead of the one an
+   admin picked (#339). Lenient still, as it always was: settings that can't be
+   read at all fall back to none rather than failing the notification. */
 export class SettingsStore {
-  private chain: Promise<void> = Promise.resolve();
+  private readonly file: JsonFile<AdminSettings>;
 
-  constructor(private readonly filePath: string) {}
+  constructor(filePath: string) {
+    this.file = new JsonFile<AdminSettings>(filePath, { empty: () => ({}), lenient: true });
+  }
 
   async init(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.writeFile(this.filePath, "{}", "utf8");
-    }
+    await this.file.init();
   }
 
-  /* Queued behind any save (#339). A save rewrites the whole file, truncating
-     before it fills, and a read landing in that gap used to parse nothing, fall
-     into the catch below and answer "no channel chosen" — which broadcasts the
-     next notification to every channel instead of the one an admin picked.
-     The queue's own read stays off the queue, or a save would wait on itself. */
-  async read(): Promise<AdminSettings> {
-    return this.enqueue(() => this.readUnqueued());
-  }
-
-  private async readUnqueued(): Promise<AdminSettings> {
-    try {
-      const raw = await fs.readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as AdminSettings;
-    } catch {
-      return {};
-    }
+  read(): Promise<AdminSettings> {
+    return this.file.read();
   }
 
   async getNotificationChannelId(): Promise<string | undefined> {
@@ -48,23 +35,13 @@ export class SettingsStore {
 
   /* Pass null/undefined to clear the selection (revert to broadcast-to-all). */
   async setNotificationChannelId(channelId: string | null | undefined): Promise<void> {
-    await this.enqueue(async () => {
-      const settings = await this.readUnqueued();
+    await this.file.update((settings) => {
       if (channelId) {
         settings.notificationChannelId = channelId;
       } else {
         delete settings.notificationChannelId;
       }
-      await fs.writeFile(this.filePath, JSON.stringify(settings, null, 2), "utf8");
+      return settings;
     });
-  }
-
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(operation, operation);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 }
