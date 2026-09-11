@@ -142,18 +142,28 @@ export class TaskStore {
     await fs.writeFile(this.filePath, JSON.stringify(normalized, null, 2), "utf8");
   }
 
+  /* Reads go through the same queue the writes do. `write` rewrites the whole
+     file, and `writeFile` truncates before it fills, so a read landing in that
+     gap parses a torn file and throws. A loan rename made that routine: it saves
+     one task, starts that task's card correction in the background, and saves
+     the next task while the correction is looking the first one up — so a
+     channel card was silently left on the old name (#331). The bot's card
+     records got the same fix under #280.
+
+     Inside a queued operation, call `read` directly: queuing from there would
+     wait on itself. */
   async allTasks(): Promise<LoanTask[]> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async allHistoryForTask(taskId: string): Promise<TaskHistoryEvent[]> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.history.filter((event) => event.taskId === taskId).sort((a, b) => a.at.localeCompare(b.at));
   }
 
   async findTask(taskId: string): Promise<LoanTask | undefined> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.tasks.find((task) => task.id === taskId);
   }
 
@@ -315,13 +325,15 @@ export class LoanStore {
     await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
   }
 
+  /* Queued behind any save for the same reason TaskStore's reads are: a read
+     taken mid-write sees a torn file and throws (#331). */
   async all(): Promise<Loan[]> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.loans;
   }
 
   async find(loanId: string): Promise<Loan | undefined> {
-    const data = await this.read();
+    const data = await this.enqueue(() => this.read());
     return data.loans.find((loan) => loan.id === loanId);
   }
 
@@ -344,8 +356,12 @@ export class LoanStore {
     });
   }
 
-  private async enqueue(operation: () => Promise<void>): Promise<void> {
-    this.chain = this.chain.then(operation, operation);
-    return this.chain;
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(operation, operation);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 }
