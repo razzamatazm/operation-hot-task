@@ -1,29 +1,31 @@
 #!/usr/bin/env node
-/* Issue #335 — one How Bad? control on an open card, in exactly one place.
+/* Issue #335 — one How Bad? rating on an open card, in exactly one place, and
+ * never a control.
  *
  * #332 put a read-only rating back on the collapsed row of a task that is
  * unclaimed and out for the first time. The row does not unmount when the card
  * expands, and the expanded body still led with its own `How Bad?` line, so an
- * open pool task drew the same number twice a few pixels apart. On a claimed
- * task the body led with the rating above the work the card was opened for.
+ * open pool task drew the same number twice a few pixels apart.
  *
- * The rule now lives in `apps/web/src/poop-rating.tsx` and every surface asks
- * it, so the three placements cannot overlap:
+ * The user's rule (#335):
  *
- *   - row  — unclaimed, never dropped, rated (read-only, #332's track)
- *   - body — any other unclaimed task (a dropped one, or an unrated first
- *            timer whose creator still needs somewhere to set it)
- *   - menu — everything else: claimed, in flight, closed
+ *   - The rating is set and changed in the task form alone. Every rating the
+ *     card draws is read-only, for every viewer, the creator included.
+ *   - Fresh unclaimed task (`isFirstTimeInPool`): the read-only row track.
+ *   - Every other state — dropped and re-offered, claimed, closed: a read-only
+ *     rating in the task menu.
+ *   - The open card body never shows a rating.
+ *   - An unrated task shows nothing anywhere, for anyone.
  *
- * and on every surface an unrated task draws nothing unless the viewer may set
- * it. That is a promise about what a person sees, so this file renders the
- * module through `react-dom/server` and reads the markup back, the same
- * arrangement as `instructions-box-sim-test.mjs`. A source check at the end
- * holds App.tsx to drawing these rather than a copy of its own.
+ * The rule lives in `apps/web/src/poop-rating.tsx`, and this file renders it
+ * through `react-dom/server` and reads the markup back, the same arrangement as
+ * `instructions-box-sim-test.mjs`. Source checks at the end hold App.tsx to
+ * drawing these rather than a copy of its own, and styles.css to carrying no
+ * rules for a rating block nothing emits.
  *
  * Run: `node --test scripts/rating-placement-sim-test.mjs`. */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -50,7 +52,6 @@ const { ratingBlock } = await import(pathToFileURL(ratingModule).href);
 
 const CREATOR = { id: "creator-1", displayName: "Dana Requester" };
 const ASSIGNEE = { id: "assignee-1", displayName: "Casey Checker" };
-const OBSERVER = { id: "observer-1", displayName: "Sam Bystander" };
 
 const FILED = "2026-09-01T10:00:00.000Z";
 const LATER = "2026-09-02T10:00:00.000Z";
@@ -71,131 +72,100 @@ const task = (overrides = {}) => ({
   ...overrides
 });
 
-/* The four task states the ticket names. */
+/* Every state the rule names, and the surface each one's rating belongs on. */
 const STATES = {
-  "unclaimed, never dropped": (o) => task(o),
-  "unclaimed, dropped and re-offered": (o) => task({ pooledSince: LATER, ...o }),
-  claimed: (o) => task({ status: "CLAIMED", assignee: { ...ASSIGNEE }, ...o }),
-  closed: (o) => task({ status: "COMPLETED", assignee: { ...ASSIGNEE }, ...o })
+  "unclaimed, never dropped": { make: (o) => task(o), surface: "row" },
+  "unclaimed, pooledSince stamped equal to createdAt": { make: (o) => task({ pooledSince: FILED, ...o }), surface: "row" },
+  "unclaimed, dropped and re-offered": { make: (o) => task({ pooledSince: LATER, ...o }), surface: "menu" },
+  claimed: { make: (o) => task({ status: "CLAIMED", assignee: { ...ASSIGNEE }, ...o }), surface: "menu" },
+  "fraud check released for any checker": {
+    make: (o) => task({ taskType: "FRAUD", status: "PENDING_APPROVAL", pooledSince: LATER, ...o }),
+    surface: "menu"
+  },
+  closed: { make: (o) => task({ status: "COMPLETED", assignee: { ...ASSIGNEE }, ...o }), surface: "menu" }
 };
 
-const SURFACES = ["row", "body", "menu"];
+const SURFACES = ["row", "menu"];
 
-const render = (surface, t, viewerId, onChange) => {
-  const el = ratingBlock(surface, t, viewerId, onChange);
+const render = (surface, t) => {
+  const el = ratingBlock(surface, t);
   return el === null ? "" : renderToStaticMarkup(createElement(Fragment, null, el));
 };
-const buttons = (html) => (html.match(/<button/g) ?? []).length;
 
-test("an open pool task on its first time out shows the rating once, on the row", () => {
-  const t = STATES["unclaimed, never dropped"]();
-  for (const viewer of [CREATOR, OBSERVER]) {
-    const row = render("row", t, viewer.id, () => {});
-    assert.match(row, /poop-track/, "the row carries #332's track");
-    assert.equal(buttons(row), 0, "and it is read-only, even for the creator");
-    assert.equal(render("body", t, viewer.id, () => {}), "", "the expanded body draws no second copy");
-    assert.equal(render("menu", t, viewer.id, () => {}), "", "nor does the menu");
-  }
-});
-
-test("a dropped pool task shows the rating once, in the body, settable by its creator", () => {
-  const t = STATES["unclaimed, dropped and re-offered"]();
-  assert.equal(render("row", t, CREATOR.id), "", "no row track once it has been dropped");
-  const body = render("body", t, CREATOR.id, () => {});
-  assert.match(body, /How Bad\?/);
-  assert.equal(buttons(body), 5, "five slots the creator can press");
-  assert.equal(render("menu", t, CREATOR.id, () => {}), "");
-});
-
-test("a claimed task draws no rating in the body; the menu carries it as five icons", () => {
-  const t = STATES.claimed();
-  assert.equal(render("row", t, CREATOR.id), "");
-  assert.equal(render("body", t, CREATOR.id, () => {}), "", "the body leads with the timeline, not the rating");
-  const menu = render("menu", t, CREATOR.id, () => {});
-  assert.match(menu, /role="group"/, "a labelled group, an owned role of menu");
-  assert.match(menu, /aria-label="How Bad\?"/);
-  assert.doesNotMatch(menu, /role="menuitem/, "reference detail, not an arrow-key stop");
-  assert.equal(buttons(menu), 5, "the same five clickable icons, not a 3/5 count");
-  for (let n = 1; n <= 5; n += 1) {
-    assert.match(menu, new RegExp(`aria-label="Set How Bad\\? to ${n}" aria-pressed="${n <= 3}"`), `slot ${n} keeps its label and pressed state`);
-  }
-});
-
-test("pressing a slot in the menu hands the new value to the caller's handler", () => {
-  const seen = [];
-  const el = ratingBlock("menu", STATES.claimed(), CREATOR.id, (n) => seen.push(n));
-  /* Walk the element tree to the fourth slot's button and press it. */
-  const find = (node, pred) => {
-    if (!node || typeof node !== "object") return undefined;
-    if (Array.isArray(node)) { for (const c of node) { const hit = find(c, pred); if (hit) return hit; } return undefined; }
-    if (pred(node)) return node;
-    if (typeof node.type === "function") return find(node.type(node.props), pred);
-    return find(node.props?.children, pred);
-  };
-  const slot = find(el, (n) => n.type === "button" && n.props?.["aria-label"] === "Set How Bad? to 4");
-  assert.ok(slot, "the fourth slot is a button");
-  slot.props.onClick({ stopPropagation() {} });
-  assert.deepEqual(seen, [4]);
-});
-
-test("anyone but the creator reads the menu's rating without buttons or hover affordance", () => {
-  for (const viewer of [ASSIGNEE, OBSERVER]) {
-    const menu = render("menu", STATES.claimed(), viewer.id, () => {});
-    assert.match(menu, /aria-label="How Bad\?"/, "still readable");
-    assert.equal(buttons(menu), 0, "no buttons");
-    assert.doesNotMatch(menu, /poop-track-editable/, "no hover affordance");
-  }
-});
-
-test("a closed task's rating is readable and not editable in the menu, creator included", () => {
-  const menu = render("menu", STATES.closed(), CREATOR.id, () => {});
-  assert.match(menu, /poop-slot-on/);
-  assert.equal(buttons(menu), 0);
-  assert.doesNotMatch(menu, /poop-track-editable/);
-});
-
-test("an unrated task draws nothing anywhere, except one settable control for the creator of an open task", () => {
-  for (const [state, make] of Object.entries(STATES)) {
-    const t = make({ points: 0 });
-    for (const viewer of [CREATOR, ASSIGNEE, OBSERVER]) {
-      const drawn = SURFACES.filter((s) => render(s, t, viewer.id, () => {}) !== "");
-      const creatorOfOpen = viewer === CREATOR && state !== "closed";
-      assert.equal(drawn.length, creatorOfOpen ? 1 : 0, `${state}, ${viewer.displayName}: drew ${drawn.join(", ") || "nothing"}`);
-      for (const s of drawn) assert.equal(buttons(render(s, t, viewer.id, () => {})), 5, `${state}: the one control is settable`);
+test("a rated task draws its rating on exactly the surface its state names, and no other", () => {
+  for (const [state, { make, surface }] of Object.entries(STATES)) {
+    for (const points of [1, 3, 5]) {
+      const t = make({ points });
+      const drawn = SURFACES.filter((s) => render(s, t) !== "");
+      assert.deepEqual(drawn, [surface], `${state}, ${points}: drew ${drawn.join(" and ") || "nothing"}`);
+      const html = render(surface, t);
+      assert.equal((html.match(/poop-slot-on/g) ?? []).length, points, `${state}: ${points} of five filled`);
+      assert.equal((html.match(/class="poop-slot/g) ?? []).length, 5, `${state}: a fixed five-slot track`);
     }
   }
 });
 
-test("every state, viewer and rating draws the control in at most one place", () => {
-  for (const [state, make] of Object.entries(STATES)) {
-    for (const points of [0, 1, 5]) {
-      for (const viewer of [CREATOR, ASSIGNEE, OBSERVER]) {
-        const drawn = SURFACES.filter((s) => render(s, make({ points }), viewer.id, () => {}) !== "");
-        assert.ok(drawn.length <= 1, `${state}, ${points}, ${viewer.displayName}: drew ${drawn.join(" and ")}`);
-        if (points > 0) assert.equal(drawn.length, 1, `${state}, ${points}, ${viewer.displayName}: a rated task shows it somewhere`);
+test("no surface on the card is a control, for any state", () => {
+  for (const [state, { make, surface }] of Object.entries(STATES)) {
+    const html = render(surface, make());
+    assert.doesNotMatch(html, /<button/, `${state}: no buttons`);
+    assert.doesNotMatch(html, /poop-track-editable|aria-pressed|tabindex/i, `${state}: no hover affordance, no pressed state, no tab stop`);
+  }
+});
+
+test("the row copy is the bare track; the menu copy is a labelled group, not a menu item", () => {
+  const row = render("row", STATES["unclaimed, never dropped"].make());
+  assert.match(row, /^<span class="poop-track"/, "the row gets #332's track and nothing around it");
+  const menu = render("menu", STATES.claimed.make());
+  assert.match(menu, /class="task-card-menu-rating" role="group" aria-label="How Bad\?"/);
+  assert.match(menu, /<b>How Bad\?<\/b>/);
+  assert.doesNotMatch(menu, /role="menuitem/, "reference detail, not an arrow-key stop");
+});
+
+test("an unrated task draws nothing on any surface, whatever its state", () => {
+  for (const [state, { make }] of Object.entries(STATES)) {
+    for (const points of [0, undefined]) {
+      const t = make({ points });
+      for (const surface of SURFACES) {
+        assert.equal(render(surface, t), "", `${state}, points ${points}: ${surface} drew something`);
       }
     }
   }
 });
 
-test("App.tsx draws the shared module on all three surfaces and keeps no copy of its own", () => {
-  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  assert.match(app, /from "\.\/poop-rating"/);
-  assert.doesNotMatch(app, /const PoopDisplay\s*=/, "no second rating component");
-  for (const surface of SURFACES) {
-    assert.match(app, new RegExp(`ratingBlock\\("${surface}"`), `the ${surface} asks the rule`);
-  }
-  const hasContent = app.match(/const menuHasContent = \[([\s\S]*?)\]\.some\(Boolean\)/);
-  assert.ok(hasContent, "menuHasContent is still an is-any-block-non-empty list");
-  assert.match(hasContent[1], /menuRating/, "the rating block is folded into it");
-  assert.match(app, /!pendingTerminal && menuRating/, "the panel draws it with the rest of the reference foot");
+const APP = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+
+test("App.tsx asks the module for the row and the menu, and nothing else draws a rating", () => {
+  assert.match(APP, /from "\.\/poop-rating"/);
+  assert.doesNotMatch(APP, /const PoopDisplay\s*=/, "no second rating component");
+  assert.doesNotMatch(APP, /PoopDisplay/, "the card never draws the track directly");
+  assert.match(APP, /ratingBlock\("row", task\)/, "the row asks the rule");
+  assert.match(APP, /const menuRating = ratingBlock\("menu", task\);/, "the menu asks the rule");
+  assert.equal((APP.match(/ratingBlock\(/g) ?? []).length, 2, "and those are the only two surfaces");
+  const expanded = APP.slice(APP.indexOf("const renderExpanded = () =>"), APP.indexOf("const ownerName ="));
+  assert.ok(expanded.length > 0, "the expanded body is where it was");
+  assert.doesNotMatch(expanded, /ratingBlock|poop|How Bad\?</i, "the open card body draws no rating");
 });
 
-test("the menu block has a rule to sit in, and the body line's rules are still emitted", () => {
+test("the menu folds the rating into its is-anything-worth-opening check, and hides it with the timestamps", () => {
+  const hasContent = APP.match(/const menuHasContent = \[([\s\S]*?)\]\.some\(Boolean\)/);
+  assert.ok(hasContent, "menuHasContent is still an is-any-block-non-empty list");
+  assert.match(hasContent[1], /menuRating/, "the rating block is folded into it");
+  assert.match(APP, /\{!pendingTerminal && menuRating\}\s*\{!pendingTerminal && menuTimestamps\}/, "drawn directly above the timestamps");
+});
+
+test("no rule in styles.css addresses a rating block nothing emits", () => {
   const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
-  const module = readFileSync(join(REPO, "apps/web/src/poop-rating.tsx"), "utf8");
-  for (const cls of ["task-card-menu-rating", "task-card-poop-row", "task-card-poop-label"]) {
-    assert.match(css, new RegExp(`\\.${cls}\\b`), `${cls} is styled`);
-    assert.match(module, new RegExp(`"${cls}"`), `${cls} is emitted`);
+  const tsx = readdirSync(join(REPO, "apps/web/src"))
+    .filter((f) => f.endsWith(".tsx"))
+    .map((f) => readFileSync(join(REPO, "apps/web/src", f), "utf8"))
+    .join("\n");
+  for (const gone of ["task-card-poop-row", "task-card-poop-label", "poop-track-editable"]) {
+    assert.doesNotMatch(css, new RegExp(`\\.${gone}\\b`), `${gone} has no rules left`);
+    assert.doesNotMatch(tsx, new RegExp(gone), `${gone} is emitted nowhere`);
+  }
+  for (const kept of ["task-card-menu-rating", "poop-track", "poop-slot-on"]) {
+    assert.match(css, new RegExp(`\\.${kept}\\b`), `${kept} is styled`);
+    assert.match(readFileSync(join(REPO, "apps/web/src/poop-rating.tsx"), "utf8"), new RegExp(kept), `${kept} is emitted`);
   }
 });

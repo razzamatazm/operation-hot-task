@@ -269,27 +269,27 @@ Each slot has one job. When adding info, replace something — don't append:
   screen, and under 560px on the reserved line under it, which puts it above
   the names (2026-09-10, the user's call). It briefly lived in the pair beside
   the word `Unclaimed`, which cost the row a second reserved line; sharing the
-  stage's line is what took that back. Read-only there: a five-slot
-  editable track inside a row that is itself a press target is five touch
-  targets nobody asked for, and the creator rates it on the edit form.
+  stage's line is what took that back. Read-only, for everyone.
 
-  **An open card draws the rating in exactly one place** (#335). The row does
-  not unmount when a card expands, so #332's track and the body's `How Bad?`
-  line both answering on their own drew the same number twice on every open
-  pool task. One rule, `ratingSurface` in
-  [src/poop-rating.tsx](src/poop-rating.tsx), picks the surface and each of the
-  three asks `ratingBlock` with its own name:
-  - **row** — unclaimed, first time out, rated (this track, read-only);
-  - **body** — any other unclaimed task: one that has been dropped, or an
-    unrated first timer whose creator still needs a place to set it;
-  - **menu** — claimed, in flight or closed. A labelled `role="group"` block
-    (`.task-card-menu-rating`) directly above the timestamps, the creator's
-    slots real buttons in the tab order, everyone else's read-only. The body of
-    a claimed task leads with the timeline and the work, not the rating.
+  **The rating is changed in the task form and nowhere else** (#335, the
+  user's call). Filing sets it and `Edit Task` changes it; every rating the card
+  draws is read-only for every viewer, the creator included. The click-to-rate
+  track that used to live on the card is gone, along with its handler. The
+  server's points route and its permission are untouched — the form uses them.
 
-  The "draw nothing when unrated and you can't set it" rule is asked once in
-  that module, never per surface. `scripts/rating-placement-sim-test.mjs`
-  sweeps every state, viewer and rating for more than one copy.
+  **An open card draws the rating in exactly one place, and never in the
+  body.** The row does not unmount when a card expands, so #332's track and the
+  body's old `How Bad?` line drew the same number twice on every open pool
+  task. One rule, `ratingSurface` in [src/poop-rating.tsx](src/poop-rating.tsx),
+  picks the surface, and the two ask `ratingBlock` with their own name:
+  - **row** — unclaimed and out for the first time (this track);
+  - **menu** — every other state: dropped and re-offered, claimed, in flight,
+    closed. A labelled `role="group"` block (`.task-card-menu-rating`) directly
+    above the timestamps, folded into `menuHasContent`.
+
+  An unrated task draws nothing on either, for anyone.
+  `scripts/rating-placement-sim-test.mjs` sweeps every state for more than one
+  copy, for a control, and for rules left addressing a block nothing emits.
 
   Fixed 5-slot track everywhere it appears — slots 1..N in full colour, the
   rest ghosted, so a 3 reads as three *out of five* rather than as three
@@ -1981,10 +1981,9 @@ reads the markup back. `CheckIcon` / `TrashIcon` moved to
 **Urgency and poop points are on the form** (#261), preloaded from the task —
 a select sitting on GREEN while the task is RED is a control that lies. No
 due-date input appears: changing the urgency re-derives `dueAt` server-side from
-the moment of the edit, the same computation filing uses. The card keeps
-its click-to-rate poop track (in the open body on an unclaimed task the row is
-not already rating, in the hamburger once claimed — see *Poop*, #335); two ways
-to one number is intended. Both are
+the moment of the edit, the same computation filing uses. Since #335 the
+form is the only place the poops change — every rating the card draws is
+read-only (see *Poop*). Both are
 drawn for the filer alone (`creatorOnlyFields`) — urgency stays the creator's,
 because an assignee who can extend their own deadline is not accepting a deal
 (ADR-0008 rule 5), and the poops say what the creator thinks the ask is worth.

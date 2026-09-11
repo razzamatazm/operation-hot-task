@@ -1171,9 +1171,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                 <UrgencySelect value={form.urgency} onChange={(urgency) => setForm((c) => ({ ...c, urgency }))} />
               </label>
             )}
-            {/* Poop points, on both forms (#261). The collapsed row keeps its own
-                click-to-rate track — two paths to one number, deliberately
-                (ADR-0008 rule 4). */}
+            {/* Poop points, on both forms (#261). Since #335 this picker is the
+                only place the rating is set or changed: every rating the card
+                draws is read-only. */}
             {creatorOnlyFields && (
               <label>
                 How Bad?

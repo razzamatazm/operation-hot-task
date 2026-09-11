@@ -128,6 +128,11 @@ create action, and covers:
 Poop points remain editable in place on the collapsed row. Two paths to one
 number is worth more than the tidiness of removing the fast one.
 
+> **Superseded for poop points (#335, 2026-09-11).** The user retired the
+> card's click-to-rate track: the task form is now the only place the rating
+> changes, and every rating the card draws is read-only. Who may change it
+> (the creator, on a non-closed task) is unchanged.
+
 **5. Both parties may correct the task. Urgency is the exception.**
 
 ADR-0006 admitted the creator alone. That was right about urgency and
