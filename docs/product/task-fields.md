@@ -316,7 +316,19 @@ was left. It is still the create form, not edit mode, so it has both buttons:
 - A reopened form never touches the form's autosave: it does not open on it,
   write to it or clear it.
 
-Deleting one and the Cancel prompt are not built yet. Until the prompt is,
+**Deleting one** (#345). Each row in the Saved for Later section has a delete
+control at its right end, separate from the rest of the row, so pressing it
+never opens the form. It asks first, in the row itself: `Delete this saved
+task?`, with `Keep` (which has the keyboard focus, so pressing Return by
+accident keeps it) and `Delete`. `Keep` or Escape leaves it exactly as it was.
+`Delete` removes it from the server for good, and it comes off the section
+straight away; the count drops, and the section disappears if that was the last
+one. There is no undo, no expiry and no limit. If the delete does not go
+through, the row stays and a note says so. One already created or deleted on
+another device simply comes off the list. Nobody can delete someone else's,
+admins included, and trying gets the same answer as a task that never existed.
+
+The Cancel prompt is not built yet. Until it is,
 Cancel on a reopened form that has been changed asks the ordinary "Discard this
 task?" question, and discarding only throws the changes away; the Saved for
 Later task stays as it was last saved.

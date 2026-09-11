@@ -40,9 +40,9 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export { SavedForLaterSection } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
+    `export { SavedForLaterSection, SavedForLaterDeleteConfirm } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { draftKey, serializeDraft } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
-    `export { saveForLaterRequest, reopenSavedForLaterRequest, clearCreatedSavedForLaterRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
+    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
 );
 const bundle = join(scratch, "saved-for-later.mjs");
 await build({
@@ -58,12 +58,14 @@ const {
   TaskForm,
   ToastProvider,
   SavedForLaterSection,
+  SavedForLaterDeleteConfirm,
   draftKey,
   serializeDraft,
   saveForLaterRequest,
   reopenSavedForLaterRequest,
-  clearCreatedSavedForLaterRequest
+  removeSavedForLaterRequest
 } = await import(pathToFileURL(bundle).href);
+const SECTION_SOURCE = readFileSync(join(REPO, "apps/web/src/saved-for-later.tsx"), "utf8");
 
 const storage = new Map();
 globalThis.window = {
@@ -188,7 +190,8 @@ const item = (id, minutesAgo, overrides = {}) => ({
   form: { ...FORM, ...overrides }
 });
 
-const renderSection = (items) => renderToStaticMarkup(createElement(SavedForLaterSection, { items, now: NOW }));
+const renderSection = (items) =>
+  renderToStaticMarkup(createElement(SavedForLaterSection, { items, now: NOW, onOpen: () => {}, onDelete: async () => true }));
 
 test("the section is not there at all when the viewer has none", () => {
   assert.equal(renderSection([]), "");
@@ -215,13 +218,113 @@ test("a row is the loan name, the task type and when it was saved, and nothing e
   const html = renderSection([item("a", 5, { folderName: "Adams - Harbor", taskType: "VALUE" })]);
   const rows = [...html.matchAll(/<li[\s\S]*?<\/li>/g)].map((m) => m[0]);
   assert.equal(rows.length, 1);
+  const open = rows[0].match(/^<li class="saved-row"><button type="button" class="saved-row-open">([\s\S]*?)<\/button>/)?.[1];
   assert.equal(
-    rows[0],
-    `<li class="saved-row"><button type="button" class="saved-row-open">` +
-      `<span class="saved-row-name">Adams - Harbor</span>` +
+    open,
+    `<span class="saved-row-name">Adams - Harbor</span>` +
       `<span class="saved-row-type">${TASK_TYPE_LABELS.VALUE}</span>` +
-      `<time class="saved-row-when" dateTime="${new Date(NOW - 5 * 60000).toISOString()}">saved 5m ago</time></button></li>`
+      `<time class="saved-row-when" dateTime="${new Date(NOW - 5 * 60000).toISOString()}">saved 5m ago</time>`
   );
+});
+
+/* ── Deleting one (#345) ─────────────────────────────────── */
+
+test("each row has a delete control beside the button that reopens it, never inside it", () => {
+  const html = renderSection([item("a", 5, { folderName: "Adams - Harbor" }), item("b", 10, { folderName: "  " })]);
+  const rows = [...html.matchAll(/<li class="saved-row">([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  assert.equal(rows.length, 2);
+  for (const row of rows) {
+    const open = row.match(/^<button type="button" class="saved-row-open">[\s\S]*?<\/button>/)?.[0];
+    assert.ok(open, "the row starts with the button that reopens it");
+    assert.doesNotMatch(open, /saved-row-delete/, "the delete control is not part of the reopen target");
+    assert.match(row.slice(open.length), /^<button type="button" class="saved-row-delete"[^>]*><svg[\s\S]*<\/svg><\/button>$/, "it is its own button, right after");
+  }
+  assert.match(rows[0], /class="saved-row-delete" aria-label="Delete saved task: Adams - Harbor"/, "named for the row it deletes");
+  assert.match(rows[1], /class="saved-row-delete" aria-label="Delete saved task: No loan yet"/);
+});
+
+test("pressing the delete control asks first, and does not reopen the form", () => {
+  const trigger = SECTION_SOURCE.match(/<button\s+type="button"\s+className="saved-row-delete"[\s\S]*?<\/button>/)?.[0];
+  assert.ok(trigger, "the row renders the delete control");
+  assert.match(trigger, /onClick=\{\(\) => setConfirming\(true\)\}/, "pressing it only opens the question");
+  assert.doesNotMatch(trigger, /onOpen|onDelete/, "it neither reopens the form nor deletes");
+});
+
+test("the question is asked in place, the safe answer first and holding focus, the delete in the danger style", () => {
+  const html = renderToStaticMarkup(
+    createElement(SavedForLaterDeleteConfirm, { name: "Adams - Harbor", deleting: false, onConfirm: () => {}, onCancel: () => {} })
+  );
+  assert.equal(
+    html,
+    `<div class="saved-row-confirm" role="alertdialog" aria-label="Delete Adams - Harbor?">` +
+      `<span class="saved-row-confirm-question">Delete this saved task?</span>` +
+      `<button type="button" class="btn-sm btn-ghost">Keep</button>` +
+      `<button type="button" class="btn-sm btn-danger">Delete</button></div>`
+  );
+  assert.match(SECTION_SOURCE, /keepRef\.current\?\.focus\(\)/, "focus lands on Keep, so a stray Return is not the delete");
+  assert.match(SECTION_SOURCE, /ref=\{keepRef\}[^>]*onClick=\{onCancel\}/, "the focused button is the one that declines");
+});
+
+test("while the delete is out, neither answer can be pressed again", () => {
+  const html = renderToStaticMarkup(
+    createElement(SavedForLaterDeleteConfirm, { name: "Adams - Harbor", deleting: true, onConfirm: () => {}, onCancel: () => {} })
+  );
+  assert.match(html, /<button type="button" class="btn-sm btn-ghost" disabled="">Keep<\/button><button type="button" class="btn-sm btn-danger" disabled="">Deleting…<\/button>/);
+});
+
+test("declining — Keep or Escape — deletes nothing and puts the row back", () => {
+  const escape = SECTION_SOURCE.match(/onKeyDown=\{\(e\) => \{([\s\S]*?)\}\}/)?.[1];
+  assert.ok(escape, "the question listens for keys");
+  assert.match(escape, /e\.key === "Escape"/);
+  assert.match(escape, /onCancel\(\)/, "Escape gives the safe answer");
+  const decline = SECTION_SOURCE.match(/const decline = \(\): void => \{([\s\S]*?)\n  \};/)?.[1];
+  assert.ok(decline, "the row has a decline handler");
+  assert.doesNotMatch(decline, /onDelete/, "declining never reaches the delete");
+  assert.match(decline, /setConfirming\(false\)/, "and closes the question");
+  assert.match(SECTION_SOURCE, /onCancel=\{decline\}/, "Keep and Escape both decline");
+  const confirm = SECTION_SOURCE.match(/const confirmDelete = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
+  assert.match(confirm, /await onDelete\(item\)/, "the row deletes only from the confirm");
+  assert.match(SECTION_SOURCE, /onConfirm=\{\(\) => void confirmDelete\(\)\}/);
+  const rowSource = SECTION_SOURCE.match(/const SavedForLaterRow = [\s\S]*?\n\};/)?.[0];
+  assert.equal((rowSource.match(/onDelete\(/g) ?? []).length, 1, "and nowhere else in the row");
+});
+
+test("once a delete lands, focus moves to the row that took its place, and a failed one leaves it on the row", () => {
+  const section = SECTION_SOURCE.match(/export const SavedForLaterSection = [\s\S]*?\n\};/)?.[0];
+  assert.ok(section);
+  const deleteRow = section.match(/const deleteRow = async \([\s\S]*?\n  \};/)?.[0];
+  assert.ok(deleteRow, "the section wraps the delete");
+  assert.ok(
+    deleteRow.indexOf("refocus.current = { id: item.id, index }") < deleteRow.indexOf("await onDelete(item)"),
+    "it marks where the row was before asking"
+  );
+  assert.match(deleteRow, /if \(!removed\) refocus\.current = null;/, "a delete that did not land clears the mark");
+  const effect = section.match(/useEffect\(\(\) => \{([\s\S]*?)\}, \[items\]\);/)?.[1];
+  assert.ok(effect, "the section moves focus when its list changes");
+  assert.match(effect, /items\.some\(\(i\) => i\.id === mark\.id\)\) return;/, "only once the row is really gone");
+  assert.match(effect, /querySelectorAll<HTMLButtonElement>\("\.saved-row-open"\)/);
+  assert.match(effect, /\[Math\.min\(mark\.index, rows\.length - 1\)\]\?\.focus\(\)/, "the next row, or the new last one");
+  assert.ok(section.indexOf("useEffect(") < section.indexOf("if (items.length === 0) return null;"), "hooks run before the empty return");
+});
+
+test("the count follows the list, and removing the last one hides the section", () => {
+  const two = [item("a", 5), item("b", 10)];
+  assert.match(renderSection(two), /<span class="section-count">2<\/span>/);
+  assert.match(renderSection(two.filter((i) => i.id !== "a")), /<span class="section-count">1<\/span>/);
+  assert.equal(renderSection([]), "");
+});
+
+test("confirming removes it from the server, then from the section; a failure says so and leaves the row", () => {
+  const handler = APP_SOURCE.match(/const deleteSavedForLater = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.ok(handler, "App has a deleteSavedForLater handler");
+  const removing = handler.indexOf("removeSavedForLaterRequest(savedForLaterRequestFor(user), item.id)");
+  const refused = handler.indexOf("if (!removed)");
+  const toasting = handler.indexOf("showToast(");
+  const dropping = handler.indexOf("setSavedForLater(");
+  assert.ok(removing >= 0, "it asks the server through the one removal helper");
+  assert.ok(refused > removing && toasting > refused && dropping > toasting, "a refusal toasts and returns before the row is dropped");
+  assert.match(handler, /return false;\s*\}\s*setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== item\.id\)\);\s*return true;/);
+  assert.match(handler, /if \(user\.id !== savedForLaterOwner\.current\) return false;/, "an answer for the previous person is dropped");
 });
 
 test("a row with no loan typed says No loan yet", () => {
@@ -234,10 +337,9 @@ test("a row with no loan typed says No loan yet", () => {
 test("tapping a row reopens that Saved for Later task: the whole row is one button that hands its record to App", () => {
   const html = renderSection([item("a", 5), item("b", 10)]);
   assert.equal([...html.matchAll(/<button type="button" class="saved-row-open">/g)].length, 2, "one press target per row");
-  const section = readFileSync(join(REPO, "apps/web/src/saved-for-later.tsx"), "utf8");
-  assert.match(section, /onClick=\{\(\) => onOpen\(item\)\}/, "pressing it opens that row's own record");
+  assert.match(SECTION_SOURCE, /onClick=\{\(\) => onOpen\(item\)\}/, "pressing it opens that row's own record");
   const grouped = APP_SOURCE.match(/const renderTaskList = \([\s\S]*?\n  \};/)?.[0];
-  assert.match(grouped, /<SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} \/>/);
+  assert.match(grouped, /<SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>/);
 });
 
 const FULL_FORM = {
@@ -343,7 +445,7 @@ test("Create clears the Saved for Later task only after the task was filed", () 
   assert.ok(handler);
   const filing = handler.indexOf(`"/tasks", { method: "POST"`);
   const failedFiling = handler.indexOf("throw err;");
-  const clearing = handler.indexOf("clearCreatedSavedForLaterRequest(");
+  const clearing = handler.indexOf("removeSavedForLaterRequest(");
   assert.ok(filing >= 0 && failedFiling > filing, "a failed filing rethrows");
   assert.ok(clearing > failedFiling, "and so never reaches the clear");
 });
@@ -400,12 +502,13 @@ test("reopening reads the latest save; one that is gone opens nothing; an unreac
   assert.deepEqual(await reopenSavedForLaterRequest(fakeServer({ "GET /saved-for-later/saved-1": new Error("offline") }).request, ITEM), ITEM);
 });
 
-test("clearing a created one removes it; already gone counts as cleared; anything else reports it is still there", async () => {
+test("removing one (created, or deleted from the board) takes it off the server; already gone counts as removed; anything else reports it is still there", async () => {
   const ok = fakeServer({ "DELETE /saved-for-later/saved-1": undefined });
-  assert.equal(await clearCreatedSavedForLaterRequest(ok.request, "saved-1"), true);
+  assert.equal(await removeSavedForLaterRequest(ok.request, "saved-1"), true);
   assert.deepEqual(ok.calls, ["DELETE /saved-for-later/saved-1"]);
-  assert.equal(await clearCreatedSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(404) }).request, "saved-1"), true);
-  assert.equal(await clearCreatedSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(500) }).request, "saved-1"), false);
+  assert.equal(await removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(404) }).request, "saved-1"), true);
+  assert.equal(await removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(500) }).request, "saved-1"), false);
+  await assert.doesNotReject(removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": new Error("offline") }).request, "saved-1"));
 });
 
 test("in Grouped view the section sits right after Needs you, on the Tasks board only", () => {
@@ -413,7 +516,7 @@ test("in Grouped view the section sits right after Needs you, on the Tasks board
   assert.ok(grouped, "renderTaskList exists");
   assert.match(
     grouped,
-    /s\.key === "you" && <SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} \/>/,
+    /s\.key === "you" && <SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>/,
     "rendered directly after the Needs you court, whether or not Needs you has any tasks"
   );
   assert.match(APP_SOURCE, /renderTaskList\(unifiedTasks, "No tasks yet\.", savedForLater\)/, "the Tasks board passes them");
