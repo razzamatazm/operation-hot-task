@@ -139,6 +139,12 @@ override.
   requester's manual release uses — including its channel post, one claimable
   card per released check (see
   [fraud-workflow.md](fraud-workflow.md#seats))
+- Removing a user also **deletes every Saved for Later task they held**
+  ([ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md) rule 6),
+  and nobody else's. Nothing private of theirs stays on the server; if the same
+  person is added back later, they start with none. Deactivating deletes
+  nothing: a deactivated user can't reach theirs, and reactivating them brings
+  them back as they were
 - Guards: cannot deactivate/remove yourself; cannot remove or demote the
   last active admin
 - Newly auto-created users (default `LOAN_OFFICER`, never edited) are

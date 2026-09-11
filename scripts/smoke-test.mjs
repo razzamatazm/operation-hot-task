@@ -1446,6 +1446,15 @@ const run = async () => {
       user: { ...users.otherOfficer, roles: "LOAN_OFFICER,FILE_CHECKER" }
     });
 
+    const creatorSavedBeforeRemoval = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.ok(creatorSavedBeforeRemoval.json.items.length > 0, "someone else has Saved for Later tasks to keep");
+    const removedHadSaved = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.otherOfficer });
+    assert.deepEqual(
+      removedHadSaved.json.items.map((item) => item.id),
+      [othersOwnSave.json.item.id],
+      "the user about to be removed holds a Saved for Later task, or the removal check below passes vacuously"
+    );
+
     const removeUser = await request(server.baseUrl, "DELETE", `/users/${users.otherOfficer.id}`, {
       user: users.admin
     });
@@ -1456,6 +1465,24 @@ const run = async () => {
     const afterRemove = await request(server.baseUrl, "GET", "/users", { user: users.admin });
     assert.ok(!afterRemove.json.users.some((u) => u.id === users.otherOfficer.id), "removed user is gone");
     pushPass("admin can remove a user");
+
+    /* ADR-0011 rule 6 (#347): their Saved for Later tasks went with them, and
+       nobody else's did. Asked as the removed person signing in again, which
+       dev auth lets happen: coming back is a fresh start, not a restore. */
+    const creatorSavedAfterRemoval = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.deepEqual(
+      creatorSavedAfterRemoval.json.items,
+      creatorSavedBeforeRemoval.json.items,
+      "another person's Saved for Later tasks are untouched"
+    );
+    const removedSaved = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.otherOfficer });
+    expectStatus(removedSaved.status, 200, "the removed user, signing in again, lists Saved for Later tasks", removedSaved.json);
+    assert.deepEqual(removedSaved.json.items, [], "none of the removed user's Saved for Later tasks survived");
+    const removedFetch = await request(server.baseUrl, "GET", `/saved-for-later/${othersOwnSave.json.item.id}`, {
+      user: users.otherOfficer
+    });
+    expectStatus(removedFetch.status, 404, "fetching a removed user's Saved for Later task", removedFetch.json);
+    pushPass("removing a user removes their Saved for Later tasks, and only theirs");
 
     const addWithoutGraph = await request(server.baseUrl, "POST", "/users", {
       user: users.admin,

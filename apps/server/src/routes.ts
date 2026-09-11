@@ -372,6 +372,10 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
         res.status(404).json({ error: "User not found" });
         return;
       }
+      /* Their Saved for Later tasks go with them (ADR-0011 rule 6, #347).
+         After the record, so a removal that fails keeps them; deactivation
+         (PATCH above) deliberately leaves them for reactivation. */
+      await savedForLater.removeAllFor(req.params.id);
       /* Deleting a checker strands their live checks harder than demoting one
          does — there is no user record left to release them from later — so it
          takes the same release, after the record is gone. */

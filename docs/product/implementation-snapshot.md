@@ -65,7 +65,9 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   route answers for the caller only; someone else's, admins included, is a
   **404**, never a 403, so a request cannot confirm one exists. A deactivated
   caller gets the same **403** as on every other route. None of them notifies,
-  broadcasts, files a task or touches a loan.
+  broadcasts, files a task or touches a loan. `DELETE /api/users/:id` deletes
+  every one the removed user held (rule 6, #347); deactivating a user keeps
+  theirs for when they are reactivated.
   - `GET /api/saved-for-later` → `{ items }`, the caller's own, newest saved
     first
   - `GET /api/saved-for-later/:id` → `{ item }`

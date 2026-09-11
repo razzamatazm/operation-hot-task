@@ -12,7 +12,8 @@
  *   2. It is kept apart from tasks (rule 3). It has its own file, and saving one
  *      writes nothing to the task store. Structurally, only the server's
  *      start-up, the router and the Saved for Later routes can reach the store
- *      at all, the first two only pass it along to the third, and those routes
+ *      at all, the first two only pass it along to the third (the router's one
+ *      other use is clearing a removed person's, rule 6), and those routes
  *      can reach nothing that notifies, broadcasts,
  *      counts or touches tasks and loans. So maintenance, pool nags, signals,
  *      channel posts, loan rename and merge, and GET /tasks cannot see one by
@@ -117,6 +118,29 @@ test("the list is newest saved first, and two saved in the same instant list the
   );
 });
 
+/* Rule 6: it goes when its owner goes. Removing a person clears every one they
+   held and nobody else's; the route that calls this is in the smoke test. */
+test("removing an owner's clears all of theirs, and only theirs", async () => {
+  const { file, store } = await freshStore();
+  await store.create(DANA, form({ folderName: "Dana's first" }));
+  const sams = await store.create(SAM, form({ folderName: "Sam's loan" }));
+  await store.create(DANA, form({ folderName: "Dana's second" }));
+
+  assert.equal(await store.removeAllFor(DANA), 2, "it says how many it removed");
+  assert.deepEqual(await store.list(DANA), []);
+  assert.deepEqual(await store.list(SAM), [sams], "Sam's is untouched");
+  assert.ok(!fs.readFileSync(file, "utf8").includes(DANA), "nothing of Dana's is left in the file");
+});
+
+test("removing someone with none saved writes nothing", async () => {
+  const { file, store } = await freshStore();
+  await store.create(SAM, form());
+  const before = fs.readFileSync(file, "utf8");
+
+  assert.equal(await store.removeAllFor(DANA), 0);
+  assert.equal(fs.readFileSync(file, "utf8"), before, "the file is byte for byte what it was");
+});
+
 test("there is no cap: every save is kept", async () => {
   const { store } = await freshStore();
   await Promise.all(Array.from({ length: 60 }, (_, n) => store.create(DANA, form({ folderName: `Loan ${n}` }))));
@@ -168,9 +192,11 @@ test("only start-up, the router and the Saved for Later routes can reach the sto
 /* The two modules above hold every service, the bot and the notifier, so being
    allowed to import the store is not enough on its own: either could hand it on.
    Each may only pass it along. Start-up builds it, starts it and gives it to the
-   router; the router gives it to the Saved for Later routes and nothing else.
-   Counted as the identifier, so a second use anywhere in either file fails. */
-test("start-up and the router only pass the store along, to the Saved for Later routes", () => {
+   router; the router gives it to the Saved for Later routes, and does one thing
+   itself: removing a person clears theirs (rule 6, #347), which is the only
+   thing it does with the store that is not handing it over.
+   Counted as the identifier, so any other use anywhere in either file fails. */
+test("start-up and the router only pass the store along, except that removing a person clears theirs", () => {
   const modules = serverModules();
   const sourceOf = (name) => modules.find((module) => module.name === name).source;
   const uses = (source) => source.match(/\bsavedForLater\b/g)?.length ?? 0;
@@ -184,7 +210,12 @@ test("start-up and the router only pass the store along, to the Saved for Later 
   const routes = sourceOf("routes.ts");
   assert.match(routes, /savedForLater: SavedForLaterStore\): Router =>/);
   assert.match(routes, /savedForLaterRoutes\(router, getActor, savedForLater\);/);
-  assert.equal(uses(routes), 2, "the router receives it and passes it to the Saved for Later routes, and does nothing else with it");
+  assert.match(routes, /await savedForLater\.removeAllFor\(req\.params\.id\);/);
+  assert.equal(
+    uses(routes),
+    3,
+    "the router receives it, passes it to the Saved for Later routes, and clears a removed person's, and does nothing else with it"
+  );
 });
 
 test("the Saved for Later routes can reach nothing that notifies, broadcasts, counts or touches tasks", () => {
