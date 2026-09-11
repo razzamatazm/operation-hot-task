@@ -200,6 +200,62 @@ test("removing one takes that one and only that one", async () => {
   assert.equal(await store.remove(DANA, filed.id), false, "a second remove finds nothing");
 });
 
+// --- Typing nobody saved (#348, ADR-0011 rule 5) ----------------------------
+
+test("typing on a reopened one is kept on that record, beside the save, and changes nothing about the save", async () => {
+  const { store } = await freshStore();
+  const saved = await store.create(DANA, form({ notes: "as saved" }), "2026-09-11T12:00:00.000Z");
+  const later = await store.create(DANA, form({ folderName: "Later" }), "2026-09-11T12:05:00.000Z");
+
+  const kept = await store.keepUnsaved(DANA, saved.id, form({ notes: "as saved, and then some" }));
+
+  assert.equal(kept.id, saved.id, "the same record, never a copy");
+  assert.deepEqual(kept.unsaved, form({ notes: "as saved, and then some" }), "the typing is on it");
+  assert.deepEqual(kept.form, saved.form, "the save itself is untouched");
+  assert.equal(kept.savedAt, saved.savedAt, "and so is saved N ago");
+  assert.deepEqual(
+    (await store.list(DANA)).map((item) => item.id),
+    [later.id, saved.id],
+    "unsaved typing does not move it up the list or add a row"
+  );
+  assert.deepEqual(await store.find(DANA, saved.id), kept);
+});
+
+test("discarding the typing leaves the record exactly as it was last saved", async () => {
+  const { store } = await freshStore();
+  const saved = await store.create(DANA, form({ notes: "as saved" }), "2026-09-11T12:00:00.000Z");
+  await store.keepUnsaved(DANA, saved.id, form({ notes: "abandoned" }));
+
+  const cleared = await store.clearUnsaved(DANA, saved.id);
+
+  assert.deepEqual(cleared, saved, "byte for byte the save, with nothing unsaved left on it");
+  assert.equal("unsaved" in (await store.find(DANA, saved.id)), false);
+  assert.deepEqual(await store.clearUnsaved(DANA, saved.id), saved, "clearing when there is nothing to clear is not an error");
+});
+
+test("saving it again takes the typing into the save, so nothing unsaved is left behind", async () => {
+  const { store } = await freshStore();
+  const saved = await store.create(DANA, form(), "2026-09-11T12:00:00.000Z");
+  await store.keepUnsaved(DANA, saved.id, form({ notes: "typed, then saved" }));
+
+  const updated = await store.update(DANA, saved.id, form({ notes: "typed, then saved" }), "2026-09-11T13:00:00.000Z");
+
+  assert.equal("unsaved" in updated, false);
+  assert.equal("unsaved" in (await store.find(DANA, saved.id)), false);
+});
+
+test("nobody can keep or clear typing on someone else's, or on one that is gone", async () => {
+  const { store } = await freshStore();
+  const danas = await store.create(DANA, form({ notes: "Dana's" }));
+
+  assert.equal(await store.keepUnsaved(SAM, danas.id, form({ notes: "Sam was here" })), undefined);
+  assert.equal(await store.clearUnsaved(SAM, danas.id), undefined);
+  assert.deepEqual(await store.find(DANA, danas.id), danas, "exactly as Dana saved it");
+  assert.equal(await store.keepUnsaved(DANA, "no-such-id", form()), undefined, "a created or deleted one is not brought back");
+  assert.equal(await store.clearUnsaved(DANA, "no-such-id"), undefined);
+  assert.deepEqual(await store.list(DANA), [danas]);
+});
+
 // --- 2. Apart from tasks -----------------------------------------------------
 
 test("saving one writes nothing to the task store", async () => {

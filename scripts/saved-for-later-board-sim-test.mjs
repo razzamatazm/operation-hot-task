@@ -42,7 +42,7 @@ writeFileSync(
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
     `export { SavedForLaterSection, SavedForLaterDeleteConfirm } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { draftKey, serializeDraft } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
-    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
+    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
 );
 const bundle = join(scratch, "saved-for-later.mjs");
 await build({
@@ -63,7 +63,10 @@ const {
   serializeDraft,
   saveForLaterRequest,
   reopenSavedForLaterRequest,
-  removeSavedForLaterRequest
+  removeSavedForLaterRequest,
+  keepUnsavedRequest,
+  discardUnsavedRequest,
+  unsavedAction
 } = await import(pathToFileURL(bundle).href);
 const SECTION_SOURCE = readFileSync(join(REPO, "apps/web/src/saved-for-later.tsx"), "utf8");
 
@@ -440,6 +443,95 @@ test("App opens the create form on the reopened record, one mount per record", (
   );
 });
 
+/* ── Abandoned typing on a reopened form (#348) ─────────── */
+
+test("a reopened record carrying unsaved typing opens on that typing, not on the earlier save", () => {
+  const html = renderForm({
+    reopened: reopened(FULL_FORM, { unsaved: { ...FULL_FORM, notes: "typed after the save, tab closed" } }),
+    directory: DIRECTORY
+  });
+  assert.match(html, />typed after the save, tab closed<\/textarea>/, "the typing comes back");
+  assert.doesNotMatch(html, /Borrower ID does not match/, "rather than the version it was saved at");
+  assert.doesNotMatch(html, /role="alertdialog"/, "and nothing is asked on the way in");
+});
+
+test("typing on a reopened form is sent to that record as it is typed, never to the browser autosave", () => {
+  const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("── Keeping unsaved typing on its record (#348)"));
+  const body = effect.slice(0, effect.indexOf("}, [form,"));
+  assert.ok(body.length > 0, "the form has an effect for it");
+  assert.match(body, /if \(!reopened\) return;/, "reopened forms only; a fresh form keeps the autosave as it was");
+  assert.match(body, /window\.setTimeout\(sendUnsaved, UNSAVED_SAVE_DEBOUNCE_MS\)/, "on a trailing debounce, like the autosave");
+  assert.match(body, /if \(!reopened \|\| ending\.current\) return;/, "and never after an ending has begun");
+  assert.match(body, /differsFromSave: formHasChanges\(reopened\.form, values\)/, "worth keeping means different from what was saved");
+  assert.match(
+    body,
+    /differsFromSent: sent !== null && formHasChanges\(sent, values\)/,
+    "measured against what was last sent, not what the form opened on"
+  );
+  assert.match(body, /sentExists: sent !== null/);
+  assert.match(body, /onKeepUnsaved\(reopened\.id, values\)/, "written onto that record");
+  assert.match(body, /onDiscardUnsaved\(reopened\.id\)/, "and cleared when the form is typed back to what was saved");
+  assert.doesNotMatch(body, /writeDraft|clearDraft|draftSeat/, "the browser autosave is not touched");
+  assert.match(
+    FORM_SOURCE,
+    /storage: edit \|\| reopened \? null : browserDraftStorage\(\)/,
+    "and still has no seat, so the next New Task can never be offered this typing"
+  );
+});
+
+test("the writes go out one at a time, and every ending waits for them before it acts", () => {
+  assert.match(FORM_SOURCE, /const unsavedWrites = useRef<Promise<unknown>>\(Promise\.resolve\(\)\)/, "one queue per form");
+  assert.match(FORM_SOURCE, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "each write chains on the last");
+  const settle = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const settleUnsaved"));
+  const settleBody = settle.slice(0, settle.indexOf("\n  };"));
+  assert.match(settleBody, /ending\.current = true;/, "an ending stops further writes");
+  assert.match(settleBody, /await unsavedWrites\.current;/, "and lets the one in flight land first");
+  for (const [name, call] of [
+    ["const saveForLater", "await onSaveForLater("],
+    ["const handleSubmit", "await onCreate("],
+    ["const confirmDiscard", "onClose();"]
+  ]) {
+    const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
+    const fnBody = fn.slice(0, fn.indexOf("\n  };"));
+    assert.ok(fnBody.indexOf("await settleUnsaved()") >= 0, `${name} settles the writes`);
+    assert.ok(fnBody.indexOf("await settleUnsaved()") < fnBody.indexOf(call), `${name} settles them before it acts`);
+  }
+  for (const name of ["const saveForLater", "const handleSubmit"]) {
+    const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
+    const failed = fn.slice(fn.indexOf("} catch {") + "} catch {".length);
+    assert.match(
+      failed.slice(0, failed.indexOf("}")),
+      /ending\.current = false;\s*sendUnsaved\(\);/,
+      `${name}: a failure leaves the form open, keeping typing again, and sends what the stop held back`
+    );
+  }
+});
+
+test("what a reopened form sends is decided against its last send, as a truth table", () => {
+  const cases = [
+    [{ differsFromSave: false, differsFromSent: false, sentExists: false }, "keep", "the save, nothing sent: nothing to do"],
+    [{ differsFromSave: false, differsFromSent: true, sentExists: true }, "clear", "typed back to the save after a send: clear it"],
+    [{ differsFromSave: true, differsFromSent: false, sentExists: false }, "write", "new typing, nothing sent yet"],
+    [{ differsFromSave: true, differsFromSent: true, sentExists: true }, "write", "more typing since the last send"],
+    [{ differsFromSave: true, differsFromSent: false, sentExists: true }, "keep", "exactly what was last sent, including typing it opened on"]
+  ];
+  for (const [state, expected, why] of cases) assert.equal(unsavedAction(state), expected, why);
+});
+
+test("App sends a reopened form's typing to its record, and a Discard that did not land is said out loud", () => {
+  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.match(createMount, /onKeepUnsaved=\{onKeepUnsaved\}/);
+  assert.match(createMount, /onDiscardUnsaved=\{onDiscardUnsaved\}/);
+  const keep = APP_SOURCE.match(/const onKeepUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.match(keep, /keepUnsavedRequest\(/);
+  assert.doesNotMatch(keep, /showToast|setSavedForLater/, "silent, and the board does not re-render as somebody types");
+  const discard = APP_SOURCE.match(/const onDiscardUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.match(discard, /discardUnsavedRequest\(/);
+  assert.doesNotMatch(discard, /showToast/, "silent in App, since a form typed back to its save uses it too");
+  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
+  assert.match(confirm.slice(0, confirm.indexOf("\n  };")), /showToast\(/, "the Discard itself says when it did not land");
+});
+
 test("Create clears the Saved for Later task only after the task was filed", () => {
   const handler = APP_SOURCE.match(/const onCreate = async \([\s\S]*?\n  \};/)?.[0];
   assert.ok(handler);
@@ -509,6 +601,30 @@ test("removing one (created, or deleted from the board) takes it off the server;
   assert.equal(await removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(404) }).request, "saved-1"), true);
   assert.equal(await removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(500) }).request, "saved-1"), false);
   await assert.doesNotReject(removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": new Error("offline") }).request, "saved-1"));
+});
+
+/* ── Typing nobody saved (#348, ADR-0011 rule 5) ─────────── */
+
+test("typing on a reopened form is sent to that record's unsaved slot, never as a save and never as a new record", async () => {
+  const server = fakeServer({ "PUT /saved-for-later/saved-1/unsaved": (init) => ({ item: { ...ITEM, unsaved: JSON.parse(init.body).form } }) });
+  assert.equal(await keepUnsavedRequest(server.request, "saved-1", { ...FULL_FORM, notes: "typed" }), true);
+  assert.deepEqual(server.calls, ["PUT /saved-for-later/saved-1/unsaved"]);
+});
+
+test("typing that could not be kept says so and never throws at someone mid-sentence, and a gone record is not recreated", async () => {
+  const gone = fakeServer({ "PUT /saved-for-later/saved-1/unsaved": httpError(404) });
+  assert.equal(await keepUnsavedRequest(gone.request, "saved-1", FULL_FORM), false);
+  assert.deepEqual(gone.calls, ["PUT /saved-for-later/saved-1/unsaved"], "no POST: a created or deleted one stays gone");
+  assert.equal(await keepUnsavedRequest(fakeServer({ "PUT /saved-for-later/saved-1/unsaved": new Error("offline") }).request, "saved-1", FULL_FORM), false);
+});
+
+test("discarding throws the unsaved typing away; one already gone counts as discarded; anything else reports it is still there", async () => {
+  const ok = fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": { item: ITEM } });
+  assert.equal(await discardUnsavedRequest(ok.request, "saved-1"), true);
+  assert.deepEqual(ok.calls, ["DELETE /saved-for-later/saved-1/unsaved"], "the unsaved slot only, never the record");
+  assert.equal(await discardUnsavedRequest(fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": httpError(404) }).request, "saved-1"), true);
+  assert.equal(await discardUnsavedRequest(fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": httpError(500) }).request, "saved-1"), false);
+  await assert.doesNotReject(discardUnsavedRequest(fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": new Error("offline") }).request, "saved-1"));
 });
 
 test("in Grouped view the section sits right after Needs you, on the Tasks board only", () => {

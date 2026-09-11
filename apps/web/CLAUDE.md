@@ -1717,8 +1717,34 @@ stays the one filled button. What keeps it honest:
   in the board sim test.
 - **A reopened form has no autosave seat**, the same null storage edit mode
   has. Writing there would make a second copy of a record the server already
-  keeps; clearing there would throw away an unrelated new-task form. `reopened`
-  is also the seam #348 reads to send abandoned typing back to the record.
+  keeps; clearing there would throw away an unrelated new-task form.
+- **Its typing goes to the record instead** (#348, ADR-0011 rule 5): a second
+  effect beside the autosave's, same trailing debounce idea
+  (`UNSAVED_SAVE_DEBOUNCE_MS`, a second, because each one is a request). Its
+  decision is `unsavedAction`, not the autosave's `draftAction`: it is taken
+  against what the form last sent (`unsavedSent`) rather than what it opened
+  on, because a form that sends as it goes can be typed back to where it
+  opened with a different copy already on the server. Cancel on an unchanged
+  reopened form sends once more before closing, and a failed Save for later or
+  Create sends what its stop held back. It writes to the record's `unsaved` slot through `onKeepUnsaved`, never
+  over `form`, so `savedAt` and the row's place stay put and Discard can leave
+  the save untouched; a form opens on `unsaved` when there is one. The writes
+  chain on one promise (`unsavedWrites`), and every ending (Save for later,
+  Create, Discard) runs `settleUnsaved` first: it stops further writes and waits
+  for the one in flight, so a keystroke's write cannot land after the ending
+  and put typing back on a record just saved or cleared. A failed ending lifts
+  the stop. App's two callbacks are silent and leave the board's list alone,
+  since they fire on every pause in typing.
+- **Cancel's prompt has a third answer on a create form** (#348):
+  `DiscardConfirmDialog` takes `onSaveForLater`, and draws `Keep editing`
+  (focused, as before), `Save for later` (ghost, disabled exactly when the
+  footer's is) and `Discard` (danger) in that order, under `Leave this task?`.
+  `saveFromPrompt` lowers the prompt and runs the footer's own `saveForLater`,
+  so a failed save leaves the form in view. Discard on a reopened form clears
+  `unsaved` through `onDiscardUnsaved` and toasts if that did not land; the
+  form closes either way, and the prompt's answers are shut (`busy`) while it
+  waits. Edit mode passes no `onSaveForLater` and gets the
+  two-way `Discard this task?` word for word.
 
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request

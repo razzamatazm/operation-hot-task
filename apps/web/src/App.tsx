@@ -14,7 +14,7 @@ import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { SavedForLaterSection } from "./saved-for-later";
-import { SavedForLaterRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
+import { SavedForLaterRequest, discardUnsavedRequest, keepUnsavedRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -4174,6 +4174,23 @@ export const App = () => {
     return true;
   }, [user, showToast]);
 
+  /* A reopened form's typing, kept on its record as it is typed (#348,
+     ADR-0011 rule 5). Silent, and the board's list is left alone: this runs
+     every time somebody pauses, and re-rendering the board for it would undo
+     what lifting the form out of App was for (#72). Reopening fetches the
+     latest record anyway. Stable per person, so the form's timer is not reset
+     by an unrelated App render. */
+  const onKeepUnsaved = useCallback(async (savedId: string, form: SavedForLaterForm): Promise<boolean> => {
+    return keepUnsavedRequest(savedForLaterRequestFor(user), savedId, form);
+  }, [user]);
+
+  /* Throwing that typing away, leaving the save as it was (#348). Silent here
+     too: the form says so when a Discard did not land, and stays quiet when it
+     is only a form typed back to its save. */
+  const onDiscardUnsaved = useCallback(async (savedId: string): Promise<boolean> => {
+    return discardUnsavedRequest(savedForLaterRequestFor(user), savedId);
+  }, [user]);
+
   const onClaim = useCallback(async (taskId: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/claim`, { method: "POST" }, user);
@@ -4963,6 +4980,8 @@ export const App = () => {
           }}
           onCreate={onCreate}
           onSaveForLater={onSaveForLater}
+          onKeepUnsaved={onKeepUnsaved}
+          onDiscardUnsaved={onDiscardUnsaved}
           {...(reopened ? { reopened } : {})}
         />
       )}

@@ -83,6 +83,41 @@ export const savedForLaterRoutes = (
     }
   });
 
+  /* Typing on a reopened one that nobody saved (#348, ADR-0011 rule 5). The web
+     form sends it as it is typed, so a closed tab loses nothing, and it is kept
+     beside the save: the save and its `savedAt` do not move. Same body and same
+     400 as a save. */
+  router.put("/saved-for-later/:id/unsaved", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const { form } = savedForLaterBodySchema.parse(req.body);
+      const item = await store.keepUnsaved(actor.id, req.params.id, form);
+      if (!item) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      res.json({ item });
+    } catch (error) {
+      send(res, error, "Failed to keep unsaved changes");
+    }
+  });
+
+  /* Discard on a reopened one (#348): the unsaved typing goes, and the record is
+     answered back exactly as it was last saved. */
+  router.delete("/saved-for-later/:id/unsaved", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const item = await store.clearUnsaved(actor.id, req.params.id);
+      if (!item) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      res.json({ item });
+    } catch (error) {
+      send(res, error, "Failed to discard unsaved changes");
+    }
+  });
+
   /* Remove one (#344). The web app calls this once the task it held has been
      created, and only then, so a filing that fails leaves it where it was. The
      task itself is filed through POST /tasks like any other, which is why this
