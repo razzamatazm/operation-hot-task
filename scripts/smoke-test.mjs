@@ -201,7 +201,8 @@ const createServer = async (preferredPort, extraEnv = {}, { botReferences } = {}
   return {
     baseUrl,
     stop,
-    logs
+    logs,
+    savedForLaterFile
   };
 };
 
@@ -1483,6 +1484,21 @@ const run = async () => {
     });
     expectStatus(removedFetch.status, 404, "fetching a removed user's Saved for Later task", removedFetch.json);
     pushPass("removing a user removes their Saved for Later tasks, and only theirs");
+
+    /* A removal that fails after deleting the record leaves Saved for Later
+       tasks with no owner, and a retry finds no user. The retry still has to
+       clear them, or nothing ever will. Planted straight into the file (the
+       store reads it fresh on every call) for someone with no record. */
+    const ghostId = "smoke-removed-ghost";
+    const savedFileBefore = JSON.parse(await fs.readFile(server.savedForLaterFile, "utf8"));
+    savedFileBefore.items.push({ id: "smoke-orphan", ownerId: ghostId, savedAt: new Date().toISOString(), form: savedForm() });
+    await fs.writeFile(server.savedForLaterFile, JSON.stringify(savedFileBefore, null, 2));
+    const retryRemove = await request(server.baseUrl, "DELETE", `/users/${ghostId}`, { user: users.admin });
+    expectStatus(retryRemove.status, 404, "removing someone whose record is already gone", retryRemove.json);
+    const savedFileAfter = JSON.parse(await fs.readFile(server.savedForLaterFile, "utf8"));
+    assert.ok(!savedFileAfter.items.some((item) => item.ownerId === ghostId), "the orphaned Saved for Later task was cleared");
+    assert.equal(savedFileAfter.items.length, savedFileBefore.items.length - 1, "and nothing else was");
+    pushPass("repeating a removal clears Saved for Later tasks a failed one left behind");
 
     const addWithoutGraph = await request(server.baseUrl, "POST", "/users", {
       user: users.admin,
