@@ -106,6 +106,39 @@ test("Mine can come back empty", () => {
   assert.deepEqual(visibleBoardTasks(theirs, { show: "mine", viewer }), []);
 });
 
+/* ── A picked loan (#333) ───────────────────────────────── */
+
+/* The board a search narrows: two loans, active and closed on each, plus a task
+   filed before loans existed and so carrying no loan at all. */
+const loanBoard = [
+  task("h-open", { loanId: "loan-h" }),
+  task("other-open", { loanId: "loan-o" }),
+  task("h-observed", { loanId: "loan-h", assignee: third, status: "CLAIMED" }),
+  task("unlinked", {}),
+  task("h-done", { loanId: "loan-h", assignee: third, status: "COMPLETED" }),
+  task("other-done", { loanId: "loan-o", createdBy: viewer, status: "ARCHIVED" })
+];
+
+test("a picked loan keeps only that loan's tasks, active and closed, in the order they came", () => {
+  const ids = visibleBoardTasks(loanBoard, { show: "everyone", viewer, loanId: "loan-h" }).map((t) => t.id);
+  assert.deepEqual(ids, ["h-open", "h-observed", "h-done"]);
+});
+
+test("a picked loan shows the whole file even with Mine on", () => {
+  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, loanId: "loan-h" }).map((t) => t.id);
+  assert.deepEqual(ids, ["h-open", "h-observed", "h-done"], "somebody else's work and closed tasks the viewer was not a Party to stay");
+});
+
+test("a picked loan with nothing on the board comes back empty", () => {
+  assert.deepEqual(visibleBoardTasks(loanBoard, { show: "everyone", viewer, loanId: "loan-none" }), []);
+});
+
+test("no picked loan leaves the Show setting in charge", () => {
+  assert.equal(visibleBoardTasks(loanBoard, { show: "everyone", viewer, loanId: null }), loanBoard, "same reference");
+  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, loanId: null }).map((t) => t.id);
+  assert.deepEqual(ids, ["h-open", "other-open", "unlinked", "other-done"]);
+});
+
 /* ── The stored choice ──────────────────────────────────── */
 
 test("the setting offers Everyone then Mine", () => {

@@ -9,6 +9,7 @@ import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardShow, isOnMineBoard, parseBoardShow, visibleBoardTasks } from "./board-filter";
+import { LoanSearch, LoanSearchEmpty, LoanSearchStatus } from "./loan-search";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
@@ -3691,6 +3692,14 @@ export const App = () => {
     }
   }, [boardShow]);
 
+  /* The loan the Tasks board is narrowed to (#333). Session state and never
+     stored, so a reload is the full board. The ref mirrors it for
+     `setExpandOverride`, which has to keep an empty dependency list for the
+     card memo and so cannot close over the state. */
+  const [searchLoanId, setSearchLoanId] = useState<string | null>(null);
+  const searchLoanIdRef = useRef<string | null>(null);
+  searchLoanIdRef.current = searchLoanId;
+
   /* Ticking clock for the live countdowns. Both views (flat and courts) use the
      same compact row, so this runs always. 30s cadence matches the granularity
      of the "Xh Ym" / "Nm" labels. */
@@ -3735,6 +3744,11 @@ export const App = () => {
      the task id as subEntityId). Held until the task is present in `tasks`,
      then expanded + scrolled into view by the effect below. */
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  /* The card the focus path wants on screen. A separate step from the focus
+     itself because the focus changes what the board holds — it ends a loan
+     search (#333) and can put Mine back to Everyone — and a scroll taken in the
+     same pass aims at where the card sat on the old board. */
+  const [scrollTaskId, setScrollTaskId] = useState<string | null>(null);
   /* Task to claim on arrival, set only by a link that carried the explicit
      claim intent — the channel card's "Claim & Open" (#180). Focus happens
      either way: the claim never blocks the navigation, and when it doesn't land
@@ -3795,6 +3809,13 @@ export const App = () => {
     setCourtHolds((prev) =>
       open ? (pulled ? holdCourt(prev, taskId) : prev) : releaseCourt(prev, [taskId])
     );
+    /* Opening a task from a narrowed board ends the search (#333), and it does
+       so through the deep-link focus path below: that path clears the search,
+       puts Mine back to Everyone if Mine would hide the task, and scrolls the
+       card into view once the full board is back. The hold was taken just above
+       with the card's own `pulled`, read at the press, so the row does not jump
+       sections when the board fills in around it. */
+    if (open && searchLoanIdRef.current) setFocusTaskId(taskId);
   }, []);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,
@@ -3815,6 +3836,13 @@ export const App = () => {
     }
     const target = focusTaskId;
     setActiveTab("active");
+    /* Every arrival at a task ends a loan search (#333): opening a card from
+       the narrowed board comes through here, and so does a link that lands
+       mid-search, which could name a task on another loan and would otherwise
+       open a card that is not on the board. The ref is cleared first so the
+       expand below does not route back here. */
+    searchLoanIdRef.current = null;
+    setSearchLoanId(null);
     /* Same hold a click would take, so a bot link onto a task carrying an
        unread reply doesn't land you on it and then re-sort it out from under
        you. An effect may read `tasks` freely — unlike `setExpandOverride`, it
@@ -3827,12 +3855,24 @@ export const App = () => {
        out loud (#334). */
     if (linked && !isOnMineBoard(linked, user)) setBoardShow("everyone");
     setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
+    setScrollTaskId(target);
+    setFocusTaskId(null);
+  }, [focusTaskId, tasks]);
+  /* The scroll, once the board it lands on has rendered: this runs on the commit
+     after the focus path, when the search is gone and Show has settled, and the
+     rAF waits for that layout to paint. The state is cleared inside the frame,
+     not beside it. Clearing it in the effect body re-runs the effect before the
+     frame and the cleanup cancels the scroll, which is how a card opened from a
+     narrowed board used to stay wherever it had been. */
+  useEffect(() => {
+    if (!scrollTaskId || searchLoanId) return undefined;
+    const target = scrollTaskId;
     const raf = requestAnimationFrame(() => {
       document.getElementById(`task-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setScrollTaskId(null);
     });
-    setFocusTaskId(null);
     return () => cancelAnimationFrame(raf);
-  }, [focusTaskId, tasks]);
+  }, [scrollTaskId, searchLoanId]);
   /* No effect clears a manual expand. There used to be one — a status change
      or a new note dropped the override so the default-open rule could
      re-decide — but with cards no longer opening themselves there is no rule
@@ -4747,9 +4787,17 @@ export const App = () => {
      Collapse all all read this one list, so they cannot describe different
      sets. Any further narrowing of the board goes through `visibleBoardTasks`,
      not beside it. */
-  const boardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: boardShow, viewer: user }),
+  /* A search whose loan has gone (merged into another since it was picked)
+     resolves to nothing, and the board is simply full again. */
+  const searchLoan = useMemo(
+    () => (searchLoanId ? loans.find((l) => l.id === searchLoanId) ?? null : null),
+    [searchLoanId, loans]
+  );
+  const boardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: boardShow, viewer: user, loanId: searchLoan?.id ?? null }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [unifiedTasks, boardShow, user.id]);
+    [unifiedTasks, boardShow, user.id, searchLoan]);
+  /* The search's empty-box shortlist, the same "mine" the create form derives. */
+  const searchMyLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
 
   /* The admin-only Tasks tab counts the unfiltered board on purpose (#334): the
      tab names the list, and Mine is a view over it. */
@@ -5085,15 +5133,22 @@ export const App = () => {
             Show everyone
           </button>
         );
+        /* A picked loan (#333) names the list instead, and wins over Mine the
+           way `visibleBoardTasks` says, so `Show everyone` stands down while it
+           is on. Clearing puts back whichever of the two Show was. */
+        const clearSearch = () => setSearchLoanId(null);
         return (
           <>
             <div className="section-head task-grid-head">
-              <h2>
-                {mine ? "My tasks" : "Tasks"}
+              <h2 className={searchLoan ? "task-grid-head-loan" : undefined}>
+                {searchLoan ? (
+                  <span className="task-grid-head-loan-name" title={searchLoan.name}>{searchLoan.name}</span>
+                ) : mine ? "My tasks" : "Tasks"}
                 <span className="section-count">{boardTasks.length}</span>
               </h2>
-              {mine && showEveryone}
+              {searchLoan ? <LoanSearchStatus loan={searchLoan} onClear={clearSearch} /> : mine && showEveryone}
               <div className="task-grid-head-actions">
+                <LoanSearch loans={loans} myLoanIds={searchMyLoanIds} onPick={(loan) => setSearchLoanId(loan.id)} />
                 <AppMenu
                   grouped={grouped}
                   onGroupedChange={setGrouped}
@@ -5107,7 +5162,9 @@ export const App = () => {
                 <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
               </div>
             </div>
-            {mine && boardTasks.length === 0 ? (
+            {searchLoan && boardTasks.length === 0 ? (
+              <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
+            ) : mine && !searchLoan && boardTasks.length === 0 ? (
               <div className="empty-card">
                 Nothing of yours right now. {showEveryone}
               </div>

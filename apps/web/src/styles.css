@@ -1286,6 +1286,77 @@ button.btn-good:hover {
   text-decoration-color: currentColor;
 }
 
+/* The loan search (#333). Its trigger wears `.app-menu-trigger`, so it is the
+   same 32px box with the same corner and the same touch overlay, and it sits
+   left of the menu inside the actions group. That group is pushed hard right by
+   `margin-left: auto`, so a control added on its left grows the group leftwards
+   and the menu and New Task stay over the rows' action column. The 8px between
+   the two triggers (the group's 6px gap plus the menu's 2px margin) is exactly
+   what keeps their 40px touch overlays from meeting; don't tighten it. */
+.loan-search {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+/* The panel anchors to the actions group, not to its own trigger, so its right
+   edge lands on New Task's and it has the whole group to grow left into. Wide
+   enough for a long loan name on a desktop, and never wider than a phone. */
+.task-grid-head-actions {
+  position: relative;
+}
+
+.loan-search-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  animation: slideDown 150ms ease;
+}
+
+.loan-search-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The create form's suggestion list, laid into the panel rather than hung off
+   it: the panel is already the thing that left the page, and a second floating
+   box under it would be a menu inside a menu. */
+.loan-search-list {
+  position: static;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.loan-search-none {
+  margin: 8px 2px 2px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* While narrowed the heading is the loan's name, which can be long, and it is
+   the part of the header that gives. */
+.task-grid-head-loan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-grid-head-loan-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Tab bar ──────────────────────────────────────────────── */
 .tab-bar {
   display: flex;
