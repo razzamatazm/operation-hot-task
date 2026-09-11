@@ -232,24 +232,24 @@ Each slot has one job. When adding info, replace something — don't append:
   is unclaimed and out for the first time** (2026-09-07, narrowed 2026-09-10).
   It answers one question — can I take a
   five-poop set of loan docs right now — and that question is only live for
-  somebody looking at work nobody holds, so it lives in the pair — the slot
-  holding the word `Unclaimed` — and leaves with it. It sits **beside** that
-  word on a wide screen and, under 560px where it has to take a line of its
-  own, **above** the names rather than below them (2026-09-10, the user's
-  call), via `order: -1` rather than a DOM move so the markup keeps saying
-  whose rating it is. Read-only there: a five-slot
+  somebody looking at work nobody holds, so it appears exactly while the row
+  says `Unclaimed` and leaves the moment somebody takes the task. It renders in
+  the **title block, sharing the stage's line** — beside the type on a wide
+  screen, and under 560px on the reserved line under it, which puts it above
+  the names (2026-09-10, the user's call). It briefly lived in the pair beside
+  the word `Unclaimed`, which cost the row a second reserved line; sharing the
+  stage's line is what took that back. Read-only there: a five-slot
   editable track inside a row that is itself a press target is five touch
   targets nobody asked for, and the creator rates it in the expanded body or
   on the edit form.
 
-  **The row shows the earned slots only; the expanded body shows all five**
-  (`showScale`, 2026-09-10). Ghosting the unearned slots is what makes a 3 read
-  as three *out of five*, and that is right under the `How Bad?` label in the
-  body, where the track has room around it. On the row it is wrong: one brown
-  glyph trailed by four grey ones reads as debris beside a name, not as a
-  scale. The count out of five stays on the `title` and the `aria-label`, so
-  nothing is lost but the blobs. Editing always draws five whatever this says —
-  the unearned slots *are* the control.
+  Fixed 5-slot track everywhere it appears — slots 1..N in full colour, the
+  rest ghosted, so a 3 reads as three *out of five* rather than as three
+  glyphs. A pass on 2026-09-10 cut the ghosts on the row, reasoning that one
+  brown glyph trailed by four grey ones reads as debris; that was a change
+  nobody asked for, made while fixing something else, and it was reverted the
+  same day. **The track looks the same on every surface.** If it should ever
+  stop looking the same, that is its own decision.
   An unrated task renders no track at all. See
   `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
   every closed task, so nothing extra is needed to keep it off them.
@@ -344,8 +344,8 @@ across one screen).
 
 An active row is **two grid lines at every width** — there is no responsive
 reflow, deliberately. (Two grid lines, not two lines of text: under 560px the
-title cell holds the name, the type and a reserved line for the stage, and the
-pair cell reserves a second line of its own. See *one height* below.) The pair used to share one line with the title and
+title cell holds the name, the type, and one reserved line carrying either the
+stage or the rating. See *one height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -357,73 +357,79 @@ title         | action
 pair          | due
 ```
 
-**Under 560px every active row is one height, and that height is the tallest
-one** (2026-09-10). Two of the row's cells grow by a line on some rows and not
-others — the type cell when a task has a stage, the pair cell when an unclaimed
-task carries a rating — so a list came out as a mixture of shorter and taller
-cards depending on facts that have nothing to do with each other. Both lines
-are now **reserved** on every active row rather than added to the rows that use
-them: `.task-card-collapsed-type` takes a two-line `min-height` and
-`.task-card-pair` takes a two-line one of its own, both in the phone block.
+**Under 560px every active row is one height, and it costs exactly one reserved
+line** (2026-09-10). Two things grow a row by a line — the type cell when a task
+has a stage, and the rating when a task is up for grabs — so a list came out as
+a mixture of shorter and taller cards depending on facts that have nothing to do
+with each other.
 
-Three things about that pair of rules:
+**The two share one line, because they can never both appear.** A stage only
+exists on a LOAN_DOCS mid-merge or a FRAUD mid-exchange, both of which have been
+claimed; the rating only appears on a task that is unclaimed *and* has never
+been dropped (`isFirstTimeInPool`). A released check has a stage and no rating; a
+task fresh in the pool has a rating and no stage. So the rating renders inside
+`.task-card-collapsed-type` alongside the stage, takes the same wrapped line
+under the type, and one `min-height` on that cell reserves the line for whichever
+occupant turns up.
 
-- **They are written in `em` plus the gap they reserve for**, not in measured
-  pixels — the type cell's is `calc(2.8em + 1px)`, two lines of its own 1.4
-  line-height plus the `row-gap` a really-wrapped stage puts between them. A
-  pixel short and the list renders 120px and 121px rows, which is the same bug
-  at a size nobody can name but everybody can feel. The `em` is why the
-  `pointer: coarse` floor names `.task-card-collapsed-type` itself and not only
-  the two boxes inside it: the reservation has to follow the floored size
-  rather than assume today's value.
+That is the difference between a 102px card and a 121px one. Reserving a second
+line in the pair as well — which is what this did first — made every card 19px
+taller for a slot only three rows in a typical list ever fill, and pushed the
+names out of line with the due stamp beside them. If both ever do land on a row,
+they share the line side by side and it wraps: the card grows, nothing breaks.
+
+Four things about that rule:
+
+- **It is written in `em` plus the gap it reserves for**, not in measured
+  pixels — `calc(2.8em + 1px)`, two lines of the type's own 1.4 line-height plus
+  the `row-gap` a really-wrapped stage puts between them. A pixel short and the
+  list renders 120px and 121px rows, which is the same bug at a size nobody can
+  name but everybody can feel. The `em` is why the `pointer: coarse` floor names
+  `.task-card-collapsed-type` itself and not only the boxes inside it: the
+  reservation has to follow the floored size rather than assume today's value.
+- **The rating is sized to the line it shares**, `height: 1.4em` with no
+  padding, not its natural 17px (a 13px glyph plus 2px of padding). Left
+  natural it made a rated row ~2px taller than a staged one — the same bug,
+  smaller, and small enough to look like nothing and read like mess.
 - **Mini rows are excluded** (`:not(.task-card-grouped-mini)`). A closed task
-  never has a stage and never carries a rating, so reserving either line there
+  never has a stage and never carries a rating, so reserving the line there
   would add height to every row in Done and buy nothing. Minis are half-height
   on purpose.
-- **A reservation belongs to the thing it reserves for.** If the rating leaves
-  the pair, its `min-height` goes with it. A blank line held for nothing is
+- **A reservation belongs to the thing it reserves for.** If both occupants ever
+  leave, the `min-height` goes with them. A blank line held for nothing is
   ornament, which is the one thing this row's rules refuse.
 
-The cost is a line of white space on the rows that use neither, and it is
+The cost is a line of white space on the rows that have neither, and it is
 deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
 
 **Equal heights are not the same thing as a list that lines up**, and getting
-the first without the second is worse than neither. With the pair's lines packed
-to the top of its reserved box, a rated row put its names 10px lower than an
-unrated one: every card measured 121px and the names still zigzagged down the
-list, which reads as mess without naming itself. `align-content: flex-end` on
-the pair anchors its lines to the bottom of the box, so the names land on one
-baseline on every row and the reserved space opens above them where the rating
-goes. If you reserve space anywhere on this row, decide which edge the content
-holds to as part of the same change.
+the first without the second is worse than neither. An earlier version of this
+reserved a line inside the pair and packed its lines to the top, which put a
+rated row's names 10px below an unrated row's: every card measured 121px and the
+names still zigzagged down the list. The pair carries no reservation now and is
+a single line again, so the names and the due stamp beside them share a baseline
+by construction. If you ever reserve space on this row again, decide which edge
+the content holds to as part of the same change.
 
-**The two reservations are per-cell, not one total for the row**, which is what
-makes them independent: whichever combination a row draws, it is the same
-height. Worth keeping even though the one row that could have needed both at
-once no longer does — see the rating rule directly below, which took it away on
-2026-09-10. A rule that happens to make a collision unreachable is not a reason
-to build a layout that would break if it came back.
+**One 1px difference is left, and it is deliberate elsewhere.** An overdue row
+is 101.7px against 100.7px, because `.task-card-grouped-due-overdue` takes the
+due value up to 0.95rem — the overdue emphasis, which predates all of this.
+Normalising it would mean adding a pixel to every other row to match a stamp
+that is supposed to stand out.
 
-For the record, that collision was: a released Fraud Check is unclaimed *and*
-carries a stage, because the two `unassignInPlace` paths (the creator's "release
-for any fraud checker" at `PENDING_APPROVAL`, and the sweep when a checker loses
-the FILE_CHECKER role, at any live status) clear the assignee without moving the
-status. `Final Approval Needed` is in fact *only* reachable there —
-`stageSuffix` returns it precisely when a `PENDING_APPROVAL` check has no
-assignee. Such a row now draws its status line and no rating.
+For the record, the collision that once existed: a released Fraud Check is
+unclaimed *and* carries a stage, because the two `unassignInPlace` paths (the
+creator's "release for any fraud checker" at `PENDING_APPROVAL`, and the sweep
+when a checker loses the FILE_CHECKER role, at any live status) clear the
+assignee without moving the status. `Final Approval Needed` is in fact *only*
+reachable there — `stageSuffix` returns it precisely when a `PENDING_APPROVAL`
+check has no assignee. Such a row draws its status line and no rating, since
+being released is what makes `isFirstTimeInPool` false.
 
 The LOAN_DOCS stages never collide this way either: `canUnclaimTask` and
 `canReturnToPool` are both `CLAIMED`-only, and both release paths are FRAUD-only,
 so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
-
-**One case still varies, by 2px.** A first name long enough to push the pair
-past its 194px cell (about eleven characters — `Bartholomew → Unclaimed`) wraps
-the *names* onto two lines and the rating onto a third. The reservation is a
-floor, not a cap, so that row grows. Left alone deliberately: capping it would
-mean ellipsizing a first name, which is a standing rule against, and the
-alternative is reserving a third line on every row to accommodate a name nobody
-on the team has.
 
 - **pair** — assigner → assignee on one line, now sharing a row only with
   the due stamp. No fixed width; overflow **wraps** (`flex-wrap: wrap`),

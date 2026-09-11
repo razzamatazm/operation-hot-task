@@ -404,19 +404,10 @@ const stageSuffix = (task: LoanTask): string => {
 const PoopDisplay = ({
   count,
   canEdit,
-  showScale = true,
   onChange
 }: {
   count: number;
   canEdit: boolean;
-  /* Draw the unearned slots as ghosts, so the score reads against its scale.
-     Right in the expanded body, where the track sits under a `How Bad?` label
-     with room around it — and wrong on the collapsed row, where four grey
-     blobs trailing one brown one read as debris rather than as a scale
-     (2026-09-10, off the rendered row). The row shows the earned slots and
-     nothing else; the count out of five is still on the `title` and the
-     `aria-label` for anyone who wants it. */
-  showScale?: boolean;
   /* Optional because the read-only track has nothing to call: the collapsed
      row draws one and holds no rating handler at all. */
   onChange?: (next: number) => void;
@@ -429,9 +420,6 @@ const PoopDisplay = ({
     ? `How Bad? ${safeCount}/5 — click to rate`
     : `How Bad? ${safeCount}/5`;
 
-  /* Editing always needs all five — the unearned slots are the control. */
-  const slots = canEdit || showScale ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5].slice(0, safeCount);
-
   return (
     <span
       className={`poop-track${canEdit ? " poop-track-editable" : ""}`}
@@ -439,7 +427,7 @@ const PoopDisplay = ({
       title={titleText}
       aria-label={titleText}
     >
-      {slots.map((n) => {
+      {[1, 2, 3, 4, 5].map((n) => {
         const filled = n <= safeCount;
         const className = `poop-slot${filled ? " poop-slot-on" : ""}`;
         if (!canEdit) {
@@ -2610,58 +2598,6 @@ const TaskCard = memo(({
               </>
             )}
           </span>
-          {/* How Bad?, back on the row — but only while the task is up for
-              grabs (2026-09-07). The score answers one question, "can I take a
-              five-poop set of loan docs right now", and that question is only
-              live for somebody looking at work nobody holds. #329 took it off
-              the row entirely because five emoji rode every row in the list
-              including the ~117 closed ones, which is the same fact stated
-              wrongly rather than a fact worth hiding. It lives in the pair
-              because `Unclaimed` is what makes it relevant, and it leaves with
-              it: the moment somebody claims the task the slot is a person's
-              name and the rating goes back to being reference detail in the
-              expanded body, where its creator still rates it. Read-only here —
-              a five-slot editable track in a row that is itself a press target
-              is five touch targets nobody asked for.
-
-              **An OOO is included, and it is the case this is most for.** A
-              review pass excluded it here on the reasoning that a vacation
-              notice is never picked up; that is wrong, and the app says so in
-              four places. `canClaimTask` opens for it like any other OPEN task,
-              the board files it under *Up for grabs* with a `Claim` button, its
-              channel card reads "will be out of the office … and needs
-              coverage. Can you help?", and `TASK_NEEDS_PHRASE` calls it "needs
-              OOO Coverage". Somebody covering an absence is deciding exactly
-              the thing the score exists to answer — a quiet week and a heavy
-              pipeline are not the same ask, and the rating is the only thing on
-              the row that says which one this is.
-
-              The two shared rules that DO exclude an OOO — `isPoolNagEligible`
-              and `isUnclaimedTooLong` — are about nagging cadence, not about
-              pickup: don't re-post "cover this holiday" to the channel every
-              twenty minutes, and don't tell somebody their own vacation notice
-              has gone unclaimed too long. Neither is a claim that nobody takes
-              it. Don't borrow them for a question about the pool.
-
-              **A task that has been dropped and re-offered does not get one**
-              (2026-09-10, the user's call). The score is the ask as its filer
-              sized it, and it describes a whole job; a check somebody has
-              already been through half of is not that job any more, so
-              re-displaying it on the way back out is quoting a number at the
-              wrong piece of work. The first time out is when it means what it
-              says.
-
-              Shared `isFirstTimeInPool` is the test, so the rule is a named
-              question rather than a field poked at from a view. It compares
-              when the task arrived in the pool against when it was filed, which
-              is true under both spellings of never-left — the field absent, or
-              stamped equal to `createdAt` the way the dev seed writes it. A
-              bare `!task.pooledSince` reads as "this has been dropped" on every
-              seeded open task in the app, which is how this shipped wrong for
-              about ten minutes. */}
-          {isUnclaimed(task) && isFirstTimeInPool(task) && (task.points ?? 0) > 0 && (
-            <PoopDisplay count={task.points ?? 0} canEdit={false} showScale={false} />
-          )}
         </span>
         <span className="task-card-collapsed-title">
           {/* Loan name first and dominant — it is what a person scans for. The
@@ -2705,6 +2641,57 @@ const TaskCard = memo(({
             )}
             {hasUnreadNote && (
               <span className="task-card-unread-dot" aria-label="New note" title="New note" />
+            )}
+            {/* How Bad?, and it shares the stage's line rather than holding one of
+              its own (2026-09-10). The two can never both appear, which is what
+              lets one reserved line serve both and takes a whole line back off
+              every card: a stage only exists on a LOAN_DOCS mid-merge or a FRAUD
+              mid-exchange, both of which have been claimed, and the rating only
+              appears on a task that is unclaimed AND has never been dropped. A
+              released check has a stage and no rating; a task fresh in the pool
+              has a rating and no stage. If that ever stops being true they share
+              the line side by side and it wraps — nothing breaks, the card just
+              grows, which is the honest failure.
+
+              It sits above the names rather than beside them (the user's call):
+              on a phone the title block is a column, so this lands under the
+              type and over the pair.
+
+              Only while the task is up for grabs (2026-09-07). The score answers
+              one question, "can I take a five-poop set of loan docs right now",
+              and that is only live for somebody looking at work nobody holds.
+              #329 took it off the row entirely because five emoji rode every row
+              in the list including the ~117 closed ones — the same fact stated
+              wrongly rather than a fact worth hiding. Read-only here: a
+              five-slot editable track in a row that is itself a press target is
+              five touch targets nobody asked for, and the creator rates it in
+              the expanded body or on the edit form.
+
+              **An OOO is included, and it is the case this is most for.** A
+              review pass excluded it on the reasoning that a vacation notice is
+              never picked up; that is wrong, and the app says so in four places.
+              `canClaimTask` opens for it like any other OPEN task, the board
+              files it under *Up for grabs* with a `Claim` button, its channel
+              card reads "will be out of the office … and needs coverage. Can you
+              help?", and `TASK_NEEDS_PHRASE` calls it "needs OOO Coverage".
+              Somebody covering an absence is deciding exactly the thing the
+              score exists to answer — a quiet week and a heavy pipeline are not
+              the same ask. The two shared rules that DO exclude an OOO,
+              `isPoolNagEligible` and `isUnclaimedTooLong`, are about nagging
+              cadence and not about pickup; don't borrow them for a question
+              about the pool.
+
+              **A task dropped and re-offered does not get one** (2026-09-10).
+              The score is the ask as its filer sized it and describes a whole
+              job; a check somebody has already been half way through is not that
+              job any more. Shared `isFirstTimeInPool` is the test — it compares
+              when the task reached the pool against when it was filed, which is
+              true under both spellings of never-left, the field absent or
+              stamped equal to `createdAt` the way the dev seed writes it. A bare
+              `!task.pooledSince` reads as "this has been dropped" on every seeded
+              open task on the board. */}
+            {isUnclaimed(task) && isFirstTimeInPool(task) && (task.points ?? 0) > 0 && (
+              <PoopDisplay count={task.points ?? 0} canEdit={false} />
             )}
           </span>
         </span>

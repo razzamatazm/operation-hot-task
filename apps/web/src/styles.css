@@ -1473,6 +1473,24 @@ button.btn-good:hover {
   white-space: pre;
 }
 
+/* How Bad?, in the title block beside the type, and only while the task is
+   unclaimed and out for the first time — see the comment in `TaskCard` for why
+   it appears at all and why it shares the stage's line. Fixed rather than
+   shrinkable: a squeezed rating is a different number. It carries no touch
+   target of its own (the track is read-only), so it can sit against the type. */
+.task-card-collapsed-type > .poop-track {
+  flex: 0 0 auto;
+  margin-left: 10px;
+  /* Exactly one of the type's own lines, not the track's natural 17px (a 13px
+     glyph plus its 2px padding). It shares the reserved line with the stage, so
+     it has to measure the same as the stage does or the rows that carry a
+     rating come out ~2px taller than the rows that carry a status — which is
+     the uniform-height bug at a size small enough to look like nothing and read
+     like mess. The glyphs are centred in the line rather than cropped. */
+  height: 1.4em;
+  padding: 0;
+}
+
 /* The loan name, promoted to top billing: it is what a person scans for, so it
    is the heading face at full ink and the elastic part of the row. */
 .task-card-collapsed-folder {
@@ -2512,44 +2530,20 @@ button.btn-good:hover {
     overflow: visible;
   }
 
-  /* The rating takes the line ABOVE the names (2026-09-10, the user's call),
-     not the one below. It has to take a line of its own either way: the pair
-     cell is 194px at 390px and the names alone want about 172 of them, so
-     nothing that keeps five slots and un-truncated first names fits beside them
-     — both of those are standing rules, first names never ellipsize and the
-     track is a fixed five so a 3 reads against its scale.
+  /* The rating takes that same reserved line, because it and the stage can
+     never both be on a row — see `TaskCard` for why. One line serving both is
+     what keeps the card at three lines instead of four; reserving a second one
+     in the pair (which is what this did first) made every card 19px taller for
+     a slot only three rows in a list ever fill, and pushed the names out of
+     line with the due stamp beside them.
 
-     `order: -1` rather than a DOM move, so the markup keeps saying what the
-     rating is about: it is the pair's rating, sitting inside the pair, and on a
-     wide screen it is still a sibling on the same line as `Unclaimed`. Only the
-     phone's wrapped arrangement flips. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-pair > .poop-track {
-    order: -1;
+     Left-aligned under the type rather than indented to it: it is the third
+     line's occupant, whichever occupant that is, and the stage starts at the
+     same x. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type > .poop-track {
+    order: 2;
     flex: 1 0 100%;
     margin-left: 0;
-  }
-
-  /* The pair reserves that line on every active row, which is the other half of
-     "every active row is one height" — the rows with no rating hold the space
-     anyway, so the names sit at the same y whether a rating is above them or
-     not. Its three parts: the avatar chip that sets the names' line height, the
-     flex `row-gap`, and the rating's own line box.
-
-     If the rating ever leaves this slot, this reservation goes with it — a
-     blank line inside every pair, reserved for nothing, is exactly the ornament
-     the row's own rules refuse.
-
-     `align-content: flex-end` is what makes the reservation invisible, and it
-     is the whole reason this looked wrong before (2026-09-10). Equal row
-     heights are not the same thing as a list that lines up: with the lines
-     packed to the top, a rated row put its names 10px below where an unrated
-     row put them, so the names zigzagged down the list while every card
-     measured the same. Anchoring the wrapped lines to the bottom of the box
-     lands the names on one baseline across every row, rated or not, and the
-     reserved space opens above them where the rating goes. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-pair {
-    min-height: calc(20px + 2px + 1.3em);
-    align-content: flex-end;
   }
   .task-card-collapsed-stage-join { display: none; }
 
@@ -4049,16 +4043,6 @@ button.btn-good:hover {
    Sans's bold ceiling (apps/web/CLAUDE.md), one step up from the 500 both
    slots otherwise use. */
 .task-card-pair-name-mine { font-weight: 600; color: var(--ink); }
-
-/* How Bad?, on the pair line and only while the task is unclaimed — see the
-   comment in `TaskCard` for why it lives beside the word `Unclaimed` and
-   nowhere else on the row. Fixed rather than shrinkable: the pair wraps, and a
-   squeezed rating is a different number. It carries no touch target of its own
-   here (the track is read-only), so it can sit against a name. */
-.task-card-pair > .poop-track {
-  flex: 0 0 auto;
-  margin-left: 2px;
-}
 
 /* Title block reuses .task-card-collapsed-title. The two rules that used to
    follow this one styled a poop track nested inside the type label; the rating
