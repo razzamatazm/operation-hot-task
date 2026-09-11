@@ -418,6 +418,34 @@ due value up to 0.95rem — the overdue emphasis, which predates all of this.
 Normalising it would mean adding a pixel to every other row to match a stamp
 that is supposed to stand out.
 
+**Measure this with the `pointer: coarse` floor forced on.** Automation reports
+a fine pointer at every viewport, so the 12px floor never applies under
+Playwright and every label comes out ~15% narrower than it does on a real
+phone. The stage's tracking was set from numbers taken that way once and was
+two pixels wrong because of it. Apply the floor's declarations unconditionally
+in a scratch `<style>`, take the numbers, then remove it.
+
+**Where uniformity holds, and where it stops.** One height across every active
+row at **390px and up**, which is the iPhone width the board is used on. At
+**360px** it does not, and the cause is the pair rather than the reserved line:
+`Suzie → Unclaimed` wants ~172px against a cell that resolves to 164px, so the
+names wrap and those rows run ~21px taller. That is the standing "first names
+are never ellipsized, the pair wraps" rule doing exactly what it says, and it
+is not introduced here — the row that proves it is a released check, which
+carries no rating at all and wraps anyway. Closing it would mean either
+shortening the placeholder word `Unclaimed` at narrow widths or breaking that
+rule; **open, and nobody has asked for it.**
+
+**Open: the due stamp's ragged left edge on a phone** (raised 2026-09-10, not
+acted on). `RETURNS Sep 12, 2026`, `Within 1 Hour`, `Urgent Now` and
+`OVERDUE BY 3d` are right-aligned to the action column above them — verified,
+every one lands on the same right edge — but they differ so much in length that
+their left edges land nowhere near each other, and on a phone that reads as the
+most restless thing on the row. Three ways out, none chosen: drop the `RETURNS`
+label so it matches the unlabelled time-frames, shorten the date, or move the
+stamp under the names and left-align it. Raised by the user and deferred with
+their knowledge; recorded here so the next pass does not have to rediscover it.
+
 For the record, the collision that once existed: a released Fraud Check is
 unclaimed *and* carries a stage, because the two `unassignInPlace` paths (the
 creator's "release for any fraud checker" at `PENDING_APPROVAL`, and the sweep
