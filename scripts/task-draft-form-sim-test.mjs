@@ -252,7 +252,7 @@ test("edit mode has nowhere to save a draft to, rather than a rule not to", () =
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
   assert.match(
     seat.slice(0, seat.indexOf("}));")),
-    /storage: edit \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \? null : browserDraftStorage\(\)/,
     "edit mode's storage is null, so every draft call is already a no-op"
   );
   assert.match(FORM_SOURCE, /if \(editing\) return;/, "and the save effect leaves immediately too");

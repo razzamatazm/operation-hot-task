@@ -3990,13 +3990,40 @@ button.btn-good:hover {
 
 .saved-row {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: stretch;
   min-width: 0;
-  padding: 10px 14px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: var(--panel);
+  overflow: hidden;
+}
+
+/* The row's press target (#344): the three facts, filling the row. A button so
+   it is reachable and announced like one, but dressed as the row rather than as
+   a control — no fill at rest, the row's own hover tint and lift under the
+   cursor, the way a task row answers. The fill goes through the button tokens
+   and not `background`, for the reason the Buttons section gives. */
+.saved-row-open {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--row-hover);
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-row:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .saved-row-name {

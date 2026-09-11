@@ -50,8 +50,9 @@ persisted per browser:
   heading. It is not a court and holds no tasks: only its owner ever sees it,
   it is hidden when they have none, and it does not collapse. Each row is the
   loan as it was typed (or `No loan yet`), the task type and `saved N ago`, and
-  nothing else: no who-to-whom, due time or poop rating. Tapping a row does
-  nothing yet. See
+  nothing else: no who-to-whom, due time or poop rating. Tapping a row reopens
+  the create form on it, every field restored, to save for later again or to
+  create (see [task-fields.md](task-fields.md#create-task-fields)). See
   [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md). Flat view
   does not show them yet.
 - **Flat view.** One list, no sections, sorted into 4 buckets newest-first

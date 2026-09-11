@@ -17,12 +17,25 @@ import { formatAgo } from "./format";
 
    A row is three facts and deliberately no more: the loan as it was typed, the
    task type, and when it was saved. No who-to-whom, due time or poop rating,
-   because none of those exist until the task is filed. Tapping a row does
-   nothing yet; reopening one is the next ticket (#344). */
+   because none of those exist until the task is filed.
+
+   Tapping a row reopens it (#344): the three facts sit inside one button that
+   fills the row, so the whole row is the press target the way a task row is,
+   and hands that row's record to `onOpen`. The button is a child of the `<li>`
+   rather than the `<li>` itself so a second control can sit beside it on the
+   row (delete, #345) without nesting one button inside another. */
 
 const NO_LOAN_YET = "No loan yet";
 
-export const SavedForLaterSection = ({ items, now }: { items: SavedForLaterTask[]; now: number }) => {
+export const SavedForLaterSection = ({
+  items,
+  now,
+  onOpen
+}: {
+  items: SavedForLaterTask[];
+  now: number;
+  onOpen: (item: SavedForLaterTask) => void;
+}) => {
   if (items.length === 0) return null;
   const ordered = [...items].sort(newestSavedFirst);
   return (
@@ -36,11 +49,13 @@ export const SavedForLaterSection = ({ items, now }: { items: SavedForLaterTask[
       <ul className="saved-list">
         {ordered.map((item) => (
           <li key={item.id} className="saved-row">
-            <span className="saved-row-name">{item.form.folderName.trim() || NO_LOAN_YET}</span>
-            <span className="saved-row-type">{TASK_TYPE_LABELS[item.form.taskType]}</span>
-            <time className="saved-row-when" dateTime={item.savedAt}>
-              saved {formatAgo(item.savedAt, now)}
-            </time>
+            <button type="button" className="saved-row-open" onClick={() => onOpen(item)}>
+              <span className="saved-row-name">{item.form.folderName.trim() || NO_LOAN_YET}</span>
+              <span className="saved-row-type">{TASK_TYPE_LABELS[item.form.taskType]}</span>
+              <time className="saved-row-when" dateTime={item.savedAt}>
+                saved {formatAgo(item.savedAt, now)}
+              </time>
+            </button>
           </li>
         ))}
       </ul>

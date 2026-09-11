@@ -14,6 +14,7 @@ import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { SavedForLaterSection } from "./saved-for-later";
+import { SavedForLaterRequest, clearCreatedSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -50,6 +51,11 @@ class ApiError extends Error {
   }
 }
 
+/* `apiRequest` as the signed-in person, in the shape the Saved for Later
+   request helpers take (#344). */
+const savedForLaterRequestFor = (user: UserIdentity): SavedForLaterRequest =>
+  <T,>(path: string, init: { method: string; body?: string }) => apiRequest<T>(path, init, user);
+
 /* What `PATCH /loans/:loanId` answers with. `merged` is present only when this
    save actually folded another loan in — the transient notice ADR-0001's
    2026-07-31 addendum asks for is the only thing that reads it. */
@@ -78,6 +84,10 @@ const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentit
     });
 
   const response = await sendWithToken(tokenCache, send);
+
+  /* No content: a removal that worked (DELETE /saved-for-later/:id, #344). There
+     is no body to read, and reading one would throw on a success. */
+  if (response.status === 204) return undefined as T;
 
   const data = await response.json();
   if (!response.ok) {
@@ -3863,6 +3873,15 @@ export const App = () => {
      name, which on a shared machine is the whole of the privacy promise. */
   const [savedForLater, setSavedForLater] = useState<SavedForLaterTask[]>([]);
   const savedForLaterOwner = useRef(user.id);
+  /* The Saved for Later task the create form is open on, or null for a New Task
+     (#344). Set only together with `formOpen`, and cleared when the form
+     closes, so New Task never opens on a record left over from last time. */
+  const [reopened, setReopened] = useState<SavedForLaterTask | null>(null);
+  /* Whether a form is up, readable from inside an async handler. Tapping a row
+     waits on a fetch, and a New Task opened during that wait must not have its
+     typing swapped out for the record when the fetch lands. */
+  const formOpenNow = useRef(formOpen);
+  formOpenNow.current = formOpen;
   const loadSavedForLater = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ items: SavedForLaterTask[] }>("/saved-for-later", { method: "GET" }, user);
@@ -4035,7 +4054,7 @@ export const App = () => {
      the post-create share — so the child stays presentational. Resolves once
      the task is persisted (the child then closes itself); rejects only when the
      create itself fails, after surfacing the error, so the form stays open. */
-  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string, note?: string): Promise<void> => {
+  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string, note?: string, savedId?: string): Promise<void> => {
     let created: { task: LoanTask };
     try {
       created = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
@@ -4044,6 +4063,21 @@ export const App = () => {
       throw err;
     }
     setError(null);
+    /* Filed from a reopened Saved for Later task (#344, ADR-0011 rule 4): the
+       task exists, so the Saved for Later task goes. Only here, after the create
+       landed: a filing that failed rethrew above and never reaches this, so the
+       record is still there for the retry. The task was filed through the same
+       request as any new task, with the same notifications, so a removal that
+       fails cannot undo that and does not reject; it only says so. */
+    if (savedId) {
+      if (await clearCreatedSavedForLaterRequest(savedForLaterRequestFor(user), savedId)) {
+        if (user.id === savedForLaterOwner.current) {
+          setSavedForLater((current) => current.filter((item) => item.id !== savedId));
+        }
+      } else {
+        showToast("Task created, but it couldn't be taken out of Saved for Later.", { variant: "warn" });
+      }
+    }
     // Born assigned (ADR-0002): the handoff already happened inside the create
     // call, so there's nothing to fire here — just confirm it landed.
     if (payload.assigneeUserId) {
@@ -4083,18 +4117,43 @@ export const App = () => {
      the section renders, so it is on the board the moment the form closes, with
      no reload. Nothing else is refreshed: saving files no task and touches no
      loan. */
-  const onSaveForLater = async (form: SavedForLaterForm): Promise<void> => {
-    let saved: { item: SavedForLaterTask };
+  /* Since #344 a reopened form names its record, and the save lands on that one
+     rather than making a copy. The request helper decides new-or-update, and
+     keeps the typing as a new record if the old one went elsewhere; either way
+     the saved record moves to the top of the list and replaces whatever it
+     was reopened from. */
+  const onSaveForLater = async (form: SavedForLaterForm, savedId?: string): Promise<void> => {
+    let saved: SavedForLaterTask;
     try {
-      saved = await apiRequest<{ item: SavedForLaterTask }>("/saved-for-later", { method: "POST", body: JSON.stringify({ form }) }, user);
+      saved = await saveForLaterRequest(savedForLaterRequestFor(user), form, savedId);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to save for later", { variant: "error" });
       throw err;
     }
-    if (saved.item.ownerId === savedForLaterOwner.current) {
-      setSavedForLater((current) => [saved.item, ...current.filter((item) => item.id !== saved.item.id)]);
+    if (saved.ownerId === savedForLaterOwner.current) {
+      setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== savedId)]);
     }
   };
+
+  /* Tapping a Saved for Later row (#344). Opens the create form on the latest
+     save of that record rather than the list's copy, since another device may
+     have saved it again since the board loaded. One that has gone (created or
+     removed somewhere else) comes off the list with a word about why, instead
+     of opening a form for a record that no longer exists. An answer that comes
+     back after the person switched is dropped, like every Saved for Later load. */
+  const openSavedForLater = useCallback(async (item: SavedForLaterTask): Promise<void> => {
+    const latest = await reopenSavedForLaterRequest(savedForLaterRequestFor(user), item);
+    if (user.id !== savedForLaterOwner.current) return;
+    if (!latest) {
+      setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
+      showToast("That Saved for Later task is gone. It was created or removed somewhere else.", { variant: "warn" });
+      return;
+    }
+    setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
+    if (formOpenNow.current) return;
+    setReopened(latest);
+    setFormOpen(true);
+  }, [user, showToast]);
 
   const onClaim = useCallback(async (taskId: string): Promise<void> => {
     try {
@@ -4721,7 +4780,7 @@ export const App = () => {
             {/* Saved for Later (#343, ADR-0011) sits right after Needs you, and
                 keeps that place when Needs you is empty and not drawn. Hidden
                 when the viewer has none; the section decides that itself. */}
-            {s.key === "you" && <SavedForLaterSection items={savedItems} now={now} />}
+            {s.key === "you" && <SavedForLaterSection items={savedItems} now={now} onOpen={openSavedForLater} />}
           </Fragment>
         ))}
       </div>
@@ -4856,13 +4915,18 @@ export const App = () => {
           live in the child; App still holds nothing but "is it open". */}
       {formOpen && (
         <TaskForm
+          key={reopened?.id ?? "new"}
           loans={loans}
           directory={directory}
           user={user}
           tasks={tasks}
-          onClose={() => setFormOpen(false)}
+          onClose={() => {
+            setFormOpen(false);
+            setReopened(null);
+          }}
           onCreate={onCreate}
           onSaveForLater={onSaveForLater}
+          {...(reopened ? { reopened } : {})}
         />
       )}
 
@@ -4910,7 +4974,7 @@ export const App = () => {
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
                 />
-                <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+                <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
               </div>
             </div>
             {renderTaskList(unifiedTasks, "No tasks yet.", savedForLater)}
@@ -4933,7 +4997,7 @@ export const App = () => {
                 themeChoice={themeChoice}
                 onThemeChange={setThemeChoice}
               />
-              <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
+              <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
             </div>
           </div>
           {renderTaskList(allTasksAdmin, "No tasks yet.")}

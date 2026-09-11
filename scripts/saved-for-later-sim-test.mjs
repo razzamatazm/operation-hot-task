@@ -147,6 +147,59 @@ test("there is no cap: every save is kept", async () => {
   assert.equal((await store.list(DANA)).length, 60);
 });
 
+// --- Reopening one (#344) ----------------------------------------------------
+
+test("saving a reopened one again updates that same record, never a copy", async () => {
+  const { store } = await freshStore();
+  const first = await store.create(DANA, form({ notes: "half" }), "2026-09-11T12:00:00.000Z");
+  const other = await store.create(DANA, form({ folderName: "Other" }), "2026-09-11T12:01:00.000Z");
+
+  const updated = await store.update(DANA, first.id, form({ notes: "finished the thought", points: 4 }), "2026-09-11T13:00:00.000Z");
+
+  assert.equal(updated.id, first.id, "same record");
+  assert.equal(updated.ownerId, DANA);
+  assert.equal(updated.savedAt, "2026-09-11T13:00:00.000Z", "saved N ago starts again");
+  assert.deepEqual(updated.form, form({ notes: "finished the thought", points: 4 }), "every field is the new save");
+  assert.deepEqual(
+    (await store.list(DANA)).map((item) => item.id),
+    [first.id, other.id],
+    "the list does not grow, and the record just saved comes first"
+  );
+});
+
+test("two saves of the same one keep whichever came last, with no refusal", async () => {
+  const { store } = await freshStore();
+  const saved = await store.create(DANA, form());
+  await store.update(DANA, saved.id, form({ notes: "from the desktop" }));
+  await store.update(DANA, saved.id, form({ notes: "from the phone" }));
+  assert.equal((await store.find(DANA, saved.id)).form.notes, "from the phone");
+  assert.equal((await store.list(DANA)).length, 1);
+});
+
+test("nobody can update or remove someone else's, and trying leaves it untouched", async () => {
+  const { store } = await freshStore();
+  const danas = await store.create(DANA, form({ notes: "Dana's" }), "2026-09-11T12:00:00.000Z");
+
+  assert.equal(await store.update(SAM, danas.id, form({ notes: "Sam was here" })), undefined);
+  assert.equal(await store.remove(SAM, danas.id), false);
+  assert.deepEqual(await store.find(DANA, danas.id), danas, "exactly as Dana saved it");
+  assert.equal(await store.update(DANA, "no-such-id", form()), undefined, "an id that never existed finds nothing");
+  assert.equal(await store.remove(DANA, "no-such-id"), false);
+});
+
+test("removing one takes that one and only that one", async () => {
+  const { store } = await freshStore();
+  const filed = await store.create(DANA, form({ folderName: "Filed" }));
+  const kept = await store.create(DANA, form({ folderName: "Kept" }));
+  const sams = await store.create(SAM, form({ folderName: "Sam's" }));
+
+  assert.equal(await store.remove(DANA, filed.id), true);
+  assert.equal(await store.find(DANA, filed.id), undefined, "gone for good");
+  assert.deepEqual((await store.list(DANA)).map((item) => item.id), [kept.id]);
+  assert.deepEqual((await store.list(SAM)).map((item) => item.id), [sams.id]);
+  assert.equal(await store.remove(DANA, filed.id), false, "a second remove finds nothing");
+});
+
 // --- 2. Apart from tasks -----------------------------------------------------
 
 test("saving one writes nothing to the task store", async () => {

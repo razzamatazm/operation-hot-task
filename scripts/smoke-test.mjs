@@ -1364,6 +1364,111 @@ const run = async () => {
     );
     pushPass("a loan merge leaves a Saved for Later task exactly as it was saved");
 
+    /* Reopening one and finishing it (#344). Saving again is a PUT on the same
+       record; creating is the ordinary POST /tasks, and only once that has
+       landed does the web app DELETE the record. */
+    const savedCountBefore = (await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator })).json.items.length;
+    const resaved = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
+      user: users.creator,
+      body: { form: savedForm({ notes: "smoke-saved-for-later, finished", points: 3 }) }
+    });
+    expectStatus(resaved.status, 200, "save a reopened one for later again", resaved.json);
+    assert.equal(resaved.json.item.id, saved.json.item.id, "the same record");
+    assert.deepEqual(resaved.json.item.form, savedForm({ notes: "smoke-saved-for-later, finished", points: 3 }));
+    assert.ok(Date.parse(resaved.json.item.savedAt) >= Date.parse(saved.json.item.savedAt), "saved N ago starts again");
+    const afterResave = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.equal(afterResave.json.items.length, savedCountBefore, "saving again does not grow the section");
+    assert.equal(afterResave.json.items[0].id, saved.json.item.id, "and puts it first, as the newest save");
+    pushPass("saving a reopened Saved for Later task again updates that same record");
+
+    const fromDesk = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
+      user: users.creator,
+      body: { form: savedForm({ notes: "from the desktop" }) }
+    });
+    const fromPhone = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
+      user: users.creator,
+      body: { form: savedForm({ notes: "from the phone" }) }
+    });
+    expectStatus(fromDesk.status, 200, "first of two sessions saves", fromDesk.json);
+    expectStatus(fromPhone.status, 200, "second of two sessions saves, with no conflict", fromPhone.json);
+    const latest = await request(server.baseUrl, "GET", `/saved-for-later/${saved.json.item.id}`, { user: users.creator });
+    assert.equal(latest.json.item.form.notes, "from the phone", "the later save is what is kept");
+    pushPass("two sessions saving the same Saved for Later task keep the later save, with no prompt");
+
+    const badResave = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
+      user: users.creator,
+      body: { form: savedForm({ taskType: "LUNCH" }) }
+    });
+    expectStatus(badResave.status, 400, "saving again with a body that isn't the form's shape", badResave.json);
+
+    for (const [label, viewer] of [["another user", users.otherOfficer], ["an admin", users.admin]]) {
+      const theirUpdate = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
+        user: viewer,
+        body: { form: savedForm({ notes: "not yours" }) }
+      });
+      expectStatus(theirUpdate.status, 404, `${label} updating the creator's Saved for Later task`, theirUpdate.json);
+      const theirRemove = await request(server.baseUrl, "DELETE", `/saved-for-later/${saved.json.item.id}`, { user: viewer });
+      expectStatus(theirRemove.status, 404, `${label} removing the creator's Saved for Later task`, theirRemove.json);
+    }
+    const savedUntouched = await request(server.baseUrl, "GET", `/saved-for-later/${saved.json.item.id}`, { user: users.creator });
+    assert.deepEqual(savedUntouched.json.item, latest.json.item, "exactly as the creator last saved it");
+    pushPass("another user and an admin cannot reopen, update or remove someone else's Saved for Later task");
+
+    /* Creating it. The body is what the web form builds from the saved form:
+       the ordinary create payload, through the ordinary route. */
+    const savedFormNow = latest.json.item.form;
+    const failedFiling = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: savedFormNow.folderName, taskType: "LUNCH", notes: savedFormNow.notes }
+    });
+    assert.notEqual(failedFiling.status, 201, "a filing the server refuses");
+    const stillThere = await request(server.baseUrl, "GET", `/saved-for-later/${saved.json.item.id}`, { user: users.creator });
+    expectStatus(stillThere.status, 200, "the Saved for Later task after a failed filing", stillThere.json);
+    pushPass("a filing that fails leaves the Saved for Later task where it was");
+
+    const filed = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: savedFormNow.folderName, taskType: savedFormNow.taskType, notes: savedFormNow.notes, urgency: savedFormNow.urgency }
+    });
+    expectStatus(filed.status, 201, "create the task from a reopened Saved for Later task", filed.json);
+    const cleared = await request(server.baseUrl, "DELETE", `/saved-for-later/${saved.json.item.id}`, { user: users.creator });
+    expectStatus(cleared.status, 204, "the Saved for Later task is removed once its task exists", cleared.json);
+    const gone = await request(server.baseUrl, "GET", `/saved-for-later/${saved.json.item.id}`, { user: users.creator });
+    expectStatus(gone.status, 404, "the removed Saved for Later task", gone.json);
+    const listAfterFiling = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.ok(!listAfterFiling.json.items.some((item) => item.id === saved.json.item.id), "and it is off the list");
+    const tasksAfterFiling = await request(server.baseUrl, "GET", "/tasks");
+    assert.ok(tasksAfterFiling.json.tasks.some((task) => task.id === filed.json.task.id), "the task it held is an ordinary task on the board");
+    const resaveGone = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
+      user: users.creator,
+      body: { form: savedFormNow }
+    });
+    expectStatus(resaveGone.status, 404, "saving again a Saved for Later task that has been created", resaveGone.json);
+    pushPass("creating a reopened Saved for Later task files an ordinary task, and the Saved for Later task is then gone");
+
+    /* The loan is resolved at Create exactly as a brand-new task's is. The web
+       form drops a picked loan id whose loan no longer carries the typed name
+       (`createLoanId`), so after a rename or a merge it sends the typed name and
+       link, and the server answers that the way it answers any new task: the
+       same loan as an identical task filed fresh. */
+    for (const [label, item] of [["renamed", afterRename.json.item], ["merged", afterMerge.json.item]]) {
+      const body = {
+        folderName: item.form.folderName,
+        taskType: item.form.taskType,
+        notes: `smoke-saved-${label}-create`,
+        urgency: item.form.urgency,
+        ...(item.form.humperdinkLink ? { humperdinkLink: item.form.humperdinkLink } : {})
+      };
+      const fromSaved = await request(server.baseUrl, "POST", "/tasks", { user: users.creator, body });
+      expectStatus(fromSaved.status, 201, `create from a Saved for Later task whose loan was ${label}`, fromSaved.json);
+      const fresh = await request(server.baseUrl, "POST", "/tasks", { user: users.creator, body });
+      expectStatus(fresh.status, 201, `a brand-new task with the same loan text, ${label}`, fresh.json);
+      assert.equal(fromSaved.json.task.loanId, fresh.json.task.loanId, `the ${label} loan resolves the same way for both`);
+      const removed = await request(server.baseUrl, "DELETE", `/saved-for-later/${item.id}`, { user: users.creator });
+      expectStatus(removed.status, 204, `remove the ${label} Saved for Later task once created`, removed.json);
+    }
+    pushPass("a loan renamed or merged after saving is resolved at Create the same way a brand-new task's loan is");
+
     const othersOwnSave = await request(server.baseUrl, "POST", "/saved-for-later", {
       user: users.otherOfficer,
       body: { form: savedForm({ folderName: "Other officer's own" }) }
@@ -1402,6 +1507,15 @@ const run = async () => {
       body: { form: savedForm() }
     });
     expectStatus(deactivatedSave.status, 403, "deactivated user saves for later", deactivatedSave.json);
+    const deactivatedResave = await request(server.baseUrl, "PUT", `/saved-for-later/${othersOwnSave.json.item.id}`, {
+      user: users.otherOfficer,
+      body: { form: savedForm({ notes: "while deactivated" }) }
+    });
+    expectStatus(deactivatedResave.status, 403, "deactivated user saves a reopened one again", deactivatedResave.json);
+    const deactivatedRemove = await request(server.baseUrl, "DELETE", `/saved-for-later/${othersOwnSave.json.item.id}`, {
+      user: users.otherOfficer
+    });
+    expectStatus(deactivatedRemove.status, 403, "deactivated user removes their Saved for Later task", deactivatedRemove.json);
     const reactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
       user: users.admin,
       body: { active: true }

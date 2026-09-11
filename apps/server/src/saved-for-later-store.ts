@@ -67,6 +67,42 @@ export class SavedForLaterStore {
     return item;
   }
 
+  /* Save a reopened one again (#344): the same record takes the whole new form
+     and a new `savedAt`, so it never becomes a copy and "saved N ago" starts
+     over. Whichever save lands last is what is kept; there is nothing to compare
+     against and nothing to refuse, because two devices saving the same one is
+     the same person twice. Someone else's, or one that no longer exists, finds
+     nothing and changes nothing. */
+  async update(
+    ownerId: string,
+    id: string,
+    form: SavedForLaterForm,
+    savedAt: string = new Date().toISOString()
+  ): Promise<SavedForLaterTask | undefined> {
+    let updated: SavedForLaterTask | undefined;
+    await this.file.update((data) => {
+      const index = data.items.findIndex((item) => item.id === id && item.ownerId === ownerId);
+      if (index === -1) return data;
+      updated = { ...data.items[index]!, savedAt, form };
+      data.items[index] = updated;
+      return data;
+    });
+    return updated;
+  }
+
+  /* Gone for good (#344, ADR-0011 rule 4): what happens once the task it held
+     has been created. True when this owner's record was removed; false for
+     someone else's or one already gone, which removes nothing. */
+  async remove(ownerId: string, id: string): Promise<boolean> {
+    let removed = false;
+    await this.file.update((data) => {
+      const kept = data.items.filter((item) => !(item.id === id && item.ownerId === ownerId));
+      removed = kept.length !== data.items.length;
+      return { items: kept };
+    });
+    return removed;
+  }
+
   /* Rule 6: it goes when its owner goes. Every one this owner held, gone, and
      how many that was. Someone with none writes nothing. Only removing a person
      calls this; deactivating one does not, so reactivating them finds theirs
