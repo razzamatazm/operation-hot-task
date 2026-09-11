@@ -290,8 +290,12 @@ persisted per browser.
 **Flat view**:
 The single unified list, sorted by status then due, with no sections — the
 Assigner / Assignee columns carry whose-court on every row. The user-selectable
-counterpart to Grouped view.
-_Avoid_: sections (the flat list intentionally has none)
+counterpart to Grouped view. One deliberate exception: the viewer's _Saved for
+Later tasks_ show as a single Saved for Later group above the list, because they
+are not tasks and have no place in its ordering. The list below it has no
+sections.
+_Avoid_: sections (the flat list intentionally has none, apart from the Saved
+for Later group above it)
 
 ### Saved for Later
 

@@ -339,7 +339,7 @@ test("tapping a row reopens that Saved for Later task: the whole row is one butt
   assert.equal([...html.matchAll(/<button type="button" class="saved-row-open">/g)].length, 2, "one press target per row");
   assert.match(SECTION_SOURCE, /onClick=\{\(\) => onOpen\(item\)\}/, "pressing it opens that row's own record");
   const grouped = APP_SOURCE.match(/const renderTaskList = \([\s\S]*?\n  \};/)?.[0];
-  assert.match(grouped, /<SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>/);
+  assert.match(grouped, /<SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>;/);
 });
 
 const FULL_FORM = {
@@ -516,9 +516,58 @@ test("in Grouped view the section sits right after Needs you, on the Tasks board
   assert.ok(grouped, "renderTaskList exists");
   assert.match(
     grouped,
-    /s\.key === "you" && <SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>/,
+    /s\.key === "you" && savedSection\}/,
     "rendered directly after the Needs you court, whether or not Needs you has any tasks"
   );
   assert.match(APP_SOURCE, /renderTaskList\(unifiedTasks, "No tasks yet\.", savedForLater\)/, "the Tasks board passes them");
   assert.match(APP_SOURCE, /renderTaskList\(allTasksAdmin, "No tasks yet\."\)/, "admin All Tasks does not");
+});
+
+/* ── Flat view (#346) ────────────────────────────────────── */
+
+const renderTaskListSource = () => {
+  const source = APP_SOURCE.match(/const renderTaskList = \([\s\S]*?\n  \};/)?.[0];
+  assert.ok(source, "renderTaskList exists");
+  return source;
+};
+const flatBranch = () => {
+  const branch = renderTaskListSource().match(/if \(!grouped\) \{([\s\S]*?)\n    \}/)?.[1];
+  assert.ok(branch, "renderTaskList has a Flat view branch");
+  return branch;
+};
+
+test("both views draw the one Saved for Later section, so rows, order, count, reopen and delete cannot differ", () => {
+  assert.equal((APP_SOURCE.match(/<SavedForLaterSection\b/g) ?? []).length, 1, "App mounts the section in exactly one place");
+  assert.match(
+    renderTaskListSource(),
+    /const savedSection = <SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>;/,
+    "built once in renderTaskList, with the same reopen and delete handlers"
+  );
+});
+
+test("in Flat view the section is the one group, above the flat list", () => {
+  const branch = flatBranch();
+  const section = branch.indexOf("{savedSection}");
+  const list = branch.lastIndexOf("<CardList tasks={list}");
+  assert.ok(section >= 0, "Flat view draws the section");
+  assert.ok(list > section, "above the list, not below or inside it");
+  assert.equal((branch.match(/<CardList\b/g) ?? []).length, 2, "one list per path (nothing saved, or saved above it), and no third list the tasks could be split across");
+  assert.doesNotMatch(branch, /buildCourtSections|section-head/, "the list itself gains no sections");
+});
+
+test("Flat view with nothing saved is exactly the flat list it was", () => {
+  assert.match(
+    flatBranch(),
+    /if \(savedItems\.length === 0\) \{\s*return <CardList tasks=\{list\} emptyMessage=\{emptyMessage\} now=\{now\} \{\.\.\.cardProps\} \/>;\s*\}/,
+    "no wrapper, no section, the same list and empty message as before"
+  );
+});
+
+test("Flat view with saved tasks and no tasks shows the section alone, as Grouped view does", () => {
+  const branch = flatBranch();
+  assert.match(
+    branch,
+    /<div className="courts">\s*\{savedSection\}\s*\{list\.length > 0 && <CardList tasks=\{list\} emptyMessage="" now=\{now\} \{\.\.\.cardProps\} \/>\}\s*<\/div>/,
+    "the section and the list share the courts' spacing, and No tasks yet is not said over a board with saved tasks on it"
+  );
 });

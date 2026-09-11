@@ -5,7 +5,8 @@ Status: Accepted, partly built. Settled while triaging #337. Built so far
 routes, and the Grouped view section. (#344): reopening one, saving it again
 onto the same record, and creating it, which removes it. (#347): removal with
 the owner. (#345): deleting one from the board, after a confirmation, with no
-undo. Not yet built: Flat view and the Cancel prompt.
+undo. (#346): the same section as the one group Flat view shows. Not yet built:
+the Cancel prompt.
 
 ## Context
 
