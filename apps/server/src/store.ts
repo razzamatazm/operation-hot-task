@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { Loan, LoanTask, SYSTEM_ACTOR, TaskHistoryEvent, TaskStatus, hasCorrectionsState, migrateTaskMessages } from "@loan-tasks/shared";
+import { JsonFile } from "./json-file.js";
 
 /* The limits past which the start-up migration below refuses to act (#236:
    "more than a handful, or they cluster on one task type"). A handful is five;
@@ -14,29 +13,30 @@ interface DataShape {
   history: TaskHistoryEvent[];
 }
 
-const INITIAL: DataShape = {
-  tasks: [],
-  history: []
-};
-
+/* Tasks and their history, in one file. Every read and change goes through
+   `JsonFile`, which is what keeps a read from landing mid-save (#331). */
 export class TaskStore {
-  private readonly filePath: string;
-  private chain: Promise<void> = Promise.resolve();
+  private readonly file: JsonFile<DataShape>;
 
   constructor(filePath: string) {
-    this.filePath = filePath;
+    this.file = new JsonFile<DataShape>(filePath, {
+      empty: () => ({ tasks: [], history: [] }),
+      decode: (parsed) => {
+        const raw = parsed as Partial<DataShape>;
+        return {
+          tasks: Array.isArray(raw.tasks) ? raw.tasks.map((task) => this.normalizeTask(task)) : [],
+          history: raw.history ?? []
+        };
+      },
+      encode: (data) => ({
+        tasks: data.tasks.map((task) => this.normalizeTask(task)),
+        history: data.history
+      })
+    });
   }
 
   async init(): Promise<void> {
-    const dir = path.dirname(this.filePath);
-    await fs.mkdir(dir, { recursive: true });
-
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.writeFile(this.filePath, JSON.stringify(INITIAL, null, 2), "utf8");
-    }
-
+    await this.file.init();
     await this.migrateStrandedCorrections();
     await this.migrateMessageIdentity();
   }
@@ -58,20 +58,18 @@ export class TaskStore {
      repairs only what is missing and reports whether it moved anything; the
      second pass finds nothing, reports no change, and this writes nothing. */
   private async migrateMessageIdentity(): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
-      let touched = 0;
+    let touched = 0;
+    await this.file.update((data) => {
       const tasks = data.tasks.map((task) => {
         const result = migrateTaskMessages(task, () => randomUUID());
         if (result.changed) touched += 1;
         return result.task;
       });
-      if (touched === 0) {
-        return;
-      }
-      await this.write({ ...data, tasks });
-      console.warn(`[store] gave stored messages an identifier and a label on ${touched} task(s) (#286, ADR-0009)`);
+      return touched === 0 ? undefined : { ...data, tasks };
     });
+    if (touched > 0) {
+      console.warn(`[store] gave stored messages an identifier and a label on ${touched} task(s) (#286, ADR-0009)`);
+    }
   }
 
   /* NEEDS_REVIEW became LOI-only (ADR-0007, #236). Any task of another type
@@ -89,11 +87,11 @@ export class TaskStore {
      nothing is touched: the tasks stay where they are, still visible, and the
      start-up log says so loudly. Somebody then decides. */
   private async migrateStrandedCorrections(): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    let moved: { count: number; byType: Record<string, number> } | undefined;
+    await this.file.update((data) => {
       const stranded = data.tasks.filter((task) => task.status === "NEEDS_REVIEW" && !hasCorrectionsState(task));
       if (stranded.length === 0) {
-        return;
+        return undefined;
       }
       const byType = stranded.reduce<Record<string, number>>((acc, task) => ({ ...acc, [task.taskType]: (acc[task.taskType] ?? 0) + 1 }), {});
       const clustered = Object.values(byType).some((count) => count > STRANDED_CLUSTER_LIMIT);
@@ -103,7 +101,7 @@ export class TaskStore {
             `That is more than a handful or clustered on one type, so they were NOT migrated — ` +
             `raise it on #236 / ADR-0007 before deciding what to do with them.`
         );
-        return;
+        return undefined;
       }
       const now = new Date().toISOString();
       for (const task of stranded) {
@@ -119,57 +117,32 @@ export class TaskStore {
           detail: `Moved from NEEDS_REVIEW to ${status}: only an LOI Check can be in needs corrections (ADR-0007)`
         });
       }
-      await this.write(data);
-      console.warn(`[store] moved ${stranded.length} non-LOI task(s) out of NEEDS_REVIEW at start-up (ADR-0007): ${JSON.stringify(byType)}`);
+      moved = { count: stranded.length, byType };
+      return data;
     });
+    if (moved) {
+      console.warn(`[store] moved ${moved.count} non-LOI task(s) out of NEEDS_REVIEW at start-up (ADR-0007): ${JSON.stringify(moved.byType)}`);
+    }
   }
 
-  private async read(): Promise<DataShape> {
-    const raw = await fs.readFile(this.filePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<DataShape>;
-    const tasks = Array.isArray(parsed.tasks) ? parsed.tasks.map((task) => this.normalizeTask(task)) : [];
-    return {
-      tasks,
-      history: parsed.history ?? []
-    };
-  }
-
-  private async write(data: DataShape): Promise<void> {
-    const normalized: DataShape = {
-      tasks: data.tasks.map((task) => this.normalizeTask(task)),
-      history: data.history
-    };
-    await fs.writeFile(this.filePath, JSON.stringify(normalized, null, 2), "utf8");
-  }
-
-  /* Reads go through the same queue the writes do. `write` rewrites the whole
-     file, and `writeFile` truncates before it fills, so a read landing in that
-     gap parses a torn file and throws. A loan rename made that routine: it saves
-     one task, starts that task's card correction in the background, and saves
-     the next task while the correction is looking the first one up — so a
-     channel card was silently left on the old name (#331). The bot's card
-     records got the same fix under #280.
-
-     Inside a queued operation, call `read` directly: queuing from there would
-     wait on itself. */
   async allTasks(): Promise<LoanTask[]> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async allHistoryForTask(taskId: string): Promise<TaskHistoryEvent[]> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.history.filter((event) => event.taskId === taskId).sort((a, b) => a.at.localeCompare(b.at));
   }
 
   async findTask(taskId: string): Promise<LoanTask | undefined> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.tasks.find((task) => task.id === taskId);
   }
 
-  /* Read-modify-write in one queue slot. `apply` gets the task as it is RIGHT
-     NOW — read inside the same slot that writes the result — so nothing can
-     land in between and be overwritten.
+  /* Read-modify-write in one step. `apply` gets the task as it is RIGHT NOW —
+     read in the same step that writes the result — so nothing can land in
+     between and be overwritten.
 
      This exists because `upsertTask` below takes a finished task, and a caller
      necessarily built that task from a read it did earlier. Two callers reading
@@ -192,8 +165,8 @@ export class TaskStore {
     taskId: string,
     apply: (current: LoanTask) => { task: LoanTask; event?: TaskHistoryEvent | TaskHistoryEvent[] } | undefined
   ): Promise<LoanTask | undefined> {
-    return this.enqueue(async () => {
-      const data = await this.read();
+    let written: LoanTask | undefined;
+    await this.file.update((data) => {
       const index = data.tasks.findIndex((entry) => entry.id === taskId);
       if (index < 0) {
         return undefined;
@@ -206,17 +179,17 @@ export class TaskStore {
       if (result.event) {
         data.history.push(...(Array.isArray(result.event) ? result.event : [result.event]));
       }
-      await this.write(data);
-      return result.task;
+      written = result.task;
+      return data;
     });
+    return written;
   }
 
   /* Whole-task replacement. Correct for a task that did not exist a moment ago
      (creation); for anything that reads-then-changes, use `updateTask` above so
      the read and the write can't be split by a concurrent writer. */
   async upsertTask(task: LoanTask, event?: TaskHistoryEvent): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const index = data.tasks.findIndex((entry) => entry.id === task.id);
       if (index >= 0) {
         data.tasks[index] = task;
@@ -226,26 +199,24 @@ export class TaskStore {
       if (event) {
         data.history.push(event);
       }
-      await this.write(data);
+      return data;
     });
   }
 
   async appendHistory(event: TaskHistoryEvent): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       data.history.push(event);
-      await this.write(data);
+      return data;
     });
   }
 
   async replaceTasks(tasks: LoanTask[], event?: TaskHistoryEvent): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       data.tasks = tasks;
       if (event) {
         data.history.push(event);
       }
-      await this.write(data);
+      return data;
     });
   }
 
@@ -254,25 +225,11 @@ export class TaskStore {
       return;
     }
 
-    await this.enqueue(async () => {
-      const data = await this.read();
-      const idSet = new Set(ids);
+    const idSet = new Set(ids);
+    await this.file.update((data) => {
       data.tasks = data.tasks.filter((task) => !idSet.has(task.id));
-      await this.write(data);
+      return data;
     });
-  }
-
-  /* One writer at a time, in call order. The chain itself is kept settled and
-     value-free: the caller gets this operation's result (or its rejection),
-     while the next operation runs either way — one caller's failure must not
-     wedge every write behind it. */
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(operation, operation);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 
   private normalizeTask(task: LoanTask): LoanTask {
@@ -292,76 +249,48 @@ interface LoanDataShape {
   loans: Loan[];
 }
 
-const LOAN_INITIAL: LoanDataShape = { loans: [] };
-
-/* File-backed store for the Loan entity (ADR-0001), mirroring TaskStore's
-   read-modify-write-through-a-chain pattern ahead of the eventual Azure SQL
-   migration. */
+/* File-backed store for the Loan entity (ADR-0001), built on the same
+   `JsonFile` as TaskStore ahead of the eventual Azure SQL migration. */
 export class LoanStore {
-  private readonly filePath: string;
-  private chain: Promise<void> = Promise.resolve();
+  private readonly file: JsonFile<LoanDataShape>;
 
   constructor(filePath: string) {
-    this.filePath = filePath;
+    this.file = new JsonFile<LoanDataShape>(filePath, {
+      empty: () => ({ loans: [] }),
+      decode: (parsed) => {
+        const raw = parsed as Partial<LoanDataShape>;
+        return { loans: Array.isArray(raw.loans) ? raw.loans : [] };
+      }
+    });
   }
 
   async init(): Promise<void> {
-    const dir = path.dirname(this.filePath);
-    await fs.mkdir(dir, { recursive: true });
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.writeFile(this.filePath, JSON.stringify(LOAN_INITIAL, null, 2), "utf8");
-    }
+    await this.file.init();
   }
 
-  private async read(): Promise<LoanDataShape> {
-    const raw = await fs.readFile(this.filePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<LoanDataShape>;
-    return { loans: Array.isArray(parsed.loans) ? parsed.loans : [] };
-  }
-
-  private async write(data: LoanDataShape): Promise<void> {
-    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
-  }
-
-  /* Queued behind any save for the same reason TaskStore's reads are: a read
-     taken mid-write sees a torn file and throws (#331). */
   async all(): Promise<Loan[]> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.loans;
   }
 
   async find(loanId: string): Promise<Loan | undefined> {
-    const data = await this.enqueue(() => this.read());
+    const data = await this.file.read();
     return data.loans.find((loan) => loan.id === loanId);
   }
 
   async upsert(loan: Loan): Promise<void> {
-    await this.enqueue(async () => {
-      const data = await this.read();
+    await this.file.update((data) => {
       const index = data.loans.findIndex((entry) => entry.id === loan.id);
       if (index >= 0) {
         data.loans[index] = loan;
       } else {
         data.loans.push(loan);
       }
-      await this.write(data);
+      return data;
     });
   }
 
   async replaceAll(loans: Loan[]): Promise<void> {
-    await this.enqueue(async () => {
-      await this.write({ loans });
-    });
-  }
-
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(operation, operation);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
+    await this.file.update(() => ({ loans }));
   }
 }

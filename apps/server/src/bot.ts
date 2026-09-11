@@ -1,8 +1,8 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
+import { JsonFile } from "./json-file.js";
 
 interface StoredReference {
   key: string;
@@ -131,34 +131,22 @@ const RETIRED_QUICK_ADD_REPLY =
 /* Exported only so the read-during-write sim can hold one of its saves open;
    nothing outside this file constructs one. */
 export class ReferenceStore {
-  private chain: Promise<void> = Promise.resolve();
+  private readonly file: JsonFile<StoredReference[]>;
 
-  constructor(private readonly filePath: string) {}
+  constructor(filePath: string) {
+    this.file = new JsonFile<StoredReference[]>(filePath, { empty: () => [] });
+  }
 
   async init(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.writeFile(this.filePath, "[]", "utf8");
-    }
+    await this.file.init();
   }
 
-  /* Queued behind any save, as `ThreadStore.read` is: `save` rewrites the whole
-     file, and a read landing between its truncate and its fill throws (#331).
-     The queue's own read stays off the queue, or `save` would wait on itself. */
-  async read(): Promise<StoredReference[]> {
-    return this.enqueue(() => this.readUnqueued());
-  }
-
-  private async readUnqueued(): Promise<StoredReference[]> {
-    const raw = await fs.readFile(this.filePath, "utf8");
-    return JSON.parse(raw) as StoredReference[];
+  read(): Promise<StoredReference[]> {
+    return this.file.read();
   }
 
   async save(reference: StoredReference): Promise<void> {
-    await this.enqueue(async () => {
-      const entries = await this.readUnqueued();
+    await this.file.update((entries) => {
       const idx = entries.findIndex((entry) => entry.key === reference.key);
       if (idx >= 0) {
         // Keep a previously captured friendly label when this save lacks one
@@ -172,82 +160,49 @@ export class ReferenceStore {
       } else {
         entries.push(reference);
       }
-      await fs.writeFile(this.filePath, JSON.stringify(entries, null, 2), "utf8");
+      return entries;
     });
-  }
-
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(operation, operation);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 }
 
-class ThreadStore {
-  private chain: Promise<void> = Promise.resolve();
+/* Per-task card records. Reads wait behind saves in `JsonFile` — the torn read
+   that made a card silently skip its update once a loan edit corrected every
+   task on a loan at once (#280). Lenient as it always was: a record file that
+   can't be read at all reads as "no cards", which costs card edits rather than
+   failing the notification that wanted them.
 
-  constructor(private readonly filePath: string) {}
+   Exported, like `ReferenceStore`, only so the read-during-write sim can hold
+   one of its saves open. */
+export class ThreadStore {
+  private readonly file: JsonFile<StoredThread[]>;
+
+  constructor(filePath: string) {
+    this.file = new JsonFile<StoredThread[]>(filePath, { empty: () => [], lenient: true });
+  }
 
   async init(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.writeFile(this.filePath, "[]", "utf8");
-    }
+    await this.file.init();
   }
 
-  /* Reads go through the same queue the writes do. `save` rewrites the whole
-     file, and `writeFile` truncates before it writes, so a read taken while one
-     is in flight sees a torn file, fails to parse, and comes back EMPTY — which
-     every caller here reads as "this task has no card", and silently skips the
-     update. Rare while cards were only ever written one task at a time; routine
-     since a loan edit started correcting every task on a loan at once (#280),
-     where a card would just fail to update for no visible reason.
-
-     The queue's own read must stay off the queue, or `save` would wait on
-     itself. */
-  async read(): Promise<StoredThread[]> {
-    return this.enqueue(() => this.readUnqueued());
-  }
-
-  private async readUnqueued(): Promise<StoredThread[]> {
-    try {
-      const raw = await fs.readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as StoredThread[];
-    } catch {
-      return [];
-    }
+  read(): Promise<StoredThread[]> {
+    return this.file.read();
   }
 
   async get(taskId: string): Promise<StoredThread | undefined> {
-    const entries = await this.read();
+    const entries = await this.file.read();
     return entries.find((entry) => entry.taskId === taskId);
   }
 
   async save(thread: StoredThread): Promise<void> {
-    await this.enqueue(async () => {
-      const entries = await this.readUnqueued();
+    await this.file.update((entries) => {
       const idx = entries.findIndex((entry) => entry.taskId === thread.taskId);
       if (idx >= 0) {
         entries[idx] = thread;
       } else {
         entries.push(thread);
       }
-      await fs.writeFile(this.filePath, JSON.stringify(entries, null, 2), "utf8");
+      return entries;
     });
-  }
-
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(operation, operation);
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 }
 

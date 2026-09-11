@@ -182,10 +182,14 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   write time. Building a replacement from a task read earlier is how two people
   editing the same fraud check silently erased each other (#158); only creation,
   which has no prior read, still calls `upsertTask` directly.
-- Reads wait in the same queue as writes in the task, loan, bot-reference and
-  bot card-record stores. A save rewrites the whole
-  file, truncating before it fills, so a read landing in that gap used to parse
-  a torn file and throw — which is how a loan rename silently left a channel
-  card on the old name (#331). Inside a queued operation, read directly;
-  queuing from there would wait on itself.
+- Every file-backed store — tasks, loans, users, admin settings, activity-feed
+  state, and the bot's references and card records — is built on one module,
+  `JsonFile`, which runs creating the file, every read and every change through
+  a single queue per file. A save rewrites the whole file, truncating before it
+  fills, so a read that skipped the queue used to land in that gap and either
+  throw — which is how a loan rename silently left a channel card on the old
+  name (#331) — or, for settings, quietly answer "no channel chosen" and
+  broadcast to every channel (#339). That was once fixed store by store; now
+  there is no read that skips the queue, and a sim fails if any other server
+  module imports the filesystem.
 - Shared workflow logic lives in `packages/shared` and should remain the canonical place for status rules, due-date logic, and permission helpers.
