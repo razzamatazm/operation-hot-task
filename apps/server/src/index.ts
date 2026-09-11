@@ -89,7 +89,6 @@ const bootstrap = async (): Promise<void> => {
   if (nagBackfill.stamped > 0) {
     console.log(`pool_nag_backfill stamped=${nagBackfill.stamped}`);
   }
-  botClient.setTaskCreator(async (input, user) => service.createTask(input, user));
   botClient.setClaimHandler(
     async (aadObjectId) => userStore.getIdentity(aadObjectId),
     async (taskId, user) => service.claimTask(taskId, user)

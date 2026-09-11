@@ -492,24 +492,49 @@ What this means in practice:
 - `shareTask`'s reachability probe (`canReachDm`) stays on the request path,
   because `delivered` is part of the response body.
 
-## Bot v1 Scope
+## Bot Scope
 
 - Notifications/reminders
 - One-tap claim from channel cards
-- Quick add via `/bot new`
+- Note replies, the fraud advance buttons, and user-specific card refresh
 
-## Bot Quick Add Flow
+**The bot does not create tasks.** The app is the only place a task is filed.
 
-- Ask Folder Name
-- Ask task type
-- Ask urgency for non-OOO
-- Ask return date for OOO
-- Ask Poops
-- Ask notes
-- Ask Humperdink Link for non-OOO
-- Show final review with field-level edits
-- Show explicit final create confirmation
-- Support `/bot back`
+## Why the bot's task creation was removed (#315)
+
+The bot used to carry a full step-by-step task builder behind `/bot new`:
+Folder Name, task type, urgency or return dates, Poops, notes, Humperdink link,
+a review message with field-level edits, and a final create confirmation. It was
+removed, along with `/bot back` and `/bot cancel`, and the `new` command is gone
+from the Teams manifest.
+
+The reasoning:
+
+- **Nobody used it.** Every task is filed through the tab. The flow was a second
+  filing route kept alive for no traffic.
+- **A second route cannot be kept honest for free.** It re-asked every field the
+  create form asks, in its own words, and it had to re-learn every rule the form
+  learns. It had already fallen behind on two: it stored the literal text
+  `No additional notes` when somebody skipped the notes step — which since #300
+  is the first thing a person reads on the card, under a heading promising to say
+  what the task is for — and it never learned that a Fraud Check may be filed on
+  its outstanding items alone (ADR-0010 rule 3), because it never asked for
+  outstanding items at all.
+- **Deleted rather than hidden.** Closing the entrance and keeping the machinery
+  would have left several hundred lines that nothing reaches and nothing tests,
+  which is how the two drifts above went unnoticed in the first place.
+
+Existing tasks that already carry `No additional notes` in their request field
+are deliberately left alone. Rewriting somebody's stored request text after the
+fact is worse than stale words, and nothing new can produce it.
+
+What a typed message to the bot gets now: one line saying tasks are created in
+the tab. `help` says the same thing. The retired commands are answered by name
+rather than ignored, so muscle memory gets an explanation.
+
+Everything else the bot does is untouched. Claim, the fraud advance buttons,
+note replies and card refresh all arrive as card actions rather than typed
+messages, and never went through the message handler.
 
 ## Activity Feed
 

@@ -7,7 +7,6 @@ Internal Microsoft Teams app for loan officers, file checkers, and admins to coo
 - Teams **Tab app** (`apps/web`) with task board UI
 - Teams **Bot endpoint** (`apps/server`) for notification delivery (DM + channel posts)
 - Teams **Activity Feed** notifications via Microsoft Graph (optional, app-only auth)
-- Teams **Bot quick add** flow via `/bot new`
 - Task difficulty points via **Dinks** (`1-5`, default `1`)
 - Weekly/monthly Dinks leaderboard tab
 - Task lifecycle and rules for:
@@ -139,10 +138,12 @@ Bot endpoint:
 
 - `POST /api/bot/messages`
 - Bot chat commands:
-  - `/bot new` quick add wizard (description -> task type -> [OOO: return date | non-OOO: urgency] -> dinks -> notes -> [non-OOO: humperdink link] -> review/edit -> confirm -> create)
-  - `/bot back` return to the previous step during quick add
-  - `/bot cancel`
-  - `help`
+  - `help`, and that is the whole list. Anything typed at the bot gets the same
+    answer: tasks are filed in the tab. The bot's own task-creation flow
+    (`/bot new`, `/bot back`, `/bot cancel`) was removed in #315 — see
+    [docs/product/notifications-bot.md](docs/product/notifications-bot.md).
+  - The bot's real work arrives as card actions rather than typed messages:
+    Claim, the fraud advance buttons, note replies and card refresh.
 
 ## Teams setup (Azure-ready)
 
