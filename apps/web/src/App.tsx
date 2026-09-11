@@ -1,7 +1,8 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isFirstTimeInPool, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
+import { ratingBlock } from "./poop-rating";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
@@ -411,63 +412,6 @@ const stageSuffix = (task: LoanTask): string => {
     return "";
   }
   return "";
-};
-
-/* ── Poop score control ───────────────────────────────────── */
-const PoopDisplay = ({
-  count,
-  canEdit,
-  onChange
-}: {
-  count: number;
-  canEdit: boolean;
-  /* Optional because the read-only track has nothing to call: the collapsed
-     row draws one and holds no rating handler at all. */
-  onChange?: (next: number) => void;
-}) => {
-  const safeCount = Math.max(0, Math.min(5, count | 0));
-
-  if (safeCount === 0 && !canEdit) return null;
-
-  const titleText = canEdit
-    ? `How Bad? ${safeCount}/5 — click to rate`
-    : `How Bad? ${safeCount}/5`;
-
-  return (
-    <span
-      className={`poop-track${canEdit ? " poop-track-editable" : ""}`}
-      onClick={(e) => e.stopPropagation()}
-      title={titleText}
-      aria-label={titleText}
-    >
-      {[1, 2, 3, 4, 5].map((n) => {
-        const filled = n <= safeCount;
-        const className = `poop-slot${filled ? " poop-slot-on" : ""}`;
-        if (!canEdit) {
-          return (
-            <span key={n} className={className} aria-hidden="true">
-              💩
-            </span>
-          );
-        }
-        return (
-          <button
-            key={n}
-            type="button"
-            className={className}
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange?.(n === safeCount ? 0 : n);
-            }}
-            aria-label={`Set How Bad? to ${n}`}
-            aria-pressed={filled}
-          >
-            💩
-          </button>
-        );
-      })}
-    </span>
-  );
 };
 
 /* Sliders rather than a cog: what is behind it is a set of view preferences,
@@ -2415,6 +2359,15 @@ const TaskCard = memo(({
     </div>
   );
 
+  /* How Bad?, on a task whose one copy lives in the menu (#335): claimed, in
+     flight or closed. Reference detail like the timestamps under it, and
+     wrapped the same way — a labelled `group`, announced as part of the panel
+     without becoming an arrow-key stop — while the creator's slots stay real
+     buttons, reachable by Tab. Null when there is nothing to draw, so
+     `menuHasContent` reads it like any other block. */
+  const ratePoints = (n: number) => { void onUpdatePoints(task.id, n); };
+  const menuRating = ratingBlock("menu", task, user.id, ratePoints);
+
   /* Whether the menu has anything worth opening. Written as "is any block
      non-empty" rather than a list of action checks, because the answer stopped
      being about actions when the timestamps moved in: a closed task and a task
@@ -2429,6 +2382,7 @@ const TaskCard = memo(({
     shareMenuItemBlock,
     assignMenuItemBlock,
     cancelStage !== "idle",
+    menuRating,
     menuTimestamps
   ].some(Boolean);
   const actionsMenu = menuHasContent && (
@@ -2468,6 +2422,7 @@ const TaskCard = memo(({
           {!pendingTerminal && secondaryActionsBlock}
           {!pendingTerminal && shareMenuItemBlock}
           {!pendingTerminal && assignMenuItemBlock}
+          {!pendingTerminal && menuRating}
           {!pendingTerminal && menuTimestamps}
         </div>,
         document.body
@@ -2545,22 +2500,14 @@ const TaskCard = memo(({
     <CardMenuScopeProvider>
       <div className="task-card-expanded">
         <Timeline task={task} />
-        {/* How Bad?, moved off the collapsed row. It is a rating the creator
-            sets once and everyone else reads occasionally — not something the
-            row has to answer while you scan it — and five emoji riding the
-            type label were the loudest thing in the densest surface in the
-            app. An unrated task read-only renders nothing: PoopDisplay returns
-            null, so no empty block appears here. */}
-        {(task.points ?? 0) > 0 || (isCreator && !isClosed) ? (
-          <div className="task-card-poop-row">
-            <span className="task-card-poop-label">How Bad?</span>
-            <PoopDisplay
-              count={task.points ?? 0}
-              canEdit={isCreator && !isClosed}
-              onChange={(n) => { void onUpdatePoints(task.id, n); }}
-            />
-          </div>
-        ) : null}
+        {/* How Bad?, only on an unclaimed task the row above is not already
+            rating (#335) — one that has been dropped, or an unrated first
+            timer whose creator still needs somewhere to set it. The row does
+            not unmount on expand, so drawing it here as well was the same
+            number twice; a claimed or closed task carries it in the hamburger
+            instead, and the body leads with the timeline and the work.
+            `ratingBlock` answers for all three surfaces. */}
+        {ratingBlock("body", task, user.id, ratePoints)}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
         {instructionsBlock}
         <div className="thread">{notesBlock}</div>
@@ -2703,9 +2650,7 @@ const TaskCard = memo(({
               stamped equal to `createdAt` the way the dev seed writes it. A bare
               `!task.pooledSince` reads as "this has been dropped" on every seeded
               open task on the board. */}
-            {isUnclaimed(task) && isFirstTimeInPool(task) && (task.points ?? 0) > 0 && (
-              <PoopDisplay count={task.points ?? 0} canEdit={false} />
-            )}
+            {ratingBlock("row", task, user.id)}
           </span>
         </span>
         <span className={`task-card-grouped-due${groupedOverdue ? " task-card-grouped-due-overdue" : ""}${due.done ? " task-card-grouped-due-done" : ""}`} title={dueTitle}>

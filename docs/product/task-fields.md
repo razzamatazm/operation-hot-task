@@ -148,7 +148,8 @@ and goes to `PATCH /api/loans/:loanId`, below.
   shows its urgency and no dates. Neither date input floors itself at today.
   A save that changed nothing sends nothing, and a save
   that changed two things makes two focused calls — there is no request that
-  carries a task-shaped body. The row's click-to-rate poop track still works:
+  carries a task-shaped body. The card's click-to-rate poop track still works
+  — in the task's menu once claimed, in the open card while unclaimed (#335):
   two ways to one number is intended (ADR-0008 rule 4).
 
 ## Correcting the folder name and the Humperdink link

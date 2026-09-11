@@ -1153,7 +1153,13 @@ test("the save dispatches each field to its own route", () => {
 });
 
 /* ADR-0008 rule 4: two paths to one number is worth more than the tidiness of
-   removing the fast one. The collapsed row keeps its click-to-rate track. */
-test("the poop track on the row still works", () => {
-  assert.match(app, /onChange=\{\(n\) => \{ void onUpdatePoints\(task\.id, n\); \}\}/);
+   removing the fast one. The card keeps a click-to-rate track wherever its one
+   editable copy lives — since #335 the open body or the hamburger, both wired
+   to the same handler. A rated task on its first time out has only the
+   read-only row track, so the form is its creator's path there;
+   `scripts/rating-placement-sim-test.mjs` holds which surface draws what. */
+test("the poop track on the card still works", () => {
+  assert.match(app, /const ratePoints = \(n: number\) => \{ void onUpdatePoints\(task\.id, n\); \};/);
+  assert.match(app, /ratingBlock\("body", task, user\.id, ratePoints\)/);
+  assert.match(app, /ratingBlock\("menu", task, user\.id, ratePoints\)/);
 });

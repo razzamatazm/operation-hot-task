@@ -2221,7 +2221,8 @@ button.btn-good:hover {
    change with it. `:first-child` is the menu with nothing but
    timestamps in it — closed tasks, tasks you have no seat on — where there is
    no group above to divide from. */
-.task-card-menu-times {
+.task-card-menu-times,
+.task-card-menu-rating {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -2234,8 +2235,19 @@ button.btn-good:hover {
   color: var(--muted);
   cursor: default;
 }
-.task-card-menu-times:first-child { margin-top: 0; padding-top: 0; border-top: none; }
-.task-card-menu-times b { color: var(--ink-secondary); font-weight: 600; margin-right: 5px; }
+.task-card-menu-times:first-child,
+.task-card-menu-rating:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.task-card-menu-times b,
+.task-card-menu-rating b { color: var(--ink-secondary); font-weight: 600; margin-right: 5px; }
+
+/* How Bad? in the menu (#335), on a claimed, in-flight or closed task. The
+   timestamps' reference register, shared above; the label and the track sit on
+   one line rather than stacking. It sits directly above the timestamps, so the
+   hairline moves up to the rating and the timestamps under it drop theirs: the
+   foot of the panel reads as one block rather than two ruled off from each
+   other. The track itself is the card's `.poop-track`, unchanged. */
+.task-card-menu-rating { flex-direction: row; align-items: center; }
+.task-card-menu-rating + .task-card-menu-times { margin-top: 0; padding-top: 0; border-top: none; }
 
 /* The Checked panel (#231) — an LOI checker's two exits behind the one control
    that used to read `Complete`. The wrapper is only there to hold the trigger

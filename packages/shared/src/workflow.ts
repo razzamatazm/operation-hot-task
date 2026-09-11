@@ -852,8 +852,10 @@ export const canReturnToPool = (task: LoanTask, user: UserIdentity): boolean =>
 
 /* Which field an amendment is about. A closed set rather than a free string,
    because the answer to "who may?" is now *per field* and a caller that could
-   invent a field name could invent one nobody has a rule for. */
-export type AmendableField = "notes" | "urgency" | "description" | "dates";
+   invent a field name could invent one nobody has a rule for. `points` is the
+   How Bad? rating, the creator's like urgency; the web asks it before drawing
+   a settable track (#335). */
+export type AmendableField = "notes" | "urgency" | "description" | "dates" | "points";
 
 /* Amending the ask (ADR-0006, widened by ADR-0008 rule 5): correcting a task's
    request field, or its urgency, after it was filed. The refusal names whichever
