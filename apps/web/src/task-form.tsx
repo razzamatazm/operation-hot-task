@@ -26,7 +26,7 @@
    rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
-import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
@@ -916,14 +916,18 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, ini
                   value={form.taskType}
                   onChange={(e) => setForm((c) => ({ ...c, taskType: e.target.value as TaskType }))}
                 >
-                  {/* Labels from the shared map, not literals. Two reasons: the
-                      locked chip in edit mode reads the same map, so the two can
-                      never name the same type differently — and the local copy
-                      said `OOO - Out of Office`, which is the widest string any
-                      option holds and therefore the thing that set this select's
-                      minimum width. It was overflowing its column and running
-                      under the Urgency label beside it. */}
-                  {(["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"] as const).map((type) => (
+                  {/* Both the list and the labels come from shared, never
+                      literals. The labels because the locked chip in edit mode
+                      reads the same map, so the two can never name the same
+                      type differently — and because the local copy said
+                      `OOO - Out of Office`, the widest string any option held
+                      and therefore the thing that set this select's minimum
+                      width, overflowing its column and running under the
+                      Urgency label beside it. The list because a hand-written
+                      one is a second answer to "what types are there": a type
+                      added to `TASK_TYPES` and not to the literal is a type
+                      nobody can file. */}
+                  {TASK_TYPES.map((type) => (
                     <option key={type} value={type}>{TASK_TYPE_LABELS[type]}</option>
                   ))}
                 </select>

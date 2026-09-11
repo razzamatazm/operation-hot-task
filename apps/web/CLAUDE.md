@@ -221,15 +221,85 @@ Each slot has one job. When adding info, replace something — don't append:
   column is the one that gives. Perspective rides here, not on a status
   banner: #36 removed the banner row along with `resolveBanner` /
   `STATUS_BANNER`. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS
-  rides on the **title** as a hyphen suffix.
-- **Title** — type label (e.g. `Loan Docs`), optional ` - <stage>` suffix
-  in lighter weight via `task-card-collapsed-stage`, then folder name with
-  optional `↗` external Humperdink link. Single line, ellipsized.
-- **Poop** — fixed 5-slot inline track. Slots 1..N rendered in full
-  color, remaining slots ghosted (grayscale + low opacity) so the row
-  width never changes. Creator can click any slot to set the score
-  (clicking the current count clears to 0). See `PoopDisplay` /
-  `.poop-track`. Hidden on mini rows.
+  rides on the **title**, beside the type. An unclaimed task also carries the
+  `How Bad?` score here — see *Poop* below.
+- **Title** — the loan name, then the task type beside it behind a hairline,
+  and the type carries an optional stage (`Merge Done`, `Final Approval
+  Needed`) in lighter weight via `task-card-collapsed-stage`. One line on a
+  wide screen; the name is the elastic part and the stage is what gives. See
+  *Grouped collapsed row* for how it stacks under 560px.
+- **Poop** — the `How Bad?` score, and it is on the row **only while the task
+  is unclaimed and out for the first time** (2026-09-07, narrowed 2026-09-10).
+  It answers one question — can I take a
+  five-poop set of loan docs right now — and that question is only live for
+  somebody looking at work nobody holds, so it appears exactly while the row
+  says `Unclaimed` and leaves the moment somebody takes the task. It renders in
+  the **title block, sharing the stage's line** — beside the type on a wide
+  screen, and under 560px on the reserved line under it, which puts it above
+  the names (2026-09-10, the user's call). It briefly lived in the pair beside
+  the word `Unclaimed`, which cost the row a second reserved line; sharing the
+  stage's line is what took that back. Read-only there: a five-slot
+  editable track inside a row that is itself a press target is five touch
+  targets nobody asked for, and the creator rates it in the expanded body or
+  on the edit form.
+
+  Fixed 5-slot track everywhere it appears — slots 1..N in full colour, the
+  rest ghosted, so a 3 reads as three *out of five* rather than as three
+  glyphs. A pass on 2026-09-10 cut the ghosts on the row, reasoning that one
+  brown glyph trailed by four grey ones reads as debris; that was a change
+  nobody asked for, made while fixing something else, and it was reverted the
+  same day. **The track looks the same on every surface.** If it should ever
+  stop looking the same, that is its own decision.
+  An unrated task renders no track at all. See
+  `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
+  every closed task, so nothing extra is needed to keep it off them.
+
+  **A task that has been dropped and re-offered does not get one**
+  (2026-09-10). The score is the ask as its filer sized it and it describes a
+  whole job; a check somebody has already been half-way through is not that job
+  any more, so quoting the original number on the way back out is a number
+  attached to the wrong piece of work. The first time out is when it means what
+  it says.
+
+  The test is shared `isFirstTimeInPool`, which compares when the task arrived
+  in the pool against when it was filed. **Not** a bare `!task.pooledSince`:
+  that field is absent on a never-held task in production, but the dev seed
+  writes it equal to `createdAt`, and any fixture or import is entitled to do
+  the same. Reading the field directly took the rating off every seeded open
+  task on the board, which is how the first attempt at this rule announced
+  itself. The comparison is true under both spellings.
+
+  **An OOO gets one, and it is the case this is most for.** A review pass cut
+  it out on the reasoning that a vacation notice is never picked up. That is
+  wrong: `canClaimTask` opens for it like any other `OPEN` task, the board
+  files it under *Up for grabs* with a `Claim` button, its channel card asks
+  "will be out of the office … and needs coverage. Can you help?", and
+  `TASK_NEEDS_PHRASE` calls it "needs OOO Coverage". Somebody deciding whether
+  to cover an absence is asking precisely what the score answers — a quiet week
+  and a heavy pipeline are not the same ask.
+
+  The two shared rules that *do* exclude an OOO, `isPoolNagEligible` and
+  `isUnclaimedTooLong`, are about **nagging cadence** and not about pickup:
+  don't re-post "cover this holiday" to the channel every twenty minutes, and
+  don't tell somebody their own vacation notice has gone unclaimed too long.
+  Neither says nobody takes it. Don't borrow either for a question about who
+  is looking at the pool.
+
+  It rode every row until #329 took it off entirely — five emoji on all ~130
+  rows including the closed ones, which was the loudest thing on the densest
+  surface in the app. This is not that coming back; it is the same fact
+  drawn only where it is worth reading, on the three or four rows in a list
+  where somebody is deciding whether to take the work.
+
+  **This is an append, and it is the row's one sanctioned one.** Rule 3 under
+  *When Adding UI* says a new field on the collapsed row replaces something
+  rather than being added beside it, and this adds a track next to `Unclaimed`
+  without taking anything away. It is allowed here because the slot it lands in
+  is the one part of the row that is *empty on exactly these rows* — the
+  assignee half of the pair is a dashed placeholder and an italic `Unclaimed`,
+  which is the row saying it has nothing to put there — and because it leaves
+  when that emptiness does. A new field that cannot say both of those things
+  replaces something instead.
 - **Due** — label and value side by side, right-aligned, built by
   `groupedDue`. Full
   absolute timestamp shows as `title` tooltip. Red + bold
@@ -255,6 +325,16 @@ Each slot has one job. When adding info, replace something — don't append:
 The **whole row** is the expand toggle (`role="button"`, Enter/Space).
 Don't add a chevron; it's redundant.
 
+**Type names come from shared `TASK_TYPE_LABELS`, never from a local table**
+(2026-09-07). `App.tsx` kept its own copy, and the copy had drifted: out of
+office read `OOO - Out of Office` on the board and in the bot's filing card —
+the abbreviation and its expansion in one label, which is one of them too many
+— while every DM and channel card the same task produced said `Out of Office`.
+The web row, the create form, the bot's type picker and the notification copy
+all read the one table now. The same rule the action labels are already under:
+a surface that writes its own wording is a surface that will disagree with the
+others.
+
 ### Grouped collapsed row (`.task-card-grouped`)
 
 The grouped list renders each row as its own CSS grid. Because sibling
@@ -262,8 +342,10 @@ grids can't share tracks, a content-sized column resolves differently per
 row and the list goes ragged (#116, which measured 86px of hamburger drift
 across one screen).
 
-An active row is **two lines at every width** — there is no responsive
-reflow, deliberately. The pair used to share one line with the title and
+An active row is **two grid lines at every width** — there is no responsive
+reflow, deliberately. (Two grid lines, not two lines of text: under 560px the
+title cell holds the name, the type, and one reserved line carrying either the
+stage or the rating. See *one height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -274,6 +356,108 @@ minmax(0,1fr) | 154px
 title         | action
 pair          | due
 ```
+
+**Under 560px every active row is one height, and it costs exactly one reserved
+line** (2026-09-10). Two things grow a row by a line — the type cell when a task
+has a stage, and the rating when a task is up for grabs — so a list came out as
+a mixture of shorter and taller cards depending on facts that have nothing to do
+with each other.
+
+**The two share one line, because they can never both appear.** A stage only
+exists on a LOAN_DOCS mid-merge or a FRAUD mid-exchange, both of which have been
+claimed; the rating only appears on a task that is unclaimed *and* has never
+been dropped (`isFirstTimeInPool`). A released check has a stage and no rating; a
+task fresh in the pool has a rating and no stage. So the rating renders inside
+`.task-card-collapsed-type` alongside the stage, takes the same wrapped line
+under the type, and one `min-height` on that cell reserves the line for whichever
+occupant turns up.
+
+That is the difference between a 102px card and a 121px one. Reserving a second
+line in the pair as well — which is what this did first — made every card 19px
+taller for a slot only three rows in a typical list ever fill, and pushed the
+names out of line with the due stamp beside them. If both ever do land on a row,
+they share the line side by side and it wraps: the card grows, nothing breaks.
+
+Four things about that rule:
+
+- **It is written in `em` plus the gap it reserves for**, not in measured
+  pixels — `calc(2.8em + 1px)`, two lines of the type's own 1.4 line-height plus
+  the `row-gap` a really-wrapped stage puts between them. A pixel short and the
+  list renders 120px and 121px rows, which is the same bug at a size nobody can
+  name but everybody can feel. The `em` is why the `pointer: coarse` floor names
+  `.task-card-collapsed-type` itself and not only the boxes inside it: the
+  reservation has to follow the floored size rather than assume today's value.
+- **The rating is sized to the line it shares**, `height: 1.4em` with no
+  padding, not its natural 17px (a 13px glyph plus 2px of padding). Left
+  natural it made a rated row ~2px taller than a staged one — the same bug,
+  smaller, and small enough to look like nothing and read like mess.
+- **Mini rows are excluded** (`:not(.task-card-grouped-mini)`). A closed task
+  never has a stage and never carries a rating, so reserving the line there
+  would add height to every row in Done and buy nothing. Minis are half-height
+  on purpose.
+- **A reservation belongs to the thing it reserves for.** If both occupants ever
+  leave, the `min-height` goes with them. A blank line held for nothing is
+  ornament, which is the one thing this row's rules refuse.
+
+The cost is a line of white space on the rows that have neither, and it is
+deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
+this is the surface where a thumb is doing the scrolling.
+
+**Equal heights are not the same thing as a list that lines up**, and getting
+the first without the second is worse than neither. An earlier version of this
+reserved a line inside the pair and packed its lines to the top, which put a
+rated row's names 10px below an unrated row's: every card measured 121px and the
+names still zigzagged down the list. The pair carries no reservation now and is
+a single line again, so the names and the due stamp beside them share a baseline
+by construction. If you ever reserve space on this row again, decide which edge
+the content holds to as part of the same change.
+
+**One 1px difference is left, and it is deliberate elsewhere.** An overdue row
+is 101.7px against 100.7px, because `.task-card-grouped-due-overdue` takes the
+due value up to 0.95rem — the overdue emphasis, which predates all of this.
+Normalising it would mean adding a pixel to every other row to match a stamp
+that is supposed to stand out.
+
+**Measure this with the `pointer: coarse` floor forced on.** Automation reports
+a fine pointer at every viewport, so the 12px floor never applies under
+Playwright and every label comes out ~15% narrower than it does on a real
+phone. The stage's tracking was set from numbers taken that way once and was
+two pixels wrong because of it. Apply the floor's declarations unconditionally
+in a scratch `<style>`, take the numbers, then remove it.
+
+**Where uniformity holds, and where it stops.** One height across every active
+row at **390px and up**, which is the iPhone width the board is used on. At
+**360px** it does not, and the cause is the pair rather than the reserved line:
+`Suzie → Unclaimed` wants ~172px against a cell that resolves to 164px, so the
+names wrap and those rows run ~21px taller. That is the standing "first names
+are never ellipsized, the pair wraps" rule doing exactly what it says, and it
+is not introduced here — the row that proves it is a released check, which
+carries no rating at all and wraps anyway. Closing it would mean either
+shortening the placeholder word `Unclaimed` at narrow widths or breaking that
+rule; **open, and nobody has asked for it.**
+
+**Open: the due stamp's ragged left edge on a phone** (raised 2026-09-10, not
+acted on). `RETURNS Sep 12, 2026`, `Within 1 Hour`, `Urgent Now` and
+`OVERDUE BY 3d` are right-aligned to the action column above them — verified,
+every one lands on the same right edge — but they differ so much in length that
+their left edges land nowhere near each other, and on a phone that reads as the
+most restless thing on the row. Three ways out, none chosen: drop the `RETURNS`
+label so it matches the unlabelled time-frames, shorten the date, or move the
+stamp under the names and left-align it. Raised by the user and deferred with
+their knowledge; recorded here so the next pass does not have to rediscover it.
+
+For the record, the collision that once existed: a released Fraud Check is
+unclaimed *and* carries a stage, because the two `unassignInPlace` paths (the
+creator's "release for any fraud checker" at `PENDING_APPROVAL`, and the sweep
+when a checker loses the FILE_CHECKER role, at any live status) clear the
+assignee without moving the status. `Final Approval Needed` is in fact *only*
+reachable there — `stageSuffix` returns it precisely when a `PENDING_APPROVAL`
+check has no assignee. Such a row draws its status line and no rating, since
+being released is what makes `isFirstTimeInPool` false.
+
+The LOAN_DOCS stages never collide this way either: `canUnclaimTask` and
+`canReturnToPool` are both `CLAIMED`-only, and both release paths are FRAUD-only,
+so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
 
 - **pair** — assigner → assignee on one line, now sharing a row only with
   the due stamp. No fixed width; overflow **wraps** (`flex-wrap: wrap`),
@@ -313,7 +497,24 @@ pair          | due
   in a fixed grid row it pushed the whole board sideways with no zoom to escape
   it. **Under 560px the pair stacks** — name, then type underneath — and the
   hairline goes with the side-by-side arrangement it belonged to.
-  The rating moved off this block into the expanded body, and the ↗ that used
+
+  **The stage is its own box, and on a phone it takes a third line**
+  (2026-09-07). It used to be words inside the type's own span, so the two
+  truncated together and the ellipsis landed wherever it landed: stacking the
+  title bought the type a full-width line, and `Fraud Check - Final Approval
+  Needed` still wants ~290px of a title cell that resolves to about 200px at
+  390px, so what a person read was `FRAUD CHECK - FINAL APP…`. The half that
+  got cut is the status — where the task actually *is* — on the surface with no
+  zoom to go and look with. Split out, the type names what the task is and
+  stays whole, the stage is the part that gives on a wide screen, and under
+  560px it wraps in full onto a line of its own. Two things ride with that:
+  `stageSuffix` returns **bare words**, because the hyphen belongs to the
+  one-line arrangement and `.task-card-collapsed-stage-join` is dropped when
+  the line breaks; and the stage takes `order: 2` so the unread dot stays at
+  the end of the type rather than being pushed onto a line by itself.
+
+  The rating is back on the row for unclaimed tasks only — see *Poop* under
+  *Collapsed row* — and the ↗ that used
   to follow the loan name is gone: a unicode arrow standing in for an icon,
   which renders as a colour emoji on mobile. The name is still the link and
   says so with the standing underline every link carries.

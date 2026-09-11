@@ -39,6 +39,7 @@ import {
   MAX_POOL_NAGS,
   UNCLAIMED_ALERT_MS,
   inPoolSince,
+  isFirstTimeInPool,
   isPoolNagDue,
   isUnclaimedTooLong
 } from "../packages/shared/dist/index.js";
@@ -574,6 +575,83 @@ await check("reopening onto a retained assignee is nobody's pool problem", async
   assert.equal(events.filter((event) => event.target === "CHANNEL_REOPENED").length, 0);
   await rebaseOnto(store, AT_1000);
   assert.equal((await service.runMaintenance(AT_1000)).nagged, 0);
+});
+
+/* ------------------------------------------- first time out vs. offered again */
+
+/* The collapsed row shows the How Bad? rating on a task in the pool and
+   deliberately does NOT re-show it on one coming back (2026-09-10): the score
+   is the ask as its filer sized it and describes a whole job, and half a job
+   handed back is not that job. `isFirstTimeInPool` is that question, and it
+   lives here because the doors it has to be right about are the ones this file
+   already drives. */
+
+await check("a freshly filed task is on its first time out", async () => {
+  const { service } = await setup();
+  const filed = await service.createTask(
+    { folderName: "First Time", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  assert.equal(isFirstTimeInPool(filed), true);
+});
+
+await check("a stamp equal to createdAt still reads as never dropped", async () => {
+  /* The spelling the dev seed uses: both fields written at once when the task is
+     filed. A bare `!task.pooledSince` calls this a re-offering and takes the
+     rating off every seeded open task in the app, which is exactly how this
+     shipped wrong before the predicate existed. */
+  const at = new Date("2026-03-11T09:00:00-07:00").toISOString();
+  assert.equal(isFirstTimeInPool(openTask({ createdAt: at, pooledSince: at })), true);
+  assert.equal(isFirstTimeInPool(openTask({ createdAt: at })), true, "and so does the absent spelling");
+});
+
+await check("the creator's return-to-pool door ends the first time out", async () => {
+  const { service, store } = await setup();
+  const task = await legacyOpenTask(service, store, "Handed Back Again");
+  await service.claimTask(task.id, CHECKER);
+  await service.unclaimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  assert.equal(isFirstTimeInPool(await store.findTask(task.id)), false);
+});
+
+await check("a released fraud check is not on its first time out", async () => {
+  /* The row this rule was written for: unassigned in place at
+     PENDING_APPROVAL, claimable, and carrying a stage — so before this it drew
+     both a status line and a rating. */
+  const { service, store } = await setup();
+  const released = await service.createTask(
+    { folderName: "Released Again", taskType: "FRAUD", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  await service.claimTask(released.id, CHECKER);
+  await service.transitionStatus(released.id, "AWAITING_ITEMS", CHECKER, "items");
+  await service.transitionStatus(released.id, "PENDING_APPROVAL", CREATOR);
+  await service.releaseForAnyChecker(released.id, CREATOR);
+  await service.settleBackgroundWork();
+
+  const inPlace = await store.findTask(released.id);
+  assert.equal(inPlace.assignee, undefined, "unassigned in place");
+  assert.equal(inPlace.status, "PENDING_APPROVAL", "and still where it was");
+  assert.equal(isFirstTimeInPool(inPlace), false);
+});
+
+await check("taking a re-offered task and dropping it again keeps it re-offered", async () => {
+  /* `withNewHolder` deletes the stamp on the claim, so the answer has to come
+     back from the NEXT hand-back rather than from a memory of the first. */
+  const { service, store } = await setup();
+  const task = await legacyOpenTask(service, store, "Round Trip Twice");
+  await service.claimTask(task.id, CHECKER);
+  await service.unclaimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  assert.equal(isFirstTimeInPool(await store.findTask(task.id)), false);
+
+  await service.claimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  assert.equal((await store.findTask(task.id)).pooledSince, undefined, "the holder clears the stamp");
+
+  await service.unclaimTask(task.id, CHECKER);
+  await service.settleBackgroundWork();
+  assert.equal(isFirstTimeInPool(await store.findTask(task.id)), false, "and the second hand-back re-stamps it");
 });
 
 console.log(`\n${passed} checks passed`);

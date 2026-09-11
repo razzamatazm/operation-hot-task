@@ -1431,7 +1431,12 @@ button.btn-good:hover {
   color: var(--ink);
 }
 
-/* The part that gives. */
+/* The type's own words. They name what the task IS, so they are the last thing
+   to be cut — but they are still cuttable, which is the whole reason this cell
+   is allowed to give in the first place: an unshrinkable label here is wider
+   than a phone and pushes the board sideways (see .task-card-collapsed-type).
+   So it keeps a shrink factor and its own ellipsis, and the stage below simply
+   carries a much larger one. */
 .task-card-collapsed-type-text {
   min-width: 0;
   flex: 0 1 auto;
@@ -1440,9 +1445,50 @@ button.btn-good:hover {
   text-overflow: ellipsis;
 }
 
+/* The stage, and the part that gives on a wide screen. Its own box rather than
+   words inside the type's, so a cut lands here and not on the type.
+
+   Shrink 100 against the type's 1, and the size of the number is the point.
+   Flex splits a squeeze in proportion to shrink factor times base width, so it
+   cannot be sequenced — "spend the stage first, then the type" is only ever
+   approximated by making the ratio big enough that the type's share rounds
+   under a character. At 6 it did not: in the 560–780 band, where the two are
+   still side by side and the cell is capped at 45%, a `Fraud Check -
+   Outstanding Items` lost a letter off `FRAUD CHECK` while the stage still had
+   room to give. */
 .task-card-collapsed-stage {
+  min-width: 0;
+  flex: 0 100 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 500;
   color: var(--ink-secondary);
+}
+
+/* The hyphen that joins the two on one line. It belongs to that arrangement,
+   so the phone rule that stacks them takes it away rather than leaving what
+   would read as a bullet at the head of the line. */
+.task-card-collapsed-stage-join {
+  white-space: pre;
+}
+
+/* How Bad?, in the title block beside the type, and only while the task is
+   unclaimed and out for the first time — see the comment in `TaskCard` for why
+   it appears at all and why it shares the stage's line. Fixed rather than
+   shrinkable: a squeezed rating is a different number. It carries no touch
+   target of its own (the track is read-only), so it can sit against the type. */
+.task-card-collapsed-type > .poop-track {
+  flex: 0 0 auto;
+  margin-left: 10px;
+  /* Exactly one of the type's own lines, not the track's natural 17px (a 13px
+     glyph plus its 2px padding). It shares the reserved line with the stage, so
+     it has to measure the same as the stage does or the rows that carry a
+     rating come out ~2px taller than the rows that carry a status — which is
+     the uniform-height bug at a size small enough to look like nothing and read
+     like mess. The glyphs are centred in the line rather than cropped. */
+  height: 1.4em;
+  padding: 0;
 }
 
 /* The loan name, promoted to top billing: it is what a person scans for, so it
@@ -2437,7 +2483,89 @@ button.btn-good:hover {
     max-width: 100%;
     padding-left: 0;
     border-left: none;
+    flex-wrap: wrap;
+    row-gap: 1px;
   }
+
+  /* Every active row is the same height, stage or no stage (2026-09-10). The
+     third line is *reserved* rather than added: without this, a list is a
+     mixture of two-line and three-line rows depending on whether a task's type
+     happens to have stages at all, and the rows jump about under a thumb
+     scrolling past them. Uniform rows are what makes a list scannable — the eye
+     learns one rhythm and keeps it — and the cost is one line of white space
+     under the short types, which is a cost worth paying on the surface where
+     everything else is already fighting for width.
+
+     Two lines of the type's own metric (`1.4` line-height, twice) plus the
+     `row-gap` a real wrapped stage puts between them — without that 1px the
+     reservation is a pixel short of the thing it reserves for, and a list ends
+     up 120px and 121px rows, which is the whole bug wearing a smaller hat. In
+     `em` so it follows the `pointer: coarse` floor rather than assuming today's
+     value, which is why that floor also names this cell and not only its
+     children.
+
+     Mini rows are excluded, and not incidentally: a closed task never has a
+     stage (`stageSuffix` answers only on live LOAN_DOCS and FRAUD statuses), so
+     reserving a line there would add one to every row in Done and buy nothing.
+     They are half-height on purpose. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
+    min-height: calc(2.8em + 1px);
+  }
+
+  /* And the stage takes a third line under the type (2026-09-07). Stacking the
+     title bought the type a full-width line, which is still not enough for the
+     long ones: `Fraud Check - Final Approval Needed` wants ~290px of a title
+     cell that resolves to about 200px at 390px, so it rendered as `FRAUD CHECK
+     - FINAL APP…` and the status — the thing that says where the task actually
+     is — was the half that got cut. It wraps in full instead, into a line every
+     active row now reserves whether it has a stage or not.
+
+     `order: 2` puts it after the unread dot rather than before it, so the dot
+     rides the end of the type on line two instead of being pushed onto a line
+     of its own.
+
+     The tracking comes in to 0.04em, and that is what keeps the reserved line
+     to ONE line on a 360px screen (2026-09-10). `Final Approval Needed` is the
+     longest stage the app renders: 21 characters of JetBrains Mono at the 12px
+     touch floor. The title cell resolves to 164px at that width, and the label
+     measures ~181px at the base 0.12em and ~166px at 0.06em — still over, which
+     is why this is 0.04em (~161px) and not the first number tried. Wrapped, that
+     row alone came out 38px taller than every other one: the uniform-height rule
+     broken by the very string it was built for. The type cannot shrink to fix it
+     (12px is the floor, and the floor is the point) and the action column cannot
+     give (its width is reserved on purpose, #116), so the tracking is what is
+     left. It stays tracked, just less — this is the secondary half of a label
+     whose primary half keeps the full 0.12em beside it.
+
+     Measured with the `pointer: coarse` floor forced on unconditionally, which
+     is the only way to see this: automation reports a fine pointer at every
+     viewport, so the floored 12px never applies and the label measures ~15px
+     narrower than it does on a real phone. Numbers taken without forcing it are
+     numbers about a screen nobody has. */
+  .task-card-collapsed-stage {
+    order: 2;
+    flex: 1 0 100%;
+    white-space: normal;
+    overflow: visible;
+    letter-spacing: 0.04em;
+  }
+
+  /* The rating takes that same reserved line, because it and the stage can
+     never both be on a row — see `TaskCard` for why. One line serving both is
+     what keeps the card at three lines instead of four; reserving a second one
+     in the pair (which is what this did first) made every card 19px taller for
+     a slot only three rows in a list ever fill, and pushed the names out of
+     line with the due stamp beside them.
+
+     Left-aligned under the type rather than indented to it: it is the third
+     line's occupant, whichever occupant that is, and the stage starts at the
+     same x. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type > .poop-track {
+    order: 2;
+    flex: 1 0 100%;
+    margin-left: 0;
+  }
+  .task-card-collapsed-stage-join { display: none; }
 
   .loi-terms {
     grid-template-columns: minmax(0, 1fr);
@@ -4175,7 +4303,15 @@ button.btn-good:hover {
 
   /* 12px floor: the things that are read rather than glanced at. The type
      label and its stage suffix name what the task IS, and the two headings
-     introduce a list somebody is about to work down. */
+     introduce a list somebody is about to work down.
+
+     The floor sits on the type CELL as well as on the two boxes inside it,
+     which the children would inherit anyway. It is there so the cell's own
+     `em` resolves against the floored size: the phone rule that reserves the
+     stage's line (see the 560px block) is written in `em` precisely so it
+     follows this floor instead of hard-coding what the floor happens to be
+     today. */
+  .task-card-collapsed-type,
   .task-card-collapsed-type-text,
   .task-card-collapsed-stage,
   .checklist-title,
