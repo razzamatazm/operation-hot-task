@@ -33,6 +33,7 @@ import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, appl
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
+import { LoanSuggestionList } from "./loan-suggestion-list";
 import { useToast } from "./toast";
 
 /* Someone the app could point a task at. Roles ride along because the handoff
@@ -839,25 +840,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
             required
           />
           {loanSuggestOpen && loanMatches.length > 0 && (
-            <ul className="loan-typeahead-list" role="listbox">
-              {loanMatches.map((m, i) => (
-                <li key={m.loan.id}>
-                  <button
-                    type="button"
-                    id={`loan-opt-${i}`}
-                    role="option"
-                    aria-selected={i === loanHighlight}
-                    className={`loan-typeahead-option${i === loanHighlight ? " loan-typeahead-option-active" : ""}`}
-                    onMouseEnter={() => setLoanHighlight(i)}
-                    // onMouseDown fires before the input's onBlur so the pick registers.
-                    onMouseDown={(e) => { e.preventDefault(); selectLoan(m.loan); }}
-                  >
-                    <span className="loan-typeahead-name">{m.loan.name}</span>
-                    {m.loan.humperdinkLink && <span className="loan-typeahead-link" aria-hidden="true">↗</span>}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            /* Shared with the board's loan search (#333). A pick lands on
+               mousedown, before this input's onBlur can close the list. */
+            <LoanSuggestionList
+              matches={loanMatches}
+              highlight={loanHighlight}
+              optionId={(i) => `loan-opt-${i}`}
+              onHighlight={setLoanHighlight}
+              onPick={selectLoan}
+            />
           )}
         </span>
       )}

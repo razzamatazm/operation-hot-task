@@ -134,6 +134,33 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   button, and the header carries the row's own right inset (its padding plus
   the card's 1px border). Read down the right edge and the menu sits over every
   hamburger, `New Task` over every quick action.
+- Loan search (`.loan-search`, [src/loan-search.tsx](src/loan-search.tsx),
+  #333): a magnifier left of the app menu, on the Tasks header only and not on
+  admin All Tasks. It wears `.app-menu-trigger`, so it is the same 32px box with
+  the same touch overlay, and because the actions group is pushed right by
+  `margin-left: auto` it grows the group leftwards. The menu and `New Task` do
+  not move. The 8px between the two triggers is what keeps their 40px overlays
+  from meeting; don't tighten it. The box is a panel anchored to the actions
+  group's right edge, `min(360px, 100vw - 32px)` wide, so it fits a 360px phone,
+  and its input takes the touch 16px floor like every other field.
+  Suggestions are the create form's ranking at the create form's limit
+  (`loanSearchResults`, and a test fails if the two limits drift). A pasted
+  Humperdink link is looked up by shared `findLoanForCreate` instead, because that
+  ranking only reads names. Picking narrows through `visibleBoardTasks`, so the
+  heading, count, sections, empty state and Collapse all follow it. While
+  narrowed the heading is the loan's name with `Clear search` beside it. The
+  search wins over Mine rather than combining with it: it answers "where are we
+  on this file", which is the whole file, not the viewer's slice of it. Show
+  itself is left alone, so clearing puts Mine back. Opening a card ends the
+  search through the deep-link focus path, which is also why a link arriving
+  mid-search clears it. Like a link, it puts Show back to Everyone when Mine
+  would hide the opened task, since the board it returns to has to hold that
+  card. The scroll is its own step (`scrollTaskId`), taken on the commit after
+  the board changes: scrolled in the same pass, it aimed at where the card sat
+  on the narrowed board. The suggestion list itself is `LoanSuggestionList`,
+  shared with the create form's typeahead; each keeps its own box and keys.
+  Escape closes the box and is stopped at its wrapper.
+  Never stored: a reload is the full board.
 - **`--quick-action-w` has one definition, on `:root`.** The row's action
   column, the row's action button, the empty spacer on rows with no action, and
   the header's `New Task` all read it. Three of those were literal `116px`

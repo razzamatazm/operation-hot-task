@@ -6,7 +6,7 @@
    its count, the court sections or the flat list, Done, the empty state and
    Collapse all all describe the same set because they are all handed the output
    of `visibleBoardTasks`. A later narrowing (a search, say) belongs in that same
-   function for the same reason.
+   function for the same reason, and the loan search (#333) is there.
 
    Mine is a Party filter with one fixed exception. A task is on the Mine board
    when the viewer filed it or holds it (shared `isTaskParty`), or when it is
@@ -44,8 +44,18 @@ export const isOnMineBoard = (
 
 /* The list the board renders. Everyone hands back the input untouched, same
    reference, so a memo downstream does not see a change that is not one. Mine
-   keeps the input's order: sorting is the caller's, and it has already run. */
-export const visibleBoardTasks = <T extends Pick<LoanTask, "createdBy" | "assignee" | "status">>(
+   keeps the input's order: sorting is the caller's, and it has already run.
+
+   A picked loan (#333) is the search, and it wins over Show rather than
+   combining with it. The search answers "where are we on this file", and the
+   ticket's answer is every task on the loan the board holds, whoever's court it
+   is in and whether or not it is closed. Mine would cut that to the viewer's
+   own slice of the file, which is the one thing the search promises not to do.
+   Show is not changed by it: clear the search and Mine is still on. */
+export const visibleBoardTasks = <T extends Pick<LoanTask, "createdBy" | "assignee" | "status" | "loanId">>(
   tasks: T[],
-  { show, viewer }: { show: BoardShow; viewer: Pick<UserIdentity, "id"> }
-): T[] => (show === "mine" ? tasks.filter((t) => isOnMineBoard(t, viewer)) : tasks);
+  { show, viewer, loanId }: { show: BoardShow; viewer: Pick<UserIdentity, "id">; loanId?: string | null }
+): T[] => {
+  if (loanId) return tasks.filter((t) => t.loanId === loanId);
+  return show === "mine" ? tasks.filter((t) => isOnMineBoard(t, viewer)) : tasks;
+};
