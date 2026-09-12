@@ -71,8 +71,9 @@ admin All Tasks tab has no tab row.
   by when it was last written, reading `Autosaved N ago` instead of `saved N
   ago`; tapping it opens New Task on it, and its delete forgets it (see
   [task-fields.md](task-fields.md#create-task-fields)). Each
-  row is the loan as it was typed (or `No loan yet`), the task type and `saved N
-  ago`, and nothing else: no who-to-whom, due time or poop rating. Tapping a row
+  row is the loan as it was typed (or `No loan yet`; on an Out of Office task,
+  the vacation description or `No description yet`, #362), the task type and
+  `saved N ago`, and nothing else: no who-to-whom, due time or poop rating. Tapping a row
   reopens the create form on it, every field restored, to save for later again
   or to create (see [task-fields.md](task-fields.md#create-task-fields)). A
   delete control at the row's right end asks `Delete this saved task?` in the

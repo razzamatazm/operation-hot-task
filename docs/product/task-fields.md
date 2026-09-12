@@ -364,7 +364,8 @@ is gone seven days after it was last written.
   up where you left off.` and `Start fresh` across the top. Start fresh empties
   the form and forgets the autosave.
 - **On the Task Drafts tab** it is one more row, placed among the drafts by when
-  it was last written: the loan as typed (or `No loan yet`), the task type and
+  it was last written: the loan as typed (or `No loan yet`, and `No description
+  yet` on an Out of Office task, as a draft's row says), the task type and
   `Autosaved N ago`. Tapping it opens New Task on it, exactly as the New Task
   button would. Its delete control asks `Delete this saved task?` like a
   draft's, and a yes forgets the autosave. The tab's count includes it.
