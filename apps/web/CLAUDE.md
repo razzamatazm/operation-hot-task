@@ -242,7 +242,8 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   wrapped History and Appearance onto ragged second lines. One line is what the
   shorter labels buy: `Last` went because the heading already says History, and
   Appearance shows `Teams` and `Contrast` while each button's accessible name
-  stays `Match Teams` and `High contrast`. Collapse all leads the panel as a
+  stays `Match Teams` and `High contrast`. Collapse all, labelled
+  `Collapse All Tasks` (the user's wording, 2026-09-12), leads the panel as a
   full-width outlined button in the tracks' border and corner, label centred
   with the open count beside it: it is the one action among settings, so it
   looks like one. The panel is `min(288px, 100vw - 32px)` wide and anchors to the actions

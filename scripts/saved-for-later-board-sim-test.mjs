@@ -1063,7 +1063,7 @@ test("the app menu has no Show group", () => {
   for (const group of ["List view", "How far back finished tasks go", "Appearance"]) {
     assert.match(menu, new RegExp(`aria-label="${group}"`), `${group} stays`);
   }
-  assert.match(menu, /Collapse all/);
+  assert.match(menu, /Collapse All Tasks/);
 });
 
 test("picking a loan opens All Tasks and remembers the tab it came from, without touching the stored choice", () => {
