@@ -26,6 +26,9 @@
  *   activity-feed-state.json
  *                       emptied — every entry is keyed by a task id that no
  *                       longer exists, so keeping them only strands cards
+ *   saved-for-later.json
+ *                       emptied (backed up first) — people's saved drafts name
+ *                       loans and tasks from the old data set. --keep leaves it
  *
  *   users.json          ADDED TO, never rewritten: any of the four cast
  *                       members missing from the file is created, so a fresh
@@ -38,7 +41,7 @@
  *   admin-settings.json the notification channel you picked
  *   bot-references.json who has messaged the bot — earned, and painful to redo
  *
- * The old tasks.json/loans.json are copied to data/backups/<timestamp>/ before
+ * The old tasks.json/loans.json/saved-for-later.json are copied to data/backups/<timestamp>/ before
  * anything is written, so a mistaken run is recoverable.
  */
 import { randomUUID } from "node:crypto";
@@ -60,6 +63,11 @@ if (flag("help")) {
 const dataFile = path.resolve(process.cwd(), option("data-file") ?? "apps/server/data/tasks.json");
 const dataDir = path.dirname(dataFile);
 const loansFile = path.resolve(dataDir, "loans.json");
+/* Saved for Later tasks (#343, ADR-0011) sit beside tasks.json like the loans.
+   They belong to the data set, not to the people: after a reset they name
+   loans and tasks that no longer exist. So a plain reset backs them up and
+   empties the file (#369), and --keep leaves them. */
+const savedForLaterFile = path.resolve(dataDir, "saved-for-later.json");
 
 /* Card/thread/signal state is keyed by task id. Wiping tasks without wiping
    these leaves records pointing at tasks that no longer exist. */
@@ -470,13 +478,47 @@ const show = (file) => {
 const existingTasks = await readJson(dataFile, { tasks: [], history: [] });
 const existingLoans = await readJson(loansFile, { loans: [] });
 
+/* How many Saved for Later tasks the file holds, for the summary: null when the
+   file is there but unreadable, 0 when there is no file. */
+const countSavedForLater = async () => {
+  let raw;
+  try {
+    raw = await fs.readFile(savedForLaterFile, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return 0;
+    throw error;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.items) ? parsed.items.length : 0;
+  } catch {
+    return null;
+  }
+};
+const savedForLaterCount = await countSavedForLater();
+const savedForLaterLabel =
+  savedForLaterCount === null
+    ? "an unreadable Saved for Later file"
+    : `${savedForLaterCount} Saved for Later ${savedForLaterCount === 1 ? "task" : "tasks"}`;
+
 if (!flag("no-backup")) {
   const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
   const backupDir = path.resolve(dataDir, "backups", stamp);
   await fs.mkdir(backupDir, { recursive: true });
   await writeJson(path.join(backupDir, "tasks.json"), existingTasks);
   await writeJson(path.join(backupDir, "loans.json"), existingLoans);
-  console.log(`Backed up ${existingTasks.tasks?.length ?? 0} tasks to ${show(backupDir)}`);
+  /* Copied as bytes, not parsed and rewritten: the server's store refuses an
+     unreadable file rather than reading it as empty, and a backup that turned
+     one into `{ items: [] }` would lose whatever it held. No file, no copy. */
+  const savedForLaterBackedUp = await fs.copyFile(savedForLaterFile, path.join(backupDir, "saved-for-later.json")).then(
+    () => true,
+    (error) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    }
+  );
+  const alongside = savedForLaterBackedUp ? ` and ${savedForLaterLabel}` : "";
+  console.log(`Backed up ${existingTasks.tasks?.length ?? 0} tasks${alongside} to ${show(backupDir)}`);
 }
 
 const keep = flag("keep");
@@ -527,6 +569,7 @@ if (!keep) {
   for (const [name, empty] of DERIVED_STATE) {
     await writeJson(path.join(dataDir, name), JSON.parse(empty));
   }
+  await writeJson(savedForLaterFile, { items: [] });
 }
 
 /* Make sure the cast the seeded tasks belong to actually exists as people.
@@ -571,6 +614,9 @@ if (castAdded > 0) {
 }
 if (!keep) {
   console.log("Cleared bot card / thread / activity-signal state. Existing users, admin settings and bot references untouched.");
+  console.log(`Cleared ${savedForLaterLabel}.`);
+} else {
+  console.log(`Left ${savedForLaterLabel} in place (--keep).`);
 }
 console.log(mergePairHint);
 if (clashes.length > 0) {
