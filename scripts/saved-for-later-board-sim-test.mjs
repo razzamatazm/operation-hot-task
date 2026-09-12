@@ -898,66 +898,89 @@ test("neither Grouped nor Flat view draws a Saved for Later section: the task li
   assert.doesNotMatch(SECTION_SOURCE, /export const SavedForLaterSection\b/);
 });
 
-/* ── The tab row (#363) ─────────────────────────────────── */
+/* ── The tab row (#363, three tabs since #390) ──────────── */
 
 const renderTabs = (props) =>
   renderToStaticMarkup(
-    createElement(BoardTabs, { tab: "tasks", onTabChange: () => {}, tasksLabel: "Tasks", tasksCount: 13, draftsCount: 2, ...props })
+    createElement(BoardTabs, { tab: "all", onTabChange: () => {}, allCount: 13, mineCount: 4, draftsCount: 2, ...props })
   );
 const tabButtons = (html) => [...html.matchAll(/<button [^>]*role="tab"[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
 
-test("the header's tab row is Tasks then Task Drafts, each with its count", () => {
+test("the header's tab row is All Tasks, My Tasks, then Task Drafts, each with its count", () => {
   const html = renderTabs();
   assert.match(html, /^<div class="board-tabs" role="tablist" aria-label="Board">/);
-  const [tasks, drafts, extra] = tabButtons(html);
-  assert.equal(extra, undefined, "two tabs");
-  assert.match(tasks, /<span class="board-tab-label">Tasks<\/span><span class="section-count">13<\/span><\/button>$/);
-  assert.match(drafts, /<span class="board-tab-label">Task Drafts<\/span><span class="section-count">2<\/span><\/button>$/);
+  const [all, mine, drafts, extra] = tabButtons(html);
+  assert.equal(extra, undefined, "three tabs");
+  const label = (name, short, count) =>
+    new RegExp(`<span class="board-tab-label"><span class="board-tab-name">${name}</span><span class="board-tab-short" aria-hidden="true">${short}</span></span><span class="section-count">${count}</span></button>$`);
+  assert.match(all, /id="board-tab-all"/);
+  assert.match(all, label("All Tasks", "All", 13));
+  assert.match(mine, /id="board-tab-mine"/);
+  assert.match(mine, label("My Tasks", "Mine", 4));
+  assert.match(drafts, /id="board-tab-drafts"/);
+  assert.match(drafts, label("Task Drafts", "Drafts", 2));
 });
 
-test("the selected tab is the one announced and the one Tab lands on", () => {
-  const [tasks, drafts] = tabButtons(renderTabs({ tab: "tasks" }));
-  assert.match(tasks, /id="board-tab-tasks"/);
-  assert.match(tasks, /aria-selected="true"/);
-  assert.match(tasks, /tabindex="0"/);
-  assert.match(tasks, /class="tab-btn board-tab tab-active"/, "the app's one tab rule, with a modifier for the heading's type");
-  assert.match(tasks, /aria-controls="board-panel"/, "the selected tab names the panel below it");
-  assert.match(drafts, /aria-selected="false"/);
-  assert.match(drafts, /tabindex="-1"/);
-  assert.match(drafts, /class="tab-btn board-tab"/);
-  assert.doesNotMatch(drafts, /aria-controls/, "the panel it would name is not on the page");
+test("under 480px the tabs read All, Mine and Drafts, and a screen reader still hears the full names", () => {
+  const CSS = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
+  const base = CSS.indexOf(".board-tab-short {\n  display: none;\n}");
+  assert.ok(base >= 0, "the short name is hidden by default");
+  const phone = CSS.slice(base).match(/@media \(max-width: 480px\) \{\s*\.board-tab-short \{\s*display: inline;\s*\}\s*\.board-tab-name \{([\s\S]*?)\}/);
+  assert.ok(phone, "the phone rule sits after the base rule it overrides, so it can win");
+  assert.match(phone[1], /position: absolute;/);
+  assert.match(phone[1], /clip: rect\(0 0 0 0\);/, "visually hidden, not display: none, so the full name stays in the accessible name");
+  assert.doesNotMatch(phone[1], /display: none|visibility: hidden/);
+});
 
-  const [tasks2, drafts2] = tabButtons(renderTabs({ tab: "drafts" }));
-  assert.match(tasks2, /aria-selected="false"/);
-  assert.match(drafts2, /id="board-tab-drafts"/);
-  assert.match(drafts2, /aria-selected="true"[\s\S]*tabindex="0"/);
+test("the selected tab is the one announced and the only one Tab lands on", () => {
+  for (const [at, tab] of ["all", "mine", "drafts"].entries()) {
+    const buttons = tabButtons(renderTabs({ tab }));
+    buttons.forEach((button, i) => {
+      if (i === at) {
+        assert.match(button, /aria-selected="true"/, tab);
+        assert.match(button, /tabindex="0"/, tab);
+        assert.match(button, /class="tab-btn board-tab tab-active"/, "the app's one tab rule, with a modifier for the heading's type");
+        assert.match(button, /aria-controls="board-panel"/, "the selected tab names the panel below it");
+      } else {
+        assert.match(button, /aria-selected="false"/, `${tab}: tab ${i}`);
+        assert.match(button, /tabindex="-1"/, `${tab}: tab ${i}`);
+        assert.match(button, /class="tab-btn board-tab"/);
+        assert.doesNotMatch(button, /aria-controls/, "the panel it would name is not on the page");
+      }
+    });
+  }
 });
 
 test("with no drafts the Task Drafts tab is still there, counting none", () => {
-  const [, drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
-  assert.match(drafts, /Task Drafts<\/span><span class="section-count">0<\/span>/);
+  const [, , drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
+  assert.match(drafts, /Task Drafts<\/span><span class="board-tab-short" aria-hidden="true">Drafts<\/span><\/span><span class="section-count">0<\/span>/);
 });
 
-test("the Tasks tab carries whatever names the board, a searched loan's full name on hover", () => {
-  const [mine] = tabButtons(renderTabs({ tasksLabel: "My tasks", tasksCount: 4 }));
-  assert.match(mine, /<span class="board-tab-label">My tasks<\/span><span class="section-count">4<\/span>/);
-  const [loan] = tabButtons(renderTabs({ tasksLabel: "Castillo - Harbor View", tasksTitle: "Castillo - Harbor View", tasksCount: 2 }));
-  assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span>/);
+test("while searching, All Tasks carries the loan's name at every width, its full name on hover, and My Tasks keeps its own", () => {
+  const [loan, mine] = tabButtons(renderTabs({ allLabel: "Castillo - Harbor View", allTitle: "Castillo - Harbor View", allCount: 2 }));
+  assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span><span class="section-count">2<\/span>/);
+  assert.doesNotMatch(loan, /board-tab-short/, "no short name stands in for a loan");
+  assert.match(mine, /<span class="board-tab-name">My Tasks<\/span><span class="board-tab-short" aria-hidden="true">Mine<\/span><\/span><span class="section-count">4<\/span>/);
 });
 
-test("pressing a tab, or an arrow key across the row, selects it", () => {
+test("pressing a tab, or an arrow key across the row, selects it, and the row cycles all three", () => {
   const TABS_SOURCE = readFileSync(join(REPO, "apps/web/src/board-tabs.tsx"), "utf8");
   assert.match(TABS_SOURCE, /onClick=\{\(\) => onTabChange\(value\)\}/);
+  assert.match(TABS_SOURCE, /const ORDER: readonly BoardTab\[\] = \["all", "mine", "drafts"\];/);
   for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
     assert.match(TABS_SOURCE, new RegExp(`"${key}"`), `${key} moves along the row`);
   }
   assert.match(TABS_SOURCE, /\.focus\(\)/, "and focus follows the selection");
 });
 
-test("App holds the tab in plain state that opens on Tasks and is never stored", () => {
-  assert.match(APP_SOURCE, /const \[boardTab, setBoardTab\] = useState<BoardTab>\("tasks"\);/);
+test("App opens on the stored All / My tab, stores only those two, and never stores Task Drafts", () => {
+  assert.match(APP_SOURCE, /const \[boardTab, setBoardTab\] = useState<BoardTab>\(\(\) => tabForShow\(boardShow\)\);/);
   const storing = APP_SOURCE.split("\n").filter((line) => /boardTab|BoardTab/.test(line) && /localStorage|Storage|persist/i.test(line));
   assert.deepEqual(storing, [], "no line both names the tab and stores anything");
+  const select = APP_SOURCE.match(/const selectBoardTab = useCallback\(\(tab: BoardTab\): void => \{([\s\S]*?)\}, \[\]\);/)?.[1];
+  assert.ok(select, "one way to choose a tab");
+  assert.match(select, /setBoardTab\(tab\);/);
+  assert.match(select, /const show = showForTab\(tab\);\s*if \(show\) setBoardShow\(show\);/, "the stored half is written through showForTab, which has no value for Task Drafts");
 });
 
 const boardBlock = () => {
@@ -979,13 +1002,21 @@ test("the tab row is always drawn on the Tasks board, so Mine and an empty searc
   }
   const tabsProps = block.slice(tabs, block.indexOf("/>", tabs));
   assert.match(tabsProps, /draftsCount=\{taskDraftsCount\(savedForLater, autosave, now\)\}/, "counted from every draft the viewer has, not a filtered list");
-  assert.match(tabsProps, /tasksCount=\{boardTasks\.length\}/, "the Tasks count is the board's own, as the heading's was");
+  assert.match(tabsProps, /allCount=\{allBoardTasks\.length\}/, "All Tasks counts the Everyone list, or the search result");
+  assert.match(tabsProps, /mineCount=\{mineBoardTasks\.length\}/, "My Tasks counts the Mine list");
   assert.equal((APP_SOURCE.match(/<BoardTabs\b/g) ?? []).length, 1, "the Tasks board is the only list with a tab row");
+});
+
+test("both task tabs come from the one narrowing rule, and the open one is the list the board renders", () => {
+  assert.match(APP_SOURCE, /const allBoardTasks = useMemo\(\(\) => visibleBoardTasks\(unifiedTasks, \{ show: "everyone",/);
+  assert.match(APP_SOURCE, /const mineBoardTasks = useMemo\(\(\) => visibleBoardTasks\(unifiedTasks, \{ show: "mine",/);
+  assert.match(APP_SOURCE, /const boardTasks = boardTab === "mine" \? mineBoardTasks : allBoardTasks;/);
+  assert.match(boardBlock(), /expandedIds=\{boardTab === "drafts" \? \[\] : expandedIdsIn\(boardTasks\)\}/, "Collapse all acts on the list the open tab renders");
 });
 
 test("switching tabs swaps the body: the Task Drafts page lists every draft, never narrowed by Mine or the search", () => {
   const block = boardBlock();
-  assert.match(block, /boardBody\(\{ tab: boardTab, searching: Boolean\(searchLoan\), mine, shownCount: boardTasks\.length \}\)/);
+  assert.match(block, /boardBody\(\{ tab: boardTab, searching: Boolean\(searchLoan\), shownCount: boardTasks\.length \}\)/);
   const page = block.match(/<TaskDraftsPage([\s\S]*?)\/>/)?.[1];
   assert.ok(page, "the drafts tab renders the Task Drafts page");
   assert.match(page, /items=\{savedForLater\}/, "straight from the list App loaded, which no search or Mine ever touches");
@@ -995,32 +1026,84 @@ test("switching tabs swaps the body: the Task Drafts page lists every draft, nev
   assert.equal((APP_SOURCE.match(/<TaskDraftsPage\b/g) ?? []).length, 1, "mounted in one place");
 });
 
-test("search and Mine controls beside the tabs belong to the Tasks tab", () => {
+test("Clear search sits beside the tabs only while All Tasks is open, and the header has no Show everyone link (#390)", () => {
   const block = boardBlock();
   assert.match(
     block,
-    /boardTab === "tasks" && \(searchLoan \? <LoanSearchStatus loan=\{searchLoan\} onClear=\{clearSearch\} \/> : mine && showEveryone\)/,
-    "Clear search and Show everyone describe the task list, so they only sit beside it"
+    /boardTab === "all" && searchLoan && <LoanSearchStatus loan=\{searchLoan\} onClear=\{clearSearch\} \/>/,
+    "the search narrows All Tasks, so its way back sits beside that tab alone"
   );
+  const header = block.slice(block.indexOf(`<div className="section-head task-grid-head">`), block.indexOf(`role="tabpanel"`));
+  assert.doesNotMatch(header, /Show everyone|Show all tasks|board-show-everyone" onClick/, "no Show link in the header on any tab");
+  assert.doesNotMatch(APP_SOURCE, /Show everyone/, "the old wording is gone");
 });
 
-test("picking a loan to search shows the Tasks tab, since that is the list a search narrows", () => {
+test("an empty My Tasks offers Show all tasks, which opens All Tasks", () => {
   const block = boardBlock();
-  assert.match(block, /onPick=\{\(loan\) => \{ setSearchLoanId\(loan\.id\); setBoardTab\("tasks"\); \}\}/);
+  const empty = block.slice(block.indexOf(`body === "mine-empty"`), block.indexOf(`renderTaskList(boardTasks`));
+  assert.match(empty, /Nothing of yours right now\./);
+  assert.match(empty, /<button type="button" className="board-show-everyone" onClick=\{\(\) => selectBoardTab\("all"\)\}>\s*Show all tasks\s*<\/button>/);
 });
 
-test("a link to a task shows the Tasks tab, so the card it opens is on the page", () => {
+test("the app menu has no Show group", () => {
+  const menu = APP_SOURCE.slice(APP_SOURCE.indexOf("const AppMenu = ("), APP_SOURCE.indexOf("const NewTaskButton = ("));
+  assert.doesNotMatch(menu, /Which tasks to show|BOARD_SHOW_CHOICES|onShowChange|>Show</);
+  assert.doesNotMatch(boardBlock(), /onShowChange|show=\{boardShow\}/);
+  for (const group of ["List view", "How far back finished tasks go", "Appearance"]) {
+    assert.match(menu, new RegExp(`aria-label="${group}"`), `${group} stays`);
+  }
+  assert.match(menu, /Collapse all/);
+});
+
+test("picking a loan opens All Tasks and remembers the tab it came from, without touching the stored choice", () => {
+  const block = boardBlock();
+  const pick = block.match(/const pickLoan = \(loan: Loan\): void => \{([\s\S]*?)\};/)?.[1];
+  assert.ok(pick, "one pick handler");
+  assert.match(pick, /if \(!searchLoanId\) setSearchReturnTab\(boardTab\);\s*setSearchLoanId\(loan\.id\);\s*setBoardTab\("all"\);/);
+  assert.doesNotMatch(pick, /selectBoardTab|setBoardShow/, "the stored All / My value is never changed by a pick");
+  assert.match(block, /<LoanSearch loans=\{loans\} myLoanIds=\{searchMyLoanIds\} onPick=\{pickLoan\} \/>/);
+});
+
+test("clearing the search goes back to the remembered tab", () => {
+  const block = boardBlock();
+  assert.match(block, /const clearSearch = \(\): void => \{\s*setSearchLoanId\(null\);\s*selectBoardTab\(searchReturnTab\);\s*\};/);
+});
+
+test("opening a card ends the search from any tab, as it always has (the user's call on #390)", () => {
+  assert.match(APP_SOURCE, /if \(open && searchLoanIdRef\.current\) setFocusTaskId\(taskId\);/);
+  assert.doesNotMatch(APP_SOURCE, /boardTabRef/, "no tab condition on it");
+});
+
+test("a link to a task opens a task tab, All Tasks when My Tasks would hide it", () => {
   const focus = APP_SOURCE.slice(APP_SOURCE.indexOf("/* Deep-link focus:"));
   const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks]);"));
-  assert.match(body, /setActiveTab\("active"\);\s*setBoardTab\("tasks"\);/);
+  assert.match(body, /setActiveTab\("active"\);/);
+  assert.match(
+    body,
+    /selectBoardTab\(tabForLink\(\{ from: searchLoanId \? searchReturnTab : boardTab, show: boardShow, onMineBoard: linked \? isOnMineBoard\(linked, user\) : true \}\)\);/,
+    "it starts from the open tab, or mid-search from the tab clearing would return to, so both ways out of a search agree"
+  );
+  assert.doesNotMatch(body, /setBoardTab\(|setBoardShow\(/, "the tab and its stored half move together, through selectBoardTab");
+});
+
+test("a linked card is scrolled into the room under the pinned header, not centred behind it (#390)", () => {
+  const scroll = APP_SOURCE.slice(APP_SOURCE.indexOf("const target = scrollTaskId;"), APP_SOURCE.indexOf("}, [scrollTaskId, searchLoanId]);"));
+  assert.match(scroll, /pinnedScrollTop\(\{ cardTop: box\.top, cardHeight: box\.height, headerHeight, viewportHeight: window\.innerHeight, scrollY: window\.scrollY \}\)/);
+  assert.match(scroll, /document\.querySelector<HTMLElement>\("\.task-grid-head"\)\?\.offsetHeight/, "measured from the header that is pinned");
+  assert.doesNotMatch(scroll, /scrollIntoView/, "centring in the whole viewport is what hid a tall card's top");
 });
 
 test("leaving a form changes no tab: opening, saving for later, creating and discarding never touch it", () => {
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.doesNotMatch(createMount, /setBoardTab/, "closing the form, however it ends, leaves the tab alone");
+  assert.doesNotMatch(createMount, /setBoardTab|selectBoardTab/, "closing the form, however it ends, leaves the tab alone");
   assert.equal(
     (APP_SOURCE.match(/setBoardTab\(/g) ?? []).length,
     2,
-    "a loan pick and a link are the only things besides the tab row itself that switch tabs, so no ending of the form can"
+    "selectBoardTab and a loan pick are the only writers of the open tab"
+  );
+  assert.equal(
+    (APP_SOURCE.match(/selectBoardTab\(/g) ?? []).length,
+    3,
+    "besides the tab row, only clearing a search, a link and the empty My Tasks state choose a tab, so no ending of the form can"
   );
 });

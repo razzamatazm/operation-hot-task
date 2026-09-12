@@ -21,8 +21,9 @@
   spaced to land on top of the action column in the rows below: the menu over
   every hamburger, `New Task` over every quick action.
 - The **app menu** holds the settings that are not decisions about a task, in
-  this order: View (Grouped / Flat), Show, History, Appearance, and
-  `Collapse all`.
+  this order: View (Grouped / Flat), History, Appearance, and `Collapse all`.
+  It used to hold Show (Everyone / Mine) as well; since #390 that is the board's
+  All Tasks and My Tasks tabs.
   They moved off the list header because they are preferences rather than
   actions — set once and then left alone, next to a button pressed all day.
 - **Appearance** is `Match Teams` (the default), `Light`, `Dark` or
@@ -53,15 +54,32 @@ persisted per browser:
 
 Neither view shows a Saved for Later task. Those have their own tab.
 
-## Tasks and Task Drafts tabs
+## All Tasks, My Tasks and Task Drafts tabs
 
-The Tasks board's header is a tab row where its heading used to be: **Tasks**
-with its count, then **Task Drafts** with its count (#363). The search, the app
-menu and `New Task` stay where they were, at the right of the same header.
+The Tasks board's header is a tab row where its heading used to be: **All
+Tasks**, **My Tasks** and **Task Drafts**, each with its count (#363, three tabs
+since #390). The search, the app menu and `New Task` stay where they were, at
+the right of the same header.
 
-- **Tasks** is the board described above. Its label is whatever the heading
-  said: `Tasks`, `My tasks` with Mine on, or a searched loan's name. Its count
-  is the number of tasks shown.
+**The header is pinned** (#390). It stays at the top of the screen while the
+list scrolls under it, on a phone as on a desktop, so the tabs, the search and
+`New Task` are always in reach. On a phone it keeps its two lines, tabs on the
+first and the search, menu and `New Task` on the second, and both stay pinned.
+Menus and dialogs still draw over it. A link to a task scrolls the card into the
+space below the header, so the header never covers it.
+
+**On a phone the tabs read `All`, `Mine` and `Drafts`** (under 480px wide). The
+full names and their counts do not fit on one line of a 360px phone. Screen
+readers still announce the full names. Confirmed 2026-09-12 for every phone
+width, including 390px where the full names would just fit, so all phones read
+the same.
+
+- **All Tasks** is the board described above, everybody's work. While a loan is
+  searched its label is the loan's name (cut short if long, the full name on
+  hover). Its count is the number of tasks it shows.
+- **My Tasks** is the same board narrowed to the viewer's own work (see *My
+  Tasks* below). Its count is the number of tasks it shows, whichever tab is
+  open.
 - **Task Drafts** lists the new tasks the viewer put aside with **Save for
   later** on the create form (the button keeps that wording; only the tab says
   Task Drafts). Newest saved first. The tab is always there, and its count is
@@ -79,38 +97,45 @@ menu and `New Task` stay where they were, at the right of the same header.
   delete control at the row's right end asks `Delete this saved task?` in the
   row, and a yes removes it for good (#345). See
   [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md).
-- **Mine and the loan search act on the Tasks tab only.** Neither narrows Task
-  Drafts, and a search never shows a draft. `Clear search` and `Show everyone`
-  sit beside the tabs only while Tasks is open. Picking a loan from the search
-  opens the Tasks tab, since that is the list it narrows, and so does a link
-  to a task.
-- **The open tab is not remembered.** The board opens on Tasks after a reload.
+- **The loan search narrows All Tasks only.** Picking a loan opens All Tasks and
+  remembers the tab that was open; `Clear search` sits beside the tabs while All
+  Tasks is open, and clearing goes back to the remembered tab. My Tasks and Task
+  Drafts are never narrowed by it, and a search never shows a draft. Opening a
+  card while a search is on ends the search, whichever tab it was opened from,
+  as before the tabs existed (confirmed 2026-09-12).
+- **All Tasks or My Tasks is remembered; Task Drafts is not.** A reload opens on
+  whichever of All Tasks and My Tasks was last open, including after Task Drafts
+  was the tab left open. A loan pick does not change what is remembered.
   Opening the create form and leaving it (Save for later, Create, Discard)
   changes no tab, so it closes back onto the tab it was opened from.
+- **A link to a task opens a task tab.** It stays on the tab that is open (or,
+  during a search, the tab clearing the search would go back to; from Task
+  Drafts, whichever of All Tasks and My Tasks was last open), except that a task
+  My Tasks hides opens All Tasks, so the link never lands on a card that is not
+  there.
+- **Collapse all** acts on the list the open tab shows.
 
-Separately, the app menu's **Show** row narrows the Tasks board (#334), and it
-combines with either view:
+**My Tasks** (#334, a tab since #390; it was the app menu's Show row, Everyone
+or Mine) combines with either view:
 
-- **Everyone — the default.** The whole list above.
-- **Mine.** Only tasks the viewer filed or holds now, plus **every unclaimed
-  task, whoever filed it** — unclaimed work is never filtered out. Observer
-  tasks go, and so do closed tasks the viewer was not a Party to, so Done under
-  Mine is the viewer's own finished work. While it is on, the Tasks tab reads
-  `My tasks`, its count is the number shown, and a `Show everyone` link beside
-  it switches back; an empty result reads `Nothing of yours right now` with the
-  same link. Collapse all acts on the filtered list. A link that opens a task
-  Mine hides (a Share DM, say) switches the board back to Everyone, so the link
-  never lands on a card that is not there. Persisted per browser. It
-  is a view over the list the app already has, not a server filter, and the
+- Only tasks the viewer filed or holds now, plus **every unclaimed task,
+  whoever filed it** — unclaimed work is never filtered out. Observer tasks go,
+  and so do closed tasks the viewer was not a Party to, so Done on My Tasks is
+  the viewer's own finished work.
+- An empty My Tasks reads `Nothing of yours right now` with a `Show all tasks`
+  link that opens All Tasks. There is no Show link in the header on any tab.
+- Someone who had Mine on before the tabs existed opens on My Tasks: the stored
+  choice kept its key and its values.
+- It is a view over the list the app already has, not a server filter, and the
   admin Tasks tab count ignores it.
 
 The app menu's **History** row sets how far back finished tasks go (#391):
 `Last 7 days`, `Last 14 days` (the default), `Last 30 days` or `All`. Every user
-has it, and it combines with either view and with Show:
+has it, and it combines with either view and with both task tabs:
 
 - A closed task stays on the board while it closed inside the window; `All`
   keeps every closed task the app holds. Open and in-flight tasks are never cut,
-  however old. Done, its count, the Tasks tab's count, the empty states and
+  however old. Done, its count, both task tabs' counts, the empty states and
   Collapse all all follow it.
 - **A loan search ignores it.** With a loan picked the board shows every task on
   that loan, closed ones of any age included. Clearing the search puts the

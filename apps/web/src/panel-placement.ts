@@ -61,3 +61,36 @@ export const placePanel = (
    `max-height`. Pairs with the cap above: the placement promises the box fits,
    and this is what makes the DOM keep that promise. */
 export const maxPanelHeight = (viewport: Viewport): number => Math.max(0, viewport.height - PANEL_MARGIN * 2);
+
+/* Where to scroll the page so a card a link opened lands in view under the
+   board's pinned header (#390).
+
+   `scrollIntoView({ block: "center" })` centres in the whole viewport, and the
+   header now covers the top of it. A short card still clears it; an expanded
+   one, which is what every link opens, can be taller than half the screen, and
+   centring put its top, the row somebody taps, under the header. So the card
+   is centred in the room below the header instead, and a card taller than that
+   room lands with its top just under the header, since the top is the part that
+   says which task it is.
+
+   `cardTop` is the card's viewport top now and `scrollY` the page's scroll now;
+   the answer is a document scroll position, never above the page's top. The
+   header's height is enough, not its position: a scroll that leaves it unpinned
+   leaves it above the card in the page's own flow. */
+export const pinnedScrollTop = ({
+  cardTop,
+  cardHeight,
+  headerHeight,
+  viewportHeight,
+  scrollY
+}: {
+  cardTop: number;
+  cardHeight: number;
+  headerHeight: number;
+  viewportHeight: number;
+  scrollY: number;
+}): number => {
+  const room = viewportHeight - headerHeight;
+  const inset = cardHeight >= room ? 0 : (room - cardHeight) / 2;
+  return Math.max(0, scrollY + cardTop - headerHeight - inset);
+};

@@ -17,12 +17,14 @@ import test from "node:test";
 
 import {
   BOARD_HISTORY_CHOICES,
-  BOARD_SHOW_CHOICES,
   boardBody,
   isOnMineBoard,
   isWithinHistory,
   parseBoardHistory,
   parseBoardShow,
+  showForTab,
+  tabForLink,
+  tabForShow,
   visibleBoardTasks
 } from "../apps/web/src/board-filter.ts";
 
@@ -135,9 +137,14 @@ test("a picked loan keeps only that loan's tasks, active and closed, in the orde
   assert.deepEqual(ids, ["h-open", "h-observed", "h-done"]);
 });
 
-test("a picked loan shows the whole file even with Mine on", () => {
-  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, ...base, loanId: "loan-h" }).map((t) => t.id);
+test("a picked loan shows the whole file, somebody else's work and closed tasks included", () => {
+  const ids = visibleBoardTasks(loanBoard, { show: "everyone", viewer, ...base, loanId: "loan-h" }).map((t) => t.id);
   assert.deepEqual(ids, ["h-open", "h-observed", "h-done"], "somebody else's work and closed tasks the viewer was not a Party to stay");
+});
+
+test("a picked loan narrows All Tasks only: the Mine list ignores it (#390)", () => {
+  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, ...base, loanId: "loan-h" }).map((t) => t.id);
+  assert.deepEqual(ids, ["h-open", "other-open", "unlinked", "other-done"], "the My Tasks tab is the Mine board, searching or not");
 });
 
 test("a picked loan with nothing on the board comes back empty", () => {
@@ -152,8 +159,41 @@ test("no picked loan leaves the Show setting in charge", () => {
 
 /* ── The stored choice ──────────────────────────────────── */
 
-test("the setting offers Everyone then Mine", () => {
-  assert.deepEqual(BOARD_SHOW_CHOICES.map((c) => c.label), ["Everyone", "Mine"]);
+test("All Tasks is stored as Everyone, My Tasks as Mine, and Task Drafts is never stored (#390)", () => {
+  assert.equal(showForTab("all"), "everyone");
+  assert.equal(showForTab("mine"), "mine");
+  assert.equal(showForTab("drafts"), null, "a reload never opens on Task Drafts");
+});
+
+test("the stored value opens its tab, so a Mine stored before the tabs existed opens My Tasks", () => {
+  assert.equal(tabForShow(parseBoardShow("mine")), "mine");
+  assert.equal(tabForShow(parseBoardShow("everyone")), "all");
+  assert.equal(tabForShow(parseBoardShow(null)), "all", "first load");
+  for (const tab of ["all", "mine"]) assert.equal(tabForShow(showForTab(tab)), tab, `${tab} survives a reload`);
+});
+
+/* ── A link to a task (#390) ────────────────────────────── */
+
+test("with My Tasks open, a link to a task on it stays on My Tasks", () => {
+  assert.equal(tabForLink({ from: "mine", show: "mine", onMineBoard: true }), "mine");
+});
+
+test("with My Tasks open, a link to a task My Tasks hides opens All Tasks", () => {
+  assert.equal(tabForLink({ from: "mine", show: "mine", onMineBoard: false }), "all", "an Observer task opens on All Tasks");
+});
+
+test("with All Tasks open a link always stays on All Tasks, whatever is stored", () => {
+  for (const show of ["everyone", "mine"]) {
+    for (const onMineBoard of [true, false]) {
+      assert.equal(tabForLink({ from: "all", show, onMineBoard }), "all", JSON.stringify({ show, onMineBoard }));
+    }
+  }
+});
+
+test("from Task Drafts a link opens the stored task tab, and All Tasks when My Tasks would hide the task", () => {
+  assert.equal(tabForLink({ from: "drafts", show: "mine", onMineBoard: true }), "mine");
+  assert.equal(tabForLink({ from: "drafts", show: "mine", onMineBoard: false }), "all");
+  assert.equal(tabForLink({ from: "drafts", show: "everyone", onMineBoard: true }), "all");
 });
 
 test("nothing stored, or anything unrecognised, reads as Everyone", () => {
@@ -278,7 +318,7 @@ test("a picked loan ignores History and shows the loan's closed tasks of any age
     task("o-done-60", { loanId: "loan-o", status: "COMPLETED", completedAt: daysAgo(60) }),
     task("l-done-60", { loanId: "loan-h", status: "ARCHIVED", archivedAt: daysAgo(60) })
   ];
-  const searched = visibleBoardTasks(onLoan, { show: "mine", viewer, history: 7, now: NOW, loanId: "loan-h" }).map((t) => t.id);
+  const searched = visibleBoardTasks(onLoan, { show: "everyone", viewer, history: 7, now: NOW, loanId: "loan-h" }).map((t) => t.id);
   assert.deepEqual(searched, ["l-open", "l-done-3", "l-done-60"]);
   const cleared = visibleBoardTasks(onLoan, { show: "everyone", viewer, history: 7, now: NOW, loanId: null }).map((t) => t.id);
   assert.deepEqual(cleared, ["l-open", "l-done-3"], "clearing the search puts the cutoff back");
@@ -301,33 +341,32 @@ test("isWithinHistory answers for one task", () => {
   assert.equal(isWithinHistory(aged[7], 7, NOW), true, "open work is always within");
 });
 
-/* ── Which tab's body the board shows (#363) ────────────── */
+/* ── Which tab's body the board shows (#363, #390) ──────── */
 
-test("the Task Drafts tab shows the drafts, whatever Mine and the search say", () => {
+test("the Task Drafts tab shows the drafts, whatever the search says", () => {
   for (const searching of [false, true]) {
-    for (const mine of [false, true]) {
-      for (const shownCount of [0, 3]) {
-        assert.equal(boardBody({ tab: "drafts", searching, mine, shownCount }), "drafts", JSON.stringify({ searching, mine, shownCount }));
-      }
+    for (const shownCount of [0, 3]) {
+      assert.equal(boardBody({ tab: "drafts", searching, shownCount }), "drafts", JSON.stringify({ searching, shownCount }));
     }
   }
 });
 
-test("the Tasks tab shows the task list when there is something on it", () => {
-  assert.equal(boardBody({ tab: "tasks", searching: false, mine: false, shownCount: 4 }), "tasks");
-  assert.equal(boardBody({ tab: "tasks", searching: false, mine: true, shownCount: 4 }), "tasks");
-  assert.equal(boardBody({ tab: "tasks", searching: true, mine: true, shownCount: 1 }), "tasks");
+test("All Tasks and My Tasks show the task list when there is something on it", () => {
+  assert.equal(boardBody({ tab: "all", searching: false, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ tab: "all", searching: true, shownCount: 1 }), "tasks");
+  assert.equal(boardBody({ tab: "mine", searching: false, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ tab: "mine", searching: true, shownCount: 4 }), "tasks");
 });
 
-test("an empty board with nothing narrowing it is still the task list, which says No tasks yet itself", () => {
-  assert.equal(boardBody({ tab: "tasks", searching: false, mine: false, shownCount: 0 }), "tasks");
+test("an empty All Tasks with nothing narrowing it is still the task list, which says No tasks yet itself", () => {
+  assert.equal(boardBody({ tab: "all", searching: false, shownCount: 0 }), "tasks");
 });
 
-test("on the Tasks tab an empty search says so, and wins over an empty Mine", () => {
-  assert.equal(boardBody({ tab: "tasks", searching: true, mine: false, shownCount: 0 }), "search-empty");
-  assert.equal(boardBody({ tab: "tasks", searching: true, mine: true, shownCount: 0 }), "search-empty");
+test("on All Tasks an empty search says so", () => {
+  assert.equal(boardBody({ tab: "all", searching: true, shownCount: 0 }), "search-empty");
 });
 
-test("on the Tasks tab an empty Mine says so", () => {
-  assert.equal(boardBody({ tab: "tasks", searching: false, mine: true, shownCount: 0 }), "mine-empty");
+test("an empty My Tasks says so, and a search never stands in for it, since the search narrows All Tasks only", () => {
+  assert.equal(boardBody({ tab: "mine", searching: false, shownCount: 0 }), "mine-empty");
+  assert.equal(boardBody({ tab: "mine", searching: true, shownCount: 0 }), "mine-empty");
 });

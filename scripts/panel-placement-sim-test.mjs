@@ -23,9 +23,51 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { PANEL_GAP, PANEL_MARGIN, maxPanelHeight, placePanel } from "../apps/web/src/panel-placement.ts";
+import { PANEL_GAP, PANEL_MARGIN, maxPanelHeight, pinnedScrollTop, placePanel } from "../apps/web/src/panel-placement.ts";
 
 const VIEWPORT = { width: 1280, height: 800 };
+
+/* ── A linked card under the pinned header (#390) ───────── */
+
+/* Where the card's top edge sits in the viewport once the page is scrolled to
+   the returned position. */
+const landedTop = (card, at) => card.cardTop + card.scrollY - at;
+
+test("a linked card shorter than the room under the header is centred in that room, not in the whole screen", () => {
+  const card = { cardTop: 1400, cardHeight: 250, headerHeight: 90, viewportHeight: 844, scrollY: 0 };
+  const top = landedTop(card, pinnedScrollTop(card));
+  assert.equal(top, 90 + (844 - 90 - 250) / 2);
+});
+
+test("the expanded card a phone link opened, 718px on an 844px screen, clears the header it used to sit 17px under", () => {
+  const card = { cardTop: 900, cardHeight: 718, headerHeight: 90, viewportHeight: 844, scrollY: 200 };
+  assert.equal(landedTop(card, pinnedScrollTop(card)), 90 + (844 - 90 - 718) / 2, "centred in the 754px under the header");
+});
+
+test("an expanded card taller than the room under the header lands with its top just under the header", () => {
+  const card = { cardTop: 900, cardHeight: 900, headerHeight: 90, viewportHeight: 844, scrollY: 200 };
+  assert.equal(landedTop(card, pinnedScrollTop(card)), 90, "centred in the whole screen, its top would sit above the screen");
+});
+
+test("the page never scrolls above its top", () => {
+  assert.equal(pinnedScrollTop({ cardTop: 120, cardHeight: 100, headerHeight: 90, viewportHeight: 844, scrollY: 0 }), 0);
+});
+
+test("wherever a card is and however tall, it never lands under the header", () => {
+  for (const headerHeight of [49, 90]) {
+    for (const viewportHeight of [560, 740, 844]) {
+      for (const cardHeight of [28, 100, 400, 718, 1200]) {
+        for (const cardTop of [-3000, -200, 0, 300, 2000, 6000]) {
+          for (const scrollY of [5000, 8000]) {
+            const card = { cardTop, cardHeight, headerHeight, viewportHeight, scrollY };
+            const at = pinnedScrollTop(card);
+            assert.ok(landedTop(card, at) >= headerHeight, JSON.stringify({ ...card, at }));
+          }
+        }
+      }
+    }
+  }
+});
 
 const anchorAt = (top, height = 30, left = 1100, width = 116) => ({
   top,
