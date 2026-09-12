@@ -2963,7 +2963,6 @@ const AppMenu = ({
             }}
           >
             Collapse All Tasks
-            {collapseCount > 0 &&<span className="app-menu-action-count">{collapseCount}</span>}
           </button>
 
           <div className="app-menu-group" role="group" aria-label="List view">

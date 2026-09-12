@@ -244,9 +244,10 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   Appearance shows `Teams` and `Contrast` while each button's accessible name
   stays `Match Teams` and `High contrast`. Collapse all, labelled
   `Collapse All Tasks` (the user's wording, 2026-09-12), leads the panel as a
-  full-width outlined button in the tracks' border and corner, label centred
-  with the open count beside it: it is the one action among settings, so it
-  looks like one. The panel is `min(288px, 100vw - 32px)` wide and anchors to the actions
+  full-width outlined button in the tracks' border and corner, label centred,
+  with no count of open cards beside it (removed at the user's call, the same
+  day): it is the one action among settings, so it looks like one. It still
+  goes faded and `aria-disabled` when nothing is open. The panel is `min(288px, 100vw - 32px)` wide and anchors to the actions
   group's right edge, as the loan search's does, because its own trigger left it
   too little room on a phone for tracks that do not wrap; `.app-menu` takes no
   `position` for that reason. Not portalled; the header is not clipped, so there
