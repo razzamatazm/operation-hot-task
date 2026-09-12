@@ -2363,7 +2363,10 @@ export class TaskService {
       }
     }
 
-    await this.evaluateActivitySignals({ now, allowReminders: true, tasks: retained });
+    /* No task list handed over: `tasks` above is as old as the start of this
+       pass, and a task change saved since then would be missing from it. The
+       evaluation loads tasks itself, right before its single change step (#361). */
+    await this.evaluateActivitySignals({ now, allowReminders: true });
 
     return {
       reminded,
@@ -2382,13 +2385,11 @@ export class TaskService {
   private async evaluateActivitySignals({
     now,
     allowReminders = false,
-    alertOnNewSignals = true,
-    tasks
+    alertOnNewSignals = true
   }: {
     now: Date;
     allowReminders?: boolean;
     alertOnNewSignals?: boolean;
-    tasks?: LoanTask[];
   }): Promise<void> {
     if (!this.activityFeedState) {
       return;
@@ -2399,11 +2400,12 @@ export class TaskService {
        signals are new, which reminders are due) is made against the feed file as
        it stands at this change's turn, so an overlapping evaluation sees what
        this one recorded and a user saved meanwhile is kept (#341).
-       Tasks loaded here keep their order: the change is queued before another
-       evaluation's task load can finish. A `tasks` list handed in (the
-       maintenance pass) can be older than an evaluation that saves before it,
-       and signals for tasks it no longer shows active are dropped. */
-    const currentTasks = tasks ?? (await this.store.allTasks());
+       Tasks are always loaded here, never handed in, and keep their order: the
+       change is queued before another evaluation's task load can finish. A list
+       gathered earlier by the caller could be older than an evaluation that
+       saves before this one, and signals for tasks it no longer showed active
+       would be dropped and alerted again next time (#361). */
+    const currentTasks = await this.store.allTasks();
     const notifications = await this.activityFeedState.change((snapshot) => {
       const decided = this.decideActivitySignals(snapshot, currentTasks, { now, allowReminders, alertOnNewSignals });
       return { state: decided.state, decision: decided.notifications };

@@ -235,3 +235,44 @@ test("two tasks created at once alert each person once per task", async () => {
     Object.fromEntries([...expected].sort())
   );
 });
+
+/* #361. The maintenance pass gathers its tasks up front. If it handed that list
+   to the evaluation, a task change saved in between — along with the signals its
+   own evaluation recorded — would be missing from it, the pass would drop those
+   signals, and the next evaluation would alert for them a second time. */
+test("a task change landing mid maintenance pass keeps its signals and alerts each person once", async () => {
+  const { feedState, notifier, service } = await setup();
+  for (const person of PEOPLE) {
+    await service.registerUser(person);
+  }
+
+  /* Hold the pass at the point it hands over to the evaluation — after it has
+     gathered tasks and saved its own changes — and land a task change there,
+     letting that change's own evaluation finish before the pass carries on. */
+  let landed;
+  service.evaluateActivitySignals = async (args) => {
+    delete service.evaluateActivitySignals;
+    landed = await service.createTask({ folderName: "Mid Pass", taskType: "VALUE", notes: "n" }, CREATOR);
+    await service.settleBackgroundWork();
+    return service.evaluateActivitySignals(args);
+  };
+
+  await service.runMaintenance(new Date());
+  assert.ok(landed, "the maintenance pass never reached its evaluation");
+
+  const { signals } = await feedState.read();
+  assert.ok(
+    signals.some((signal) => signal.taskId === landed.id),
+    "the signals the task change recorded were dropped by the maintenance pass"
+  );
+
+  /* The next evaluation must find nothing new for that task. */
+  await service.evaluateActivitySignals({ now: new Date() });
+  const pairs = [...alertPairs(notifier.events)].filter(([pair]) => pair.endsWith("Mid Pass"));
+  assert.ok(pairs.length > 0, "nobody was alerted for the task change, so this test proves nothing");
+  assert.deepEqual(
+    pairs.filter(([, count]) => count !== 1),
+    [],
+    "someone was alerted more than once for the same task change"
+  );
+});
