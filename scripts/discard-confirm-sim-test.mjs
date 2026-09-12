@@ -31,6 +31,8 @@ import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { cancelAsks, editFormValues, initialCreateForm } from "../apps/web/src/create-form-state.ts";
+
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 
 const FORM_SOURCE = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
@@ -215,17 +217,44 @@ test("Cancel and Escape are the same door, so they cannot answer differently", (
   assert.equal(FORM_SOURCE.match(/requestClose\(?\)?[;}]/g).length, 2, "there are exactly those two exits");
 });
 
-test("the exit asks only when there is something to lose, measured from the opening form", () => {
+/* When the exit asks (#365). Edit mode asks once something moved since the form
+   opened, as it always has. A create form asks whenever there is anything in it:
+   a reopened Saved for Later task always, and a new one whenever it differs from
+   a blank form, which is the Save for later button's own test. Whether it
+   changed since it opened no longer matters there, so a form restored from the
+   autosave and left alone still asks. */
+test("when Cancel asks, as a truth table over the three ways a form opens", () => {
+  const BLANK = initialCreateForm();
+  const TYPED = { ...BLANK, folderName: "Whitfield 4471", notes: "half a thought" };
+  const SAVED = { ...BLANK, folderName: "Baker - Pier 9", taskType: "FRAUD", urgency: "ORANGE" };
+  const TASK_VALUES = () => editFormValues(TASK);
+  const EDITED = { ...TASK_VALUES(), notes: "Loan Amount: $2,400,000" };
+  const cases = [
+    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: BLANK }, false, "a completely empty new task closes without a prompt"],
+    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: BLANK, pendingItemText: "   " }, false, "a seeder box holding only spaces is still empty"],
+    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: TYPED }, true, "a new task with typing in it asks"],
+    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: BLANK, pendingItemText: "Missing appraisal" }, true, "a half-typed outstanding item is something in it"],
+    [{ editing: false, reopened: false, opened: TYPED, fresh: BLANK, current: TYPED }, true, "a new task restored from the autosave and left untouched asks"],
+    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: { ...BLANK, taskType: "VALUE" } }, true, "a changed task type on its own is something in it"],
+    [{ editing: false, reopened: true, opened: SAVED, fresh: BLANK, current: SAVED }, true, "an unchanged reopened Saved for Later task asks"],
+    [{ editing: false, reopened: true, opened: SAVED, fresh: BLANK, current: { ...SAVED, notes: "more" } }, true, "a changed reopened one asks, as before"],
+    [{ editing: true, reopened: false, opened: TASK_VALUES(), fresh: TASK_VALUES(), current: TASK_VALUES() }, false, "edit mode, unchanged, closes silently as before"],
+    [{ editing: true, reopened: false, opened: TASK_VALUES(), fresh: TASK_VALUES(), current: EDITED }, true, "edit mode, changed, asks as before"]
+  ];
+  for (const [state, expected, why] of cases) assert.equal(cancelAsks(state), expected, why);
+});
+
+test("the exit asks through that one rule, and closes on the spot when it says no", () => {
   const close = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const requestClose"));
   const body = close.slice(0, close.indexOf("};"));
   assert.match(
     body,
-    /formHasChanges\(openedWith\.current, form, seedDraft\)/,
-    "against the values the form opened with, plus the seeder's half-typed item"
+    /cancelAsks\(\{ editing, reopened: reopened !== undefined, opened: openedWith\.current, fresh: opening\.fresh, current: form, pendingItemText: seedDraft \}\)/,
+    "edit mode against the values it opened with, a create form against a blank one, the seeder's half-typed item counted in both"
   );
-  assert.match(body, /setDiscardAsk\(true\)/, "a touched form asks");
-  assert.match(body, /return;\s*\}[\s\S]*\n    onClose\(\);/, "an untouched one closes on the spot, as it always did");
-  assert.match(body, /if \(reopened\) sendUnsaved\(\);/, "a reopened one first sends what it still owes its record (#348)");
+  assert.match(body, /setDiscardAsk\(true\)/, "a form with something to lose asks");
+  assert.match(body, /return;\s*\}\s*onClose\(\);/, "anything else closes on the spot");
+  assert.doesNotMatch(body, /sendUnsaved/, "a reopened form never takes the silent exit, so it has nothing to send on the way out");
   assert.match(FORM_SOURCE, /const openedWith = useRef\(form\)/, "the opening values are captured once, at open");
 });
 

@@ -29,7 +29,7 @@
 import { ACTION_LABELS, Autosave, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { autosaveCopy, browserDraftStorage, clearDraft, draftAction, newerAutosave, readDraftCopy, restoredDraftCopy, writeDraft } from "./create-form-draft";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
+import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
@@ -206,8 +206,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      `fresh` is what a blank-slate open would have produced, kept because it is
      the yardstick for "is there a draft worth keeping" — measuring against
      `openedWith` instead would call a restored draft unchanged and quietly stop
-     saving it. Note it is NOT the yardstick for the discard prompt, which asks
-     whether anything moved since the form opened (#283).
+     saving it. Since #365 it is also a create form's yardstick for the discard
+     prompt, which asks whenever there is anything in the form; edit mode's
+     prompt still asks whether anything moved since it opened (#283).
 
      A form opened with `initialValues` deliberately ignores any draft: those
      values come from someone asking for a task about a specific loan, and
@@ -571,10 +572,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Onto the record's unsaved slot, never over its save, so Discard can leave
      the save exactly as it was.
 
-     `sendUnsaved` is also called on the two exits the app can see without a
-     timer: Cancel on a form with nothing to ask about, which may still owe the
-     record a clear, and a Save for later or Create that failed, whose stop
-     dropped a send. */
+     `sendUnsaved` is also called after a Save for later or Create that failed,
+     whose stop dropped a send. Cancel never needs it: a reopened form always
+     asks (#365), and every answer settles the writes itself. */
   const sendUnsaved = (): void => {
     if (!reopened || ending.current) return;
     const values = formNow.current;
@@ -632,13 +632,14 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      effect measures against. Copied rather than aliased so the state object and
      the yardstick can never become the same object.
 
-     `openedWith` moves with it, and that is the subtle half. It is what Cancel
-     and the save timer measure "has anything happened here" against; left
-     pointing at the restored values, an emptied form would read as heavily
-     changed — Cancel would ask to discard a form with nothing in it, and the
+     `openedWith` moves with it, and that is the subtle half. It is what the save
+     timer measures "has anything happened here" against; left pointing at the
+     restored values, an emptied form would read as heavily changed, and the
      timer would immediately save the blank over the draft that was just deleted.
-     Re-pointed at the blank, both questions answer "nothing to lose", and the
-     next keystroke starts a new draft exactly as it would on any other new form.
+     Re-pointed at the blank, it answers "nothing to lose", and the next
+     keystroke starts a new draft exactly as it would on any other new form.
+     Cancel on a create form measures against the blank form instead (#365), so
+     an emptied one closes without asking either way.
 
      The typeahead's own three pieces of state go too: they are the folder name
      box's uncommitted half, and a suggestion list left open over an emptied
@@ -959,18 +960,20 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      me out of here" — so they must ask the same question, and routing them
      through one function is what stops the two answers drifting apart.
 
-     Untouched forms still close on the first press, in both modes. The check is
-     `formHasChanges` against the values this form opened with, so edit mode
-     measures against the task rather than against a blank form; the FRAUD
-     seeder's half-typed item counts too, being typing that would be lost. */
+     When it asks is `cancelAsks` (#365). Edit mode asks once something moved
+     since it opened, measured against the task rather than a blank form. A
+     create form asks whenever there is anything in it: a reopened Saved for
+     Later task always, a new one whenever it differs from a blank form, so only
+     a completely empty one closes on the first press. The FRAUD seeder's
+     half-typed item counts in both, being typing that would be lost.
+
+     A reopened form therefore never closes silently, so it never has typing to
+     send on the way out: every answer to the prompt settles it (#348). */
   const requestClose = (): void => {
-    if (formHasChanges(openedWith.current, form, seedDraft)) {
+    if (cancelAsks({ editing, reopened: reopened !== undefined, opened: openedWith.current, fresh: opening.fresh, current: form, pendingItemText: seedDraft })) {
       setDiscardAsk(true);
       return;
     }
-    /* A reopened form back where it opened may still owe its record a send:
-       typing sent a moment ago and then deleted again (#348). */
-    if (reopened) sendUnsaved();
     onClose();
   };
 

@@ -139,6 +139,40 @@ export const formHasChanges = (
   });
 };
 
+/* ── Does Cancel ask? (#365) ─────────────────────────────────
+   Two rules, one per kind of form, and the kinds never share one.
+
+   Edit mode asks once something moved since the form opened, which is
+   `formHasChanges` against `opened`. It is full of values nobody typed, so
+   anything else would prompt every time.
+
+   A create form asks whenever there is anything in it, whether or not it
+   changed since it opened. A reopened Saved for Later task always has
+   something in it. A new one has something in it when it differs from a blank
+   form (`fresh`), the same test the Save for later button and the autosave use,
+   so a form restored from the autosave and left alone still asks, and only a
+   completely empty one closes without a prompt. Measured against how it opened
+   instead, that restored form would close silently and take the autosave with
+   it. */
+export const cancelAsks = ({
+  editing,
+  reopened,
+  opened,
+  fresh,
+  current,
+  pendingItemText = ""
+}: {
+  editing: boolean;
+  reopened: boolean;
+  opened: CreateFormValues;
+  fresh: CreateFormValues;
+  current: CreateFormValues;
+  pendingItemText?: string;
+}): boolean => {
+  if (editing) return formHasChanges(opened, current, pendingItemText);
+  return reopened || formHasChanges(fresh, current, pendingItemText);
+};
+
 /* ── Which loan a new task is filed against (ADR-0001) ────────
    The loan a typeahead pick put in the form, but only while it is still the
    loan the box describes — otherwise nothing, and the create resolves the typed
