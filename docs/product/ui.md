@@ -56,13 +56,20 @@ persisted per browser:
   control at the row's right end asks `Delete this saved task?` in the row, and
   a yes removes it for good, updating the count and hiding the section when it
   was the last (#345). See
-  [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md). Flat view
-  does not show them yet.
+  [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md).
 - **Flat view.** One list, no sections, sorted into 4 buckets newest-first
   within each: Celebrating (just completed by the viewer) → `OPEN` →
   in-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED` /
   `AWAITING_ITEMS` / `PENDING_APPROVAL`) → closed (`COMPLETED` / `CANCELLED` /
   `ARCHIVED`).
+
+  **The one exception is Saved for Later** (#346). When the viewer has any, the
+  same Saved for Later section Grouped view shows sits above the list as its
+  only group: the same rows, newest saved first, the same count, and the same
+  reopen and delete. When they have none it is not there and Flat view is
+  exactly the list above. The list itself stays one list with no sections. If
+  the viewer has saved tasks and no tasks, the section shows on its own, as it
+  does in Grouped view, with no `No tasks yet.` under it.
 
 Both views share one retention filter and one card component:
 - Closed tasks render as half-height "mini rows" at the bottom of the grid

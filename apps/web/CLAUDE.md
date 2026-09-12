@@ -1673,8 +1673,11 @@ stays the one filled button. What keeps it honest:
   landed. A failed save is toasted by App and leaves the form open.
 - **The board section is its own component**, `SavedForLaterSection` in
   [src/saved-for-later.tsx](src/saved-for-later.tsx), lifted out for the reason
-  `thread.tsx` was. App renders it right after the `you` court inside
-  `renderTaskList`, and only the Tasks board passes it anything. A row is
+  `thread.tsx` was. `renderTaskList` builds it once as `savedSection` and both
+  views place that one element: Grouped view right after the `you` court, Flat
+  view above its single list (#346, the flat list's one group). Only the Tasks
+  board passes it anything. Never mount a second copy for one view; the two
+  would drift. A row is
   `.saved-row`: loan name, type, `saved N ago`, and no more, because a saved
   task has no pair, due stamp or action to draw. It is not a `TaskCard` and not
   a court; `tasks` never holds one.

@@ -4771,11 +4771,30 @@ export const App = () => {
       courtHolds,
       onSetExpand: setExpandOverride
     };
+    /* Saved for Later (#343, ADR-0011), built once and placed by both views, so
+       its rows, order, count, reopen and delete cannot differ between them. It
+       renders nothing when the viewer has none; the section decides that. */
+    const savedSection = <SavedForLaterSection items={savedItems} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} />;
     /* The toggle only controls court bucketing — both views render the same
        compact row, so a task looks identical either way. Flat view is the
-       whole list in one CardList; grouped view splits it into court sections. */
+       whole list in one CardList; grouped view splits it into court sections.
+
+       Flat view's one exception to having no sections is Saved for Later
+       (#346): it sits above the list as the one group, because those are not
+       tasks and have no place in the task ordering. The list below it is the
+       same single list. With nothing saved the branch is exactly the list it
+       always was; with saved tasks and no tasks it shows the section alone, as
+       Grouped view does, rather than saying No tasks yet under it. */
     if (!grouped) {
-      return <CardList tasks={list} emptyMessage={emptyMessage} now={now} {...cardProps} />;
+      if (savedItems.length === 0) {
+        return <CardList tasks={list} emptyMessage={emptyMessage} now={now} {...cardProps} />;
+      }
+      return (
+        <div className="courts">
+          {savedSection}
+          {list.length > 0 && <CardList tasks={list} emptyMessage="" now={now} {...cardProps} />}
+        </div>
+      );
     }
     const sections = buildCourtSections(list);
     if (sections.every((s) => s.tasks.length === 0) && savedItems.length === 0) {
@@ -4796,10 +4815,9 @@ export const App = () => {
                 <CardList tasks={s.tasks} emptyMessage="" now={now} {...cardProps} />
               </section>
             )}
-            {/* Saved for Later (#343, ADR-0011) sits right after Needs you, and
-                keeps that place when Needs you is empty and not drawn. Hidden
-                when the viewer has none; the section decides that itself. */}
-            {s.key === "you" && <SavedForLaterSection items={savedItems} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} />}
+            {/* Right after Needs you, keeping that place when Needs you is
+                empty and not drawn. */}
+            {s.key === "you" && savedSection}
           </Fragment>
         ))}
       </div>
