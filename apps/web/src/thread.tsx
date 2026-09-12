@@ -17,6 +17,7 @@ import {
 } from "@loan-tasks/shared";
 
 import { bylineOf, initialsOf } from "./format";
+import { ProtoByline, ProtoSpeaker } from "./prototype-conversation-variants";
 
 /* ── The expanded card's Instructions box and its conversation ──────────── */
 /* Lifted out of App.tsx for the same reason `timeline.tsx` was: this is the
@@ -725,9 +726,11 @@ const MessageRow = ({
   const byline = bylineOf(note.by.displayName, note.at);
   return (
     <div className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`} title={byline}>
+      <ProtoSpeaker name={note.by.displayName} at={note.at} />
       <ExpandAvatar name={note.by.displayName} />
       <div className="msg-body">
         <span className="sr-only">{byline}</span>
+        <ProtoByline name={note.by.displayName} at={note.at} />
         {editing && draft !== undefined ? (
           <div className="msg-edit" ref={editRef}>
             <label className="sr-only" htmlFor={`msg-edit-${note.id}`}>
@@ -994,9 +997,11 @@ export const ThreadMessages = ({
     <div className="msgs-list" ref={listRef} onPointerDown={onListPointerDown} onKeyDown={onListKeyDown}>
       {opensWithOriginatingNote && (
         <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
+          <ProtoSpeaker name={task.createdBy.displayName} at={task.createdAt} />
           <ExpandAvatar name={task.createdBy.displayName} />
           <div className="msg-body">
             <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
+            <ProtoByline name={task.createdBy.displayName} at={task.createdAt} />
             <div className="msg-line">
               <div className="msg-bubble">{originatingNote}</div>
             </div>

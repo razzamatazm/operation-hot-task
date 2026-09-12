@@ -21,6 +21,7 @@ import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
+import { ConversationVariantSwitcher, ProtoThread } from "./prototype-conversation-variants";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -2459,7 +2460,6 @@ const TaskCard = memo(({
   );
   const notesBlock = (
     <>
-      <div className="thread-head">{threadHeadLabel(task)}</div>
       <div className="msgs" ref={reviewListRef}>
         <ThreadMessages
           task={task}
@@ -2512,7 +2512,7 @@ const TaskCard = memo(({
             twice. */}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
         {instructionsBlock}
-        <div className="thread">{notesBlock}</div>
+        <ProtoThread todayLabel={threadHeadLabel(task)}>{notesBlock}</ProtoThread>
       </div>
     </CardMenuScopeProvider>
   );
@@ -4982,6 +4982,7 @@ export const App = () => {
 
   return (
     <main className="app-shell">
+      <ConversationVariantSwitcher />
       {/* ── Header ──────────────────────────────────── */}
       {/* Teams already shows "Hot Task" in its own tab, so no brand lockup
           here — that would be pure duplication. New Task lives on the list's

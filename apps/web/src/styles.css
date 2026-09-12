@@ -4634,3 +4634,223 @@ button.btn-good:hover {
     transform: translate(-50%, -50%);
   }
 }
+
+/* ══ PROTOTYPE — conversation variants ═══════════════════════════════════
+   Throwaway. See src/prototype-conversation-variants.tsx. Everything below
+   this line comes out when a variant is picked. */
+
+.proto-switcher {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+}
+.proto-switcher-arrow {
+  --btn-bg: transparent;
+  --btn-bg-hover: color-mix(in srgb, var(--bg) 20%, transparent);
+  color: var(--bg);
+  border: none;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+.proto-switcher-label {
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+/* ── A and B: the section is a ruled page, label in the margin ── */
+.thread.thread-proto {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 2px 0 4px;
+}
+.thread-proto > .thread-head {
+  grid-column: 1;
+  grid-row: span 2;
+  margin: 0;
+  padding: 1px 14px 0 0;
+  border-right: 1px solid var(--line-soft);
+  text-align: right;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  line-height: 1.35;
+  color: var(--ink-secondary);
+}
+.thread-proto > .msgs,
+.thread-proto > .composer {
+  grid-column: 2;
+}
+
+/* ── B: messages as checklist-style ruled rows ── */
+.thread-proto-B .msgs-list {
+  gap: 0;
+  padding: 0;
+}
+.thread-proto-B .msg {
+  grid-template-columns: 17px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.thread-proto-B .msg:first-child {
+  border-top: none;
+  padding-top: 1px;
+}
+.thread-proto-B .expand-avatar {
+  width: 17px;
+  height: 17px;
+  font-size: 0.5rem;
+  margin-top: 2px;
+}
+.thread-proto-B .msg-proto-byline {
+  display: block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 1px;
+}
+.thread-proto-B .msg-proto-byline b {
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+.thread-proto-B .composer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+/* ── B and C: no bubbles, words set as text on the page ── */
+.thread-proto-B .msg-bubble,
+.thread-proto-C .msg-bubble,
+.thread-proto-B .msg-mine .msg-bubble,
+.thread-proto-C .msg-mine .msg-bubble {
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 0;
+}
+.thread-proto-B .msg-line,
+.thread-proto-C .msg-line {
+  padding-right: 0;
+}
+
+/* ── C: who spoke sits in the margin, the rule runs the whole section ── */
+.thread-proto-C .thread-head {
+  box-sizing: border-box;
+  width: 116px;
+  margin: 0;
+  padding: 1px 14px 6px 0;
+  border-right: 1px solid var(--line-soft);
+  text-align: right;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  line-height: 1.35;
+  color: var(--ink-secondary);
+}
+.thread-proto-C .msgs-list {
+  gap: 0;
+  padding: 0;
+}
+.thread-proto-C .msg {
+  grid-template-columns: 116px minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: stretch;
+}
+.thread-proto-C .expand-avatar {
+  display: none;
+}
+.thread-proto-C .msg-proto-speaker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 6px 14px 6px 0;
+  border-right: 1px solid var(--line-soft);
+  text-align: right;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.thread-proto-C .msg-proto-speaker b {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+.thread-proto-C .msg-body {
+  padding: 6px 0;
+}
+.thread-proto-C .msg-mine .msg-proto-speaker b {
+  color: var(--ink);
+}
+.thread-proto-C .msgs-empty {
+  margin-left: 132px;
+}
+.thread-proto-C .composer {
+  margin: 0 0 0 116px;
+  padding: 10px 0 0 16px;
+  border-left: 1px solid var(--line-soft);
+}
+
+@media (max-width: 560px) {
+  .thread.thread-proto {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 7px;
+  }
+  .thread-proto > .thread-head {
+    grid-row: auto;
+    padding: 0;
+    border-right: none;
+    text-align: left;
+  }
+  .thread-proto > .msgs,
+  .thread-proto > .composer {
+    grid-column: 1;
+  }
+  .thread-proto-C .thread-head {
+    width: auto;
+    padding: 0 0 4px;
+    border-right: none;
+    text-align: left;
+  }
+  .thread-proto-C .msg {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .thread-proto-C .msg-proto-speaker {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 0 0;
+    border-right: none;
+    text-align: left;
+  }
+  .thread-proto-C .msg-body {
+    padding: 1px 0 6px;
+  }
+  .thread-proto-C .msgs-empty,
+  .thread-proto-C .composer {
+    margin-left: 0;
+  }
+  .thread-proto-C .composer {
+    padding-left: 0;
+    border-left: none;
+  }
+}
