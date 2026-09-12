@@ -138,7 +138,16 @@ const bootstrap = async (): Promise<void> => {
 
   const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);
   const indexFile = path.join(resolvedFrontendDist, "index.html");
-  if (fs.existsSync(indexFile)) {
+  if (appConfig.devMode) {
+    /* #368: under `npm run dev` the build is whatever was last made and nothing
+       rebuilds it, so serving it shows a stale board. Send page requests to the
+       live Vite page instead, keeping the hostname the browser used. */
+    // Same path match as the production catch-all below, so /api is untouched in both.
+    app.get(/^\/(?!api).*/, (req, res) => {
+      res.redirect(302, `${req.protocol}://${req.hostname}:${appConfig.webPort}${req.originalUrl}`);
+    });
+    console.log(`serving_frontend=false dev_mode=true redirect_web_port=${appConfig.webPort}`);
+  } else if (fs.existsSync(indexFile)) {
     app.use(express.static(resolvedFrontendDist));
     app.get(/^\/(?!api).*/, (_req, res) => {
       res.sendFile(indexFile);

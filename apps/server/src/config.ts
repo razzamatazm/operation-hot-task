@@ -42,6 +42,16 @@ export const config = {
     ? resolveServerPath(process.env.SAVED_FOR_LATER_FILE, "data/saved-for-later.json")
     : path.join(path.dirname(resolveServerPath(process.env.DATA_FILE, "data/tasks.json")), "saved-for-later.json"),
   frontendDist: resolveServerPath(process.env.FRONTEND_DIST, "../web/dist"),
+  /* Dev mode (#368): set only by the server package's `dev` script, which is
+     what `npm run dev` and `npm run dev:server` run. In dev the server does not
+     serve the built web app (nothing rebuilds it, so it is always stale) and
+     redirects page requests to the live Vite page instead. Deliberately an
+     explicit signal: production never sets NODE_ENV, and a build exists in both
+     modes, so neither can tell them apart. Unset, behaviour is unchanged. */
+  devMode: process.env.SERVER_DEV_MODE === "true",
+  /* The Vite dev page's port — same variable and default as apps/web/vite.config.ts,
+     so a second instance with its own WEB_PORT redirects to its own page. */
+  webPort: parseNumber(process.env.WEB_PORT, 5173),
   businessTimezone: process.env.BUSINESS_TIMEZONE ?? DEFAULT_CONFIG.businessTimezone,
   businessStartHour: parseNumber(process.env.BUSINESS_START_HOUR, DEFAULT_CONFIG.businessStartHour),
   businessStartMinute: parseNumber(process.env.BUSINESS_START_MINUTE, DEFAULT_CONFIG.businessStartMinute),
