@@ -148,7 +148,8 @@ test("a reset backs saved drafts up with the tasks and empties the store", async
   const [stamp] = await fs.readdir(path.join(dir, "backups"));
   assert.deepEqual(await readJson(path.join(dir, "backups", stamp, "saved-for-later.json")), drafts);
   assert.deepEqual(await readJson(path.join(dir, "saved-for-later.json")), { items: [] });
-  assert.match(output, /Cleared 2 Saved for Later tasks/);
+  assert.match(output, /Backed up 0 tasks and 2 Task Drafts to /);
+  assert.match(output, /Cleared 2 Task Drafts/);
 });
 
 test("a reset backs up an unreadable drafts file as it was, not as empty", async () => {
@@ -169,7 +170,7 @@ test("--keep leaves saved drafts in place and says so", async () => {
   const output = seed(dir, "--no-backup", "--keep");
 
   assert.deepEqual(await readJson(path.join(dir, "saved-for-later.json")), drafts);
-  assert.match(output, /Left 2 Saved for Later tasks in place/);
+  assert.match(output, /Left 2 Task Drafts in place/);
 });
 
 test("--keep re-seeds without clearing, and without doubling the cast", async () => {

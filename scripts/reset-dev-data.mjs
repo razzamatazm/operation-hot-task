@@ -498,8 +498,8 @@ const countSavedForLater = async () => {
 const savedForLaterCount = await countSavedForLater();
 const savedForLaterLabel =
   savedForLaterCount === null
-    ? "an unreadable Saved for Later file"
-    : `${savedForLaterCount} Saved for Later ${savedForLaterCount === 1 ? "task" : "tasks"}`;
+    ? "an unreadable Task Drafts file"
+    : `${savedForLaterCount} ${savedForLaterCount === 1 ? "Task Draft" : "Task Drafts"}`;
 
 if (!flag("no-backup")) {
   const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
