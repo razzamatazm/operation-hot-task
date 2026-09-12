@@ -19,8 +19,9 @@ import { TrashIcon } from "./icons";
 
    Never collapsible, newest saved first. With none, the page says so.
 
-   A row is three facts and deliberately no more: the loan as it was typed, the
-   task type, and when it was saved. No who-to-whom, due time or poop rating,
+   A row is three facts and deliberately no more: the loan as it was typed (an
+   Out of Office task's vacation description), the task type, and when it was
+   saved. No who-to-whom, due time or poop rating,
    because none of those exist until the task is filed.
 
    Tapping a row reopens it (#344): the three facts sit inside one button that
