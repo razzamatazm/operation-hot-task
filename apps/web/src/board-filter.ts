@@ -59,3 +59,31 @@ export const visibleBoardTasks = <T extends Pick<LoanTask, "createdBy" | "assign
   if (loanId) return tasks.filter((t) => t.loanId === loanId);
   return show === "mine" ? tasks.filter((t) => isOnMineBoard(t, viewer)) : tasks;
 };
+
+/* What sits under the Tasks board's tab row (#363). The tabs are Tasks and Task
+   Drafts, and the header draws both whatever else is true, so nothing here can
+   take a tab away.
+
+   The search and Mine narrow the task list and nothing else: a draft is not a
+   task (ADR-0011), so on the Task Drafts tab neither is asked. On the Tasks tab
+   an empty search is said before an empty Mine, because the search wins over
+   Mine in `visibleBoardTasks` too. An empty board with nothing narrowing it is
+   still the task list, which carries its own `No tasks yet.` */
+export type BoardBody = "drafts" | "search-empty" | "mine-empty" | "tasks";
+
+export const boardBody = ({
+  tab,
+  searching,
+  mine,
+  shownCount
+}: {
+  tab: "tasks" | "drafts";
+  searching: boolean;
+  mine: boolean;
+  shownCount: number;
+}): BoardBody => {
+  if (tab === "drafts") return "drafts";
+  if (shownCount > 0) return "tasks";
+  if (searching) return "search-empty";
+  return mine ? "mine-empty" : "tasks";
+};

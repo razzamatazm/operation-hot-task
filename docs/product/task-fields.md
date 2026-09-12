@@ -286,19 +286,19 @@ between `Cancel` and `Create Task` on the create form, in the secondary style.
 It never appears when editing a task. Nothing on the form is required to press
 it; it is only unavailable on a form nobody has typed into. It keeps the whole
 form on the server under the person who saved it, closes the form, and clears
-the form's autosave, and the task then appears in that person's **Saved for
-Later** section on the board (see [ui.md](ui.md)). It files no task, sends no
+the form's autosave, and the task then appears on that person's **Task
+Drafts** tab on the board (see [ui.md](ui.md)). It files no task, sends no
 notification, mints no loan and counts toward nothing, and nobody else can see
 it, admins included. The loan is kept exactly as typed and is only resolved
 when the task is finally created. There is no expiry and no limit on how many
 one person holds. A form opened from Humperdink is the same create form, so it
 has the button too.
 
-**Reopening one** (#344). Tapping a row in the Saved for Later section opens
+**Reopening one** (#344). Tapping a row on the Task Drafts tab opens
 the create form on the latest save of that task, with every field exactly as it
 was left. It is still the create form, not edit mode, so it has both buttons:
 
-- **Save for later** saves onto that same task, so the section does not grow
+- **Save for later** saves onto that same task, so the list does not grow
   and its `saved N ago` starts again. It is pressable straight away. If the same
   one is open on two devices, whichever saves last is kept, with no prompt. If
   it was created or removed on another device in the meantime, pressing Save for
@@ -320,14 +320,14 @@ was left. It is still the create form, not edit mode, so it has both buttons:
   it: the row keeps its place and its `saved N ago`, and the next time the task
   is reopened the form opens on the typing. The next New Task never offers it.
 
-**Deleting one** (#345). Each row in the Saved for Later section has a delete
+**Deleting one** (#345). Each row on the Task Drafts tab has a delete
 control at its right end, separate from the rest of the row, so pressing it
 never opens the form. It asks first, in the row itself: `Delete this saved
 task?`, with `Keep` (which has the keyboard focus, so pressing Return by
 accident keeps it) and `Delete`. `Keep` or Escape leaves it exactly as it was.
-`Delete` removes it from the server for good, and it comes off the section
-straight away; the count drops, and the section disappears if that was the last
-one. There is no undo, no expiry and no limit. If the delete does not go
+`Delete` removes it from the server for good, and it comes off the list
+straight away; the tab's count drops, and if that was the last one the page says
+there are no drafts. There is no undo, no expiry and no limit. If the delete does not go
 through, the row stays and a note says so. One already created or deleted on
 another device simply comes off the list. Nobody can delete someone else's,
 admins included, and trying gets the same answer as a task that never existed.

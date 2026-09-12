@@ -7,6 +7,8 @@ creating it, which removes it. (#347): removal with the owner. (#345): deleting
 one from the board, after a confirmation, with no undo. (#346): the same section
 as the one group Flat view shows. (#348): Cancel offering Save for later, and
 typing on a reopened one kept on that record rather than in the autosave.
+(#363): moved off the task list onto their own Task Drafts tab, which replaced
+the section in both views.
 
 ## Context
 
@@ -79,7 +81,12 @@ Rejected in rule 2. It is someone's scratch work, not work anyone has asked for.
 feature that exports, backs up, or reports on stored data has to decide what it
 does with these, rather than inheriting "everything is visible."
 
-**The board gains a section that is not a court.** Saved for Later sits after
-Needs you in Grouped view, and appears as the one group Flat view shows. The
-search and "mine" filters (#333, #334) have to account for it, whichever ships
-second.
+**The board gains a tab that is not a list of tasks.** Saved for Later tasks
+are shown on the board's **Task Drafts** tab, beside Tasks (#363), and never in
+the task list. They first shipped as a section inside the list, after Needs you
+in Grouped view and as the one group in Flat view (#343, #346). That put them in
+a different place per view, mixed them in with live tasks, and left the search
+and Mine filters (#333, #334) to decide what to do with them: a search showed a
+draft for another loan, and an empty Mine hid them. On their own tab neither
+filter reaches them. "Task Draft" is the name on screen only; the domain term is
+unchanged.

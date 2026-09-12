@@ -290,19 +290,16 @@ persisted per browser.
 **Flat view**:
 The single unified list, sorted by status then due, with no sections — the
 Assigner / Assignee columns carry whose-court on every row. The user-selectable
-counterpart to Grouped view. One deliberate exception: the viewer's _Saved for
-Later tasks_ show as a single Saved for Later group above the list, because they
-are not tasks and have no place in its ordering. The list below it has no
-sections.
-_Avoid_: sections (the flat list intentionally has none, apart from the Saved
-for Later group above it)
+counterpart to Grouped view.
+_Avoid_: sections (the flat list intentionally has none)
 
 **Mine filter**:
 An opt-in view preference that narrows the task list to tasks where the viewer
 is a _Party_ — they filed it or they hold it now. **Unclaimed tasks are never
 filtered out**, on either setting, so the pool stays in front of everybody. It
 combines with _Grouped view_ and _Flat view_ rather than being a third view, and
-it applies to the whole board, Done included. It deliberately hides _Observer_
+it applies to the whole task list, Done included. It never touches _Task
+Drafts_, which are not tasks. It deliberately hides _Observer_
 tasks, which that entry otherwise describes as visible on purpose: turning it on
 is the viewer choosing to set background awareness aside. The default is
 everyone, and the choice is persisted per browser.
@@ -319,6 +316,15 @@ stops existing as a Saved for Later task. It follows that person to any device.
 _Avoid_: "draft" (already means the form's autosave and an un-handed-off fraud
 item), "parked", "unfinished" (reads as the opposite of the Finished section),
 "saved task" (every filed task is saved)
+
+**Task Draft**:
+What the screen calls a _Saved for Later task_. The viewer's own are listed on
+the **Task Drafts** tab, next to Tasks at the top of the board, and nowhere in
+the task list, so they stay in one place however the board is viewed (#363).
+The name is a UI label only. In the code, the docs and conversation the term is
+still _Saved for Later task_, because a bare "draft" means the autosave, and the
+create form's button still says Save for later. The _Mine filter_ and the loan
+search act on the Tasks tab and never on this one.
 
 **Autosave**:
 The form's quiet, accidental safety net: one unfinished new-task form per
