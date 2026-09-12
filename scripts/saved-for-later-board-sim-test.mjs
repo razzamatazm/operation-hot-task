@@ -1066,6 +1066,13 @@ test("the app menu has no Show group", () => {
   assert.match(menu, /Collapse All Tasks/);
 });
 
+test("the app menu reads Collapse All Tasks, then View, Appearance and History", () => {
+  const menu = APP_SOURCE.slice(APP_SOURCE.indexOf("const AppMenu = ("), APP_SOURCE.indexOf("const NewTaskButton = ("));
+  const at = ["Collapse All Tasks", 'aria-label="List view"', 'aria-label="Appearance"', 'aria-label="How far back finished tasks go"'].map((marker) => menu.indexOf(marker));
+  assert.ok(at.every((i) => i >= 0), "every block is in the menu");
+  assert.deepEqual([...at].sort((a, b) => a - b), at, "in the user's order");
+});
+
 test("picking a loan opens All Tasks and remembers the tab it came from, without touching the stored choice", () => {
   const block = boardBlock();
   const pick = block.match(/const pickLoan = \(loan: Loan\): void => \{([\s\S]*?)\};/)?.[1];
