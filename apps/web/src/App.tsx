@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -4494,7 +4494,13 @@ export const App = () => {
   /* The merge question, while it is on screen (#265, ADR-0008 rule 7). Holds
      the loan being merged into — so the dialog can name it — and the resolver
      that hands the answer back to the save that is waiting on it. */
-  const [mergeAsk, setMergeAsk] = useState<{ collision: LoanLinkCollision; decide: (confirmed: boolean) => void } | null>(null);
+  const [mergeAsk, setMergeAsk] = useState<{
+    collision: LoanLinkCollision;
+    decide: (confirmed: boolean) => void;
+    /* The save carried the loan's own link only because another record holds
+       it (#383), so the dialog must not say the person changed it. */
+    linkUntouched: boolean;
+  } | null>(null);
   const [merging, setMerging] = useState(false);
 
   /* The single door every loan edit goes through. Two surfaces used to call it;
@@ -4514,7 +4520,11 @@ export const App = () => {
      `confirmMerge`, at which point the merge runs as it always has. A no sends
      nothing at all — both records and the link are exactly as they were — and
      rejects, so the caller leaves its form open with the typing still in it. */
-  const patchLoan = useCallback(async (loanId: string, body: Record<string, unknown>): Promise<LoanPatchResult> => {
+  const patchLoan = useCallback(async (
+    loanId: string,
+    body: Record<string, unknown>,
+    ask?: { linkUntouched: true }
+  ): Promise<LoanPatchResult> => {
     const send = (extra?: Record<string, unknown>) =>
       apiRequest<LoanPatchResult>(
         `/loans/${loanId}`,
@@ -4526,7 +4536,9 @@ export const App = () => {
     } catch (err) {
       const collision = linkCollisionIn(err);
       if (!collision) throw err;
-      const confirmed = await new Promise<boolean>((decide) => setMergeAsk({ collision, decide }));
+      const confirmed = await new Promise<boolean>((decide) =>
+        setMergeAsk({ collision, decide, linkUntouched: Boolean(ask?.linkUntouched) })
+      );
       if (!confirmed) {
         setMergeAsk(null);
         throw new MergeDeclined();
@@ -4645,7 +4657,12 @@ export const App = () => {
      refresh below is what makes the whole list agree — not just the task the
      form was open on. A refusal (a link already on another loan, #262's 409) is
      toasted and rethrown, so the form stays open with the typing still in it. */
-  const saveLoanFields = useCallback(async (loanId: string, taskId: string, fields: { name?: string; humperdinkLink?: string }): Promise<void> => {
+  const saveLoanFields = useCallback(async (
+    loanId: string,
+    taskId: string,
+    fields: { name?: string; humperdinkLink?: string },
+    ask?: { linkUntouched: true }
+  ): Promise<void> => {
     const link = fields.humperdinkLink?.trim();
     try {
       await patchLoan(loanId, {
@@ -4657,7 +4674,7 @@ export const App = () => {
         ...(fields.humperdinkLink !== undefined
           ? { humperdinkLink: link && !/^https?:\/\//i.test(link) ? `https://${link}` : link }
           : {})
-      });
+      }, ask);
       /* The task list is refetched by the caller, once for the whole save
          (#261) — refetching it here as well would fetch it twice for any save
          that touched the loan fields. The loan list is this step's own and has
@@ -4697,7 +4714,14 @@ export const App = () => {
      typing still in it. */
   const onSaveEdit = useCallback(async (task: LoanTask, edit: TaskEdit): Promise<void> => {
     try {
-      await saveTaskEdit(task, edit, { ...amendApi, saveLoanFields });
+      /* The loan's link rides along on any save when another loan record holds
+         it (#383), so the merge question can reach the pair; a person the loan
+         fields are shut to never sends it. Read from the loan list this app
+         already holds — a stale list sends a link that changes nothing. */
+      await saveTaskEdit(task, edit, { ...amendApi, saveLoanFields }, {
+        sharedLink: sharedLinkOf(task.loanId, loans),
+        loanLocked: Boolean(loanEditRefusal(task, user))
+      });
     } catch (err) {
       /* The only refusal raised at this level rather than received from a
          request, so it is the only one with nobody behind it to have spoken.
@@ -4708,7 +4732,7 @@ export const App = () => {
     } finally {
       await refresh();
     }
-  }, [amendApi, saveLoanFields, showToast, refresh]);
+  }, [amendApi, saveLoanFields, showToast, refresh, loans, user]);
 
   /* The task the edit form is open on, resolved fresh out of the list every
      render. `tasks` is the whole store — both the active view and the admin
@@ -5213,6 +5237,7 @@ export const App = () => {
       {mergeAsk && (
         <MergeConfirmDialog
           collision={mergeAsk.collision}
+          linkUntouched={mergeAsk.linkUntouched}
           busy={merging}
           onConfirm={() => mergeAsk.decide(true)}
           onCancel={() => mergeAsk.decide(false)}

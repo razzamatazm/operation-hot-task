@@ -26,7 +26,8 @@ import {
   nextHighlightIndex,
   normalizeLinkKey,
   normalizeLoanName,
-  searchLoans
+  searchLoans,
+  sharedLinkOf
 } from "../packages/shared/dist/loan.js";
 import { parseHumperdinkPayload } from "../packages/shared/dist/humperdink.js";
 import { applyImportedLoan, initialCreateForm } from "../apps/web/src/create-form-state.ts";
@@ -424,9 +425,9 @@ const run = async () => {
 
   /* After the start-up rewrite two records can hold the SAME Details link. They
      are not merged there; the merge question handles it the next time a link is
-     saved onto either record. In the app that is a paste from another tab (the
-     edit form sends only a link whose text changed); the service also asks when
-     an API caller re-sends the link the record already has. */
+     saved onto either record. In the app that is the next Edit Task save on
+     either loan, which carries the record's own link along (#383); the service
+     asks on a re-sent unchanged link exactly as it does for an API caller. */
   await withTempDir(async ({ service, loanStore }) => {
     const details = hdLink("Details", "401122-AB");
     await loanStore.replaceAll([
@@ -447,6 +448,52 @@ const run = async () => {
     assert.equal(renamed.loan.name, "Castillo Ranch", "a rename alone is still never refused");
     assert.equal((await loanStore.all()).length, 2, "nothing merged without a yes");
     pass("two records left holding one link raise the merge question when either link is saved");
+  });
+
+  /* #383: which loan's link Edit Task carries along. Shared means another
+     record holds the same canonical key, whichever tab each was spelled as. */
+  {
+    const details = hdLink("Details", "401122-AB");
+    const list = [
+      { id: "loan-a", name: "Castillo", humperdinkLink: details },
+      { id: "loan-b", name: "Castillo Docs", humperdinkLink: hdLink("Docs", "401122-ab") },
+      { id: "loan-c", name: "Alone", humperdinkLink: hdLink("Details", "401199-ZZ") },
+      { id: "loan-d", name: "No link" },
+      { id: "loan-e", name: "Also no link" }
+    ];
+    assert.equal(sharedLinkOf("loan-a", list), details, "either record of a pair returns its own link");
+    assert.equal(sharedLinkOf("loan-b", list), hdLink("Docs", "401122-ab"), "matched on the canonical key");
+    assert.equal(sharedLinkOf("loan-c", list), undefined, "a link nobody else holds is not shared");
+    assert.equal(sharedLinkOf("loan-d", list), undefined, "two loans with no link do not share one");
+    assert.equal(sharedLinkOf("missing", list), undefined, "a loan not in the list");
+    assert.equal(sharedLinkOf(undefined, list), undefined, "a task with no loan");
+    pass("sharedLinkOf finds a loan whose link another record also holds");
+  }
+
+  /* #383: Edit Task now sends a loan's own link on any save when the loan list
+     says another record holds it. A stale list (the pair was merged elsewhere
+     since) sends a link that neither moved nor collides, and that must be a
+     no-op: no history row, and nothing on any task changes. */
+  await withTempDir(async ({ service, taskStore, loanStore }) => {
+    const actor = { id: "u-editor", displayName: "Casey Checker" };
+    const details = hdLink("Details", "401133-CD");
+    const loan = await service.create({ name: "Marlow", humperdinkLink: details });
+    const task = makeTask({ loanId: loan.id, folderName: "Marlow", humperdinkLink: details });
+    await taskStore.upsertTask(task);
+    const taskBefore = await taskStore.findTask(task.id);
+
+    const res = await service.update(loan.id, { humperdinkLink: details }, { actor });
+    assert.equal(res.merged, undefined, "nothing to merge");
+    assert.equal(res.loan.humperdinkLink, details, "the link is what it was");
+    assert.equal((await loanStore.all()).length, 1);
+    assert.equal((await taskStore.allHistoryForTask(task.id)).length, 0, "no history row on the task");
+    assert.deepEqual(await taskStore.findTask(task.id), taskBefore, "and the task is byte-for-byte unchanged");
+
+    const renamed = await service.update(loan.id, { name: "Marlow Ranch", humperdinkLink: details }, { actor });
+    assert.equal(renamed.loan.name, "Marlow Ranch", "a rename riding along still lands");
+    const rows = await taskStore.allHistoryForTask(task.id);
+    assert.deepEqual(rows.map((e) => e.action), ["TASK_LOAN_NAME_AMENDED"], "and records only the rename, never a link row");
+    pass("re-sending a loan's own, uncontested link changes nothing and records nothing");
   });
 
   // ── Canonical-link merge, once it is confirmed (#262) ────

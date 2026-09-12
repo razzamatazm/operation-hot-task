@@ -202,10 +202,30 @@ is wrong on all of them.
   on the first try. Links saved before this were rewritten once when the server
   started, after a backup. Two records that turned out to hold the same loan
   were **not** merged then: the server logs them at every start-up while they
-  last, and pasting that loan's link from another Humperdink tab into Edit Task
-  on either one asks the merge question. Re-pasting the exact link a record
-  already shows changes nothing, so it sends nothing and asks nothing. A link
-  that isn't a Humperdink loan page is saved as typed.
+  last. A link that isn't a Humperdink loan page is saved as typed.
+- **A link another loan record also holds is asked about on the next save**
+  (#383). When the loan behind a task shares its link with another loan record,
+  any Edit Task save that changes something (the notes, a rename, the urgency)
+  also sends the loan's current link, and the merge question comes up. It says
+  this loan's Humperdink link is also on the other loan, rather than that saving
+  the link here combines them, because the person never touched the link. The
+  rest of the dialog is the same: which name survives, whose tasks move, that it
+  can't be undone from here, and the same two answers.
+  - **Yes** merges as above, then the rest of the edit saves.
+  - **No** (or Escape) keeps both records as they were and **still saves
+    everything else**, a rename in the same save included, with no error. The
+    form closes as it does on any save.
+  - It asks **on every such save** until the two are merged. There is no "don't
+    ask again".
+  - A link the person **changed** to one another record holds is still the
+    case above: No cancels the whole save and leaves the form open.
+  - A loan whose link nobody else holds sends no link and never asks. A save
+    that changed nothing sends nothing. Someone the loan fields are shut to (see
+    *Who may correct a loan*) never sends the link and is never asked, and an
+    out-of-office task has no loan to ask about.
+  - If the pair was already merged somewhere else and the app hasn't caught up,
+    the link it sends matches nothing and changes nothing: no history row, and
+    no task is touched.
 - **Every affected task records it.** A loan edit writes a history row on each
   task the loan reaches — `TASK_LOAN_NAME_AMENDED` and/or
   `TASK_LOAN_LINK_AMENDED`, naming who did it and both values

@@ -135,6 +135,32 @@ test("it says which of the two survives, in whichever direction the merge goes",
   assert.match(absorbedIsTheirs.body, /kept under the older name, "Harbor 41"/, "and the direction does not follow it");
 });
 
+/* #383: the question also comes up on a save that never touched the link,
+   because another loan record already holds it. "Saving it here combines…"
+   would tell the person they did something to the link; they didn't. */
+test("an untouched shared link is asked about in its own words, with the same detail", () => {
+  const changed = mergeConfirmCopy(COLLISION);
+  const untouched = mergeConfirmCopy(COLLISION, { linkUntouched: true });
+  assert.equal(untouched.title, changed.title, "same title shape");
+  assert.doesNotMatch(untouched.body, /Saving it here/, "it does not claim the person moved the link");
+  assert.match(untouched.body, /This loan's Humperdink link is also on "Harbor 41"/, "it says the link is shared, and with whom");
+  assert.match(untouched.body, /merge/i, "and asks whether to merge");
+  assert.match(untouched.body, /kept under the older name, "Harbor 41"/, "which name survives");
+  assert.match(untouched.body, /Every task on "Harbour 41 \(new\)" moves onto it/, "which record's tasks move");
+  assert.match(untouched.body, /can't be undone from here/, "and that it can't be undone here");
+  assert.equal(untouched.confirm, "Merge the loans");
+  assert.equal(untouched.cancel, "Keep them separate");
+  assert.doesNotMatch(changed.body, /also on/, "the changed-link wording is unchanged");
+});
+
+test("the dialog renders the untouched-link wording when told to", () => {
+  const html = renderToStaticMarkup(
+    createElement(MergeConfirmDialog, { collision: COLLISION, linkUntouched: true, onConfirm: () => {}, onCancel: () => {} })
+  );
+  assert.match(html, /also on/);
+  assert.match(html, /Keep them separate/);
+});
+
 test("both answers are offered as decisions, not as OK and Cancel", () => {
   const copy = mergeConfirmCopy(COLLISION);
   assert.match(copy.confirm, /merge/i, "the yes says what it does");

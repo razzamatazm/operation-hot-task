@@ -63,6 +63,20 @@ export const normalizeLinkKey = (link: string | undefined): string => {
   }
 };
 
+/* A loan's own link, when at least one OTHER loan record holds the same one by
+   `normalizeLinkKey` — the pair the #370 start-up rewrite leaves unmerged.
+   `undefined` for a loan with no link, a link nobody else has, or a loan not in
+   the list. Edit Task sends this link on a save so the merge question can ask
+   about the pair (#383). */
+export const sharedLinkOf = (loanId: string | undefined, loans: readonly Loan[]): string | undefined => {
+  const loan = loanId ? loans.find((entry) => entry.id === loanId) : undefined;
+  const key = normalizeLinkKey(loan?.humperdinkLink);
+  if (!loan || !key) return undefined;
+  return loans.some((other) => other.id !== loan.id && normalizeLinkKey(other.humperdinkLink) === key)
+    ? loan.humperdinkLink
+    : undefined;
+};
+
 /* Levenshtein edit distance between two already-normalized strings. */
 const editDistance = (a: string, b: string): number => {
   if (a === b) return 0;
