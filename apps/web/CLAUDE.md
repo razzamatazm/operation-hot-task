@@ -1860,6 +1860,21 @@ stays the one filled button. What keeps it honest:
   waits. Edit mode passes no `onSaveForLater` and gets the
   two-way `Discard this task?` word for word.
 
+**Share / Assign is one connected control with its own class names** (#364).
+`.form-direct-mode` is a hollow track holding two `.form-direct-mode-choice`
+halves, and the chosen one takes `.form-direct-mode-on`: the app menu's choice
+fill (`--brand` under `--on-accent`), so it is a solid half against an empty
+one in every theme and never a hue alone. Under forced colours, which repaints
+every fill, the chosen half takes the system's `Highlight` pair instead, and a
+`:focus-visible` rule puts a `--panel` line between its fill and the ring,
+which was the fill's own colour in contrast. It used to borrow the board's
+generic `.seg` classes, and #326 deleted those rules with the Grouped/Flat
+segment, which left two plain filled buttons and no selected state.
+`scripts/share-assign-selector-sim-test.mjs` renders both modes and fails if
+the selector emits a class with no rule in `styles.css`, if the pressed half
+stops being the one `pickerMode` names, or if a rule on it covers the focus
+ring.
+
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request
 field is one — on the other five the paste box and its button took a paste

@@ -795,6 +795,76 @@ h1, h2, h3, h4 {
   letter-spacing: 0.04em;
 }
 
+/* Share / Assign: one connected control, one half chosen (#364). It wore the
+   board's generic `.seg` classes until #326 deleted those rules with the
+   Grouped/Flat segment, and the two halves fell back to the base filled
+   button with nothing saying which was on. The names are this control's own
+   now, so a board-side cleanup cannot take it again, and
+   `scripts/share-assign-selector-sim-test.mjs` fails if it emits a class with
+   no rule behind it.
+
+   The chosen half speaks the app menu's choice voice (`.app-menu-choice-on`):
+   a solid fill on a hollow track, which is ink in light, lavender in dark and
+   cyan in contrast, all from the tokens. Filled against empty is a shape, not
+   a hue, so the state survives without colour. The fill goes through
+   `--btn-bg` like every other button, so hover cannot bring the base brand
+   fill back, and nothing here sets a box-shadow, which leaves
+   `button:focus-visible`'s ring standing on both halves. */
+.form-direct-mode {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.form-direct-mode-choice {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-secondary);
+}
+
+.form-direct-mode-choice:hover { color: var(--ink); }
+
+.form-direct-mode-choice.form-direct-mode-on {
+  --btn-bg: var(--brand);
+  --btn-bg-hover: var(--brand);
+  color: var(--on-accent);
+  cursor: default;
+}
+
+/* The ring is the base one; only the selected half needs help showing it.
+   `--focus-ring` drawn straight onto a `--brand` fill is the fill's own colour
+   in contrast (cyan on cyan) and nearly so in light, so a keyboard user saw the
+   half grow by 2px rather than take focus. A panel-coloured inset line between
+   the fill and the ring keeps them apart in every theme. */
+.form-direct-mode-choice.form-direct-mode-on:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--panel), var(--focus-ring);
+}
+
+/* Forced colours (Windows high contrast) repaints every background to the
+   system button colour, which would leave the two halves identical: the fill
+   is the whole of the selected state. Hand the chosen half the system's own
+   selection pair instead, the one place a keyword beats a token, since the
+   tokens are exactly what this mode throws away. After the base rules, as a
+   media query must be. */
+@media (forced-colors: active) {
+  .form-direct-mode-choice.form-direct-mode-on {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
 /* Present to a screen reader, absent to everyone else — and to layout, which is
    what lets an aria-live region sit in a grid without leaving a gap. Not
    `display: none`: that takes it out of the accessibility tree too, which is
