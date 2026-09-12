@@ -1,11 +1,12 @@
 /* Which tasks the Tasks board shows (#334).
 
-   The board has one setting that narrows it, `Show`: Everyone (the default) or
-   Mine. It is a view preference like Grouped/Flat and combines with both, so it
-   is applied once, to the list, before anything reads that list — the heading,
-   its count, the court sections or the flat list, Done, the empty state and
-   Collapse all all describe the same set because they are all handed the output
-   of `visibleBoardTasks`. A later narrowing (a search, say) belongs in that same
+   The board narrows two ways, Everyone or Mine, and since #390 they are two
+   tabs, All Tasks and My Tasks, rather than a menu setting. The choice is still
+   a view preference like Grouped/Flat and combines with both, so it is applied
+   once, to the list, before anything reads that list — the tab's count, the
+   court sections or the flat list, Done, the empty state and Collapse all all
+   describe the same set because they are all handed the output of
+   `visibleBoardTasks`. A later narrowing (a search, say) belongs in that same
    function for the same reason, and the loan search (#333) is there.
 
    Mine is a Party filter with one fixed exception. A task is on the Mine board
@@ -27,15 +28,33 @@ export type BoardShow = "everyone" | "mine";
 
 export const BOARD_SHOW_KEY = "loan-tasks:show";
 
-export const BOARD_SHOW_CHOICES: ReadonlyArray<{ value: BoardShow; label: string }> = [
-  { value: "everyone", label: "Everyone" },
-  { value: "mine", label: "Mine" }
-];
-
 /* The stored choice. Only the exact value Mine was written as turns it on;
    nothing stored, storage that refuses, or anything unrecognised is Everyone. */
 export const parseBoardShow = (stored: string | null | undefined): BoardShow =>
   stored === "mine" ? "mine" : "everyone";
+
+/* The board's three tabs (#390): All Tasks, My Tasks, Task Drafts.
+
+   All Tasks is the board under Everyone and My Tasks the board under Mine, so
+   the stored Show value is the stored half of the tab. It keeps its key and its
+   values, which is what opens someone who had Mine on before the tabs existed
+   straight onto My Tasks. Task Drafts has no stored half: a draft is not a task
+   (ADR-0011), and a reload opens on whichever of the other two was last open. */
+export type BoardTab = "all" | "mine" | "drafts";
+
+export const tabForShow = (show: BoardShow): "all" | "mine" => (show === "mine" ? "mine" : "all");
+
+export const showForTab = (tab: BoardTab): BoardShow | null =>
+  tab === "all" ? "everyone" : tab === "mine" ? "mine" : null;
+
+/* The tab a link to a task opens. A link is a request to see the task, so it
+   opens a task tab whatever was open, and My Tasks only when My Tasks is the
+   stored choice and the task is on it. One My Tasks hides (an Observer task,
+   which a Share DM is the usual way to), would open a card that is not on the
+   board and scroll to nothing, so the link opens All Tasks instead, stored the
+   way a press on that tab is. */
+export const tabForLink = ({ show, onMineBoard }: { show: BoardShow; onMineBoard: boolean }): "all" | "mine" =>
+  show === "mine" && onMineBoard ? "mine" : "all";
 
 export const isOnMineBoard = (
   task: Pick<LoanTask, "createdBy" | "assignee" | "status">,
@@ -86,18 +105,19 @@ export const isWithinHistory = (task: HistoryFields, history: BoardHistory, now:
    see a change that is not one. Every narrowing keeps the input's order: sorting
    is the caller's, and it has already run.
 
-   A picked loan (#333) is the search, and it wins over Show and History rather
-   than combining with them. The search answers "where are we on this file", and
-   the ticket's answer is every task on the loan the board holds, whoever's court
-   it is in, whether or not it is closed and however long ago it closed. Mine
-   would cut that to the viewer's own slice of the file, which is the one thing
-   the search promises not to do. Neither setting is changed by it: clear the
-   search and both are back.
+   A picked loan (#333) is the search, and it narrows All Tasks alone (#390): on
+   Everyone it wins over History rather than combining with it, and Mine ignores
+   it. The search answers "where are we on this file", and the ticket's answer is
+   every task on the loan the board holds, whoever's court it is in, whether or
+   not it is closed and however long ago it closed. Mine would cut that to the
+   viewer's own slice of the file, which is the one thing the search promises not
+   to do, so the search is never applied to it: My Tasks stays the Mine board
+   while a search is on. Neither setting is changed by it.
 
    `keep` names tasks that stay on the board past the History window: a deep
    link to an old closed task puts it there for the session without moving the
-   stored setting. It bypasses History only; Mine still applies, and the link's
-   focus path puts Show back to Everyone when Mine would hide the task. */
+   stored setting. It bypasses History only; Mine still applies, and the link
+   opens All Tasks when My Tasks would hide the task (`tabForLink`). */
 export const visibleBoardTasks = <T extends Pick<LoanTask, "id" | "createdBy" | "assignee" | "loanId"> & HistoryFields>(
   tasks: T[],
   {
@@ -116,36 +136,33 @@ export const visibleBoardTasks = <T extends Pick<LoanTask, "id" | "createdBy" | 
     keep?: ReadonlySet<string>;
   }
 ): T[] => {
-  if (loanId) return tasks.filter((t) => t.loanId === loanId);
+  if (loanId && show === "everyone") return tasks.filter((t) => t.loanId === loanId);
   const windowed = tasks.filter((t) => isWithinHistory(t, history, now) || (keep?.has(t.id) ?? false));
   const cut = windowed.length === tasks.length ? tasks : windowed;
   return show === "mine" ? cut.filter((t) => isOnMineBoard(t, viewer)) : cut;
 };
 
-/* What sits under the Tasks board's tab row (#363). The tabs are Tasks and Task
-   Drafts, and the header draws both whatever else is true, so nothing here can
-   take a tab away.
+/* What sits under the Tasks board's tab row (#363, #390). The tabs are All
+   Tasks, My Tasks and Task Drafts, and the header draws all three whatever else
+   is true, so nothing here can take a tab away.
 
-   The search and Mine narrow the task list and nothing else: a draft is not a
-   task (ADR-0011), so on the Task Drafts tab neither is asked. On the Tasks tab
-   an empty search is said before an empty Mine, because the search wins over
-   Mine in `visibleBoardTasks` too. An empty board with nothing narrowing it is
-   still the task list, which carries its own `No tasks yet.` */
+   The search narrows All Tasks and nothing else, and a draft is not a task
+   (ADR-0011), so on Task Drafts nothing is asked. An empty search is said on All
+   Tasks, an empty Mine on My Tasks. An empty All Tasks with no search is still
+   the task list, which carries its own `No tasks yet.` */
 export type BoardBody = "drafts" | "search-empty" | "mine-empty" | "tasks";
 
 export const boardBody = ({
   tab,
   searching,
-  mine,
   shownCount
 }: {
-  tab: "tasks" | "drafts";
+  tab: BoardTab;
   searching: boolean;
-  mine: boolean;
   shownCount: number;
 }): BoardBody => {
   if (tab === "drafts") return "drafts";
   if (shownCount > 0) return "tasks";
-  if (searching) return "search-empty";
-  return mine ? "mine-empty" : "tasks";
+  if (tab === "mine") return "mine-empty";
+  return searching ? "search-empty" : "tasks";
 };

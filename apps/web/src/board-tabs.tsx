@@ -1,52 +1,70 @@
 import { useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 
-/* The Tasks board's tab row (#363): Tasks, then Task Drafts.
+import type { BoardTab } from "./board-filter";
 
-   Task Drafts are the viewer's Saved for Later tasks (ADR-0011). They used to be
-   a section inside the list, placed differently in Grouped and Flat view and
-   caught between the list's filters. A tab keeps them in one place however the
-   board is viewed, and never mixed in with tasks.
+export type { BoardTab } from "./board-filter";
 
-   The row stands where the board's heading stood, so the Tasks tab carries what
-   the heading said (`Tasks`, `My tasks`, or a searched loan's name) and its
-   count. Task Drafts is always drawn, with its count, including zero.
+/* The Tasks board's tab row (#363, three tabs since #390): All Tasks, My Tasks,
+   then Task Drafts.
 
-   Which tab is open is App's, held in plain state and never stored: a reload
-   opens on Tasks. The body under the row is chosen by `boardBody` in
-   `board-filter.ts`.
+   All Tasks is the board under Everyone and My Tasks the board under Mine; they
+   replaced the app menu's Show row, which kept a choice people make all day one
+   tap too deep. Task Drafts are the viewer's Saved for Later tasks (ADR-0011),
+   kept in a tab of their own so they sit in one place however the board is
+   viewed, and never mixed in with tasks.
+
+   While a loan is searched, All Tasks carries the loan's name, which can be long
+   and is the one label that ellipsizes. Every tab is drawn, with its count,
+   including zero.
+
+   Under 480px the three names do not fit on the header's first line at 360px
+   (measured with the touch floor on: `All Tasks` lost 12px to an ellipsis), so
+   each tab also carries a short name, `All`, `Mine`, `Drafts`, which the phone
+   rule in styles.css shows while the full name is visually hidden. Hidden, not
+   removed, and the short one is `aria-hidden`: a screen reader hears `All Tasks
+   13` at every width. A searched loan's name has no short form.
+
+   Which tab is open is App's. All / My is stored (as the Show value it
+   replaced), Task Drafts never is; `tabForShow` and `showForTab` in
+   `board-filter.ts` are the mapping. The body under the row is chosen by
+   `boardBody` there too.
 
    The ARIA tabs pattern: one tablist, the selected tab the only one in the Tab
    order, arrows and Home/End moving the selection with focus following it. */
-
-export type BoardTab = "tasks" | "drafts";
 
 export const BOARD_PANEL_ID = "board-panel";
 
 export const boardTabId = (tab: BoardTab): string => `board-tab-${tab}`;
 
-const ORDER: readonly BoardTab[] = ["tasks", "drafts"];
+const ORDER: readonly BoardTab[] = ["all", "mine", "drafts"];
 
 export const BoardTabs = ({
   tab,
   onTabChange,
-  tasksLabel,
-  tasksTitle,
-  tasksCount,
+  allLabel,
+  allTitle,
+  allCount,
+  mineCount,
   draftsCount
 }: {
   tab: BoardTab;
   onTabChange: (tab: BoardTab) => void;
-  tasksLabel: ReactNode;
+  /* A searched loan's name stands in for `All Tasks` while the search is on. */
+  allLabel?: ReactNode;
   /* The full text behind a label that may be cut short, a long loan name. */
-  tasksTitle?: string;
-  tasksCount: number;
+  allTitle?: string;
+  allCount: number;
+  mineCount: number;
   draftsCount: number;
 }) => {
   const refs = useRef<Partial<Record<BoardTab, HTMLButtonElement | null>>>({});
-  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; title?: string; count: number }> = [
-    { value: "tasks", label: tasksLabel, ...(tasksTitle ? { title: tasksTitle } : {}), count: tasksCount },
-    { value: "drafts", label: "Task Drafts", count: draftsCount }
+  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; short?: string; title?: string; count: number }> = [
+    allLabel === undefined
+      ? { value: "all", label: "All Tasks", short: "All", count: allCount }
+      : { value: "all", label: allLabel, ...(allTitle ? { title: allTitle } : {}), count: allCount },
+    { value: "mine", label: "My Tasks", short: "Mine", count: mineCount },
+    { value: "drafts", label: "Task Drafts", short: "Drafts", count: draftsCount }
   ];
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
@@ -64,7 +82,7 @@ export const BoardTabs = ({
 
   return (
     <div className="board-tabs" role="tablist" aria-label="Board" onKeyDown={onKeyDown}>
-      {tabs.map(({ value, label, title, count }) => {
+      {tabs.map(({ value, label, short, title, count }) => {
         const selected = value === tab;
         return (
           <button
@@ -81,7 +99,16 @@ export const BoardTabs = ({
             }}
             onClick={() => onTabChange(value)}
           >
-            <span className="board-tab-label" {...(title ? { title } : {})}>{label}</span>
+            <span className="board-tab-label" {...(title ? { title } : {})}>
+              {short ? (
+                <>
+                  <span className="board-tab-name">{label}</span>
+                  <span className="board-tab-short" aria-hidden="true">{short}</span>
+                </>
+              ) : (
+                label
+              )}
+            </span>
             <span className="section-count">{count}</span>
           </button>
         );

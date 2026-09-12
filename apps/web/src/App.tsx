@@ -1,7 +1,7 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
-import { placePanel, maxPanelHeight } from "./panel-placement";
+import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -9,7 +9,7 @@ import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
-import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, visibleBoardTasks } from "./board-filter";
+import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, showForTab, tabForLink, tabForShow, visibleBoardTasks } from "./board-filter";
 import { BOARD_PANEL_ID, BoardTab, BoardTabs, boardTabId } from "./board-tabs";
 import { LoanSearch, LoanSearchEmpty, LoanSearchStatus } from "./loan-search";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
@@ -2893,8 +2893,6 @@ const CardList = ({
 const AppMenu = ({
   grouped,
   onGroupedChange,
-  show,
-  onShowChange,
   history,
   onHistoryChange,
   expandedIds,
@@ -2904,9 +2902,9 @@ const AppMenu = ({
 }: {
   grouped: boolean;
   onGroupedChange: (next: boolean) => void;
-  show: BoardShow;
-  onShowChange: (next: BoardShow) => void;
-  /* How far back finished tasks go (#391). */
+  /* How far back finished tasks go (#391). Everyone / Mine used to sit above
+     it as the Show row; since #390 that choice is the board's All Tasks and My
+     Tasks tabs. */
   history: BoardHistory;
   onHistoryChange: (next: BoardHistory) => void;
   expandedIds: string[];
@@ -2965,24 +2963,6 @@ const AppMenu = ({
                   aria-checked={grouped === opt.value}
                   className={`app-menu-choice${grouped === opt.value ? " app-menu-choice-on" : ""}`}
                   onClick={() => onGroupedChange(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="app-menu-group" role="group" aria-label="Which tasks to show">
-            <span className="app-menu-label">Show</span>
-            <div className="app-menu-choices">
-              {BOARD_SHOW_CHOICES.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={show === opt.value}
-                  className={`app-menu-choice${show === opt.value ? " app-menu-choice-on" : ""}`}
-                  onClick={() => onShowChange(opt.value)}
                 >
                   {opt.label}
                 </button>
@@ -3636,9 +3616,11 @@ export const App = () => {
     }
   }, [grouped]);
 
-  /* Show: Everyone or Mine (#334). Same arrangement as Grouped/Flat above —
-     per browser, survives a reload — and a separate setting from it, since the
-     two combine. The rule itself is `board-filter.ts`. */
+  /* Show: Everyone or Mine (#334), the stored half of the All Tasks and My
+     Tasks tabs since #390. Same arrangement as Grouped/Flat above — per
+     browser, survives a reload — and separate from it, since the two combine.
+     Written only through `selectBoardTab` below. The rule itself is
+     `board-filter.ts`. */
   const [boardShow, setBoardShow] = useState<BoardShow>(() => {
     try {
       return parseBoardShow(window.localStorage.getItem(BOARD_SHOW_KEY));
@@ -3685,11 +3667,25 @@ export const App = () => {
   const searchLoanIdRef = useRef<string | null>(null);
   searchLoanIdRef.current = searchLoanId;
 
-  /* Which of the Tasks board's two tabs is open (#363): Tasks or Task Drafts.
-     Never stored, so the board always opens on Tasks. Only the tab row, a loan
-     pick and a link change it; opening or leaving the create form does not, so
-     a form closes back onto whichever tab it was opened from. */
-  const [boardTab, setBoardTab] = useState<BoardTab>("tasks");
+  /* Which of the Tasks board's three tabs is open (#363, #390): All Tasks, My
+     Tasks or Task Drafts. It opens on the stored Show value's tab, and choosing
+     All or My writes that value back; Task Drafts has no stored half, so a
+     reload never opens on it. The tab row, clearing a search, a link and the
+     empty My Tasks state choose a tab through `selectBoardTab`. A loan pick is
+     the one thing that sets the tab without storing it: it opens All Tasks for
+     the search and remembers the tab it came from (`searchReturnTab`), which
+     clearing goes back to. Opening or leaving the create form changes nothing,
+     so a form closes back onto whichever tab it was opened from. The ref
+     mirrors the tab for `setExpandOverride`, as `searchLoanIdRef` does. */
+  const [boardTab, setBoardTab] = useState<BoardTab>(() => tabForShow(boardShow));
+  const boardTabRef = useRef<BoardTab>(boardTab);
+  boardTabRef.current = boardTab;
+  const selectBoardTab = useCallback((tab: BoardTab): void => {
+    setBoardTab(tab);
+    const show = showForTab(tab);
+    if (show) setBoardShow(show);
+  }, []);
+  const [searchReturnTab, setSearchReturnTab] = useState<BoardTab>("all");
 
   /* Ticking clock for the live countdowns. Both views (flat and courts) use the
      same compact row, so this runs always. 30s cadence matches the granularity
@@ -3802,11 +3798,13 @@ export const App = () => {
     );
     /* Opening a task from a narrowed board ends the search (#333), and it does
        so through the deep-link focus path below: that path clears the search,
-       puts Mine back to Everyone if Mine would hide the task, and scrolls the
-       card into view once the full board is back. The hold was taken just above
-       with the card's own `pulled`, read at the press, so the row does not jump
-       sections when the board fills in around it. */
-    if (open && searchLoanIdRef.current) setFocusTaskId(taskId);
+       opens All Tasks if My Tasks would hide the task, and scrolls the card into
+       view once the full board is back. The hold was taken just above with the
+       card's own `pulled`, read at the press, so the row does not jump sections
+       when the board fills in around it. Only from All Tasks (#390): the search
+       narrows that tab alone, so a card opened on My Tasks mid-search is already
+       on an unnarrowed board and the search is left standing. */
+    if (open && searchLoanIdRef.current && boardTabRef.current === "all") setFocusTaskId(taskId);
   }, []);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,
@@ -3827,7 +3825,6 @@ export const App = () => {
     }
     const target = focusTaskId;
     setActiveTab("active");
-    setBoardTab("tasks");
     /* Every arrival at a task ends a loan search (#333): opening a card from
        the narrowed board comes through here, and so does a link that lands
        mid-search, which could name a task on another loan and would otherwise
@@ -3840,12 +3837,12 @@ export const App = () => {
        you. An effect may read `tasks` freely — unlike `setExpandOverride`, it
        is not a memoized prop, so nothing downstream depends on its identity. */
     const linked = tasks.find((t) => t.id === target);
-    /* A link is a request to see this task. With Mine on, one the viewer only
+    /* A link is a request to see this task, so it opens a task tab, whichever
+       was open, Task Drafts included. With My Tasks stored, one the viewer only
        observes — a Share DM is the usual way here — would open a card that is
-       not on the board and scroll to nothing, so the board goes back to
-       Everyone, which the heading and the missing `Show everyone` link then say
-       out loud (#334). */
-    if (linked && !isOnMineBoard(linked, user)) setBoardShow("everyone");
+       not on the board and scroll to nothing, so the link opens All Tasks and
+       stores it, the way pressing that tab would (#334, #390). */
+    selectBoardTab(tabForLink({ show: boardShow, onMineBoard: linked ? isOnMineBoard(linked, user) : true }));
     /* The same request past the History window (#391): a closed task older than
        the setting would open off the board and scroll to nothing. Unlike Mine,
        the setting is left alone; the task alone is kept, for the session. */
@@ -3865,8 +3862,19 @@ export const App = () => {
   useEffect(() => {
     if (!scrollTaskId || searchLoanId) return undefined;
     const target = scrollTaskId;
+    /* Placed under the pinned header (#390) by `pinnedScrollTop`: centred in
+       the room below it, or top-aligned under it when the opened card is taller
+       than that room, which a plain `block: "center"` left hidden. */
     const raf = requestAnimationFrame(() => {
-      document.getElementById(`task-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const card = document.getElementById(`task-${target}`);
+      if (card) {
+        const box = card.getBoundingClientRect();
+        const headerHeight = document.querySelector<HTMLElement>(".task-grid-head")?.offsetHeight ?? 0;
+        window.scrollTo({
+          top: pinnedScrollTop({ cardTop: box.top, cardHeight: box.height, headerHeight, viewportHeight: window.innerHeight, scrollY: window.scrollY }),
+          behavior: "smooth"
+        });
+      }
       setScrollTaskId(null);
     });
     return () => cancelAnimationFrame(raf);
@@ -4835,9 +4843,17 @@ export const App = () => {
     () => (searchLoanId ? loans.find((l) => l.id === searchLoanId) ?? null : null),
     [searchLoanId, loans]
   );
-  const boardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: boardShow, viewer: user, loanId: searchLoan?.id ?? null, history: boardHistory, now: Date.now(), keep: keptTaskIds }),
+  /* Both task tabs, each counted whichever is open (#390). The search goes to
+     both and `visibleBoardTasks` applies it to All Tasks alone. `boardTasks` is
+     the one the open tab renders; on Task Drafts it is All Tasks, which nothing
+     there reads. */
+  const allBoardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: "everyone", viewer: user, loanId: searchLoan?.id ?? null, history: boardHistory, now: Date.now(), keep: keptTaskIds }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [unifiedTasks, boardShow, user.id, searchLoan, boardHistory, keptTaskIds]);
+    [unifiedTasks, user.id, searchLoan, boardHistory, keptTaskIds]);
+  const mineBoardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: "mine", viewer: user, loanId: searchLoan?.id ?? null, history: boardHistory, now: Date.now(), keep: keptTaskIds }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [unifiedTasks, user.id, searchLoan, boardHistory, keptTaskIds]);
+  const boardTasks = boardTab === "mine" ? mineBoardTasks : allBoardTasks;
   /* The search's empty-box shortlist, the same "mine" the create form derives. */
   const searchMyLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
 
@@ -5136,48 +5152,47 @@ export const App = () => {
 
       {/* ── Unified task grid ──────────────────────── */}
       {activeTab === "active" && (() => {
-        /* Mine is visibly on (#334): the heading says so, and the way back sits
-           beside it rather than only inside the menu that turned it on. */
-        const mine = boardShow === "mine";
-        const showEveryone = (
-          <button type="button" className="board-show-everyone" onClick={() => setBoardShow("everyone")}>
-            Show everyone
-          </button>
-        );
-        /* A picked loan (#333) names the list instead, and wins over Mine the
-           way `visibleBoardTasks` says, so `Show everyone` stands down while it
-           is on. Clearing puts back whichever of the two Show was. */
-        const clearSearch = () => setSearchLoanId(null);
-        /* Tasks, then Task Drafts (#363). The tab row stands where the heading
-           stood and is drawn whatever else is true, so neither Mine nor a
-           search can hide Task Drafts. The Tasks tab carries the heading's old
-           wording and count. The search, Mine and their empty states belong to
-           the Tasks tab alone: a draft is not a task, and the drafts page lists
+        /* A picked loan (#333) narrows All Tasks, so picking one opens that
+           tab and remembers the tab it came from. A second pick while searching
+           keeps the first remembered tab. The stored All / My value is left
+           alone, so a reload mid-search opens on it. */
+        const pickLoan = (loan: Loan): void => {
+          if (!searchLoanId) setSearchReturnTab(boardTab);
+          setSearchLoanId(loan.id);
+          setBoardTab("all");
+        };
+        const clearSearch = (): void => {
+          setSearchLoanId(null);
+          selectBoardTab(searchReturnTab);
+        };
+        /* All Tasks, My Tasks, then Task Drafts (#363, #390). The tab row stands
+           where the heading stood and is drawn whatever else is true, so no
+           empty state or search can hide a tab. While searching, All Tasks
+           carries the loan's name and `Clear search` sits beside the tabs while
+           that tab is open. A draft is not a task, and the drafts page lists
            every one the viewer has. */
-        const body = boardBody({ tab: boardTab, searching: Boolean(searchLoan), mine, shownCount: boardTasks.length });
+        const body = boardBody({ tab: boardTab, searching: Boolean(searchLoan), shownCount: boardTasks.length });
         return (
           <>
             <div className="section-head task-grid-head">
               <BoardTabs
                 tab={boardTab}
-                onTabChange={setBoardTab}
-                tasksLabel={searchLoan ? searchLoan.name : mine ? "My tasks" : "Tasks"}
-                {...(searchLoan ? { tasksTitle: searchLoan.name } : {})}
-                tasksCount={boardTasks.length}
+                onTabChange={selectBoardTab}
+                {...(searchLoan ? { allLabel: searchLoan.name, allTitle: searchLoan.name } : {})}
+                allCount={allBoardTasks.length}
+                mineCount={mineBoardTasks.length}
                 draftsCount={taskDraftsCount(savedForLater, autosave, now)}
               />
-              {boardTab === "tasks" && (searchLoan ? <LoanSearchStatus loan={searchLoan} onClear={clearSearch} /> : mine && showEveryone)}
+              {boardTab === "all" && searchLoan && <LoanSearchStatus loan={searchLoan} onClear={clearSearch} />}
               <div className="task-grid-head-actions">
-                {/* A search narrows the task list, so picking a loan shows it. */}
-                <LoanSearch loans={loans} myLoanIds={searchMyLoanIds} onPick={(loan) => { setSearchLoanId(loan.id); setBoardTab("tasks"); }} />
+                {/* A search narrows All Tasks, so picking a loan opens it. */}
+                <LoanSearch loans={loans} myLoanIds={searchMyLoanIds} onPick={pickLoan} />
                 <AppMenu
                   grouped={grouped}
                   onGroupedChange={setGrouped}
-                  show={boardShow}
-                  onShowChange={setBoardShow}
                   history={boardHistory}
                   onHistoryChange={setBoardHistory}
-                  expandedIds={expandedIdsIn(boardTasks)}
+                  expandedIds={boardTab === "drafts" ? [] : expandedIdsIn(boardTasks)}
                   onCollapseAll={collapseAllTasks}
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
@@ -5192,7 +5207,10 @@ export const App = () => {
                 <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
               ) : body === "mine-empty" ? (
                 <div className="empty-card">
-                  Nothing of yours right now. {showEveryone}
+                  Nothing of yours right now.{" "}
+                  <button type="button" className="board-show-everyone" onClick={() => selectBoardTab("all")}>
+                    Show all tasks
+                  </button>
                 </div>
               ) : (
                 renderTaskList(boardTasks, "No tasks yet.")

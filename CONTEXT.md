@@ -296,17 +296,19 @@ counterpart to Grouped view.
 _Avoid_: sections (the flat list intentionally has none)
 
 **Mine filter**:
-An opt-in view preference that narrows the task list to tasks where the viewer
-is a _Party_ — they filed it or they hold it now. **Unclaimed tasks are never
-filtered out**, on either setting, so the pool stays in front of everybody. It
-combines with _Grouped view_ and _Flat view_ rather than being a third view, and
-it applies to the whole task list, Done included. It never touches _Task
-Drafts_, which are not tasks. It deliberately hides _Observer_
-tasks, which that entry otherwise describes as visible on purpose: turning it on
-is the viewer choosing to set background awareness aside. The default is
-everyone, and the choice is persisted per browser.
-_Avoid_: "tied to", "my tasks" as a term for the set (it is the heading's
-wording, not a concept), "assigned to me" (a task the viewer filed counts too)
+The narrowing behind the board's **My Tasks** tab: the task list cut to tasks
+where the viewer is a _Party_ — they filed it or they hold it now. **Unclaimed
+tasks are never filtered out**, so the pool stays in front of everybody. It is a
+tab beside **All Tasks** (the unnarrowed board) and _Task Drafts_, not a menu
+setting (#390; it was the app menu's Show row). It combines with _Grouped view_
+and _Flat view_ rather than being a third view, and it applies to the whole task
+list, Done included. A loan search never narrows it, and it never touches _Task
+Drafts_, which are not tasks. It deliberately hides _Observer_ tasks, which that
+entry otherwise describes as visible on purpose: opening My Tasks is the viewer
+choosing to set background awareness aside. All Tasks is the default, and which
+of the two was last open is persisted per browser.
+_Avoid_: "tied to", "my tasks" as a term for the set (`My Tasks` is the tab's
+label, not a concept), "assigned to me" (a task the viewer filed counts too)
 
 ### Saved for Later
 
@@ -321,12 +323,13 @@ item), "parked", "unfinished" (reads as the opposite of the Finished section),
 
 **Task Draft**:
 What the screen calls a _Saved for Later task_. The viewer's own are listed on
-the **Task Drafts** tab, next to Tasks at the top of the board, and nowhere in
-the task list, so they stay in one place however the board is viewed (#363).
-The name is a UI label only. In the code, the docs and conversation the term is
-still _Saved for Later task_, because a bare "draft" means the autosave, and the
-create form's button still says Save for later. The _Mine filter_ and the loan
-search act on the Tasks tab and never on this one. The tab also lists the
+the **Task Drafts** tab, the last of the three at the top of the board after
+All Tasks and My Tasks, and nowhere in the task list, so they stay in one place
+however the board is viewed (#363, #390). The name is a UI label only. In the
+code, the docs and conversation the term is still _Saved for Later task_,
+because a bare "draft" means the autosave, and the create form's button still
+says Save for later. The _Mine filter_ and the loan search act on the task tabs
+and never on this one, and a reload never opens on it. The tab also lists the
 viewer's _Autosave_, reading `Autosaved N ago`, which is not a Task Draft (#371).
 
 **Autosave**:

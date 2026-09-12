@@ -1285,9 +1285,33 @@ button.btn-good:hover {
    header carries the row's own 15px right inset (14px of row padding plus the
    card's 1px border) so the right edges agree. Read down the right-hand side of
    the list and the menu sits over every hamburger and New Task over every
-   Claim. */
+   Claim.
+
+   Pinned (#390): the header stays at the top of the viewport while the list
+   scrolls under it, so the tabs and New Task are one reach away however far
+   down the board someone is. The page scrolls on the document and no ancestor
+   clips, which is all `sticky` needs. It paints the page's own `--bg`, opaque,
+   so rows pass under it rather than through it, and trades the section head's
+   `--line` rule for a `--line-soft` hairline, with no shadow: a pinned bar that
+   casts one reads as a toolbar floating over the paper.
+
+   z-index 30 sits under every layer that leaves the page: the task-row menu
+   (55), the share, handoff and two-exit popovers and toasts (60), the form
+   overlay (50) and the confirm dialogs (70) all draw over it. It only has to
+   beat the list, which sets no z-index of its own. The app menu and loan
+   search panels (40) are inside the header, so they ride its stacking context
+   and still draw over the rows. */
 .task-grid-head {
   padding-right: 15px;
+  /* A grid item's minimum is its content by default, so a tab row wider than
+     the column widened the header and pushed the whole page sideways on a
+     360px phone. The header keeps to its column and the tabs give instead. */
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg);
+  border-bottom-color: var(--line-soft);
 }
 
 .task-grid-head-actions {
@@ -1340,11 +1364,13 @@ button.btn-good:hover {
   background: color-mix(in srgb, var(--bg), var(--ink) 9%);
 }
 
-/* `Show everyone` (#334), beside the `My tasks` heading and in the Mine empty
-   state. It reads as a link because it is one in every way but the element: it
-   changes a view setting, not a task. So it carries the standing underline every
-   link here carries, in the list header's control voice, and takes the ghost
-   token pair so `button:hover` cannot paint a brand fill under it. */
+/* The board's link-voiced buttons: `Clear search` beside the tabs and in an
+   empty search, and `Show all tasks` in the empty My Tasks state (#390; it was
+   `Show everyone`, #334, and also sat in the header until the tabs replaced
+   it). Each reads as a link because it is one in every way but the element: it
+   changes the view, not a task. So it carries the standing underline every link
+   here carries, in the list header's control voice, and takes the ghost token
+   pair so `button:hover` cannot paint a brand fill under it. */
 .board-show-everyone {
   --btn-bg: transparent;
   --btn-bg-hover: transparent;
@@ -1462,6 +1488,35 @@ button.btn-good:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Short tab names on phones (#390). `All Tasks`, `My Tasks` and `Task Drafts`
+   with their counts need 341px against the header's 329 at 360px, measured with
+   the touch floor forced on, so under 480px each tab shows `All`, `Mine` or
+   `Drafts`. The full name stays in the DOM, visually hidden the way `.sr-only`
+   hides, so it is still the tab's accessible name; the short one is
+   `aria-hidden`. The phone rule sits after the base rule on purpose: a media
+   query adds no specificity. */
+.board-tab-short {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .board-tab-short {
+    display: inline;
+  }
+
+  .board-tab-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 /* ── Tab bar ──────────────────────────────────────────────── */

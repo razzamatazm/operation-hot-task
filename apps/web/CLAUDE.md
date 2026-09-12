@@ -130,20 +130,45 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   control they never see.
 - List header (`.task-grid-head`): heading and count left, then the app menu,
   then `New Task` hard right. On the Tasks board the heading is a tab row
-  (`BoardTabs`, [src/board-tabs.tsx](src/board-tabs.tsx), #363): `Tasks` and
-  `Task Drafts`, each the heading's own type with its `.section-count` chip,
-  the open one in ink over a `--brand` underline and the other muted, no fill
-  or box. The Tasks tab carries the heading's old wording (`Tasks`, `My tasks`,
-  a searched loan's name, which is the part that ellipsizes); Task Drafts never
-  shrinks and is drawn whatever Mine or the search say. The actions group is
-  untouched, still pushed right by `margin-left: auto`, so the tabs never move
-  the search, the menu or `New Task`. Under 480px the header wraps as before:
-  tabs on the first line, the actions right-aligned on the next. The open tab is
-  `boardTab` in App, plain state, never stored; only the row, a loan pick and a
-  link change it, which is why leaving the create form lands back on the tab it
-  was opened from. What sits under the row is `boardBody` in
-  [src/board-filter.ts](src/board-filter.ts), and it asks the search and Mine
-  only on the Tasks tab. The pair is built to land on the action column of
+  (`BoardTabs`, [src/board-tabs.tsx](src/board-tabs.tsx), #363, three tabs
+  since #390): `All Tasks`, `My Tasks` and `Task Drafts`, each the heading's own
+  type with its `.section-count` chip, the open one in ink over a `--brand`
+  underline and the others muted, no fill or box. All Tasks is the board under
+  Everyone and My Tasks the board under Mine; they replaced the app menu's Show
+  row and the header's `Show everyone` link, and there is no Show link in the
+  header on any tab. While a loan is searched All Tasks carries the loan's name,
+  the one label that ellipsizes; the other two never shrink. **Under 480px the
+  tabs read `All`, `Mine` and `Drafts`**: the full names and counts need 341px
+  against the header's 329 at 360px (measured with the touch floor forced on),
+  so each tab carries a `.board-tab-short` name the phone rule shows while the
+  full `.board-tab-name` is visually hidden, never removed, so a screen reader
+  still hears `All Tasks`. A searched loan's name has no short form. The header
+  also takes `min-width: 0`, since a grid item's content minimum let an
+  over-wide tab row push the whole page sideways. The actions group
+  is untouched, still pushed right by `margin-left: auto`, so the tabs never
+  move the search, the menu or `New Task`. Under 480px the header wraps as
+  before: tabs on the first line, the actions right-aligned on the next.
+  **The header is pinned** (#390): `position: sticky` at `top: 0`, `--bg`
+  behind it and a `--line-soft` hairline under it, no shadow, z-index 30, so
+  every portaled layer (row menu 55, popovers and toasts 60, form overlay 50,
+  confirm dialogs 70) draws over it while its own app menu and search panels
+  (40, inside its stacking context) draw over the rows. Both phone lines stay
+  pinned. It works because the page scrolls on the document and nothing above
+  the header clips; an `overflow` on `.app-shell` or `body` would silently
+  unpin it. A linked card is scrolled by `pinnedScrollTop`
+  ([src/panel-placement.ts](src/panel-placement.ts)), not by
+  `scrollIntoView({ block: "center" })`: centring in the whole viewport put the
+  top of a tall expanded card, which is what a link opens, under the header on a
+  phone, so it centres in the room below the header and top-aligns a card
+  taller than that room. The open tab is `boardTab` in App, opened on the stored
+  Show value's tab (`tabForShow`) and chosen through `selectBoardTab`, which
+  writes All / My back to `BOARD_SHOW_KEY` (`showForTab`) and never stores Task
+  Drafts. A loan pick sets the tab without storing it and remembers the tab it
+  came from for `Clear search` to return to. Leaving the create form changes no
+  tab. What sits under the row is `boardBody` in
+  [src/board-filter.ts](src/board-filter.ts): an empty search on All Tasks, an
+  empty Mine on My Tasks (with `Show all tasks`, which opens All Tasks). The
+  pair is built to land on the action column of
   the rows below — same 32px trigger, same 6px gap, same `--quick-action-w`
   button, and the header carries the row's own right inset (its padding plus
   the card's 1px border). Read down the right edge and the menu sits over every
@@ -159,18 +184,20 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   Suggestions are the create form's ranking at the create form's limit
   (`loanSearchResults`, and a test fails if the two limits drift). A pasted
   Humperdink link is looked up by shared `findLoanForCreate` instead, because that
-  ranking only reads names. Picking narrows through `visibleBoardTasks`, so the
-  Tasks tab's label and count, sections, empty state and Collapse all follow
-  it. While narrowed the Tasks tab reads the loan's name, with `Clear search`
-  beside the tabs while Tasks is open. It never narrows Task Drafts, and
-  picking a loan opens the Tasks tab. The
-  search wins over Mine rather than combining with it: it answers "where are we
-  on this file", which is the whole file, not the viewer's slice of it. Show
-  itself is left alone, so clearing puts Mine back. Opening a card ends the
-  search through the deep-link focus path, which is also why a link arriving
-  mid-search clears it. Like a link, it puts Show back to Everyone when Mine
-  would hide the opened task, since the board it returns to has to hold that
-  card. The scroll is its own step (`scrollTaskId`), taken on the commit after
+  ranking only reads names. Picking narrows All Tasks through
+  `visibleBoardTasks`, so that tab's label and count, sections, empty state and
+  Collapse all follow it. While narrowed All Tasks reads the loan's name, with
+  `Clear search` beside the tabs while All Tasks is open. It never narrows My
+  Tasks or Task Drafts (#390): `visibleBoardTasks` applies a loan only on
+  Everyone, because it answers "where are we on this file", which is the whole
+  file, not the viewer's slice of it. Picking a loan opens All Tasks without
+  storing it and remembers the open tab; clearing returns there. Opening a card
+  on the searched All Tasks ends the search through the deep-link focus path,
+  which is also why a link arriving mid-search clears it; a card opened on My
+  Tasks mid-search leaves the search alone. Like a link, the focus path opens
+  All Tasks when My Tasks is stored and would hide the opened task
+  (`tabForLink`), since the board it returns to has to hold that card. The
+  scroll is its own step (`scrollTaskId`), taken on the commit after
   the board changes: scrolled in the same pass, it aimed at where the card sat
   on the narrowed board. The suggestion list itself is `LoanSuggestionList`,
   shared with the create form's typeahead; each keeps its own box and keys.
@@ -188,21 +215,24 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   *Mini rows* for what it cost. The task-card ones now live at the bottom of
   `styles.css` under their own heading. Put new ones there.
 - Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill. The Tasks board's
-  tab row (#363) is the same `.tab-btn` with a `.board-tab` modifier that only
-  sets the heading's type and spacing; don't give it its own colour, underline
-  or hover rules.
+  tab row (#363, #390) is the same `.tab-btn` with a `.board-tab` modifier that
+  only sets the heading's type and spacing; don't give it its own colour,
+  underline or hover rules. Its three tabs are one tablist with a roving
+  tabindex, arrows and Home/End moving across all three.
 - App menu (`.app-menu`): the preferences that are not decisions about a task,
-  in this order — View (Grouped/Flat), Show (Everyone/Mine), History (`Last 7
-  days` / `Last 14 days` / `Last 30 days` / `All`, #391), Appearance, and
-  Collapse all. The Tasks board is the only list with a header, so it is the
-  only menu. Show and History are rows of their own rather than more View
-  choices because they combine with both, and the list they narrow comes from
-  `visibleBoardTasks` in [src/board-filter.ts](src/board-filter.ts), which every
-  consumer of the board list reads. History's four choices take the
-  `.app-menu-choices-wrap` modifier Appearance uses, so they wrap rather than
-  overflow the panel on a 360px phone. Both are stored per browser beside
-  Grouped (`BOARD_SHOW_KEY`, `BOARD_HISTORY_KEY`), parsed so anything
-  unrecognised is the default. Anchored to its own trigger
+  in this order — View (Grouped/Flat), History (`Last 7 days` / `Last 14 days`
+  / `Last 30 days` / `All`, #391), Appearance, and Collapse all. Show
+  (Everyone/Mine) left it in #390 to become the All Tasks and My Tasks tabs.
+  The Tasks board is the only list with a header, so it is the only menu.
+  History is a row of its own rather than more View choices because it combines
+  with both, and the list it narrows comes from `visibleBoardTasks` in
+  [src/board-filter.ts](src/board-filter.ts), which every consumer of the board
+  list reads. History's four choices take the `.app-menu-choices-wrap` modifier
+  Appearance uses, so they wrap rather than overflow the panel on a 360px
+  phone. It is stored per browser beside Grouped (`BOARD_HISTORY_KEY`, and the
+  tabs' `BOARD_SHOW_KEY`), parsed so anything unrecognised is the default.
+  Collapse all acts on the list the open tab renders, and on Task Drafts has
+  nothing to close. Anchored to its own trigger
   rather than portalled; the app bar is not clipped, so there is nothing to
   escape and no placement to compute. Closes on outside press and Escape, the
   same two exits every transient surface here answers to.
@@ -1005,8 +1035,9 @@ at*. It lives in the app menu (`AppMenu`) on the Tasks board's header, the one
 list header left since #391 removed admin All Tasks; the loan-filtered list and
 its header are gone too, along with the `CollapseAllButton` and `GroupSeg`
 components that used to sit out on the header. The menu is handed the ids
-`renderTaskList` renders from `boardTasks`, so the History, Show and search
-scoping is already done and cards off the board keep whatever state they had.
+`renderTaskList` renders from `boardTasks`, the open tab's list, so the History,
+All / My and search scoping is already done and cards off the board keep
+whatever state they had. On Task Drafts it is handed no ids.
 `expandedTaskIds` reads the override map for that list and `collapseTasks`
 writes the whole set back in one merged update, returning the previous map
 untouched when nothing would change. Both live in `expand-state.ts` alongside
