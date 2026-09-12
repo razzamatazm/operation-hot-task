@@ -131,18 +131,19 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
 - List header (`.task-grid-head`): heading and count left, then the app menu,
   then `New Task` hard right. On the Tasks board the heading is a tab row
   (`BoardTabs`, [src/board-tabs.tsx](src/board-tabs.tsx), #363, three tabs
-  since #390): `All Tasks`, `My Tasks` and `Task Drafts`, each the heading's own
+  since #390): `All`, `Mine` and `Drafts`, each the heading's own
   type with its `.section-count` chip, the open one in ink over a `--brand`
   underline and the others muted, no fill or box. All Tasks is the board under
   Everyone and My Tasks the board under Mine; they replaced the app menu's Show
   row and the header's `Show everyone` link, and there is no Show link in the
   header on any tab. While a loan is searched All Tasks carries the loan's name,
-  the one label that ellipsizes; the other two never shrink. **Under 480px the
-  tabs read `All`, `Mine` and `Drafts`**: the full names and counts need 341px
-  against the header's 329 at 360px (measured with the touch floor forced on),
-  so each tab carries a `.board-tab-short` name the phone rule shows while the
-  full `.board-tab-name` is visually hidden, never removed, so a screen reader
-  still hears `All Tasks`. A searched loan's name has no short form. The header
+  the one label that ellipsizes; the other two never shrink. **The tabs read
+  `All`, `Mine` and `Drafts` at every width** (the user's call, 2026-09-12).
+  The full names were swapped for these under 480px only, and phones and
+  narrow windows above that still cut them off, so there is one set of names
+  on screen now and no breakpoint. A screen reader still hears `All Tasks`,
+  `My Tasks` and `Task Drafts` from an `sr-only` span, with the short name
+  `aria-hidden`. A searched loan's name has no second form. The header
   also takes `min-width: 0`, since a grid item's content minimum let an
   over-wide tab row push the whole page sideways. The actions group
   is untouched, still pushed right by `margin-left: auto`, so the tabs never

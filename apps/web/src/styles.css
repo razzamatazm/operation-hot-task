@@ -1471,9 +1471,9 @@ button.btn-good:hover {
   font-size: 0.82rem;
 }
 
-/* The Tasks board's tab row (#363): Tasks, then Task Drafts, where the heading
-   stood. Each tab is the heading's own type (the display face at 0.95rem/700)
-   with its count chip, so the row reads as the two headings it replaced. Each
+/* The Tasks board's tab row (#363, #390): All, Mine, then Drafts, where the
+   heading stood. Each tab is the heading's own type (the display face at
+   0.95rem/700) with its count chip, so the row reads as headings. Each
    is a `.tab-btn`, so muted at rest, ink and the --brand underline when open,
    and no fill, all come from the one tab rule below; `.board-tab` only sets
    the heading's type and drops the nav bar's padding and its overlap onto a
@@ -1481,9 +1481,9 @@ button.btn-good:hover {
    declared later in this file and would otherwise win.
 
    The row sits left of the actions group and never pushes it: the group is
-   pushed right by `margin-left: auto`, and the Tasks tab is the part that gives.
+   pushed right by `margin-left: auto`, and the All tab is the part that gives.
    While a loan is searched its label is the loan's name, which can be long, so
-   it ellipsizes; Task Drafts never shrinks. */
+   it ellipsizes; Mine and Drafts never shrink. */
 .board-tabs {
   display: flex;
   align-items: center;
@@ -1511,35 +1511,6 @@ button.btn-good:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Short tab names on phones (#390). `All Tasks`, `My Tasks` and `Task Drafts`
-   with their counts need 341px against the header's 329 at 360px, measured with
-   the touch floor forced on, so under 480px each tab shows `All`, `Mine` or
-   `Drafts`. The full name stays in the DOM, visually hidden the way `.sr-only`
-   hides, so it is still the tab's accessible name; the short one is
-   `aria-hidden`. The phone rule sits after the base rule on purpose: a media
-   query adds no specificity. */
-.board-tab-short {
-  display: none;
-}
-
-@media (max-width: 480px) {
-  .board-tab-short {
-    display: inline;
-  }
-
-  .board-tab-name {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-  }
 }
 
 /* ── Tab bar ──────────────────────────────────────────────── */
