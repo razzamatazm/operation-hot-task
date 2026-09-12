@@ -368,14 +368,21 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       }
       await ensureAdminRemains(req.params.id, false);
       const removed = await userStore.remove(req.params.id);
+      /* Deleting a checker strands their live checks harder than demoting one
+         does — there is no user record left to release them from later — so it
+         takes the same release, after the record is gone. */
+      const releasedChecks = removed ? await service.releaseFraudChecksForChecker(req.params.id, actor) : [];
+      /* Their Saved for Later tasks go with them (ADR-0011 rule 6, #347).
+         After the record, so a removal that fails keeps them, and after the
+         release, so a failure here cannot strand a check. Run even when there
+         is no record: a removal that failed at this step has already deleted
+         it, and repeating the DELETE is how what it left behind gets cleared.
+         Deactivation (PATCH above) deliberately leaves them for reactivation. */
+      await savedForLater.removeAllFor(req.params.id);
       if (!removed) {
         res.status(404).json({ error: "User not found" });
         return;
       }
-      /* Deleting a checker strands their live checks harder than demoting one
-         does — there is no user record left to release them from later — so it
-         takes the same release, after the record is gone. */
-      const releasedChecks = await service.releaseFraudChecksForChecker(req.params.id, actor);
       res.json({ ok: true, releasedFraudChecks: releasedChecks.length });
     } catch (error) {
       sendError(res, error, "Failed to remove user");

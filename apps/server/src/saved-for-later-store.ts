@@ -66,4 +66,18 @@ export class SavedForLaterStore {
     });
     return item;
   }
+
+  /* Rule 6: it goes when its owner goes. Every one this owner held, gone, and
+     how many that was. Someone with none writes nothing. Only removing a person
+     calls this; deactivating one does not, so reactivating them finds theirs
+     where they left it. */
+  async removeAllFor(ownerId: string): Promise<number> {
+    let removed = 0;
+    await this.file.update((data) => {
+      const kept = data.items.filter((item) => item.ownerId !== ownerId);
+      removed = data.items.length - kept.length;
+      return removed > 0 ? { items: kept } : undefined;
+    });
+    return removed;
+  }
 }
