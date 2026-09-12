@@ -1077,7 +1077,11 @@ test("a link to a task opens a task tab, All Tasks when My Tasks would hide it",
   const focus = APP_SOURCE.slice(APP_SOURCE.indexOf("/* Deep-link focus:"));
   const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks]);"));
   assert.match(body, /setActiveTab\("active"\);/);
-  assert.match(body, /selectBoardTab\(tabForLink\(\{ show: boardShow, onMineBoard: linked \? isOnMineBoard\(linked, user\) : true \}\)\);/);
+  assert.match(
+    body,
+    /selectBoardTab\(tabForLink\(\{ from: searchLoanId \? searchReturnTab : boardTab, show: boardShow, onMineBoard: linked \? isOnMineBoard\(linked, user\) : true \}\)\);/,
+    "it starts from the open tab, or mid-search from the tab clearing would return to, so both ways out of a search agree"
+  );
   assert.doesNotMatch(body, /setBoardTab\(|setBoardShow\(/, "the tab and its stored half move together, through selectBoardTab");
 });
 

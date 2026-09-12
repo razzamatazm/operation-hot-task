@@ -105,9 +105,11 @@ readers still announce the full names.
   was the tab left open. A loan pick does not change what is remembered.
   Opening the create form and leaving it (Save for later, Create, Discard)
   changes no tab, so it closes back onto the tab it was opened from.
-- **A link to a task opens a task tab.** It opens My Tasks when that was the
-  remembered tab and the task is on it, and All Tasks otherwise, so the link
-  never lands on a card that is not there.
+- **A link to a task opens a task tab.** It stays on the tab that is open (or,
+  during a search, the tab clearing the search would go back to; from Task
+  Drafts, whichever of All Tasks and My Tasks was last open), except that a task
+  My Tasks hides opens All Tasks, so the link never lands on a card that is not
+  there.
 - **Collapse all** acts on the list the open tab shows.
 
 **My Tasks** (#334, a tab since #390; it was the app menu's Show row, Everyone

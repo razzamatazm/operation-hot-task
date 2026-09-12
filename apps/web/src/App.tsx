@@ -3837,12 +3837,16 @@ export const App = () => {
        you. An effect may read `tasks` freely — unlike `setExpandOverride`, it
        is not a memoized prop, so nothing downstream depends on its identity. */
     const linked = tasks.find((t) => t.id === target);
-    /* A link is a request to see this task, so it opens a task tab, whichever
-       was open, Task Drafts included. With My Tasks stored, one the viewer only
-       observes — a Share DM is the usual way here — would open a card that is
-       not on the board and scroll to nothing, so the link opens All Tasks and
-       stores it, the way pressing that tab would (#334, #390). */
-    selectBoardTab(tabForLink({ show: boardShow, onMineBoard: linked ? isOnMineBoard(linked, user) : true }));
+    /* A link is a request to see this task, so it opens a task tab. It starts
+       from the open tab, or mid-search from the tab clearing would return to,
+       so opening a card and pressing Clear search leave a search the same way;
+       from Task Drafts it starts on the stored tab. `searchLoanId` is this
+       render's value, so ending the search above does not change it. From My
+       Tasks, one the viewer only observes — a Share DM is the usual way here —
+       would open a card that is not on the board and scroll to nothing, so the
+       link opens All Tasks and stores it, the way pressing that tab would
+       (#334, #390). */
+    selectBoardTab(tabForLink({ from: searchLoanId ? searchReturnTab : boardTab, show: boardShow, onMineBoard: linked ? isOnMineBoard(linked, user) : true }));
     /* The same request past the History window (#391): a closed task older than
        the setting would open off the board and scroll to nothing. Unlike Mine,
        the setting is left alone; the task alone is kept, for the session. */

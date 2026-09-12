@@ -194,9 +194,12 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   storing it and remembers the open tab; clearing returns there. Opening a card
   on the searched All Tasks ends the search through the deep-link focus path,
   which is also why a link arriving mid-search clears it; a card opened on My
-  Tasks mid-search leaves the search alone. Like a link, the focus path opens
-  All Tasks when My Tasks is stored and would hide the opened task
-  (`tabForLink`), since the board it returns to has to hold that card. The
+  Tasks mid-search leaves the search alone. The focus path starts from the tab
+  `Clear search` would return to (the open tab when nothing is searched, the
+  stored one from Task Drafts), so both ways out of a search land in the same
+  place, and opens All Tasks when that tab is My Tasks and would hide the
+  opened task (`tabForLink`), since the board it returns to has to hold that
+  card. The
   scroll is its own step (`scrollTaskId`), taken on the commit after
   the board changes: scrolled in the same pass, it aimed at where the card sat
   on the narrowed board. The suggestion list itself is `LoanSuggestionList`,

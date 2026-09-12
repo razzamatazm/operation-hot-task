@@ -174,17 +174,26 @@ test("the stored value opens its tab, so a Mine stored before the tabs existed o
 
 /* ── A link to a task (#390) ────────────────────────────── */
 
-test("a link lands on My Tasks when My Tasks is what's stored and the task is on it", () => {
-  assert.equal(tabForLink({ show: "mine", onMineBoard: true }), "mine");
+test("with My Tasks open, a link to a task on it stays on My Tasks", () => {
+  assert.equal(tabForLink({ from: "mine", show: "mine", onMineBoard: true }), "mine");
 });
 
-test("a link to a task My Tasks hides lands on All Tasks", () => {
-  assert.equal(tabForLink({ show: "mine", onMineBoard: false }), "all", "an Observer task opens on All Tasks");
+test("with My Tasks open, a link to a task My Tasks hides opens All Tasks", () => {
+  assert.equal(tabForLink({ from: "mine", show: "mine", onMineBoard: false }), "all", "an Observer task opens on All Tasks");
 });
 
-test("with All Tasks stored a link always lands on All Tasks", () => {
-  assert.equal(tabForLink({ show: "everyone", onMineBoard: true }), "all");
-  assert.equal(tabForLink({ show: "everyone", onMineBoard: false }), "all");
+test("with All Tasks open a link always stays on All Tasks, whatever is stored", () => {
+  for (const show of ["everyone", "mine"]) {
+    for (const onMineBoard of [true, false]) {
+      assert.equal(tabForLink({ from: "all", show, onMineBoard }), "all", JSON.stringify({ show, onMineBoard }));
+    }
+  }
+});
+
+test("from Task Drafts a link opens the stored task tab, and All Tasks when My Tasks would hide the task", () => {
+  assert.equal(tabForLink({ from: "drafts", show: "mine", onMineBoard: true }), "mine");
+  assert.equal(tabForLink({ from: "drafts", show: "mine", onMineBoard: false }), "all");
+  assert.equal(tabForLink({ from: "drafts", show: "everyone", onMineBoard: true }), "all");
 });
 
 test("nothing stored, or anything unrecognised, reads as Everyone", () => {

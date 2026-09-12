@@ -48,13 +48,25 @@ export const showForTab = (tab: BoardTab): BoardShow | null =>
   tab === "all" ? "everyone" : tab === "mine" ? "mine" : null;
 
 /* The tab a link to a task opens. A link is a request to see the task, so it
-   opens a task tab whatever was open, and My Tasks only when My Tasks is the
-   stored choice and the task is on it. One My Tasks hides (an Observer task,
-   which a Share DM is the usual way to), would open a card that is not on the
-   board and scroll to nothing, so the link opens All Tasks instead, stored the
-   way a press on that tab is. */
-export const tabForLink = ({ show, onMineBoard }: { show: BoardShow; onMineBoard: boolean }): "all" | "mine" =>
-  show === "mine" && onMineBoard ? "mine" : "all";
+   opens a task tab, starting `from` the tab the board is on: the open tab, or,
+   mid-search, the tab clearing the search would return to, so the two ways out
+   of a search land in the same place. Task Drafts is not a task tab, so from
+   there it starts on the stored one. My Tasks stays open only when the task is
+   on it. One My Tasks hides (an Observer task, which a Share DM is the usual way
+   to) would open a card that is not on the board and scroll to nothing, so the
+   link opens All Tasks instead, stored the way a press on that tab is. */
+export const tabForLink = ({
+  from,
+  show,
+  onMineBoard
+}: {
+  from: BoardTab;
+  show: BoardShow;
+  onMineBoard: boolean;
+}): "all" | "mine" => {
+  const start = from === "drafts" ? tabForShow(show) : from;
+  return start === "mine" && onMineBoard ? "mine" : "all";
+};
 
 export const isOnMineBoard = (
   task: Pick<LoanTask, "createdBy" | "assignee" | "status">,
