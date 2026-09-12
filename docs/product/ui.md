@@ -52,7 +52,10 @@ persisted per browser:
   loan as it was typed (or `No loan yet`), the task type and `saved N ago`, and
   nothing else: no who-to-whom, due time or poop rating. Tapping a row reopens
   the create form on it, every field restored, to save for later again or to
-  create (see [task-fields.md](task-fields.md#create-task-fields)). See
+  create (see [task-fields.md](task-fields.md#create-task-fields)). A delete
+  control at the row's right end asks `Delete this saved task?` in the row, and
+  a yes removes it for good, updating the count and hiding the section when it
+  was the last (#345). See
   [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md). Flat view
   does not show them yet.
 - **Flat view.** One list, no sections, sorted into 4 buckets newest-first

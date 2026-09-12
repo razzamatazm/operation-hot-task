@@ -4065,6 +4065,58 @@ button.btn-good:hover {
   white-space: nowrap;
 }
 
+/* Delete (#345): the checklist's trash control, at the row's right edge and
+   outside the reopen target. Muted at rest so the row still reads as three
+   facts; it only turns `--bad` under the cursor. Square to the row's height so
+   the touch target is the whole right end rather than a 16px glyph. */
+.saved-row-delete {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--bad-bg);
+  flex: 0 0 auto;
+  width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line-soft);
+  border-radius: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.saved-row-delete:hover {
+  color: var(--bad);
+}
+
+.saved-row-delete:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+
+/* The question takes the row's line in place of the facts, the way the
+   Instructions box's discard question takes its action row. */
+.saved-row-confirm {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px 6px 14px;
+}
+
+.saved-row-confirm-question {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  font-size: 0.82rem;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Grouped rows read as a flat mono list, not floating cards — drop the base
    .task-card elevation so the section header and its hairline carry the structure
    (the "deliberately mono" grouped layout). The 1px border is kept so each row

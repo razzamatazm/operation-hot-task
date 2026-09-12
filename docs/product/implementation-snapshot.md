@@ -82,7 +82,9 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `DELETE /api/saved-for-later/:id` → **204** (#344). The web app calls it
     once the task a reopened one held has been created through
     `POST /api/tasks`, and only then, so a filing that fails leaves the record
-    where it was
+    where it was; and when its owner deletes one from the board and confirms
+    (#345). Someone else's and an id that never existed get the identical
+    **404** and body
 - Tasks:
   - `GET /api/tasks`
   - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or

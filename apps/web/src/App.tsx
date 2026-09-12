@@ -14,7 +14,7 @@ import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { SavedForLaterSection } from "./saved-for-later";
-import { SavedForLaterRequest, clearCreatedSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
+import { SavedForLaterRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -4070,7 +4070,7 @@ export const App = () => {
        request as any new task, with the same notifications, so a removal that
        fails cannot undo that and does not reject; it only says so. */
     if (savedId) {
-      if (await clearCreatedSavedForLaterRequest(savedForLaterRequestFor(user), savedId)) {
+      if (await removeSavedForLaterRequest(savedForLaterRequestFor(user), savedId)) {
         if (user.id === savedForLaterOwner.current) {
           setSavedForLater((current) => current.filter((item) => item.id !== savedId));
         }
@@ -4153,6 +4153,25 @@ export const App = () => {
     if (formOpenNow.current) return;
     setReopened(latest);
     setFormOpen(true);
+  }, [user, showToast]);
+
+  /* Deleting one from the board (#345), once the row's question was answered
+     yes. For good: no undo. The server first, then the list, so a delete that
+     did not land leaves the row where it was, with a word about it. One already
+     gone (created or deleted on another device) counts as deleted. The count
+     and the section's hiding follow the list on their own. An answer that comes
+     back after the person switched is dropped, like every Saved for Later load.
+     Resolves true only when the row was taken off, which is how the section
+     knows to move focus on to the next row. */
+  const deleteSavedForLater = useCallback(async (item: SavedForLaterTask): Promise<boolean> => {
+    const removed = await removeSavedForLaterRequest(savedForLaterRequestFor(user), item.id);
+    if (user.id !== savedForLaterOwner.current) return false;
+    if (!removed) {
+      showToast("Couldn't delete that Saved for Later task. Try again.", { variant: "error" });
+      return false;
+    }
+    setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
+    return true;
   }, [user, showToast]);
 
   const onClaim = useCallback(async (taskId: string): Promise<void> => {
@@ -4780,7 +4799,7 @@ export const App = () => {
             {/* Saved for Later (#343, ADR-0011) sits right after Needs you, and
                 keeps that place when Needs you is empty and not drawn. Hidden
                 when the viewer has none; the section decides that itself. */}
-            {s.key === "you" && <SavedForLaterSection items={savedItems} now={now} onOpen={openSavedForLater} />}
+            {s.key === "you" && <SavedForLaterSection items={savedItems} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} />}
           </Fragment>
         ))}
       </div>

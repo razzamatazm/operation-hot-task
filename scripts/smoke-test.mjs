@@ -1414,6 +1414,17 @@ const run = async () => {
     assert.deepEqual(savedUntouched.json.item, latest.json.item, "exactly as the creator last saved it");
     pushPass("another user and an admin cannot reopen, update or remove someone else's Saved for Later task");
 
+    /* Deleting from the board (#345) calls the same route. Refusing someone
+       else's must say nothing about whether it exists: the answer to a real one
+       that isn't yours is the answer to an id nobody ever saved. */
+    const deleteTheirs = await request(server.baseUrl, "DELETE", `/saved-for-later/${saved.json.item.id}`, { user: users.admin });
+    const deleteNobodys = await request(server.baseUrl, "DELETE", "/saved-for-later/no-such-saved-task", { user: users.admin });
+    assert.equal(deleteTheirs.status, deleteNobodys.status, "same status for someone else's and for one that never existed");
+    assert.deepEqual(deleteTheirs.json, deleteNobodys.json, "same body for someone else's and for one that never existed");
+    const ownerListAfter = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.ok(ownerListAfter.json.items.some((i) => i.id === saved.json.item.id), "still on its owner's board");
+    pushPass("deleting someone else's Saved for Later task is refused exactly as one that doesn't exist, and leaves it on its owner's board");
+
     /* Creating it. The body is what the web form builds from the saved form:
        the ordinary create payload, through the ordinary route. */
     const savedFormNow = latest.json.item.form;

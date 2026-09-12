@@ -59,12 +59,14 @@ export const reopenSavedForLaterRequest = async (
   }
 };
 
-/* Once the task it held has been created, the Saved for Later task is gone for
-   good (ADR-0011 rule 4). Called only after the create succeeded. True when it
-   is off the server, including when it was already gone; false when the
-   server could not remove it, so App can say the task was filed but the saved
-   copy is still listed. Never throws: the task exists either way. */
-export const clearCreatedSavedForLaterRequest = async (
+/* Taking a Saved for Later task off the server, for good. Two callers: Create,
+   once the task it held has been filed (ADR-0011 rule 4), and only after the
+   create succeeded; and the row's delete control, once its owner confirmed
+   (#345). True when it is off the server, including when it was already gone
+   (created or deleted on another device), since either way the row should go.
+   False when the server could not remove it, so App can say so and leave the
+   row where it is. Never throws. */
+export const removeSavedForLaterRequest = async (
   request: SavedForLaterRequest,
   savedId: string
 ): Promise<boolean> => {

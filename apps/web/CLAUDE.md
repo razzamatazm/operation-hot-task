@@ -1687,6 +1687,20 @@ stays the one filled button. What keeps it honest:
   to `--shadow-md` under the cursor like a task row. A child of the `<li>` and
   not the `<li>` itself so a second control (delete, #345) can sit beside it
   without nesting buttons.
+- **Delete is `.saved-row-delete`, beside the reopen button** (#345): the
+  checklist's `TrashIcon`, muted at rest and `--bad` only under the cursor, a
+  40px square at the row's right end behind a hairline. Pressing it swaps the
+  row's contents for `SavedForLaterDeleteConfirm`, an in-place question in the
+  shape of the Instructions box's discard: `Delete this saved task?`, then
+  `Keep` (ghost, focused on open, so a stray Return keeps it), then `Delete`
+  (`btn-danger`). Escape and Keep both decline and hand focus back to the trash
+  control. Not a dialog: the row is wide enough for three words and two
+  buttons, and a modal over the board for that costs more than it prevents.
+  Yes goes through `removeSavedForLaterRequest`, the same helper Create clears
+  a filed one with; App drops the row only once the server let it go, and
+  toasts and leaves it otherwise. No undo, by ADR-0011. Once a delete lands,
+  the section moves focus to the row that took its place (or the new last
+  row), so a keyboard user is not dropped onto the page body.
 - **Reopening opens the create form, never edit mode** (#344). App fetches the
   latest save of that record (`reopenSavedForLaterRequest`) and mounts the
   create form with `reopened`, keyed on the record's id. The form opens on

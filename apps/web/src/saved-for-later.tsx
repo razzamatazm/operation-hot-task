@@ -1,6 +1,8 @@
 import { TASK_TYPE_LABELS, newestSavedFirst } from "@loan-tasks/shared";
 import type { SavedForLaterTask } from "@loan-tasks/shared";
+import { useEffect, useRef, useState } from "react";
 import { formatAgo } from "./format";
+import { TrashIcon } from "./icons";
 
 /* The board's Saved for Later section (#343, ADR-0011).
 
@@ -22,20 +24,169 @@ import { formatAgo } from "./format";
    Tapping a row reopens it (#344): the three facts sit inside one button that
    fills the row, so the whole row is the press target the way a task row is,
    and hands that row's record to `onOpen`. The button is a child of the `<li>`
-   rather than the `<li>` itself so a second control can sit beside it on the
-   row (delete, #345) without nesting one button inside another. */
+   rather than the `<li>` itself so the delete control (#345) sits beside it on
+   the row without nesting one button inside another. */
 
 const NO_LOAN_YET = "No loan yet";
+
+/* The second step of deleting one (#345). Deleting has no undo, so the row asks
+   once, in place, the way the thread's `Delete` and the Instructions box's
+   discard do: the question takes the row's own line, where the person is
+   already looking, rather than a dialog over the board for three words.
+
+   Same answers-in-order rule as the task form's discard dialog: the safe
+   answer first, holding focus, so a stray Return keeps it; the destructive one
+   in the danger style carries its own word. Escape declines. */
+export const SavedForLaterDeleteConfirm = ({
+  name,
+  deleting,
+  onConfirm,
+  onCancel
+}: {
+  name: string;
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) => {
+  const keepRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    keepRef.current?.focus();
+  }, []);
+  return (
+    <div
+      className="saved-row-confirm"
+      role="alertdialog"
+      aria-label={`Delete ${name}?`}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") { e.stopPropagation(); onCancel(); }
+      }}
+    >
+      <span className="saved-row-confirm-question">Delete this saved task?</span>
+      <button type="button" className="btn-sm btn-ghost" disabled={deleting} ref={keepRef} onClick={onCancel}>
+        Keep
+      </button>
+      <button type="button" className="btn-sm btn-danger" disabled={deleting} onClick={onConfirm}>
+        {deleting ? "Deleting…" : "Delete"}
+      </button>
+    </div>
+  );
+};
+
+const SavedForLaterRow = ({
+  item,
+  now,
+  onOpen,
+  onDelete
+}: {
+  item: SavedForLaterTask;
+  now: number;
+  onOpen: (item: SavedForLaterTask) => void;
+  onDelete: (item: SavedForLaterTask) => Promise<boolean>;
+}) => {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const deleteRef = useRef<HTMLButtonElement | null>(null);
+  /* Set when the question closes with the row still here, so focus goes back
+     to the control that asked it rather than to the top of the page. */
+  const returnFocus = useRef(false);
+  const name = item.form.folderName.trim() || NO_LOAN_YET;
+
+  useEffect(() => {
+    if (confirming || !returnFocus.current) return;
+    returnFocus.current = false;
+    deleteRef.current?.focus();
+  }, [confirming]);
+
+  const decline = (): void => {
+    returnFocus.current = true;
+    setConfirming(false);
+  };
+
+  /* App removes the row once the server has let it go, which unmounts this. If
+     the row is still here afterwards the delete did not land, App has already
+     said why, and the question closes on a row left exactly as it was. */
+  const confirmDelete = async (): Promise<void> => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete(item);
+    } finally {
+      setDeleting(false);
+      returnFocus.current = true;
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <li className="saved-row">
+      {confirming ? (
+        <SavedForLaterDeleteConfirm
+          name={name}
+          deleting={deleting}
+          onConfirm={() => void confirmDelete()}
+          onCancel={decline}
+        />
+      ) : (
+        <>
+          <button type="button" className="saved-row-open" onClick={() => onOpen(item)}>
+            <span className="saved-row-name">{name}</span>
+            <span className="saved-row-type">{TASK_TYPE_LABELS[item.form.taskType]}</span>
+            <time className="saved-row-when" dateTime={item.savedAt}>
+              saved {formatAgo(item.savedAt, now)}
+            </time>
+          </button>
+          <button
+            type="button"
+            className="saved-row-delete"
+            aria-label={`Delete saved task: ${name}`}
+            title="Delete"
+            ref={deleteRef}
+            onClick={() => setConfirming(true)}
+          >
+            <TrashIcon />
+          </button>
+        </>
+      )}
+    </li>
+  );
+};
 
 export const SavedForLaterSection = ({
   items,
   now,
-  onOpen
+  onOpen,
+  onDelete
 }: {
   items: SavedForLaterTask[];
   now: number;
   onOpen: (item: SavedForLaterTask) => void;
+  /* Resolves true once the row is off the list, false when it stayed. */
+  onDelete: (item: SavedForLaterTask) => Promise<boolean>;
 }) => {
+  /* Where focus goes once a delete lands. The row that held it is gone, and a
+     keyboard user dropped onto the page body has lost their place in the list,
+     so focus moves to the row that took its place, or the new last row. A delete
+     that did not land leaves the row, which takes focus back itself, so the mark
+     is cleared. When the last one goes the section goes with it and there is
+     no row left to land on. */
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const refocus = useRef<{ id: string; index: number } | null>(null);
+  useEffect(() => {
+    const mark = refocus.current;
+    if (!mark || items.some((i) => i.id === mark.id)) return;
+    refocus.current = null;
+    const rows = listRef.current?.querySelectorAll<HTMLButtonElement>(".saved-row-open");
+    if (!rows || rows.length === 0) return;
+    rows[Math.min(mark.index, rows.length - 1)]?.focus();
+  }, [items]);
+
+  const deleteRow = async (item: SavedForLaterTask, index: number): Promise<boolean> => {
+    refocus.current = { id: item.id, index };
+    const removed = await onDelete(item);
+    if (!removed) refocus.current = null;
+    return removed;
+  };
+
   if (items.length === 0) return null;
   const ordered = [...items].sort(newestSavedFirst);
   return (
@@ -46,17 +197,9 @@ export const SavedForLaterSection = ({
           <span className="section-count">{items.length}</span>
         </h2>
       </div>
-      <ul className="saved-list">
-        {ordered.map((item) => (
-          <li key={item.id} className="saved-row">
-            <button type="button" className="saved-row-open" onClick={() => onOpen(item)}>
-              <span className="saved-row-name">{item.form.folderName.trim() || NO_LOAN_YET}</span>
-              <span className="saved-row-type">{TASK_TYPE_LABELS[item.form.taskType]}</span>
-              <time className="saved-row-when" dateTime={item.savedAt}>
-                saved {formatAgo(item.savedAt, now)}
-              </time>
-            </button>
-          </li>
+      <ul className="saved-list" ref={listRef}>
+        {ordered.map((item, index) => (
+          <SavedForLaterRow key={item.id} item={item} now={now} onOpen={onOpen} onDelete={(it) => deleteRow(it, index)} />
         ))}
       </ul>
     </section>
