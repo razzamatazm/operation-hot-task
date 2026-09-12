@@ -1084,7 +1084,16 @@ nested card chrome, in this order:
    the checker to decide which of the two a given sentence was, every time.
    Now the items go in the list and the words go in the thread, and there is no
    third answer. See *A hand-back needs items* under Empty action slot.
-3. **Checklist** (FRAUD outstanding items), when there is one. Each row is
+3. **Checklist** (FRAUD outstanding items), when there is one. **Drawn on the
+   Instructions box's ruled page** (#367): `Outstanding items` sits in the
+   116px left margin column, the rows and the `Add an item` composer sit right
+   of the vertical hairline in `.checklist-body`, the closing hairline separates
+   it from the conversation, and under 560px it stacks the same way. It used to
+   be a heading over a full-width list, so one card body had two section styles
+   depending on the type. The block, head and title have no rules of their own —
+   they ride the `.loi-terms` rules as selector lists, so a change to one is a
+   change to both. On an empty list the composer takes `.checklist-add-flush`,
+   the seeder's modifier, so no dashed rule floats at the top of the cell. Each row is
    checkbox → adder's colored initials chip (same per-person color as the
    header's assigner→assignee pair, `avatarStyle`) → text → the note
    affordance. **One** `+ note` per row, never two: the button writes the

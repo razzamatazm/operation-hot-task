@@ -1917,19 +1917,8 @@ button.btn-good:hover {
   font-size: 0.7rem;
 }
 
-/* The checklist keeps its own tan block everywhere else FraudChecklist is
-   used, but here it drops to the same plain "label + content" look as the
-   notes section below it, so it doesn't read as a card nested in a card. */
-.task-card-checklist .checklist {
-  border: none;
-  border-radius: 0;
-  background: none;
-  padding: 0;
-  margin-bottom: 0;
-}
-/* Match "OUTSTANDING ITEMS" to "NOTES" — same size/color — now that
-   they're two sections of the same list, not two different components. */
-.task-card-checklist .checklist-title { font-size: 0.66rem; color: var(--muted); }
+/* The checklist's own shape — label in the margin, list right of the hairline —
+   is `.loi-terms`'s, and lives in those shared rules further down (#367). */
 /* Match the "add an item" input to the notes composer's textarea (same
    padding/radius/min-height/font), and give both the add-item and send
    buttons a shared min-width — two input rows that read as one size, not
@@ -2001,29 +1990,11 @@ button.btn-good:hover {
    The structured handoff on a fraud check's expanded body. Ledger feel:
    hairline-ruled rows, mono labels/badges, a hand-rolled square checkbox in
    the app's button idiom. Colors go through theme tokens only, so it works in
-   light / dark / contrast without per-theme overrides. */
-.checklist {
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--bg-soft);
-  padding: 10px 12px;
-  margin-bottom: 14px;
-}
-.checklist-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.checklist-title {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-secondary);
-}
+   light / dark / contrast without per-theme overrides.
+
+   The block itself, its head and its title carry no rules here: they are laid
+   out by the `.loi-terms` rules, as selector lists, so the outstanding items
+   and the instructions box are one ruled page and cannot drift apart (#367). */
 .checklist-items {
   list-style: none;
   margin: 0;
@@ -2634,8 +2605,14 @@ button.btn-good:hover {
    chrome is gone. What replaces it is the ledger the whole design claims to
    be: the field's name sits in a left margin column, a single hairline divides
    the margin from the text, and one more hairline closes the block off from
-   the conversation below. Two rules, no container. */
-.loi-terms {
+   the conversation below. Two rules, no container.
+
+   A Fraud Check's outstanding items (`.checklist`) are drawn on the same page
+   (#367): its standing ask is that list rather than a box, and one card body
+   with two section styles depending on the type read as two designs. Every
+   rule of the shape names both, so neither can move without the other. */
+.loi-terms,
+.checklist {
   display: grid;
   grid-template-columns: 116px minmax(0, 1fr);
   column-gap: 16px;
@@ -2643,16 +2620,18 @@ button.btn-good:hover {
   border-bottom: 1px solid var(--line-soft);
   padding: 2px 0 14px;
 }
-/* The box's own closing hairline is the separator, so the expanded body's
+/* The block's own closing hairline is the separator, so the expanded body's
    sibling hairline would draw a second line 1px away from it. */
-.task-card-expanded > .task-card-terms + * {
+.task-card-expanded > .task-card-terms + *,
+.task-card-expanded > .task-card-checklist + * {
   border-top: none;
   padding-top: 4px;
 }
 /* The margin column. Its right-hand hairline is the rule on a ledger page —
    structure and separator in one stroke, which is why the block needs no box
    drawn around it. */
-.loi-terms-head {
+.loi-terms-head,
+.checklist-head {
   display: block;
   padding: 1px 14px 0 0;
   border-right: 1px solid var(--line-soft);
@@ -2661,7 +2640,8 @@ button.btn-good:hover {
 /* Same mono section label as .thread-head — the two headings are peers. Set a
    step smaller and tracked a step wider than it was, because in the margin it
    is an annotation rather than a bar across the top of a panel. */
-.loi-terms-title {
+.loi-terms-title,
+.checklist-title {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.62rem;
   text-transform: uppercase;
@@ -2773,11 +2753,13 @@ button.btn-good:hover {
   }
   .task-card-collapsed-stage-join { display: none; }
 
-  .loi-terms {
+  .loi-terms,
+  .checklist {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 7px;
   }
-  .loi-terms-head {
+  .loi-terms-head,
+  .checklist-head {
     padding: 0;
     border-right: none;
     text-align: left;
@@ -4595,8 +4577,10 @@ button.btn-good:hover {
   }
 
   /* 12px floor: the things that are read rather than glanced at. The type
-     label and its stage suffix name what the task IS, and the two headings
-     introduce a list somebody is about to work down.
+     label and its stage suffix name what the task IS, and the thread heading
+     introduces a list somebody is about to work down. `Outstanding items` left
+     this list when it moved into the margin (#367): it is the instructions
+     label's peer now and takes that label's size, floor or no floor.
 
      The floor sits on the type CELL as well as on the two boxes inside it,
      which the children would inherit anyway. It is there so the cell's own
@@ -4607,8 +4591,6 @@ button.btn-good:hover {
   .task-card-collapsed-type,
   .task-card-collapsed-type-text,
   .task-card-collapsed-stage,
-  .checklist-title,
-  .task-card-checklist .checklist-title,
   .thread-head,
   .saved-row-type {
     font-size: 12px;
