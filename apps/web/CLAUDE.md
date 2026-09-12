@@ -1771,7 +1771,9 @@ stays the one filled button. What keeps it honest:
   test fails if a draft finds its way back into it. The page draws no heading
   or count, because the tab above it is both, and with nothing saved it is an
   `.empty-card` naming the Save for later button that fills it. A row is
-  `.saved-row`: loan name, type, `saved N ago`, and no more, because a saved
+  `.saved-row`: loan name (or `No loan yet`; on an Out of Office task the
+  vacation description or `No description yet`, #362), type, `saved N ago`,
+  and no more, because a saved
   task has no pair, due stamp or action to draw. Since #371 the page also takes
   `autosave` and draws it as one more `.saved-row` in the same shape, sorted in
   by `savedAt` and reading `Autosaved N ago`; its tap is `onOpenAutosave` (App's

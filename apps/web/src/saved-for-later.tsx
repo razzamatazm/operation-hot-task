@@ -19,8 +19,9 @@ import { TrashIcon } from "./icons";
 
    Never collapsible, newest saved first. With none, the page says so.
 
-   A row is three facts and deliberately no more: the loan as it was typed, the
-   task type, and when it was saved. No who-to-whom, due time or poop rating,
+   A row is three facts and deliberately no more: the loan as it was typed (an
+   Out of Office task's vacation description), the task type, and when it was
+   saved. No who-to-whom, due time or poop rating,
    because none of those exist until the task is filed.
 
    Tapping a row reopens it (#344): the three facts sit inside one button that
@@ -37,7 +38,12 @@ import { TrashIcon } from "./icons";
    the same question and forgets the autosave. Only one ever shows, and one
    seven days old does not show at all. */
 
-const NO_LOAN_YET = "No loan yet";
+/* What a row says when its name field is blank (#362). On an Out of Office task
+   that field is the vacation description and there is no loan, so the
+   placeholder names what is missing for that type. The Autosaved row is the same
+   row and says the same. */
+const blankName = (form: DraftRowItem["form"]): string =>
+  form.taskType === "OOO" ? "No description yet" : "No loan yet";
 
 /* The autosave's row id. Saved for Later ids are UUIDs, so this cannot collide
    with one. */
@@ -116,7 +122,7 @@ const SavedForLaterRow = <T extends DraftRowItem,>({
   /* Set when the question closes with the row still here, so focus goes back
      to the control that asked it rather than to the top of the page. */
   const returnFocus = useRef(false);
-  const name = item.form.folderName.trim() || NO_LOAN_YET;
+  const name = item.form.folderName.trim() || blankName(item.form);
 
   useEffect(() => {
     if (confirming || !returnFocus.current) return;

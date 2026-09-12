@@ -24,7 +24,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { AUTOSAVE_MAX_AGE_MS, TASK_TYPE_LABELS } from "@loan-tasks/shared";
+import { AUTOSAVE_MAX_AGE_MS, TASK_TYPES, TASK_TYPE_LABELS } from "@loan-tasks/shared";
 import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -347,6 +347,28 @@ test("a row with no loan typed says No loan yet", () => {
   assert.match(html, /<span class="saved-row-name">No loan yet<\/span>/);
 });
 
+/* #362: on an Out of Office task that field is the vacation description, not a
+   loan, so a blank one names what is missing for that type. Every other type
+   keeps No loan yet. */
+test("an Out of Office row with no description says No description yet, and every other type still says No loan yet", () => {
+  const ooo = renderSection([item("a", 5, { folderName: "  ", taskType: "OOO" })]);
+  assert.match(ooo, /<span class="saved-row-name">No description yet<\/span>/);
+  assert.doesNotMatch(ooo, /No loan yet/);
+  assert.match(ooo, /aria-label="Delete saved task: No description yet"/, "the delete control is named the same way");
+  for (const taskType of TASK_TYPES.filter((t) => t !== "OOO")) {
+    assert.match(
+      renderSection([item("a", 5, { folderName: "", taskType })]),
+      /<span class="saved-row-name">No loan yet<\/span>/,
+      `${taskType} keeps No loan yet`
+    );
+  }
+});
+
+test("an Out of Office row with a description shows it as typed", () => {
+  const html = renderSection([item("a", 5, { folderName: "Beach week", taskType: "OOO" })]);
+  assert.match(html, /<span class="saved-row-name">Beach week<\/span>/);
+});
+
 /* ── The autosave on the Task Drafts tab (#371) ──────────── */
 
 const autosaveOf = (minutesAgo, overrides = {}) => ({
@@ -383,6 +405,14 @@ test("an Autosaved row with no loan typed says No loan yet, and the page is a li
   assert.match(html, /^<ul class="saved-list">/, "not the empty page");
   assert.match(html, /<span class="saved-row-name">No loan yet<\/span>/);
   assert.match(html, />Autosaved 3m ago<\/time>/);
+});
+
+test("an Autosaved Out of Office row with no description says No description yet, like a saved one", () => {
+  const html = renderSection([], { autosave: autosaveOf(3, { folderName: " ", taskType: "OOO" }) });
+  const [row] = rowsOf(html);
+  assert.match(row, /<span class="saved-row-name">No description yet<\/span>/);
+  assert.match(row, /aria-label="Delete autosaved task: No description yet"/);
+  assert.match(row, />Autosaved 3m ago<\/time>/);
 });
 
 test("with no autosave, or one seven days old, no Autosaved row shows", () => {
