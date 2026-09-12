@@ -10,7 +10,9 @@ typing on a reopened one kept on that record rather than in the autosave.
 (#363): moved off the task list onto their own Task Drafts tab, which replaced
 the section in both views. Amended by #371: the new task form's autosave moved
 onto the server beside them, under the same rules, and is listed on that tab
-(rule 5).
+(rule 5). Amended by #388: Discard on a reopened one, once a second question is
+answered Delete, deletes the record rather than clearing only its unsaved
+typing, so there is no longer a way back to its last save.
 
 ## Context
 

@@ -171,8 +171,10 @@ export const keepUnsavedRequest = async (
   }
 };
 
-/* Discard on a reopened form (#348): the unsaved typing goes and the save stays
-   exactly as it was. True when nothing unsaved is left on the server, including
+/* A reopened form typed back to exactly its save (#348): the unsaved typing
+   goes and the save stays exactly as it was. Discard used this until #388, and
+   now deletes the record instead (`removeSavedForLaterRequest`, below). True
+   when nothing unsaved is left on the server, including
    when the record itself has gone, since either way there is nothing to come
    back. False when the server could not clear it, so App can say so. Never
    throws. */

@@ -89,9 +89,10 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     wins. Never creates a record, so one created or deleted elsewhere stays
     gone. Same **400** as a save. A later `PUT /:id` folds it into the save and
     clears it
-  - `DELETE /api/saved-for-later/:id/unsaved` → `{ item }` (#348). Discard on a
-    reopened one: `unsaved` goes and the record answers back exactly as it was
-    last saved. Nothing to clear is not an error
+  - `DELETE /api/saved-for-later/:id/unsaved` → `{ item }` (#348). A reopened
+    one typed back to exactly its save: `unsaved` goes and the record answers
+    back exactly as it was last saved. Nothing to clear is not an error. Since
+    #388 Discard no longer calls it; a confirmed Discard deletes the record
   - `DELETE /api/saved-for-later/:id` → **204** (#344). The web app calls it
     once the task a reopened one held has been created through
     `POST /api/tasks`, and only then, so a filing that fails leaves the record

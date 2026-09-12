@@ -39,9 +39,9 @@ import { useEffect, useRef } from "react";
 /* Since #348 a create form's prompt has a third answer, Save for later
    (ADR-0011), and "your progress won't be saved" stops being true of leaving:
    the person can keep it. So the create form asks a question that names both
-   ways out. A reopened Saved for Later task says what its Discard does, which
-   is throw away the changes and keep the version saved before, because
-   "discard" on a task the person can see on the board reads like deleting it.
+   ways out. A reopened Task Draft says what its Discard does, which since #388
+   is delete the draft: pressing Discard on a draft you opened means you don't
+   want it. There is no longer an answer that goes back to the last save.
    Edit mode has nowhere to save for later and keeps the original question. */
 export const discardConfirmCopy = (
   offer: { saveForLater: boolean; reopened: boolean } = { saveForLater: false, reopened: false }
@@ -51,11 +51,23 @@ export const discardConfirmCopy = (
   return {
     title: "Leave this task?",
     body: offer.reopened
-      ? "Save your changes for later, or discard them and keep the version you saved before."
+      ? "Save your changes for later, or discard them and delete this Task Draft."
       : "Save it for later to pick it back up from the board, or discard it.",
     ...answers
   };
 };
+
+/* The second question a reopened Task Draft's Discard asks (#388). Deleting has
+   no undo, so it asks once more, with the Task Drafts row's own two answers
+   (#345): Keep and Delete. A pure function for the reason the prompt's copy is
+   one. */
+export const deleteTaskDraftCopy = (): { title: string; body: string; confirm: string; cancel: string; busy: string } => ({
+  title: "Delete this Task Draft?",
+  body: "It comes off Task Drafts for good, with your changes.",
+  confirm: "Delete",
+  cancel: "Keep",
+  busy: "Deleting…"
+});
 
 /* The dialog itself. Rendered by the form as a sibling of its overlay rather
    than a child, so its own z-index is measured against the app instead of
@@ -83,12 +95,12 @@ export const DiscardConfirmDialog = ({
   /* Unavailable exactly when the footer's Save for later is, so the two cannot
      disagree about whether there is anything to keep. */
   saveForLaterDisabled?: boolean;
-  /* The form came from a Saved for Later task, so Discard keeps its earlier
-     save and the prompt says so. */
+  /* The form came from a Task Draft, so Discard deletes it (#388) and the
+     prompt says so. */
   reopened?: boolean;
-  /* An answer is being carried out (#348: Discard on a reopened form waits on
-     the server). Every answer is shut and Escape does nothing until it is done,
-     so a second press cannot race the first. */
+  /* An answer is being carried out (a new form's Discard settles its autosave
+     writes first). Every answer is shut and Escape does nothing until it is
+     done, so a second press cannot race the first. */
   busy?: boolean;
 }) => {
   const copy = discardConfirmCopy({ saveForLater: onSaveForLater !== undefined, reopened });
@@ -136,6 +148,58 @@ export const DiscardConfirmDialog = ({
           )}
           <button type="button" className="btn-sm btn-danger" disabled={busy || undefined} onClick={onConfirm}>
             {copy.confirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* The delete question (#388), raised in place of the prompt above when Discard
+   is pressed on a reopened Task Draft. Its own dialog rather than a mode of
+   that one, but built exactly the same way: same overlay and panel, same
+   `alertdialog`, same inert backdrop, focus on the safe answer, and Escape
+   captured and stopped so it answers Keep instead of reaching the form. Keep
+   goes back to the form with nothing written or cleared; Delete removes the
+   draft, and both are shut while that is out. */
+export const DeleteTaskDraftDialog = ({
+  onConfirm,
+  onCancel,
+  busy = false
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  busy?: boolean;
+}) => {
+  const copy = deleteTaskDraftCopy();
+  const keepRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    keepRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        if (!busy) onCancel();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onCancel, busy]);
+
+  return (
+    <div className="discard-confirm-overlay">
+      <div className="discard-confirm-panel" role="alertdialog" aria-modal="true" aria-label={copy.title}>
+        <h3 className="discard-confirm-title">{copy.title}</h3>
+        <p className="discard-confirm-body">{copy.body}</p>
+        <div className="discard-confirm-actions">
+          <button type="button" className="btn-sm btn-ghost" ref={keepRef} disabled={busy || undefined} onClick={onCancel}>
+            {copy.cancel}
+          </button>
+          <button type="button" className="btn-sm btn-danger" disabled={busy || undefined} onClick={onConfirm}>
+            {busy ? copy.busy : copy.confirm}
           </button>
         </div>
       </div>

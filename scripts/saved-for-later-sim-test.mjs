@@ -221,7 +221,7 @@ test("typing on a reopened one is kept on that record, beside the save, and chan
   assert.deepEqual(await store.find(DANA, saved.id), kept);
 });
 
-test("discarding the typing leaves the record exactly as it was last saved", async () => {
+test("clearing the typing (a form typed back to its save) leaves the record exactly as it was last saved", async () => {
   const { store } = await freshStore();
   const saved = await store.create(DANA, form({ notes: "as saved" }), "2026-09-11T12:00:00.000Z");
   await store.keepUnsaved(DANA, saved.id, form({ notes: "abandoned" }));

@@ -1901,8 +1901,8 @@ stays the one filled button. What keeps it honest:
   form always asks (#365), so every way out goes through Save for later, Create
   or Discard, each of which settles the writes; a failed Save for later or
   Create sends what its stop held back. It writes to the record's `unsaved` slot through `onKeepUnsaved`, never
-  over `form`, so `savedAt` and the row's place stay put and Discard can leave
-  the save untouched; a form opens on `unsaved` when there is one. The writes
+  over `form`, so `savedAt` and the row's place stay put; a form opens on
+  `unsaved` when there is one. The writes
   chain on one promise (`unsavedWrites`), and every ending (Save for later,
   Create, Discard) runs `settleUnsaved` first: it stops further writes and waits
   for the one in flight, so a keystroke's write cannot land after the ending
@@ -1914,11 +1914,22 @@ stays the one filled button. What keeps it honest:
   (focused, as before), `Save for later` (ghost, disabled exactly when the
   footer's is) and `Discard` (danger) in that order, under `Leave this task?`.
   `saveFromPrompt` lowers the prompt and runs the footer's own `saveForLater`,
-  so a failed save leaves the form in view. Discard on a reopened form clears
-  `unsaved` through `onDiscardUnsaved` and toasts if that did not land; the
-  form closes either way, and the prompt's answers are shut (`busy`) while it
-  waits. Edit mode passes no `onSaveForLater` and gets the
-  two-way `Discard this task?` word for word.
+  so a failed save leaves the form in view. Edit mode passes no
+  `onSaveForLater` and gets the two-way `Discard this task?` word for word.
+- **Discard on a reopened Task Draft deletes it** (#388, amending #348 and
+  ADR-0011). The prompt's body says so, and Discard does not close: it swaps
+  the prompt for `DeleteTaskDraftDialog` in
+  [src/discard-confirm.tsx](src/discard-confirm.tsx), `Delete this Task
+  Draft?` with `Keep` (ghost, focused, Escape's answer) and `Delete` (danger),
+  built exactly as the prompt is. Keep lowers it and nothing is written or
+  cleared. Delete runs `settleUnsaved`, then App's `onDeleteReopened`, which is
+  `removeSavedForLaterRequest` (the row's and Create's removal, a 404 counting
+  as gone) and drops the row from `savedForLater` under the row's owner check.
+  A delete that did not land toasts a warning and the form closes anyway; the
+  answers are shut (`busy`) while it is out. A new task's Discard asks nothing
+  more. `onDiscardUnsaved` stays for the one thing still using it, a form typed
+  back to exactly its save. There is no longer a way back to a draft's last
+  save.
 
 **Share / Assign is one connected control with its own class names** (#364).
 `.form-direct-mode` is a hollow track holding two `.form-direct-mode-choice`

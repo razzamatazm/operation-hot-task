@@ -4309,11 +4309,24 @@ export const App = () => {
     return keepUnsavedRequest(savedForLaterRequestFor(user), savedId, form);
   }, [user]);
 
-  /* Throwing that typing away, leaving the save as it was (#348). Silent here
-     too: the form says so when a Discard did not land, and stays quiet when it
-     is only a form typed back to its save. */
+  /* Throwing that typing away, leaving the save as it was (#348), when a
+     reopened form is typed back to exactly its save. Silent here too. Discard
+     no longer uses it: since #388 a confirmed Discard deletes the record
+     (`onDeleteReopened`, below). */
   const onDiscardUnsaved = useCallback(async (savedId: string): Promise<boolean> => {
     return discardUnsavedRequest(savedForLaterRequestFor(user), savedId);
+  }, [user]);
+
+  /* Discard on a reopened Task Draft, once its delete question was answered
+     Delete (#388). The same removal the row's delete control and Create use,
+     so one already gone counts as deleted. The row leaves the tab, and the
+     count with it, only when the server let it go and only for the person it
+     belongs to, the row's own owner check. Silent: the form says when it did
+     not land. */
+  const onDeleteReopened = useCallback(async (savedId: string): Promise<boolean> => {
+    const removed = await removeSavedForLaterRequest(savedForLaterRequestFor(user), savedId);
+    if (removed && user.id === savedForLaterOwner.current) setSavedForLater((current) => current.filter((saved) => saved.id !== savedId));
+    return removed;
   }, [user]);
 
   /* Opening New Task (#371). The button and the Task Drafts tab's Autosaved row
@@ -5138,6 +5151,7 @@ export const App = () => {
           onSaveForLater={onSaveForLater}
           onKeepUnsaved={onKeepUnsaved}
           onDiscardUnsaved={onDiscardUnsaved}
+          onDeleteReopened={onDeleteReopened}
           onKeepAutosave={onKeepAutosave}
           onForgetAutosave={onForgetAutosave}
           {...(reopened ? { reopened } : { autosave })}
