@@ -659,7 +659,10 @@ test("the writes go out one at a time, and every ending waits for them before it
   for (const [name, call] of [
     ["const saveForLater", "await onSaveForLater("],
     ["const handleSubmit", "await onCreate("],
-    ["const confirmDiscard", "onClose();"]
+    ["const confirmDiscard", "onClose();"],
+    /* #388: a keystroke's write still out when Delete is pressed lands first,
+       and none follows, so it cannot bring the deleted record back. */
+    ["const deleteReopened", "await onDeleteReopened("]
   ]) {
     const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
     const fnBody = fn.slice(0, fn.indexOf("\n  };"));
@@ -694,14 +697,21 @@ test("Cancel on an unchanged reopened Saved for Later task asks, with Save for l
   assert.doesNotMatch(close.slice(0, close.indexOf("};")), /sendUnsaved|onClose\(\);[\s\S]*onClose\(\);/, "no silent way out for a reopened form");
 });
 
-test("Discard from that prompt clears only the unsaved slot, so the saved record is left exactly as it was", async () => {
+/* Flipped by #388: Discard from that prompt used to clear only the unsaved slot
+   and leave the saved record as it was. Now, once the delete question is
+   answered Delete, the record itself is removed, by the row's own request. */
+test("Discard from that prompt, once confirmed, removes the saved record itself, and a 404 counts as removed", async () => {
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
   const body = confirm.slice(0, confirm.indexOf("\n  };"));
-  assert.match(body, /await onDiscardUnsaved\(reopened\.id\)/, "the same Discard a changed reopened form gets");
-  assert.doesNotMatch(body, /onSaveForLater|removeSavedForLater|onKeepUnsaved/, "nothing that writes or removes the save");
-  const server = fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": { item: ITEM } });
-  assert.equal(await discardUnsavedRequest(server.request, "saved-1"), true);
-  assert.deepEqual(server.calls, ["DELETE /saved-for-later/saved-1/unsaved"], "one request, to the unsaved slot, even when there is no unsaved typing");
+  assert.match(body, /setDeleteAsk\(true\)/, "it asks the delete question first");
+  assert.doesNotMatch(body, /onDiscardUnsaved|onSaveForLater|onKeepUnsaved/, "nothing that clears only the slot or writes the save");
+  const del = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const deleteReopened"));
+  assert.match(del.slice(0, del.indexOf("\n  };")), /await onDeleteReopened\(reopened\.id\)/);
+  const server = fakeServer({ "DELETE /saved-for-later/saved-1": undefined });
+  assert.equal(await removeSavedForLaterRequest(server.request, "saved-1"), true);
+  assert.deepEqual(server.calls, ["DELETE /saved-for-later/saved-1"], "one request, to the record, not to its unsaved slot");
+  assert.equal(await removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(404) }).request, "saved-1"), true, "already gone on another device counts as deleted");
+  assert.equal(await removeSavedForLaterRequest(fakeServer({ "DELETE /saved-for-later/saved-1": httpError(500) }).request, "saved-1"), false, "anything else is still there");
 });
 
 test("Cancel on a new task restored from the autosave and left untouched asks", async () => {
@@ -726,18 +736,19 @@ test("what a reopened form sends is decided against its last send, as a truth ta
   for (const [state, expected, why] of cases) assert.equal(unsavedAction(state), expected, why);
 });
 
-test("App sends a reopened form's typing to its record, and a Discard that did not land is said out loud", () => {
+test("App sends a reopened form's typing to its record, and a Delete that did not land is said out loud", () => {
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.match(createMount, /onKeepUnsaved=\{onKeepUnsaved\}/);
-  assert.match(createMount, /onDiscardUnsaved=\{onDiscardUnsaved\}/);
+  assert.match(createMount, /onDiscardUnsaved=\{onDiscardUnsaved\}/, "still passed: a form typed back to its save clears the slot");
+  assert.match(createMount, /onDeleteReopened=\{onDeleteReopened\}/);
   const keep = APP_SOURCE.match(/const onKeepUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.match(keep, /keepUnsavedRequest\(/);
   assert.doesNotMatch(keep, /showToast|setSavedForLater/, "silent, and the board does not re-render as somebody types");
   const discard = APP_SOURCE.match(/const onDiscardUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.match(discard, /discardUnsavedRequest\(/);
-  assert.doesNotMatch(discard, /showToast/, "silent in App, since a form typed back to its save uses it too");
-  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
-  assert.match(confirm.slice(0, confirm.indexOf("\n  };")), /showToast\(/, "the Discard itself says when it did not land");
+  assert.doesNotMatch(discard, /showToast/, "silent in App, since a form typed back to its save uses it");
+  const del = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const deleteReopened"));
+  assert.match(del.slice(0, del.indexOf("\n  };")), /showToast\(/, "the Delete itself says when it did not land");
 });
 
 test("Create clears the Saved for Later task only after the task was filed", () => {
