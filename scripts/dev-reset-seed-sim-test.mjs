@@ -128,6 +128,51 @@ test("a reset still backs up, clears card state, and leaves settings and people 
   assert.equal(after.users.length, 4, "the missing cast is added");
 });
 
+/* #369: saved drafts belong to the data set, not to the people. After a reset
+   they would name loans and tasks that no longer exist, so a plain reset backs
+   them up with the tasks and empties the store; --keep leaves them where they
+   are. Either way the summary says which. */
+const drafts = {
+  items: [
+    { id: "draft-1", ownerId: "loan-officer-1", savedAt: "2026-09-01T00:00:00.000Z", form: { folderName: "Mine" } },
+    { id: "draft-2", ownerId: "loan-officer-2", savedAt: "2026-09-02T00:00:00.000Z", form: { folderName: "Theirs" } }
+  ]
+};
+
+test("a reset backs saved drafts up with the tasks and empties the store", async () => {
+  const dir = await scratch();
+  await writeJson(path.join(dir, "saved-for-later.json"), drafts);
+
+  const output = seed(dir);
+
+  const [stamp] = await fs.readdir(path.join(dir, "backups"));
+  assert.deepEqual(await readJson(path.join(dir, "backups", stamp, "saved-for-later.json")), drafts);
+  assert.deepEqual(await readJson(path.join(dir, "saved-for-later.json")), { items: [] });
+  assert.match(output, /Backed up 0 tasks and 2 Task Drafts to /);
+  assert.match(output, /Cleared 2 Task Drafts/);
+});
+
+test("a reset backs up an unreadable drafts file as it was, not as empty", async () => {
+  const dir = await scratch();
+  await fs.writeFile(path.join(dir, "saved-for-later.json"), "{ not json", "utf8");
+
+  seed(dir);
+
+  const [stamp] = await fs.readdir(path.join(dir, "backups"));
+  assert.equal(await fs.readFile(path.join(dir, "backups", stamp, "saved-for-later.json"), "utf8"), "{ not json");
+  assert.deepEqual(await readJson(path.join(dir, "saved-for-later.json")), { items: [] });
+});
+
+test("--keep leaves saved drafts in place and says so", async () => {
+  const dir = await scratch();
+  await writeJson(path.join(dir, "saved-for-later.json"), drafts);
+
+  const output = seed(dir, "--no-backup", "--keep");
+
+  assert.deepEqual(await readJson(path.join(dir, "saved-for-later.json")), drafts);
+  assert.match(output, /Left 2 Task Drafts in place/);
+});
+
 test("--keep re-seeds without clearing, and without doubling the cast", async () => {
   const dir = await scratch();
   seed(dir, "--no-backup");
