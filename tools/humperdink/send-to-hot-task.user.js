@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.3.0
-// @description  Copy a Humperdink loan to the clipboard and open Hot Task's create form for the paste.
+// @version      1.5.0
+// @description  Copy a Humperdink loan to the clipboard, for pasting into Hot Task's Import from Humperdink box.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
 // @run-at       document-idle
@@ -41,52 +41,6 @@
   var PAYLOAD_VERSION = 1;
   var TITLE_SUFFIX = " - details";
   var LOAN_DETAILS_PATH = /^\/Loans\/Details\/[^/]+\/?$/i;
-
-  /* ── Where Hot Task lives (#198) ──────────────────────────
-
-     Our Teams app id for Hot Task, so the control can land you on the create
-     form after it copies. Filled in rather than left blank for each installer,
-     because everyone installs this by hand and the lookup bought nothing.
-
-     This is the id the ORG CATALOG assigned when Hot Task was published through
-     the Teams admin center — NOT the `id` at the top of teams-app/manifest.json
-     (`bca6db0b-…`), which is what a sideloaded app would use. For an app in the
-     catalog the two differ, and only this one resolves. If you go looking for
-     this value, the place it is visible is the app's details dialog in Teams:
-     the `l/app/<id>` URL it shows carries exactly this id.
-
-     Not a secret. A Teams app id is a public identifier, and so is the Entra
-     client id in that manifest's `webApplicationInfo` — a third id again, the
-     SSO audience, not this. No tenant id and no credential is involved.
-
-     Blank it and the control behaves as it did before — it copies, says so,
-     and you go to Hot Task yourself. This is convenience, not capability: the
-     paste is what carries the loan, and it works from a create form opened by
-     any route. That mirrors `teamsTaskDeepLink` in packages/shared, which
-     returns no link at all when it has no app id rather than emitting a broken
-     one. */
-  var HOT_TASK_APP_ID = "f80d9b67-a393-4383-990f-2406ae2f4987";
-
-  /* Keep in sync with packages/shared/src/deep-link.ts. The link carries no
-     data — the loan is on the clipboard — so all it says is "open the create
-     form", in its own opt-in field of the `context` JSON. */
-  var HOT_TASK_ENTITY_ID = "loan-tasks-home";
-  var CREATE_FORM_INTENT_FIELD = "openCreateForm";
-
-  function hotTaskCreateFormLink() {
-    var appId = HOT_TASK_APP_ID.trim();
-    if (!appId) return "";
-    var context = {};
-    context[CREATE_FORM_INTENT_FIELD] = true;
-    return (
-      "https://teams.microsoft.com/l/entity/" +
-      appId +
-      "/" +
-      HOT_TASK_ENTITY_ID +
-      "?context=" +
-      encodeURIComponent(JSON.stringify(context))
-    );
-  }
 
   var BUTTON_ID = "hot-task-send-control";
   var IDLE_LABEL = "Send to Hot Task";
@@ -140,8 +94,6 @@
   /* Core terms. Their elements must exist; their values may be empty. */
   var CORE_TERM_IDS = {
     loanAmount: "loanAmount",
-    totalValue: "totalLoanValue",
-    ltv: "LTV",
     termMonths: "LoanTerm",
     originationFeePoints: "OriginationFeePoints",
     brokerFeePoints: "BrokerFeePoints",
@@ -200,10 +152,9 @@
      `Junior Financing / Rate: 0.00%` in the note of every loan that has no
      junior financing — exactly the wall of empty labels #196 rules out.
 
-     The core terms deliberately do NOT get this treatment. A Broker Fee of 0
-     points is an ordinary loan with no broker, and `Broker Fee: 0 points` is
-     the note saying so; dropping the line would leave the reader unable to tell
-     that from a field this script failed to read. */
+     The core terms deliberately do NOT get this treatment here: a zero there is
+     a real value and travels as one. Hot Task decides what to show — it leaves
+     a zero Broker Fee out of the note, and keeps every other core zero. */
   function optionalValue(raw) {
     if (!raw) return "";
     var asNumber = Number(raw.replace(/[$,%\s]/g, ""));
@@ -512,58 +463,10 @@
     });
   }
 
-  /* Land the filer on Hot Task's create form, after the copy and never instead
-     of it (#198).
-
-     A new tab rather than a navigation: this page is the loan, and taking the
-     filer off it to file a task about it would be a worse trade than the two
-     clicks this saves. `window.open` is also the only one of the two a browser
-     can refuse, and a refusal has to be reported — a control that silently did
-     nothing would look identical to one that worked, which is the same reason
-     `copyText` doesn't swallow a refused clipboard.
-
-     Returns which of the three things happened, so the button's confirmation
-     says the true one.
-
-     Note the missing `"noopener"` feature: with it, `window.open` returns null
-     on SUCCESS, which is the same thing a blocked popup returns, and every
-     successful open would report itself as refused. The opener is severed
-     afterwards instead.
-
-     This runs after the clipboard promise settles, so it is leaning on the
-     browser's transient user activation rather than on the press itself. That
-     is the right way round: opening first and copying second would land the
-     filer on an empty create form whenever the clipboard refused, and a
-     refusal here costs them one message and a tab switch. `writeText` settles
-     in a microtask, well inside the activation window — and if a browser
-     disagrees, "blocked" is what they see, which is true. */
-  function openHotTask() {
-    var url = hotTaskCreateFormLink();
-    if (!url) return "off";
-    var opened = null;
-    try {
-      opened = window.open(url, "_blank");
-    } catch (err) {
-      opened = null;
-    }
-    if (!opened) return "blocked";
-    try {
-      opened.opener = null;
-    } catch (err) {
-      /* Cross-origin, or a browser that won't have it written. Nothing here
-         depends on it — teams.microsoft.com is not a page we need protecting
-         from Humperdink. */
-    }
-    return "opened";
-  }
-
-  var COPIED_MESSAGE = {
-    opened: "Copied — opening Hot Task",
-    /* The copy is the part that matters and it landed; only the shortcut
-       didn't. */
-    blocked: "Copied — couldn't open Hot Task. Go there and paste.",
-    off: "Copied — paste it into Hot Task"
-  };
+  /* The clipboard is the whole handoff. This control used to open Hot Task's
+     create form in a new tab as well (#198); that was dropped, so it never
+     leaves the loan page and never needs to know where Hot Task lives. */
+  var COPIED_MESSAGE = "Copied — paste it into Import from Humperdink on an LOI Check";
 
   function mount() {
     if (document.getElementById(BUTTON_ID)) return;
@@ -650,7 +553,7 @@
       var text = JSON.stringify(result.payload);
       copyText(text).then(
         function () {
-          say(COPIED_MESSAGE[openHotTask()]);
+          say(COPIED_MESSAGE);
         },
         function () {
           say("Couldn't reach the clipboard. Copy this page's URL by hand.");

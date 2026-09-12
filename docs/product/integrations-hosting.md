@@ -28,28 +28,11 @@
   ([ADR-0001](../adr/0001-loan-entity.md)), the created task joins the loan
   that URL already names rather than minting a duplicate.
 
-  **The control also lands you where you can paste.** Pressing it copies the
-  payload *and* opens Hot Task in a new tab with the create form already
-  showing, so the next thing you do is press Import from Humperdink. That is a
-  Teams deep link carrying **no data at all** — the loan is on the clipboard —
-  built off the same `teamsTaskDeepLink` every other surface uses, with an
-  opt-in `openCreateForm: true` in its `context` JSON beside `subEntityId`. Its
-  own field, never a sentinel inside the task id: the builder is shared with the
-  web app's "Copy link", and a link pasted into a chat must not open a create
-  form for whoever clicks it. Every existing link is byte-for-byte unchanged,
-  and arriving by any other route lands on the normal board.
-  - **Cold tab and warm tab are one path.** Hot Task doesn't opt into Teams tab
-    caching, so Teams loads the tab's content frame fresh for every deep link
-    tap whether or not the tab was already open, and the intent arrives at the
-    mount-time `app.getContext()` either way — the same assumption the
-    task-focus deep link has always run on.
-  - **The link is convenience, not capability, and it degrades in three
-    places.** The userscript carries the Teams app id as a constant an installer
-    fills in (see the README beside it); left blank, the control copies and says
-    so, exactly as before. A refused clipboard opens nothing — landing on an
-    empty create form with nothing to paste is worse than staying put. A blocked
-    popup is reported rather than silently swallowed. And the create form itself
-    still takes the paste when opened by any route.
+  **The control only copies.** It used to also open Hot Task's create form in a
+  new tab through a Teams deep link (#198); that was dropped, and pressing it
+  now puts the payload on the clipboard and says so, nothing more. The filer
+  opens an LOI Check in Hot Task and pastes. The web app still honours the
+  `openCreateForm` deep link intent, but the userscript no longer sends one.
 
   This is not an API integration and deliberately isn't one. There is no
   credential in the userscript, no write endpoint exposed to the browser, and
