@@ -614,7 +614,7 @@ export interface NotificationEvent {
      name nobody uses any more. Each one is corrected where it sits, in the
      lifecycle shape it is already in — nothing is posted, nothing is deleted,
      and nobody is re-pinged for a rename. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CLAIM" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* What this task's loan was called a moment ago, carried only on
      CARD_CORRECTION (#280). A card records the values it was rendered with, and

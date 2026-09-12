@@ -148,26 +148,46 @@
     whenever `TEAMS_APP_ID` is unset — the card carries no actions at all.
   - The **re-open pointer card** is the exception: it is deliberately linkless,
     because the task it replaced now lives in a new thread.
-- On claim, the claimer also gets a **full-details DM card** (`DM_CLAIM`):
-  type, How Bad, urgency time-frame, **due date**, notes, Humperdink link, an
-  **Open in Hot Task** deep link, and a contextual **advance/complete**
-  button. **An LOI Check card omits the notes line**: on an LOI that field
-  holds the loan's terms, and a card of figures is one people scroll past
-  rather than read, so it leans on the deep link instead
+- **A claim sends each party one DM, and only one** (`DM_CHAT_SEED`, decided
+  2026-09-12). The claimer and the creator both get the **conversation card**,
+  and it carries everything a claim needs to say:
+  - a headline naming the task (the file name, or an OOO task's description),
+  - a context line — `LOI Check · asked by Tyler · assigned to Suzie` — the
+    channel card's line minus the file name, saying "assigned to" however the
+    holder got there, since this is the same card after a handoff,
+  - the facts: How Bad, urgency time-frame, **due date**, notes, Humperdink link
+    (an OOO task shows its dates instead),
+  - the conversation so far, or "No messages yet. Reply here to chat about it."
+    when there is none, with the reply box,
+  - **Reply**, the step button for whoever's move it is, and **Open in Hot
+    Task**.
+
+  The chat preview says who took it: `You claimed Smith-1042` for the claimer,
+  `Suzie Lim claimed Smith-1042` for the creator. A claim used to send two
+  messages to each person — a details card then the conversation card for the
+  claimer, a `claimed` one-liner then the conversation card for the creator —
+  and the second of each pair said nothing the first hadn't, so both pings
+  fired for one event. The details are rebuilt from the live task on every
+  render, so a later urgency, instructions or loan-name change shows on the
+  card the next time it is touched.
+
+  **An LOI Check card omits the notes line**: on an LOI that field holds the
+  loan's terms, and a card of figures is one people scroll past rather than
+  read, so it leans on the deep link instead
   ([ADR-0008](../adr/0008-loi-terms-are-a-field-not-a-message.md) rule 9). The
-  same body — and the same omission — is used by the share and handoff detail
-  cards. This is the one surface where due date is shown in user-facing UI —
-  see [due-date-urgency.md](due-date-urgency.md). Where it lands is recorded so
-  it stays editable — see [DM Card Sync](#dm-card-sync).
+  facts and the omission come from one builder (`taskFactLines`), shared with
+  the share and handoff detail cards. DM task cards are the one place a due date
+  is shown in user-facing UI — see [due-date-urgency.md](due-date-urgency.md).
 - **Handoff** (`POST /tasks/:id/assign`, see
   [ADR-0002](../adr/0002-task-handoff.md)): **DMs only — no channel post and no
   activity-feed alert.** A handoff is a conversation between two people, and the
   channel already saw the task when it was created.
-  - The new assignee gets a `DM_ASSIGN` card: the same full-details `detailCard`
-    the claimer's `DM_CLAIM` uses, so it carries the contextual
-    advance/complete button and the **Open in Hot Task** deep link — and, like
-    `DM_CLAIM`, it is **tracked** so [DM Card Sync](#dm-card-sync) can refresh
-    its button as the task moves on. Title reads
+  - The new assignee gets a `DM_ASSIGN` card: a full-details `detailCard` with
+    the same facts the conversation card shows, the contextual
+    advance/complete button and the **Open in Hot Task** deep link — and it is
+    **tracked** so [DM Card Sync](#dm-card-sync) can refresh its button as the
+    task moves on. A handoff does not open the conversation card; that arrives
+    with the first note, as it always has. Title reads
     "&lt;actor&gt; assigned &lt;folder&gt; to you". An optional note (≤ 280
     chars) rides quoted at the top of the card body, exactly as `DM_SHARE`'s
     does. The note is **never** written as a review note — that would fire the
@@ -222,9 +242,11 @@
   `formatLifecycleDmText`, so it carries the deep link like every other
   lifecycle notice. Recipients are the ones named above.
 - `Merge Approved`: DM task assignee
-- Notes: DM counterpart user as an **interactive note card** — shows the
-  recent conversation (last ~5 notes, oldest → newest) with an inline reply
-  box and a contextual advance/complete button. The reply box **persists**
+- Notes: DM counterpart user as an **interactive note card** — the same
+  conversation card a claim sends, so it carries the task's details and the
+  **Open in Hot Task** link above the recent conversation (last ~5 notes,
+  oldest → newest), with an inline reply box and a contextual advance/complete
+  button. The reply box **persists**
   after sending (card refreshes to the updated thread), so a user can send
   several messages in a row. Tapping **Reply** posts the text straight back
   as another review note (which in turn DMs the original author, closing the
@@ -257,7 +279,7 @@
   task's delivered cards through the silent [DM Card Sync](#dm-card-sync) path,
   so no card is left quoting a stale value; a no-op save does neither.
 - **Plain lifecycle DMs carry the task link too** (#174). The one-line notices —
-  claim, `Merge done`, the completion notice, `Got the green light`, the fraud round
+  `Merge done`, the completion notice, `Got the green light`, the fraud round
   trip, handoff displacement, OOO auto-completion, the overdue nudge — read as
   `<friendly type> - <message>`, with the folder name appended in parentheses
   only when the message doesn't already name it. Whichever occurrence the reader
@@ -278,12 +300,14 @@ a silent `DM_CARD_SYNC` that re-renders each participant's existing DM cards in
 place, so a card's buttons always show the step that is actually next.
 
 - Covers both DM card kinds: the interactive note/chat card
-  (`apps/server/data/bot-note-cards.json`) and the claim-detail card
-  (`apps/server/data/bot-detail-cards.json`). The claim card used to be
-  fire-and-forget — its activity id was discarded, so its **Complete** button
-  could never be taken away once the task moved on. It is now recorded at send
-  time, along with the rendered title/detail so a re-render replays the body
-  (due date, notes, Humperdink) verbatim.
+  (`apps/server/data/bot-note-cards.json`), which is rebuilt from the live task,
+  and the handoff's detail card (`apps/server/data/bot-detail-cards.json`). The
+  detail card used to be fire-and-forget — its activity id was discarded, so its
+  **Complete** button could never be taken away once the task moved on. It is
+  now recorded at send time, along with the rendered title/detail so a
+  re-render replays the body (due date, notes, Humperdink) verbatim. Claims sent
+  one too until 2026-09-12; those already in people's chats are still on file
+  and still re-rendered.
 - **Creates nothing, pings nobody.** Strictly an in-place edit: a participant
   with no card stays without one, nothing is repositioned, and no `summary` is
   set — the status change already had its own notification, and a second ping for
@@ -298,7 +322,7 @@ place, so a card's buttons always show the step that is actually next.
   too. Claim syncs as well, so a card left over from an earlier claim is retired.
 - Who sees which button is one shared rule — `taskCardRecipients`
   (`packages/shared/src/fraud.ts`) — used by the sync, the note card, and the
-  chat-seed card alike, so the three can't drift apart.
+  card a claim sends alike, so the three can't drift apart.
 - **Not terminal-only.** A *wrong* button is worse than a dead one: advancing a
   Loan Docs task in the tab re-arms the DM cards to `Approve Merge` rather than
   leaving `Merge Done` sitting there. Terminal cleanup is just the last step of
@@ -314,7 +338,7 @@ place, so a card's buttons always show the step that is actually next.
   button that always errors ("Notes cannot be added to closed tasks").
 - Per-viewer button rules match `DM_NOTE` exactly: the advance goes to the party
   whose move it is, and a FRAUD task carries its role-aware two-phase set instead
-  of the generic advance. The claim-detail card never carries a fraud button
+  of the generic advance. The handoff's detail card never carries a fraud button
   (that move is note-required and lives on the chat card). Full matrix in
   [Who Gets Which Button](#who-gets-which-button).
 - Runs **above** the `enableDmNotifications` gate, since it sends nothing —
@@ -338,7 +362,7 @@ place, so a card's buttons always show the step that is actually next.
   Unknown/inactive users get a toast and no claim, and so does anyone the rule
   refuses: the toast is `claimRefusalMessage`'s sentence, which names the real
   reason rather than a catch-all.
-- **Advance/Complete** buttons (note + claim cards) call `botPrimaryAdvance` for
+- **Advance/Complete** buttons (conversation + handoff cards) call `botPrimaryAdvance` for
   the next forward step (Merge Done → Approve Merge → Complete for Loan
   Docs; Complete otherwise), then transition via the task service and refresh to
   a confirmation card that offers the *next* step — so a user can step a task all
@@ -454,9 +478,9 @@ has a forward move to offer:
 |---|---|---|
 | Channel root card, claimable | Claim & Open, Open in Hot Task, plus an invisible **Refresh** action listing the creator's MRI | No — addressed to the room. Refresh is Teams' user-specific-view mechanism rather than a button anyone taps: it makes the creator's copy re-fetch, and their copy swaps Claim & Open for **Cancel Task** (`canCancelTask`). The claim itself is re-checked on arrival (`claimRefusalMessage`) |
 | Channel root card, claimed / terminal | Open in Hot Task | n/a — no move on it |
-| DM claim / assign detail card | advance, Open in Hot Task | Yes, per recipient. Never carries a fraud move: that one is note-required and lives on the chat card |
+| DM handoff detail card | advance, Open in Hot Task | Yes, per recipient. Never carries a fraud move: that one is note-required and lives on the chat card |
 | DM share card | Open in Hot Task | n/a — a share informs, it never offers a move |
-| DM note / chat card | Reply, advance *or* the fraud set | Advance yes; **Reply no** — the card goes to the task's two parties and a note is a conversation between them (`canAddNoteToTask`). It survives `COMPLETED` (#45) and is dropped at `CANCELLED` / `ARCHIVED`, which is a status rule, not a party one |
+| DM note / chat card (also what a claim sends) | Reply, advance *or* the fraud set, Open in Hot Task | Advance yes; **Reply no** — the card goes to the task's two parties and a note is a conversation between them (`canAddNoteToTask`). It survives `COMPLETED` (#45) and is dropped at `CANCELLED` / `ARCHIVED`, which is a status rule, not a party one |
 | Transition confirm card | the *next* advance | Yes — the tapper is offered the next rung only when it is theirs, so marking a merge done doesn't hand you the creator's approval |
 
 `scripts/card-advance-party-sim-test.mjs` mirrors these tables as a single

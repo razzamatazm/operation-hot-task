@@ -329,6 +329,9 @@ const notifierSetup = () => {
     syncTaskCards: async (opts) => {
       synced.push(opts);
     },
+    syncNoteCards: async (opts) => {
+      synced.push(opts);
+    },
     sendToDms: async () => {}
   };
   const directory = new Map(VIEWERS.map((user) => [user.id, user]));
@@ -351,11 +354,18 @@ const dmEvent = (task, target, recipientUserIds) => ({
   createdAt: new Date().toISOString()
 });
 
-await check("the claim DM card offers the claimer the step that is theirs", async () => {
-  const { notifier, sent } = notifierSetup();
-  await notifier.notify(dmEvent(makeTask({ status: "CLAIMED" }), "DM_CLAIM", [ASSIGNEE.id]));
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].detail.advance?.label, "Merge Done", "the claimer is the assignee and gets their own rung");
+await check("the claim's card offers the claimer the step that is theirs, and the creator nothing", async () => {
+  // A claim sends both parties one card, the conversation card; the step button
+  // on it is gated per recipient, the same rule as every other surface.
+  const { notifier, sent, synced } = notifierSetup();
+  const task = makeTask({ status: "CLAIMED" });
+  await notifier.notify({ ...dmEvent(task, "DM_CHAT_SEED", [ASSIGNEE.id, CREATOR.id]), actor: ASSIGNEE });
+  assert.equal(sent.length, 0, "no separate details card");
+  assert.equal(synced.length, 1);
+  assert.equal(synced[0].advance?.label, "Merge Done");
+  const byUser = Object.fromEntries(synced[0].recipients.map((r) => [r.userId, r.showAdvance]));
+  assert.equal(byUser[ASSIGNEE.id], true, "the claimer is the assignee and gets their own rung");
+  assert.equal(byUser[CREATOR.id], false, "the creator is not handed the assignee's move");
 });
 
 await check("a handoff mid-merge doesn't hand the creator's Approve Merge to the new assignee", async () => {

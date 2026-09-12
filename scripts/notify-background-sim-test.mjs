@@ -142,10 +142,10 @@ await check("claim and transition also return without waiting on fan-out", async
 
   stall.open();
   await service.settleBackgroundWork();
-  // Order within the claim request is preserved: the claimant's DM lands before
-  // the channel card flip, exactly as the sequential code reads.
+  // Order within the claim request is preserved: the claim's one DM card lands
+  // before the channel card flip, exactly as the sequential code reads.
   const claimTargets = events.filter((e) => e.type === "TASK_CLAIMED").map((e) => e.target);
-  assert.deepEqual(claimTargets, ["DM_CLAIM", "DM", "CHANNEL_CLAIMED", "DM_CHAT_SEED"]);
+  assert.deepEqual(claimTargets, ["DM_CHAT_SEED", "CHANNEL_CLAIMED"]);
 });
 
 await check("two requests on one task keep their fan-out in order", async () => {
@@ -156,7 +156,7 @@ await check("two requests on one task keep their fan-out in order", async () => 
   // Stall the FIRST notification of the claim chain. Unchained, the later
   // transition's fan-out would sail past it and invert the card edits.
   const { service, events } = await setup(async (event) => {
-    if (event.target === "DM_CLAIM") {
+    if (event.target === "DM_CHAT_SEED") {
       await new Promise((resolve) => setTimeout(resolve, 120));
     }
   });

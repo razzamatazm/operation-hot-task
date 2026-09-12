@@ -1,7 +1,8 @@
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
+import { taskDeepLink } from "./deep-link.js";
 import { JsonFile } from "./json-file.js";
 
 interface StoredReference {
@@ -257,9 +258,22 @@ interface NoteThreadEntry {
   text: string;
 }
 
+/* What the conversation card says about the task above its thread. The card is
+   the one message each party gets when a task is claimed, so it has to carry
+   what the separate details card used to: who and what, the facts, and the way
+   into the task. Rebuilt from the live task on every render — a note, a reply,
+   a status sync, a loan correction — so it never quotes a stale value. */
+interface NoteCardDetails {
+  /* `LOI Check · asked by Tyler · assigned to Suzie`. */
+  contextLine: string;
+  facts: string[];
+  openUrl?: string;
+}
+
 interface NoteCardData {
   taskId: string;
   folder: string;
+  details: NoteCardDetails;
   thread: NoteThreadEntry[];
   advance?: AdvanceAction;
   /* Fraud two-phase buttons. Its presence (even as []) marks the card as a fraud
@@ -360,12 +374,58 @@ export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
    card sync sim imports `advanceFor` from here to assert the card layer. */
 export const advanceFor = botAdvanceFor;
 
+/* The facts a DM card lists: How Bad, urgency, the due date, the request field
+   and the Humperdink link — or, on an OOO task, the dates it covers. No type
+   line: the details card writes its own, and the conversation card names the
+   type on its context line. One builder for both cards, so a rule about what a
+   card quotes can't land on one and miss the other.
+
+   An LOI's request field is its terms — the whole block of loan figures, not a
+   sentence (ADR-0008). Quoting it turns the card into a wall of numbers that
+   has to be scrolled, and a card people scroll is a card people stop reading.
+   An LOI leans on its deep link instead; the other five keep the line (#259). */
+export const taskFactLines = (task: LoanTask, options: { withDue: boolean }): string[] => {
+  if (task.taskType === "OOO") {
+    const from = task.startDate ? formatWallDate(task.startDate) : "—";
+    const to = formatWallDate(task.returnDate ?? task.dueAt);
+    return [`Out: ${from} → ${to}`];
+  }
+  return [
+    `How Bad: ${task.points > 0 ? "💩".repeat(task.points) : "—"}`,
+    `Urgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
+    ...(options.withDue ? [`Due: ${formatWallDate(task.dueAt)}`] : []),
+    ...(task.taskType !== "LOI" && task.notes?.trim() ? [`Notes: ${task.notes.trim()}`] : []),
+    ...(task.humperdinkLink ? [formatHumperdinkCardLine(task.humperdinkLink)] : [])
+  ];
+};
+
+/* The conversation card's details, from the live task. The context line is the
+   channel card's, minus the file name the card's headline already shows, and
+   it names the holder as "assigned to" whichever way they got there: this card
+   is the same card for a claim and a handoff, and "claimed by" would be wrong
+   on the second. */
+export const noteCardDetailsFromTask = (task: LoanTask): NoteCardDetails => {
+  const openUrl = taskDeepLink(task.id, task.folderName);
+  return {
+    contextLine: formatChannelContextLine({
+      taskType: task.taskType,
+      folderName: "",
+      createdBy: task.createdBy.displayName,
+      ...(task.assignee ? { assignee: task.assignee.displayName } : {}),
+      assigneeVerb: ASSIGNED_VERB
+    }),
+    facts: taskFactLines(task, { withDue: true }),
+    ...(openUrl ? { openUrl } : {})
+  };
+};
+
 /* Build note-card data from a task (used to refresh after a reply). The
    advance/Complete button is only offered to a viewer allowed to perform it
    (e.g. Complete is the assignee's action, not the creator's) — without this
    the reply-box refresh would re-add Complete for anyone. */
 export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
   const closed = closedStateFor(task.status, task.folderName);
+  const details = noteCardDetailsFromTask(task);
   // FRAUD cards carry the role-aware two-phase button set (keyed off the viewer)
   // instead of the generic single advance. The key is always present for a fraud
   // task (empty when this viewer has no action in this state) so `noteCard`
@@ -374,6 +434,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
     return {
       taskId: task.id,
       folder: task.folderName,
+      details,
       thread: recentNoteThread(task),
       fraudActions: fraudCardActions(task, viewer),
       ...(closed ? { closed } : {})
@@ -383,6 +444,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
   return {
     taskId: task.id,
     folder: task.folderName,
+    details,
     thread: recentNoteThread(task),
     ...(advance ? { advance } : {}),
     ...(closed ? { closed } : {})
@@ -440,10 +502,13 @@ const fraudActionButtons = (taskId: string, actions: FraudCardAction[]): Record<
     };
   });
 
-/* DM card for a review-note conversation: the recent thread (oldest → newest),
-   an inline reply box that posts straight back as another note, and a contextual
-   advance/complete button. The reply box persists so users can send several
-   messages in a row. */
+/* The DM task card: the task's details, the recent thread (oldest → newest), an
+   inline reply box that posts straight back as another note, a contextual
+   advance/complete button, and the deep link. The reply box persists so users
+   can send several messages in a row.
+
+   It is also the one message a claim sends to each party, which is why it
+   carries the details and the link rather than leaving them to a second card. */
 export const noteCard = (data: NoteCardData): Record<string, unknown> => {
   const canReply = !data.closed || data.closed.allowReply;
   return {
@@ -451,16 +516,27 @@ export const noteCard = (data: NoteCardData): Record<string, unknown> => {
     type: "AdaptiveCard",
     version: "1.4",
     body: [
-      // A closed task leads with its terminal banner; the conversation stays
-      // below it, since the point of keeping the card is keeping the history.
-      ...(data.closed ? [{ type: "TextBlock", text: data.closed.label, weight: "Bolder", wrap: true, size: "Medium" }] : []),
-      { type: "TextBlock", text: `Conversation on ${data.folder}`, weight: "Bolder", wrap: true },
+      // A closed task's terminal banner takes the headline's place — it names
+      // the task too. The conversation stays below it, since the point of
+      // keeping the card is keeping the history.
+      { type: "TextBlock", text: data.closed ? data.closed.label : data.folder, weight: "Bolder", wrap: true, size: "Medium" },
+      { type: "TextBlock", text: data.details.contextLine, wrap: true, spacing: "Small", isSubtle: true },
+      ...(data.details.facts.length > 0
+        ? [{ type: "TextBlock", text: data.details.facts.join("\n"), wrap: true, spacing: "Small" }]
+        : []),
+      { type: "TextBlock", text: "Conversation", weight: "Bolder", wrap: true, spacing: "Medium" },
       ...data.thread.map((entry) => ({
         type: "TextBlock",
         text: `**${entry.author}:** ${entry.text}`,
         wrap: true,
         spacing: "Small"
       })),
+      /* Said by the card rather than stored as a message, so a status sync that
+         re-renders a card with no notes yet reads the same as the card a claim
+         first sent. */
+      ...(data.thread.length === 0 && canReply
+        ? [{ type: "TextBlock", text: "No messages yet. Reply here to chat about it.", wrap: true, spacing: "Small", isSubtle: true }]
+        : []),
       ...(canReply ? [{ type: "Input.Text", id: "replyText", placeholder: "Type a reply…", isMultiline: true }] : [])
     ],
     actions: [
@@ -474,7 +550,10 @@ export const noteCard = (data: NoteCardData): Record<string, unknown> => {
         ? []
         : data.fraudActions !== undefined
           ? fraudActionButtons(data.taskId, data.fraudActions)
-          : advanceButton(data.taskId, data.advance))
+          : advanceButton(data.taskId, data.advance)),
+      // Survives a closed task, as it does on every other card: a finished
+      // task is exactly when somebody goes to look at what happened.
+      ...(data.details.openUrl ? [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: data.details.openUrl }] : [])
     ]
   };
 };
@@ -1358,6 +1437,7 @@ export class TeamsBotClient {
   async syncNoteCards(opts: {
     taskId: string;
     folder: string;
+    details: NoteCardDetails;
     thread: NoteThreadEntry[];
     advance?: AdvanceAction;
     /* Terminal banner for a closed task — drops every action button. */
@@ -1381,6 +1461,7 @@ export class TeamsBotClient {
         noteCard({
           taskId: opts.taskId,
           folder: opts.folder,
+          details: opts.details,
           thread: opts.thread,
           // A fraud recipient always carries fraudActions (possibly empty) so the
           // card renders the role-aware button set, never the generic advance.
@@ -1523,6 +1604,7 @@ export class TeamsBotClient {
   async syncTaskCards(opts: {
     taskId: string;
     folder: string;
+    details: NoteCardDetails;
     status: TaskStatus;
     thread: NoteThreadEntry[];
     advance?: AdvanceAction;
@@ -1532,6 +1614,7 @@ export class TeamsBotClient {
     await this.syncNoteCards({
       taskId: opts.taskId,
       folder: opts.folder,
+      details: opts.details,
       thread: opts.thread,
       ...(opts.advance ? { advance: opts.advance } : {}),
       ...(closed ? { closed } : {}),
@@ -1564,7 +1647,8 @@ export class TeamsBotClient {
     for (const post of entry.posts) {
       // A fraud task's forward move is note-required and lives on the chat card,
       // so the detail card never carries a button for it — same rule as the
-      // card's original send in the DM_CLAIM handler.
+      // card's original send in the DM_ASSIGN handler. Cards a claim sent before
+      // claims stopped sending one are still on file and still re-rendered here.
       const recipient = post.userId ? opts.recipients.find((candidate) => candidate.userId === post.userId) : undefined;
       const showAdvance = Boolean(recipient?.showAdvance) && recipient?.fraudActions === undefined;
       const card = detailCard({

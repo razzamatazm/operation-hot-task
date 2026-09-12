@@ -234,7 +234,8 @@ is wrong on all of them.
   say. A field that didn't move earns no row.
 - **The cards already posted to Teams are corrected too.** A loan's name shows
   on the channel card announcing each of its tasks, on the details card sent to
-  whoever claimed one, and on the conversation cards in those people's chats.
+  whoever one was handed to, and on the conversation cards in the chats of the
+  people on each task.
   Each of those messages is **edited where it sits**: the card keeps its place
   in the channel and in every chat, keeps whatever state it was already in — up
   for grabs, claimed, completed, cancelled — and gains no button it did not

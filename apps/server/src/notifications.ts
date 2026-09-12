@@ -1,7 +1,8 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatHumperdinkCardLine, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatWallDate, fraudCardActions, taskCardRecipients, teamsTaskDeepLink } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
-import { TeamsBotClient, channelCardContext, loanCardValues, recentNoteThread } from "./bot.js";
+import { TeamsBotClient, channelCardContext, loanCardValues, noteCardDetailsFromTask, recentNoteThread, taskFactLines } from "./bot.js";
+import { taskDeepLink } from "./deep-link.js";
 import { SettingsStore } from "./settings-store.js";
 
 export interface NotificationProvider {
@@ -11,19 +12,6 @@ export interface NotificationProvider {
      #41 share) report delivered-vs-not instead of dropping silently. */
   canReachDm(userId: string): Promise<boolean>;
 }
-
-/* Teams deep link to the Hot Task tab, focused on a specific task. The builder
-   itself lives in `packages/shared` (deep-link.ts) so the bot, the activity
-   feed, and the web app's "Copy link" all emit the same URL; this wrapper only
-   binds the server's config to it. Requires TEAMS_APP_ID — without it there's
-   no valid entity link, so the card simply omits the button. `label` (the
-   folder name) makes the link unfurl readably when pasted into a chat;
-   `webUrl` is only attached when APP_BASE_URL is configured. */
-const taskDeepLink = (taskId: string, label?: string): string | undefined =>
-  teamsTaskDeepLink(config.teamsAppId, taskId, {
-    ...(label ? { label } : {}),
-    ...(config.appBaseUrl ? { webUrl: config.appBaseUrl } : {})
-  });
 
 const sendWebhook = async (payload: { title: string; text: string }): Promise<void> => {
   if (!config.webhookUrl) {
@@ -96,46 +84,35 @@ export class TeamsNotificationProvider implements NotificationProvider {
     };
   }
 
-  /* The three DM surfaces that send a full task detail card — DM_SHARE,
-     DM_ASSIGN and DM_CLAIM — differ in exactly three ways: the title, whether
-     the body carries a Due line, and whether the card offers the
-     advance/complete button. Everything else is identical: the OOO/non-OOO
-     body split, How Bad, urgency, notes, the Humperdink link, a quoted note
-     leading the body, the deep link, and the plain-DM fallback when there's no
-     targeted recipient. It lives here once so a change to the card body can't
-     land on two of the three and drift the way the labels did.
+  /* The two DM surfaces that send a full task detail card — DM_SHARE and
+     DM_ASSIGN — differ in exactly three ways: the title, whether the body
+     carries a Due line, and whether the card offers the advance/complete
+     button. Everything else is identical: the facts (`taskFactLines`, shared
+     with the conversation card), a quoted note leading the body, the deep
+     link, and the plain-DM fallback when there's no targeted recipient. It
+     lives here once so a change to the card body can't land on one and drift
+     the way the labels did.
+
+     A claim used to send this card too, and no longer does: the claim's one
+     message is the conversation card, which carries the same facts.
 
      `withAdvance` also decides whether the card is TRACKED (#136). The two are
      the same question asked twice: a card offering a forward move is exactly a
      card that goes stale when the task moves, so it has to stay editable for
      DM_CARD_SYNC to refresh it. DM_SHARE offers no move and needs no tracking;
-     DM_CLAIM and the handoff's DM_ASSIGN both do. */
+     the handoff's DM_ASSIGN does. */
   private async sendTaskDetailDm(
     event: NotificationEvent,
     options: { title: string; withDue: boolean; withAdvance: boolean; fallbackText?: string }
   ): Promise<void> {
     const typeLabel = TASK_TYPE_LABELS[event.task.taskType];
-    const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
-    const lines =
-      event.task.taskType === "OOO"
-        ? [
-            `Type: Out of Office`,
-            `Out: ${event.task.startDate ? formatWallDate(event.task.startDate) : "—"} → ${event.task.returnDate ? formatWallDate(event.task.returnDate) : formatWallDate(event.task.dueAt)}`,
-            `Details: ${event.task.folderName}`
-          ]
-        : [
-            `Type: ${typeLabel}`,
-            `How Bad: ${howBad}`,
-            `Urgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`,
-            ...(options.withDue ? [`Due: ${formatWallDate(event.task.dueAt)}`] : []),
-            /* An LOI's request field is its terms — the whole block of loan
-               figures, not a sentence (ADR-0008). Quoting it here turns the
-               card into a wall of numbers that has to be scrolled, and a card
-               people scroll is a card people stop reading. An LOI leans on its
-               deep link instead; the other five keep the line (#259). */
-            ...(event.task.taskType !== "LOI" && event.task.notes?.trim() ? [`Notes: ${event.task.notes.trim()}`] : []),
-            ...(event.task.humperdinkLink ? [formatHumperdinkCardLine(event.task.humperdinkLink)] : [])
-          ];
+    const lines = [
+      `Type: ${typeLabel}`,
+      ...taskFactLines(event.task, { withDue: options.withDue }),
+      // The conversation card heads itself with the folder name; this card's
+      // title is a sentence, so an OOO task's description has to be spelled out.
+      ...(event.task.taskType === "OOO" ? [`Details: ${event.task.folderName}`] : [])
+    ];
     // A personal note (share or handoff) leads the body, above the task
     // details, so the "hey, look at this" reads before the metadata.
     if (event.note?.trim()) {
@@ -207,6 +184,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     await this.botClient.syncTaskCards({
       taskId: event.task.id,
       folder: event.task.folderName,
+      details: noteCardDetailsFromTask(event.task),
       status: event.task.status,
       thread: recentNoteThread(event.task),
       ...(advance ? { advance } : {}),
@@ -388,36 +366,36 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (
-      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CLAIM" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE" || event.target === "DM_ASSIGN") &&
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE" || event.target === "DM_ASSIGN") &&
       !config.enableDmNotifications
     ) {
       return;
     }
 
     if (event.target === "DM_CHAT_SEED") {
-      // On claim, open the note-conversation card for BOTH parties so the chat
-      // surface exists before the first note. Seeds with existing notes, or an
-      // intro line when there are none. Reposts at the bottom (reposition) so a
-      // re-claim moves a stale card down.
+      /* The claim's one message to each party: the conversation card, carrying
+         the task's details, its step button and the deep link, so there is no
+         separate details card or "claimed" one-liner beside it. Reposts at the
+         bottom (reposition) so a re-claim moves a stale card down, and a new
+         post is what pings — the preview says who took it. */
       if (!Array.isArray(event.recipientUserIds) || event.recipientUserIds.length === 0) {
         return;
       }
       const advance = botPrimaryAdvance(event.task);
-      const existing = recentNoteThread(event.task);
-      const seeded =
-        existing.length > 0
-          ? existing
-          : [{ author: "Hot Task", text: `${event.actor.displayName} claimed this — reply here to chat about it.` }];
       const recipients = taskCardRecipients(event.task, await this.cardViewers(event.recipientUserIds)).map((recipient) => ({
         ...recipient,
         createIfMissing: true,
         reposition: true,
-        summary: `Chat opened for ${event.task.folderName}`
+        summary:
+          recipient.userId === event.actor.id
+            ? `You claimed ${event.task.folderName}`
+            : `${event.actor.displayName} claimed ${event.task.folderName}`
       }));
       await this.botClient.syncNoteCards({
         taskId: event.task.id,
         folder: event.task.folderName,
-        thread: seeded,
+        details: noteCardDetailsFromTask(event.task),
+        thread: recentNoteThread(event.task),
         ...(advance ? { advance } : {}),
         recipients
       });
@@ -446,18 +424,6 @@ export class TeamsNotificationProvider implements NotificationProvider {
          note — that would double-notify via DM_NOTE. */
       await this.sendTaskDetailDm(event, {
         title: `${event.actor.displayName} assigned ${event.task.folderName} to you`,
-        withDue: true,
-        withAdvance: true
-      });
-      return;
-    }
-
-    if (event.target === "DM_CLAIM") {
-      // Full-details card to whoever claimed the task — the surface that shows
-      // due date, plus the advance/complete button and the deep link. Tracked
-      // via withAdvance, so DM_CARD_SYNC can refresh it (#136).
-      await this.sendTaskDetailDm(event, {
-        title: `You claimed ${event.task.folderName}`,
         withDue: true,
         withAdvance: true
       });
@@ -499,6 +465,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         await this.botClient.syncNoteCards({
           taskId: event.task.id,
           folder: event.task.folderName,
+          details: noteCardDetailsFromTask(event.task),
           thread: resolvedThread,
           ...(advance ? { advance } : {}),
           recipients

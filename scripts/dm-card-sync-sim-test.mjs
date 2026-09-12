@@ -84,7 +84,29 @@ await check("a live task's note card still carries its advance button", () => {
   const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CHECKER));
   assert.deepEqual(actionTitles(card), ["Reply", "Complete"]);
   assert.equal(hasReplyBox(card), true);
-  assert.equal(headline(card), "Conversation on Smith-1042");
+  assert.equal(headline(card), "Smith-1042");
+});
+
+/* The conversation card is the one message a claim sends each party, so it
+   carries what the separate details card used to: who and what, the facts, and
+   the way into the task. */
+await check("the note card carries the task's details above the conversation", () => {
+  const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CHECKER));
+  const texts = (card.body ?? []).map((block) => block.text);
+  assert.equal(texts[1], "LOI Check · asked by Dana Requester · assigned to Casey Checker");
+  // No Notes line on an LOI: its request field is the loan's terms (#259).
+  assert.equal(texts[2], "How Bad: 💩💩\nUrgency: Within 24 Hours\nDue: Aug 14, 2026");
+  assert.equal(texts[3], "Conversation");
+  assert.equal(texts[4], "**Casey Checker:** started on it");
+});
+
+await check("a note card with no messages yet says so instead of sitting empty", () => {
+  const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED", reviewNotes: [] }), CHECKER));
+  const texts = (card.body ?? []).map((block) => block.text);
+  assert.ok(texts.includes("No messages yet. Reply here to chat about it."));
+  // A card that can't take a reply has nothing to invite.
+  const cancelled = noteCard(noteCardDataFromTask(makeTask({ status: "CANCELLED", reviewNotes: [] }), CHECKER));
+  assert.ok(!(cancelled.body ?? []).some((block) => block.text === "No messages yet. Reply here to chat about it."));
 });
 
 await check("COMPLETED note card drops every button but keeps the reply box", () => {
@@ -534,6 +556,10 @@ const botSetup = async () => {
 
 const cardOf = (entry) => entry.activity.attachments[0].content;
 
+/* Every conversation card carries the task's details; these tests are about the
+   buttons, so any will do. */
+const DETAILS = { contextLine: "LOI Check · asked by Dana Requester", facts: [] };
+
 await check("the claim card is recorded on send, then edited in place on completion", async () => {
   const { client, sent, updated } = await botSetup();
   await client.sendTrackedDetailCard([CHECKER.id], {
@@ -549,6 +575,7 @@ await check("the claim card is recorded on send, then edited in place on complet
   await client.syncTaskCards({
     taskId: "task-1",
     folder: "Smith-1042",
+    details: DETAILS,
     status: "COMPLETED",
     thread: [],
     recipients: [{ userId: CHECKER.id, showAdvance: false }]
@@ -568,6 +595,7 @@ await check("a note card's Complete button is stripped by the same sync", async 
   await client.syncNoteCards({
     taskId: "task-2",
     folder: "Jones-88",
+    details: DETAILS,
     thread: [{ author: "Casey", text: "on it" }],
     advance: { status: "COMPLETED", label: "Complete" },
     recipients: [{ userId: CHECKER.id, showAdvance: true, createIfMissing: true }]
@@ -577,6 +605,7 @@ await check("a note card's Complete button is stripped by the same sync", async 
   await client.syncTaskCards({
     taskId: "task-2",
     folder: "Jones-88",
+    details: DETAILS,
     status: "COMPLETED",
     thread: [{ author: "Casey", text: "on it" }],
     recipients: [{ userId: CHECKER.id, showAdvance: false }]
@@ -590,6 +619,7 @@ await check("a silent sync never posts a replacement when the update is rejected
   await client.syncNoteCards({
     taskId: "task-3",
     folder: "Gone-1",
+    details: DETAILS,
     thread: [{ author: "Casey", text: "hi" }],
     recipients: [{ userId: CHECKER.id, showAdvance: false, createIfMissing: true }]
   });
@@ -611,6 +641,7 @@ await check("a silent sync never posts a replacement when the update is rejected
   await client.syncTaskCards({
     taskId: "task-3",
     folder: "Gone-1",
+    details: DETAILS,
     status: "COMPLETED",
     thread: [],
     recipients: [{ userId: CHECKER.id, showAdvance: false }]
