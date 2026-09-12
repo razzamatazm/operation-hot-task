@@ -225,7 +225,7 @@ test("Delete settles the typing writes, removes the record, says so if it could 
 });
 
 test("App deletes a reopened Task Draft through the row's own removal, and drops it from the tab", () => {
-  const APP_SOURCE = readFileSync(join(REPO, "apps/web/src/app.tsx"), "utf8");
+  const APP_SOURCE = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.match(createMount, /onDeleteReopened=\{onDeleteReopened\}/);
   const cb = APP_SOURCE.match(/const onDeleteReopened = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];

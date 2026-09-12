@@ -4309,9 +4309,10 @@ export const App = () => {
     return keepUnsavedRequest(savedForLaterRequestFor(user), savedId, form);
   }, [user]);
 
-  /* Throwing that typing away, leaving the save as it was (#348). Silent here
-     too: the form says so when a Discard did not land, and stays quiet when it
-     is only a form typed back to its save. */
+  /* Throwing that typing away, leaving the save as it was (#348), when a
+     reopened form is typed back to exactly its save. Silent here too. Discard
+     no longer uses it: since #388 a confirmed Discard deletes the record
+     (`onDeleteReopened`, below). */
   const onDiscardUnsaved = useCallback(async (savedId: string): Promise<boolean> => {
     return discardUnsavedRequest(savedForLaterRequestFor(user), savedId);
   }, [user]);
