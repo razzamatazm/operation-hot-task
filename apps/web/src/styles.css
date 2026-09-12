@@ -559,8 +559,18 @@ h1, h2, h3, h4 {
   border-radius: 10px;
   background: var(--panel);
   padding: 16px 18px;
-  box-shadow: var(--shadow-md), 0 16px 40px -16px rgba(0, 0, 0, 0.35);
+  /* The deep second layer is centred, not dropped (#366). It used to sit 16px
+     low, which pooled its shadow under the bottom edge and left the top bare,
+     so the red outline read twice as heavy along the bottom as along the top.
+     `--shadow-md` still gives the lift; the halo just deepens it evenly. */
+  box-shadow: var(--shadow-md), 0 0 36px -8px rgba(0, 0, 0, 0.35);
   animation: slideDown 0.18s ease-out;
+}
+/* Contrast carries no shadows, and the halo is a raw colour rather than a
+   token, so it would be the only shadow left in that theme. */
+:root[data-theme="contrast"] .merge-confirm-panel,
+:root[data-theme="contrast"] .discard-confirm-panel {
+  box-shadow: var(--shadow-md);
 }
 
 .merge-confirm-title,
