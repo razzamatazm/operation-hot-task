@@ -17,6 +17,7 @@ import test from "node:test";
 
 import {
   BOARD_SHOW_CHOICES,
+  boardBody,
   isOnMineBoard,
   parseBoardShow,
   visibleBoardTasks
@@ -154,4 +155,35 @@ test("nothing stored, or anything unrecognised, reads as Everyone", () => {
 
 test("a stored Mine reads back as Mine", () => {
   assert.equal(parseBoardShow("mine"), "mine");
+});
+
+/* ── Which tab's body the board shows (#363) ────────────── */
+
+test("the Task Drafts tab shows the drafts, whatever Mine and the search say", () => {
+  for (const searching of [false, true]) {
+    for (const mine of [false, true]) {
+      for (const shownCount of [0, 3]) {
+        assert.equal(boardBody({ tab: "drafts", searching, mine, shownCount }), "drafts", JSON.stringify({ searching, mine, shownCount }));
+      }
+    }
+  }
+});
+
+test("the Tasks tab shows the task list when there is something on it", () => {
+  assert.equal(boardBody({ tab: "tasks", searching: false, mine: false, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ tab: "tasks", searching: false, mine: true, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ tab: "tasks", searching: true, mine: true, shownCount: 1 }), "tasks");
+});
+
+test("an empty board with nothing narrowing it is still the task list, which says No tasks yet itself", () => {
+  assert.equal(boardBody({ tab: "tasks", searching: false, mine: false, shownCount: 0 }), "tasks");
+});
+
+test("on the Tasks tab an empty search says so, and wins over an empty Mine", () => {
+  assert.equal(boardBody({ tab: "tasks", searching: true, mine: false, shownCount: 0 }), "search-empty");
+  assert.equal(boardBody({ tab: "tasks", searching: true, mine: true, shownCount: 0 }), "search-empty");
+});
+
+test("on the Tasks tab an empty Mine says so", () => {
+  assert.equal(boardBody({ tab: "tasks", searching: false, mine: true, shownCount: 0 }), "mine-empty");
 });

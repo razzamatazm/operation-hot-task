@@ -129,7 +129,21 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   admin-only, so for most people this row is empty. A control placed here is a
   control they never see.
 - List header (`.task-grid-head`): heading and count left, then the app menu,
-  then `New Task` hard right. The pair is built to land on the action column of
+  then `New Task` hard right. On the Tasks board the heading is a tab row
+  (`BoardTabs`, [src/board-tabs.tsx](src/board-tabs.tsx), #363): `Tasks` and
+  `Task Drafts`, each the heading's own type with its `.section-count` chip,
+  the open one in ink over a `--brand` underline and the other muted, no fill
+  or box. The Tasks tab carries the heading's old wording (`Tasks`, `My tasks`,
+  a searched loan's name, which is the part that ellipsizes); Task Drafts never
+  shrinks and is drawn whatever Mine or the search say. The actions group is
+  untouched, still pushed right by `margin-left: auto`, so the tabs never move
+  the search, the menu or `New Task`. Under 480px the header wraps as before:
+  tabs on the first line, the actions right-aligned on the next. The open tab is
+  `boardTab` in App, plain state, never stored; only the row, a loan pick and a
+  link change it, which is why leaving the create form lands back on the tab it
+  was opened from. What sits under the row is `boardBody` in
+  [src/board-filter.ts](src/board-filter.ts), and it asks the search and Mine
+  only on the Tasks tab. Admin All Tasks has no tab row. The pair is built to land on the action column of
   the rows below — same 32px trigger, same 6px gap, same `--quick-action-w`
   button, and the header carries the row's own right inset (its padding plus
   the card's 1px border). Read down the right edge and the menu sits over every
@@ -147,8 +161,10 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   (`loanSearchResults`, and a test fails if the two limits drift). A pasted
   Humperdink link is looked up by shared `findLoanForCreate` instead, because that
   ranking only reads names. Picking narrows through `visibleBoardTasks`, so the
-  heading, count, sections, empty state and Collapse all follow it. While
-  narrowed the heading is the loan's name with `Clear search` beside it. The
+  Tasks tab's label and count, sections, empty state and Collapse all follow
+  it. While narrowed the Tasks tab reads the loan's name, with `Clear search`
+  beside the tabs while Tasks is open. It never narrows Task Drafts, and
+  picking a loan opens the Tasks tab. The
   search wins over Mine rather than combining with it: it answers "where are we
   on this file", which is the whole file, not the viewer's slice of it. Show
   itself is left alone, so clearing puts Mine back. Opening a card ends the
@@ -172,7 +188,10 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   nothing. Three of the collapsed row's phone rules were dead this way; see
   *Mini rows* for what it cost. The task-card ones now live at the bottom of
   `styles.css` under their own heading. Put new ones there.
-- Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill.
+- Tabs: `.tab-bar` + `.tab-btn`, underline-active, no fill. The Tasks board's
+  tab row (#363) is the same `.tab-btn` with a `.board-tab` modifier that only
+  sets the heading's type and spacing; don't give it its own colour, underline
+  or hover rules.
 - App menu (`.app-menu`): the preferences that are not decisions about a task —
   Grouped/Flat, Show (Everyone/Mine, Tasks board only), appearance, and
   Collapse all. Show is its own row rather than a third View choice because it
@@ -1719,13 +1738,16 @@ stays the one filled button. What keeps it honest:
   autosave's field list by `scripts/saved-for-later-sim-test.mjs`.
 - **Save, then forget the autosave, then close**, and only once the save
   landed. A failed save is toasted by App and leaves the form open.
-- **The board section is its own component**, `SavedForLaterSection` in
+- **The Task Drafts page is its own component**, `TaskDraftsPage` in
   [src/saved-for-later.tsx](src/saved-for-later.tsx), lifted out for the reason
-  `thread.tsx` was. `renderTaskList` builds it once as `savedSection` and both
-  views place that one element: Grouped view right after the `you` court, Flat
-  view above its single list (#346, the flat list's one group). Only the Tasks
-  board passes it anything. Never mount a second copy for one view; the two
-  would drift. A row is
+  `thread.tsx` was. It is the whole body of the board's Task Drafts tab (#363),
+  mounted once, in the Tasks board block, with `savedForLater` as App loaded it:
+  never a list the search or Mine has been at. It used to be a section inside
+  `renderTaskList`, after the `you` court in Grouped view and above Flat view's
+  list (#343, #346); `renderTaskList` now takes tasks and nothing else, and a
+  test fails if a draft finds its way back into it. The page draws no heading
+  or count, because the tab above it is both, and with nothing saved it is an
+  `.empty-card` naming the Save for later button that fills it. A row is
   `.saved-row`: loan name, type, `saved N ago`, and no more, because a saved
   task has no pair, due stamp or action to draw. It is not a `TaskCard` and not
   a court; `tasks` never holds one.
@@ -1750,7 +1772,7 @@ stays the one filled button. What keeps it honest:
   Yes goes through `removeSavedForLaterRequest`, the same helper Create clears
   a filed one with; App drops the row only once the server let it go, and
   toasts and leaves it otherwise. No undo, by ADR-0011. Once a delete lands,
-  the section moves focus to the row that took its place (or the new last
+  the page moves focus to the row that took its place (or the new last
   row), so a keyboard user is not dropped onto the page body.
 - **Reopening opens the create form, never edit mode** (#344). App fetches the
   latest save of that record (`reopenSavedForLaterRequest`) and mounts the

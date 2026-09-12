@@ -44,32 +44,44 @@ persisted per browser:
   `Done`) by `buildCourtSections`. Court definitions and the message-pull rule
   live in [CONTEXT.md](../../CONTEXT.md#the-four-courts).
 
-  **Saved for Later** sits right after `Needs you` (and keeps that place when
-  `Needs you` is empty). It lists the new tasks the viewer put aside with
-  **Save for later** on the create form, newest saved first, with a count in the
-  heading. It is not a court and holds no tasks: only its owner ever sees it,
-  it is hidden when they have none, and it does not collapse. Each row is the
-  loan as it was typed (or `No loan yet`), the task type and `saved N ago`, and
-  nothing else: no who-to-whom, due time or poop rating. Tapping a row reopens
-  the create form on it, every field restored, to save for later again or to
-  create (see [task-fields.md](task-fields.md#create-task-fields)). A delete
-  control at the row's right end asks `Delete this saved task?` in the row, and
-  a yes removes it for good, updating the count and hiding the section when it
-  was the last (#345). See
-  [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md).
 - **Flat view.** One list, no sections, sorted into 4 buckets newest-first
   within each: Celebrating (just completed by the viewer) → `OPEN` →
   in-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED` /
   `AWAITING_ITEMS` / `PENDING_APPROVAL`) → closed (`COMPLETED` / `CANCELLED` /
   `ARCHIVED`).
 
-  **The one exception is Saved for Later** (#346). When the viewer has any, the
-  same Saved for Later section Grouped view shows sits above the list as its
-  only group: the same rows, newest saved first, the same count, and the same
-  reopen and delete. When they have none it is not there and Flat view is
-  exactly the list above. The list itself stays one list with no sections. If
-  the viewer has saved tasks and no tasks, the section shows on its own, as it
-  does in Grouped view, with no `No tasks yet.` under it.
+Neither view shows a Saved for Later task. Those have their own tab.
+
+## Tasks and Task Drafts tabs
+
+The Tasks board's header is a tab row where its heading used to be: **Tasks**
+with its count, then **Task Drafts** with its count (#363). The search, the app
+menu and `New Task` stay where they were, at the right of the same header. The
+admin All Tasks tab has no tab row.
+
+- **Tasks** is the board described above. Its label is whatever the heading
+  said: `Tasks`, `My tasks` with Mine on, or a searched loan's name. Its count
+  is the number of tasks shown.
+- **Task Drafts** lists the new tasks the viewer put aside with **Save for
+  later** on the create form (the button keeps that wording; only the tab says
+  Task Drafts). Newest saved first. The tab is always there, and its count is
+  how many they have. With none, its page says `No task drafts. Use Save for
+  later on a new task to keep one here.` Only their owner ever sees them. Each
+  row is the loan as it was typed (or `No loan yet`), the task type and `saved N
+  ago`, and nothing else: no who-to-whom, due time or poop rating. Tapping a row
+  reopens the create form on it, every field restored, to save for later again
+  or to create (see [task-fields.md](task-fields.md#create-task-fields)). A
+  delete control at the row's right end asks `Delete this saved task?` in the
+  row, and a yes removes it for good (#345). See
+  [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md).
+- **Mine and the loan search act on the Tasks tab only.** Neither narrows Task
+  Drafts, and a search never shows a draft. `Clear search` and `Show everyone`
+  sit beside the tabs only while Tasks is open. Picking a loan from the search
+  opens the Tasks tab, since that is the list it narrows, and so does a link
+  to a task.
+- **The open tab is not remembered.** The board opens on Tasks after a reload.
+  Opening the create form and leaving it (Save for later, Create, Discard)
+  changes no tab, so it closes back onto the tab it was opened from.
 
 Separately, the app menu's **Show** row narrows the Tasks board (#334), and it
 combines with either view:
@@ -78,7 +90,7 @@ combines with either view:
 - **Mine.** Only tasks the viewer filed or holds now, plus **every unclaimed
   task, whoever filed it** — unclaimed work is never filtered out. Observer
   tasks go, and so do closed tasks the viewer was not a Party to, so Done under
-  Mine is the viewer's own finished work. While it is on, the heading reads
+  Mine is the viewer's own finished work. While it is on, the Tasks tab reads
   `My tasks`, its count is the number shown, and a `Show everyone` link beside
   it switches back; an empty result reads `Nothing of yours right now` with the
   same link. Collapse all acts on the filtered list. A link that opens a task

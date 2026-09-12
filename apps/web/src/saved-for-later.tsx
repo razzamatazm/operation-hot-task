@@ -4,18 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import { formatAgo } from "./format";
 import { TrashIcon } from "./icons";
 
-/* The board's Saved for Later section (#343, ADR-0011).
+/* The Task Drafts page (#343, ADR-0011; its own tab since #363).
 
-   Not a court. Everything else in Grouped view is a task sorted by whose move
-   it is; these are not tasks yet, belong to the viewer alone, and have no move
-   in them. So the section borrows the courts' heading and count and nothing
-   else, and App places it right after Needs you.
+   "Task Drafts" is the name on screen; the thing listed is still a Saved for
+   Later task, which is the domain term (CONTEXT.md). These are not tasks yet,
+   belong to the viewer alone, and have no move in them, so they are never in
+   the task list. They used to be a section inside it; now they are the whole
+   body of the board's Task Drafts tab (`board-tabs.tsx`), which is also their
+   heading, so the page draws no heading or count of its own.
 
    Lifted out of `App.tsx` for the reason `thread.tsx` was: what a row carries
    is the promise, `App.tsx` cannot be imported into a node script, and
    `scripts/saved-for-later-board-sim-test.mjs` renders this and reads it back.
 
-   Hidden when empty, never collapsible, newest saved first.
+   Never collapsible, newest saved first. With none, the page says so.
 
    A row is three facts and deliberately no more: the loan as it was typed, the
    task type, and when it was saved. No who-to-whom, due time or poop rating,
@@ -151,7 +153,7 @@ const SavedForLaterRow = ({
   );
 };
 
-export const SavedForLaterSection = ({
+export const TaskDraftsPage = ({
   items,
   now,
   onOpen,
@@ -167,8 +169,8 @@ export const SavedForLaterSection = ({
      keyboard user dropped onto the page body has lost their place in the list,
      so focus moves to the row that took its place, or the new last row. A delete
      that did not land leaves the row, which takes focus back itself, so the mark
-     is cleared. When the last one goes the section goes with it and there is
-     no row left to land on. */
+     is cleared. When the last one goes the list goes with it and there is no
+     row left to land on. */
   const listRef = useRef<HTMLUListElement | null>(null);
   const refocus = useRef<{ id: string; index: number } | null>(null);
   useEffect(() => {
@@ -187,21 +189,18 @@ export const SavedForLaterSection = ({
     return removed;
   };
 
-  if (items.length === 0) return null;
+  /* The button keeps its own wording, Save for later, while the tab says Task
+     Drafts (the maintainer's call on #363), so the empty page names the button
+     that fills it. */
+  if (items.length === 0) {
+    return <div className="empty-card">No task drafts. Use Save for later on a new task to keep one here.</div>;
+  }
   const ordered = [...items].sort(newestSavedFirst);
   return (
-    <section className="court" data-court="saved">
-      <div className="section-head">
-        <h2>
-          Saved for Later
-          <span className="section-count">{items.length}</span>
-        </h2>
-      </div>
-      <ul className="saved-list" ref={listRef}>
-        {ordered.map((item, index) => (
-          <SavedForLaterRow key={item.id} item={item} now={now} onOpen={onOpen} onDelete={(it) => deleteRow(it, index)} />
-        ))}
-      </ul>
-    </section>
+    <ul className="saved-list" ref={listRef}>
+      {ordered.map((item, index) => (
+        <SavedForLaterRow key={item.id} item={item} now={now} onOpen={onOpen} onDelete={(it) => deleteRow(it, index)} />
+      ))}
+    </ul>
   );
 };

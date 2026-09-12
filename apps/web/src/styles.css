@@ -1342,16 +1342,43 @@ button.btn-good:hover {
   font-size: 0.82rem;
 }
 
-/* While narrowed the heading is the loan's name, which can be long, and it is
-   the part of the header that gives. */
-.task-grid-head-loan {
+/* The Tasks board's tab row (#363): Tasks, then Task Drafts, where the heading
+   stood. Each tab is the heading's own type (the display face at 0.95rem/700)
+   with its count chip, so the row reads as the two headings it replaced. Each
+   is a `.tab-btn`, so muted at rest, ink and the --brand underline when open,
+   and no fill, all come from the one tab rule below; `.board-tab` only sets
+   the heading's type and drops the nav bar's padding and its overlap onto a
+   2px bar this header does not have. Two classes, because `.tab-btn` is
+   declared later in this file and would otherwise win.
+
+   The row sits left of the actions group and never pushes it: the group is
+   pushed right by `margin-left: auto`, and the Tasks tab is the part that gives.
+   While a loan is searched its label is the loan's name, which can be long, so
+   it ellipsizes; Task Drafts never shrinks. */
+.board-tabs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 18px;
   min-width: 0;
 }
 
-.task-grid-head-loan-name {
+.tab-btn.board-tab {
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 0 4px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.tab-btn.board-tab:first-child {
+  flex: 0 1 auto;
+}
+
+.board-tab-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

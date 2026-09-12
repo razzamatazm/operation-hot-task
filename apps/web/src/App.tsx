@@ -1,6 +1,6 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
 import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
-import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
 import { createPortal } from "react-dom";
@@ -9,14 +9,15 @@ import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
-import { BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardShow, isOnMineBoard, parseBoardShow, visibleBoardTasks } from "./board-filter";
+import { BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardShow, boardBody, isOnMineBoard, parseBoardShow, visibleBoardTasks } from "./board-filter";
+import { BOARD_PANEL_ID, BoardTab, BoardTabs, boardTabId } from "./board-tabs";
 import { LoanSearch, LoanSearchEmpty, LoanSearchStatus } from "./loan-search";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
-import { SavedForLaterSection } from "./saved-for-later";
+import { TaskDraftsPage } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, keepUnsavedRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
@@ -3634,6 +3635,12 @@ export const App = () => {
   const searchLoanIdRef = useRef<string | null>(null);
   searchLoanIdRef.current = searchLoanId;
 
+  /* Which of the Tasks board's two tabs is open (#363): Tasks or Task Drafts.
+     Never stored, so the board always opens on Tasks. Only the tab row, a loan
+     pick and a link change it; opening or leaving the create form does not, so
+     a form closes back onto whichever tab it was opened from. */
+  const [boardTab, setBoardTab] = useState<BoardTab>("tasks");
+
   /* Ticking clock for the live countdowns. Both views (flat and courts) use the
      same compact row, so this runs always. 30s cadence matches the granularity
      of the "Xh Ym" / "Nm" labels. */
@@ -3770,6 +3777,7 @@ export const App = () => {
     }
     const target = focusTaskId;
     setActiveTab("active");
+    setBoardTab("tasks");
     /* Every arrival at a task ends a loan search (#333): opening a card from
        the narrowed board comes through here, and so does a link that lands
        mid-search, which could name a task on another loan and would otherwise
@@ -4794,7 +4802,7 @@ export const App = () => {
      never be live while every card below it is already closed. One pass of map
      lookups over the rendered page, so it runs unmemoized. */
   const expandedIdsIn = (list: LoanTask[]): string[] => expandedTaskIds(list, expandOverrides);
-  const renderTaskList = (list: LoanTask[], emptyMessage: string, savedItems: SavedForLaterTask[] = []) => {
+  const renderTaskList = (list: LoanTask[], emptyMessage: string) => {
     const cardProps = {
       user,
       onClaim,
@@ -4822,54 +4830,29 @@ export const App = () => {
       courtHolds,
       onSetExpand: setExpandOverride
     };
-    /* Saved for Later (#343, ADR-0011), built once and placed by both views, so
-       its rows, order, count, reopen and delete cannot differ between them. It
-       renders nothing when the viewer has none; the section decides that. */
-    const savedSection = <SavedForLaterSection items={savedItems} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} />;
     /* The toggle only controls court bucketing — both views render the same
        compact row, so a task looks identical either way. Flat view is the
        whole list in one CardList; grouped view splits it into court sections.
-
-       Flat view's one exception to having no sections is Saved for Later
-       (#346): it sits above the list as the one group, because those are not
-       tasks and have no place in the task ordering. The list below it is the
-       same single list. With nothing saved the branch is exactly the list it
-       always was; with saved tasks and no tasks it shows the section alone, as
-       Grouped view does, rather than saying No tasks yet under it. */
+       Neither holds a Task Draft: those have their own tab (#363). */
     if (!grouped) {
-      if (savedItems.length === 0) {
-        return <CardList tasks={list} emptyMessage={emptyMessage} now={now} {...cardProps} />;
-      }
-      return (
-        <div className="courts">
-          {savedSection}
-          {list.length > 0 && <CardList tasks={list} emptyMessage="" now={now} {...cardProps} />}
-        </div>
-      );
+      return <CardList tasks={list} emptyMessage={emptyMessage} now={now} {...cardProps} />;
     }
     const sections = buildCourtSections(list);
-    if (sections.every((s) => s.tasks.length === 0) && savedItems.length === 0) {
+    if (sections.every((s) => s.tasks.length === 0)) {
       return <div className="empty-card">{emptyMessage}</div>;
     }
     return (
       <div className="courts">
-        {sections.map((s) => (
-          <Fragment key={s.key}>
-            {s.tasks.length > 0 && (
-              <section className="court" data-court={s.key}>
-                <div className="section-head">
-                  <h2>
-                    {s.title}
-                    <span className="section-count">{s.tasks.length}</span>
-                  </h2>
-                </div>
-                <CardList tasks={s.tasks} emptyMessage="" now={now} {...cardProps} />
-              </section>
-            )}
-            {/* Right after Needs you, keeping that place when Needs you is
-                empty and not drawn. */}
-            {s.key === "you" && savedSection}
-          </Fragment>
+        {sections.map((s) => s.tasks.length > 0 && (
+          <section key={s.key} className="court" data-court={s.key}>
+            <div className="section-head">
+              <h2>
+                {s.title}
+                <span className="section-count">{s.tasks.length}</span>
+              </h2>
+            </div>
+            <CardList tasks={s.tasks} emptyMessage="" now={now} {...cardProps} />
+          </section>
         ))}
       </div>
     );
@@ -5060,18 +5043,28 @@ export const App = () => {
            way `visibleBoardTasks` says, so `Show everyone` stands down while it
            is on. Clearing puts back whichever of the two Show was. */
         const clearSearch = () => setSearchLoanId(null);
+        /* Tasks, then Task Drafts (#363). The tab row stands where the heading
+           stood and is drawn whatever else is true, so neither Mine nor a
+           search can hide Task Drafts. The Tasks tab carries the heading's old
+           wording and count. The search, Mine and their empty states belong to
+           the Tasks tab alone: a draft is not a task, and the drafts page lists
+           every one the viewer has. */
+        const body = boardBody({ tab: boardTab, searching: Boolean(searchLoan), mine, shownCount: boardTasks.length });
         return (
           <>
             <div className="section-head task-grid-head">
-              <h2 className={searchLoan ? "task-grid-head-loan" : undefined}>
-                {searchLoan ? (
-                  <span className="task-grid-head-loan-name" title={searchLoan.name}>{searchLoan.name}</span>
-                ) : mine ? "My tasks" : "Tasks"}
-                <span className="section-count">{boardTasks.length}</span>
-              </h2>
-              {searchLoan ? <LoanSearchStatus loan={searchLoan} onClear={clearSearch} /> : mine && showEveryone}
+              <BoardTabs
+                tab={boardTab}
+                onTabChange={setBoardTab}
+                tasksLabel={searchLoan ? searchLoan.name : mine ? "My tasks" : "Tasks"}
+                {...(searchLoan ? { tasksTitle: searchLoan.name } : {})}
+                tasksCount={boardTasks.length}
+                draftsCount={savedForLater.length}
+              />
+              {boardTab === "tasks" && (searchLoan ? <LoanSearchStatus loan={searchLoan} onClear={clearSearch} /> : mine && showEveryone)}
               <div className="task-grid-head-actions">
-                <LoanSearch loans={loans} myLoanIds={searchMyLoanIds} onPick={(loan) => setSearchLoanId(loan.id)} />
+                {/* A search narrows the task list, so picking a loan shows it. */}
+                <LoanSearch loans={loans} myLoanIds={searchMyLoanIds} onPick={(loan) => { setSearchLoanId(loan.id); setBoardTab("tasks"); }} />
                 <AppMenu
                   grouped={grouped}
                   onGroupedChange={setGrouped}
@@ -5085,15 +5078,19 @@ export const App = () => {
                 <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
               </div>
             </div>
-            {searchLoan && boardTasks.length === 0 ? (
-              <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
-            ) : mine && !searchLoan && boardTasks.length === 0 ? (
-              <div className="empty-card">
-                Nothing of yours right now. {showEveryone}
-              </div>
-            ) : (
-              renderTaskList(boardTasks, "No tasks yet.", savedForLater)
-            )}
+            <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>
+              {body === "drafts" ? (
+                <TaskDraftsPage items={savedForLater} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} />
+              ) : body === "search-empty" && searchLoan ? (
+                <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
+              ) : body === "mine-empty" ? (
+                <div className="empty-card">
+                  Nothing of yours right now. {showEveryone}
+                </div>
+              ) : (
+                renderTaskList(boardTasks, "No tasks yet.")
+              )}
+            </div>
           </>
         );
       })()}

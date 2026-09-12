@@ -40,7 +40,8 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export { SavedForLaterSection, SavedForLaterDeleteConfirm } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
+    `export { TaskDraftsPage, SavedForLaterDeleteConfirm } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
+    `export { BoardTabs } from ${JSON.stringify(join(REPO, "apps/web/src/board-tabs.tsx"))};\n` +
     `export { draftKey, serializeDraft } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
     `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
 );
@@ -57,7 +58,8 @@ await build({
 const {
   TaskForm,
   ToastProvider,
-  SavedForLaterSection,
+  TaskDraftsPage,
+  BoardTabs,
   SavedForLaterDeleteConfirm,
   draftKey,
   serializeDraft,
@@ -183,7 +185,7 @@ test("a save lands in the board's list straight away, without a reload", () => {
   assert.match(handler, /setSavedForLater\(/, "the saved item goes into the list the section renders");
 });
 
-/* ── The section ─────────────────────────────────────────── */
+/* ── The Task Drafts page (#343, moved to its own tab by #363) ── */
 
 const NOW = Date.parse("2026-09-11T12:00:00.000Z");
 const item = (id, minutesAgo, overrides = {}) => ({
@@ -194,27 +196,30 @@ const item = (id, minutesAgo, overrides = {}) => ({
 });
 
 const renderSection = (items) =>
-  renderToStaticMarkup(createElement(SavedForLaterSection, { items, now: NOW, onOpen: () => {}, onDelete: async () => true }));
+  renderToStaticMarkup(createElement(TaskDraftsPage, { items, now: NOW, onOpen: () => {}, onDelete: async () => true }));
 
-test("the section is not there at all when the viewer has none", () => {
-  assert.equal(renderSection([]), "");
+test("with no drafts the page says there are none", () => {
+  assert.equal(
+    renderSection([]),
+    `<div class="empty-card">No task drafts. Use Save for later on a new task to keep one here.</div>`
+  );
 });
 
-test("the section is headed Saved for Later with a count, and lists newest saved first", () => {
+test("the page lists newest saved first, under no heading of its own, since the tab above it is the heading", () => {
   const html = renderSection([
     item("a", 180, { folderName: "Three hours" }),
     item("b", 5, { folderName: "Five minutes" }),
     item("c", 60 * 24 * 2, { folderName: "Two days" })
   ]);
-  assert.match(html, /<h2>Saved for Later<span class="section-count">3<\/span><\/h2>/);
+  assert.match(html, /^<ul class="saved-list">/, "the list is the whole page");
+  assert.doesNotMatch(html, /<h2|section-head|Saved for Later/);
   const names = [...html.matchAll(/<span class="saved-row-name">([^<]*)<\/span>/g)].map((m) => m[1]);
   assert.deepEqual(names, ["Five minutes", "Three hours", "Two days"]);
 });
 
-test("the section is not collapsible", () => {
+test("the page is not collapsible", () => {
   const html = renderSection([item("a", 5)]);
   assert.doesNotMatch(html, /<details|aria-expanded/);
-  assert.doesNotMatch(html.slice(0, html.indexOf("<ul")), /<button/, "nothing in the heading to press");
 });
 
 test("a row is the loan name, the task type and when it was saved, and nothing else", () => {
@@ -293,7 +298,7 @@ test("declining — Keep or Escape — deletes nothing and puts the row back", (
 });
 
 test("once a delete lands, focus moves to the row that took its place, and a failed one leaves it on the row", () => {
-  const section = SECTION_SOURCE.match(/export const SavedForLaterSection = [\s\S]*?\n\};/)?.[0];
+  const section = SECTION_SOURCE.match(/export const TaskDraftsPage = [\s\S]*?\n\};/)?.[0];
   assert.ok(section);
   const deleteRow = section.match(/const deleteRow = async \([\s\S]*?\n  \};/)?.[0];
   assert.ok(deleteRow, "the section wraps the delete");
@@ -307,14 +312,14 @@ test("once a delete lands, focus moves to the row that took its place, and a fai
   assert.match(effect, /items\.some\(\(i\) => i\.id === mark\.id\)\) return;/, "only once the row is really gone");
   assert.match(effect, /querySelectorAll<HTMLButtonElement>\("\.saved-row-open"\)/);
   assert.match(effect, /\[Math\.min\(mark\.index, rows\.length - 1\)\]\?\.focus\(\)/, "the next row, or the new last one");
-  assert.ok(section.indexOf("useEffect(") < section.indexOf("if (items.length === 0) return null;"), "hooks run before the empty return");
+  assert.ok(section.indexOf("useEffect(") < section.indexOf("if (items.length === 0)"), "hooks run before the empty return");
 });
 
-test("the count follows the list, and removing the last one hides the section", () => {
+test("removing one takes its row off the page, and removing the last leaves the page saying there are none", () => {
   const two = [item("a", 5), item("b", 10)];
-  assert.match(renderSection(two), /<span class="section-count">2<\/span>/);
-  assert.match(renderSection(two.filter((i) => i.id !== "a")), /<span class="section-count">1<\/span>/);
-  assert.equal(renderSection([]), "");
+  assert.equal([...renderSection(two).matchAll(/<li class="saved-row">/g)].length, 2);
+  assert.equal([...renderSection(two.filter((i) => i.id !== "a")).matchAll(/<li class="saved-row">/g)].length, 1);
+  assert.match(renderSection([]), /No task drafts\./);
 });
 
 test("confirming removes it from the server, then from the section; a failure says so and leaves the row", () => {
@@ -341,8 +346,6 @@ test("tapping a row reopens that Saved for Later task: the whole row is one butt
   const html = renderSection([item("a", 5), item("b", 10)]);
   assert.equal([...html.matchAll(/<button type="button" class="saved-row-open">/g)].length, 2, "one press target per row");
   assert.match(SECTION_SOURCE, /onClick=\{\(\) => onOpen\(item\)\}/, "pressing it opens that row's own record");
-  const grouped = APP_SOURCE.match(/const renderTaskList = \([\s\S]*?\n  \};/)?.[0];
-  assert.match(grouped, /<SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>;/);
 });
 
 const FULL_FORM = {
@@ -627,63 +630,147 @@ test("discarding throws the unsaved typing away; one already gone counts as disc
   await assert.doesNotReject(discardUnsavedRequest(fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": new Error("offline") }).request, "saved-1"));
 });
 
-test("in Grouped view the section sits right after Needs you, on the Tasks board only", () => {
-  const grouped = APP_SOURCE.match(/const renderTaskList = \([\s\S]*?\n  \};/)?.[0];
-  assert.ok(grouped, "renderTaskList exists");
-  assert.match(
-    grouped,
-    /s\.key === "you" && savedSection\}/,
-    "rendered directly after the Needs you court, whether or not Needs you has any tasks"
-  );
-  assert.match(APP_SOURCE, /renderTaskList\(boardTasks, "No tasks yet\.", savedForLater\)/, "the Tasks board passes them");
-  assert.match(APP_SOURCE, /renderTaskList\(allTasksAdmin, "No tasks yet\."\)/, "admin All Tasks does not");
-});
-
-/* ── Flat view (#346) ────────────────────────────────────── */
+/* ── The board lists no drafts (#363) ────────────────────── */
 
 const renderTaskListSource = () => {
   const source = APP_SOURCE.match(/const renderTaskList = \([\s\S]*?\n  \};/)?.[0];
   assert.ok(source, "renderTaskList exists");
   return source;
 };
-const flatBranch = () => {
-  const branch = renderTaskListSource().match(/if \(!grouped\) \{([\s\S]*?)\n    \}/)?.[1];
-  assert.ok(branch, "renderTaskList has a Flat view branch");
-  return branch;
+
+test("neither Grouped nor Flat view draws a Saved for Later section: the task list is handed tasks and nothing else", () => {
+  const source = renderTaskListSource();
+  assert.match(source, /^const renderTaskList = \(list: LoanTask\[\], emptyMessage: string\) =>/, "no third argument to smuggle drafts in");
+  assert.doesNotMatch(source, /savedItems|savedSection|SavedForLater|TaskDrafts|savedForLater/, "no draft reaches either view");
+  assert.match(APP_SOURCE, /renderTaskList\(boardTasks, "No tasks yet\."\)/, "the Tasks board passes its tasks only");
+  assert.match(APP_SOURCE, /renderTaskList\(allTasksAdmin, "No tasks yet\."\)/, "and admin All Tasks the same");
+  assert.equal((APP_SOURCE.match(/<SavedForLaterSection\b/g) ?? []).length, 0, "the old section is gone");
+  assert.doesNotMatch(SECTION_SOURCE, /export const SavedForLaterSection\b/);
+});
+
+/* ── The tab row (#363) ─────────────────────────────────── */
+
+const renderTabs = (props) =>
+  renderToStaticMarkup(
+    createElement(BoardTabs, { tab: "tasks", onTabChange: () => {}, tasksLabel: "Tasks", tasksCount: 13, draftsCount: 2, ...props })
+  );
+const tabButtons = (html) => [...html.matchAll(/<button [^>]*role="tab"[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
+
+test("the header's tab row is Tasks then Task Drafts, each with its count", () => {
+  const html = renderTabs();
+  assert.match(html, /^<div class="board-tabs" role="tablist" aria-label="Board">/);
+  const [tasks, drafts, extra] = tabButtons(html);
+  assert.equal(extra, undefined, "two tabs");
+  assert.match(tasks, /<span class="board-tab-label">Tasks<\/span><span class="section-count">13<\/span><\/button>$/);
+  assert.match(drafts, /<span class="board-tab-label">Task Drafts<\/span><span class="section-count">2<\/span><\/button>$/);
+});
+
+test("the selected tab is the one announced and the one Tab lands on", () => {
+  const [tasks, drafts] = tabButtons(renderTabs({ tab: "tasks" }));
+  assert.match(tasks, /id="board-tab-tasks"/);
+  assert.match(tasks, /aria-selected="true"/);
+  assert.match(tasks, /tabindex="0"/);
+  assert.match(tasks, /class="tab-btn board-tab tab-active"/, "the app's one tab rule, with a modifier for the heading's type");
+  assert.match(tasks, /aria-controls="board-panel"/, "the selected tab names the panel below it");
+  assert.match(drafts, /aria-selected="false"/);
+  assert.match(drafts, /tabindex="-1"/);
+  assert.match(drafts, /class="tab-btn board-tab"/);
+  assert.doesNotMatch(drafts, /aria-controls/, "the panel it would name is not on the page");
+
+  const [tasks2, drafts2] = tabButtons(renderTabs({ tab: "drafts" }));
+  assert.match(tasks2, /aria-selected="false"/);
+  assert.match(drafts2, /id="board-tab-drafts"/);
+  assert.match(drafts2, /aria-selected="true"[\s\S]*tabindex="0"/);
+});
+
+test("with no drafts the Task Drafts tab is still there, counting none", () => {
+  const [, drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
+  assert.match(drafts, /Task Drafts<\/span><span class="section-count">0<\/span>/);
+});
+
+test("the Tasks tab carries whatever names the board, a searched loan's full name on hover", () => {
+  const [mine] = tabButtons(renderTabs({ tasksLabel: "My tasks", tasksCount: 4 }));
+  assert.match(mine, /<span class="board-tab-label">My tasks<\/span><span class="section-count">4<\/span>/);
+  const [loan] = tabButtons(renderTabs({ tasksLabel: "Castillo - Harbor View", tasksTitle: "Castillo - Harbor View", tasksCount: 2 }));
+  assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span>/);
+});
+
+test("pressing a tab, or an arrow key across the row, selects it", () => {
+  const TABS_SOURCE = readFileSync(join(REPO, "apps/web/src/board-tabs.tsx"), "utf8");
+  assert.match(TABS_SOURCE, /onClick=\{\(\) => onTabChange\(value\)\}/);
+  for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
+    assert.match(TABS_SOURCE, new RegExp(`"${key}"`), `${key} moves along the row`);
+  }
+  assert.match(TABS_SOURCE, /\.focus\(\)/, "and focus follows the selection");
+});
+
+test("App holds the tab in plain state that opens on Tasks and is never stored", () => {
+  assert.match(APP_SOURCE, /const \[boardTab, setBoardTab\] = useState<BoardTab>\("tasks"\);/);
+  const storing = APP_SOURCE.split("\n").filter((line) => /boardTab|BoardTab/.test(line) && /localStorage|Storage|persist/i.test(line));
+  assert.deepEqual(storing, [], "no line both names the tab and stores anything");
+});
+
+const boardBlock = () => {
+  const start = APP_SOURCE.indexOf(`{activeTab === "active" && (() => {`);
+  const end = APP_SOURCE.indexOf(`{activeTab === "all" && isAdmin && (`);
+  assert.ok(start >= 0 && end > start, "the Tasks board block exists");
+  return APP_SOURCE.slice(start, end);
 };
 
-test("both views draw the one Saved for Later section, so rows, order, count, reopen and delete cannot differ", () => {
-  assert.equal((APP_SOURCE.match(/<SavedForLaterSection\b/g) ?? []).length, 1, "App mounts the section in exactly one place");
+test("the tab row is always drawn on the Tasks board, so Mine and an empty search can never hide Task Drafts", () => {
+  const block = boardBlock();
+  const tabs = block.indexOf("<BoardTabs");
+  const panel = block.indexOf(`role="tabpanel"`);
+  assert.ok(tabs >= 0, "the Tasks board draws the tab row");
+  assert.ok(panel > tabs, "above the panel");
+  assert.doesNotMatch(block.slice(0, panel), /\? \(|&& \(\s*<div className="section-head/, "and not inside any condition, so no empty state stands in for the header");
+  for (const empty of ["<LoanSearchEmpty", "Nothing of yours right now"]) {
+    assert.ok(block.indexOf(empty) > panel, `${empty} is drawn inside the panel, under the tabs`);
+  }
+  const tabsProps = block.slice(tabs, block.indexOf("/>", tabs));
+  assert.match(tabsProps, /draftsCount=\{savedForLater\.length\}/, "counted from every draft the viewer has, not a filtered list");
+  assert.match(tabsProps, /tasksCount=\{boardTasks\.length\}/, "the Tasks count is the board's own, as the heading's was");
+  assert.equal((APP_SOURCE.match(/<BoardTabs\b/g) ?? []).length, 1, "admin All Tasks has no tab row");
+});
+
+test("switching tabs swaps the body: the Task Drafts page lists every draft, never narrowed by Mine or the search", () => {
+  const block = boardBlock();
+  assert.match(block, /boardBody\(\{ tab: boardTab, searching: Boolean\(searchLoan\), mine, shownCount: boardTasks\.length \}\)/);
+  const page = block.match(/<TaskDraftsPage([\s\S]*?)\/>/)?.[1];
+  assert.ok(page, "the drafts tab renders the Task Drafts page");
+  assert.match(page, /items=\{savedForLater\}/, "straight from the list App loaded, which no search or Mine ever touches");
+  assert.match(page, /onOpen=\{openSavedForLater\}/, "reopen as before");
+  assert.match(page, /onDelete=\{deleteSavedForLater\}/, "delete as before");
+  assert.match(block, /role="tabpanel" id=\{BOARD_PANEL_ID\} aria-labelledby=\{boardTabId\(boardTab\)\}/);
+  assert.equal((APP_SOURCE.match(/<TaskDraftsPage\b/g) ?? []).length, 1, "mounted in one place");
+});
+
+test("search and Mine controls beside the tabs belong to the Tasks tab", () => {
+  const block = boardBlock();
   assert.match(
-    renderTaskListSource(),
-    /const savedSection = <SavedForLaterSection items=\{savedItems\} now=\{now\} onOpen=\{openSavedForLater\} onDelete=\{deleteSavedForLater\} \/>;/,
-    "built once in renderTaskList, with the same reopen and delete handlers"
+    block,
+    /boardTab === "tasks" && \(searchLoan \? <LoanSearchStatus loan=\{searchLoan\} onClear=\{clearSearch\} \/> : mine && showEveryone\)/,
+    "Clear search and Show everyone describe the task list, so they only sit beside it"
   );
 });
 
-test("in Flat view the section is the one group, above the flat list", () => {
-  const branch = flatBranch();
-  const section = branch.indexOf("{savedSection}");
-  const list = branch.lastIndexOf("<CardList tasks={list}");
-  assert.ok(section >= 0, "Flat view draws the section");
-  assert.ok(list > section, "above the list, not below or inside it");
-  assert.equal((branch.match(/<CardList\b/g) ?? []).length, 2, "one list per path (nothing saved, or saved above it), and no third list the tasks could be split across");
-  assert.doesNotMatch(branch, /buildCourtSections|section-head/, "the list itself gains no sections");
+test("picking a loan to search shows the Tasks tab, since that is the list a search narrows", () => {
+  const block = boardBlock();
+  assert.match(block, /onPick=\{\(loan\) => \{ setSearchLoanId\(loan\.id\); setBoardTab\("tasks"\); \}\}/);
 });
 
-test("Flat view with nothing saved is exactly the flat list it was", () => {
-  assert.match(
-    flatBranch(),
-    /if \(savedItems\.length === 0\) \{\s*return <CardList tasks=\{list\} emptyMessage=\{emptyMessage\} now=\{now\} \{\.\.\.cardProps\} \/>;\s*\}/,
-    "no wrapper, no section, the same list and empty message as before"
-  );
+test("a link to a task shows the Tasks tab, so the card it opens is on the page", () => {
+  const focus = APP_SOURCE.slice(APP_SOURCE.indexOf("/* Deep-link focus:"));
+  const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks]);"));
+  assert.match(body, /setActiveTab\("active"\);\s*setBoardTab\("tasks"\);/);
 });
 
-test("Flat view with saved tasks and no tasks shows the section alone, as Grouped view does", () => {
-  const branch = flatBranch();
-  assert.match(
-    branch,
-    /<div className="courts">\s*\{savedSection\}\s*\{list\.length > 0 && <CardList tasks=\{list\} emptyMessage="" now=\{now\} \{\.\.\.cardProps\} \/>\}\s*<\/div>/,
-    "the section and the list share the courts' spacing, and No tasks yet is not said over a board with saved tasks on it"
+test("leaving a form changes no tab: opening, saving for later, creating and discarding never touch it", () => {
+  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.doesNotMatch(createMount, /setBoardTab/, "closing the form, however it ends, leaves the tab alone");
+  assert.equal(
+    (APP_SOURCE.match(/setBoardTab\(/g) ?? []).length,
+    2,
+    "a loan pick and a link are the only things besides the tab row itself that switch tabs, so no ending of the form can"
   );
 });
