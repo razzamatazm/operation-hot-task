@@ -215,6 +215,9 @@ export class TaskStore {
     });
   }
 
+  /* Writes the whole task list, over whatever is there. Only the sim tests call
+     it, to seed a store: anything built from an earlier read erases every save
+     made since that read, which is what the maintenance pass used to do (#385). */
   async replaceTasks(tasks: LoanTask[], event?: TaskHistoryEvent): Promise<void> {
     await this.file.update((data) => {
       data.tasks = tasks;
@@ -225,16 +228,28 @@ export class TaskStore {
     });
   }
 
-  async removeTasks(ids: string[]): Promise<void> {
+  /* Removes the tasks with these ids. With `qualifies`, only those that still
+     pass it as they stand inside the removal step itself, so a caller choosing
+     ids from an earlier read can't delete a task that has changed since.
+     Resolves with the ids actually removed. */
+  async removeTasks(ids: string[], qualifies?: (current: LoanTask) => boolean): Promise<string[]> {
     if (ids.length === 0) {
-      return;
+      return [];
     }
 
     const idSet = new Set(ids);
+    const removed: string[] = [];
     await this.file.update((data) => {
-      data.tasks = data.tasks.filter((task) => !idSet.has(task.id));
-      return data;
+      data.tasks = data.tasks.filter((task) => {
+        if (!idSet.has(task.id) || (qualifies && !qualifies(task))) {
+          return true;
+        }
+        removed.push(task.id);
+        return false;
+      });
+      return removed.length > 0 ? data : undefined;
     });
+    return removed;
   }
 
   private normalizeTask(task: LoanTask): LoanTask {
