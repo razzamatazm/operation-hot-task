@@ -21,7 +21,9 @@ export type { BoardTab } from "./board-filter";
    The names are the short ones at every width. `All Tasks`, `My Tasks` and
    `Task Drafts` were cut off on phones and narrow windows, and a second set of
    names swapped in under a breakpoint still left the widths just above it
-   clipping.
+   clipping. A screen reader still hears the full name: it sits in an
+   `sr-only` span and the short one on screen is `aria-hidden`. A searched
+   loan's name has no second form.
 
    Which tab is open is App's. All / My is stored (as the Show value it
    replaced), Task Drafts never is; `tabForShow` and `showForTab` in
@@ -57,12 +59,12 @@ export const BoardTabs = ({
   draftsCount: number;
 }) => {
   const refs = useRef<Partial<Record<BoardTab, HTMLButtonElement | null>>>({});
-  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; title?: string; count: number }> = [
+  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; spoken?: string; title?: string; count: number }> = [
     allLabel === undefined
-      ? { value: "all", label: "All", count: allCount }
+      ? { value: "all", label: "All", spoken: "All Tasks", count: allCount }
       : { value: "all", label: allLabel, ...(allTitle ? { title: allTitle } : {}), count: allCount },
-    { value: "mine", label: "Mine", count: mineCount },
-    { value: "drafts", label: "Drafts", count: draftsCount }
+    { value: "mine", label: "Mine", spoken: "My Tasks", count: mineCount },
+    { value: "drafts", label: "Drafts", spoken: "Task Drafts", count: draftsCount }
   ];
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
@@ -80,7 +82,7 @@ export const BoardTabs = ({
 
   return (
     <div className="board-tabs" role="tablist" aria-label="Board" onKeyDown={onKeyDown}>
-      {tabs.map(({ value, label, title, count }) => {
+      {tabs.map(({ value, label, spoken, title, count }) => {
         const selected = value === tab;
         return (
           <button
@@ -98,7 +100,14 @@ export const BoardTabs = ({
             onClick={() => onTabChange(value)}
           >
             <span className="board-tab-label" {...(title ? { title } : {})}>
-              {label}
+              {spoken ? (
+                <>
+                  <span className="sr-only">{spoken}</span>
+                  <span aria-hidden="true">{label}</span>
+                </>
+              ) : (
+                label
+              )}
             </span>
             <span className="section-count">{count}</span>
           </button>

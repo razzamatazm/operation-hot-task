@@ -922,21 +922,22 @@ test("the header's tab row is All, Mine, then Drafts, each with its count", () =
   assert.match(html, /^<div class="board-tabs" role="tablist" aria-label="Board">/);
   const [all, mine, drafts, extra] = tabButtons(html);
   assert.equal(extra, undefined, "three tabs");
-  const label = (name, count) =>
-    new RegExp(`<span class="board-tab-label">${name}</span><span class="section-count">${count}</span></button>$`);
+  const label = (spoken, shown, count) =>
+    new RegExp(`<span class="board-tab-label"><span class="sr-only">${spoken}</span><span aria-hidden="true">${shown}</span></span><span class="section-count">${count}</span></button>$`);
   assert.match(all, /id="board-tab-all"/);
-  assert.match(all, label("All", 13));
+  assert.match(all, label("All Tasks", "All", 13));
   assert.match(mine, /id="board-tab-mine"/);
-  assert.match(mine, label("Mine", 4));
+  assert.match(mine, label("My Tasks", "Mine", 4));
   assert.match(drafts, /id="board-tab-drafts"/);
-  assert.match(drafts, label("Drafts", 2));
+  assert.match(drafts, label("Task Drafts", "Drafts", 2));
 });
 
 test("the tabs read All, Mine and Drafts at every width, with no second set of names behind a breakpoint", () => {
   const CSS = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
-  const TABS_SOURCE = readFileSync(join(REPO, "apps/web/src/board-tabs.tsx"), "utf8");
   assert.doesNotMatch(CSS, /\.board-tab-short|\.board-tab-name/);
-  assert.doesNotMatch(TABS_SOURCE, /All Tasks"|My Tasks"|Task Drafts"/);
+  const srOnly = CSS.match(/\n\.sr-only \{([\s\S]*?)\}/);
+  assert.ok(srOnly, "the full names ride the app's one visually-hidden rule");
+  assert.doesNotMatch(srOnly[1], /display: none|visibility: hidden/, "hidden from sight, not from a screen reader");
 });
 
 test("the selected tab is the one announced and the only one Tab lands on", () => {
@@ -960,13 +961,14 @@ test("the selected tab is the one announced and the only one Tab lands on", () =
 
 test("with no drafts the Task Drafts tab is still there, counting none", () => {
   const [, , drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
-  assert.match(drafts, /<span class="board-tab-label">Drafts<\/span><span class="section-count">0<\/span>/);
+  assert.match(drafts, /<span aria-hidden="true">Drafts<\/span><\/span><span class="section-count">0<\/span>/);
 });
 
 test("while searching, All Tasks carries the loan's name at every width, its full name on hover, and My Tasks keeps its own", () => {
   const [loan, mine] = tabButtons(renderTabs({ allLabel: "Castillo - Harbor View", allTitle: "Castillo - Harbor View", allCount: 2 }));
   assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span><span class="section-count">2<\/span>/);
-  assert.match(mine, /<span class="board-tab-label">Mine<\/span><span class="section-count">4<\/span>/);
+  assert.doesNotMatch(loan, /sr-only/, "a loan's name is read as shown");
+  assert.match(mine, /<span class="sr-only">My Tasks<\/span><span aria-hidden="true">Mine<\/span><\/span><span class="section-count">4<\/span>/);
 });
 
 test("pressing a tab, or an arrow key across the row, selects it, and the row cycles all three", () => {

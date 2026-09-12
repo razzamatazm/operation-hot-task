@@ -141,8 +141,9 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   `All`, `Mine` and `Drafts` at every width** (the user's call, 2026-09-12).
   The full names were swapped for these under 480px only, and phones and
   narrow windows above that still cut them off, so there is one set of names
-  now and no breakpoint. The domain terms in prose stay All Tasks, My Tasks and
-  Task Drafts. The header
+  on screen now and no breakpoint. A screen reader still hears `All Tasks`,
+  `My Tasks` and `Task Drafts` from an `sr-only` span, with the short name
+  `aria-hidden`. A searched loan's name has no second form. The header
   also takes `min-width: 0`, since a grid item's content minimum let an
   over-wide tab row push the whole page sideways. The actions group
   is untouched, still pushed right by `margin-left: auto`, so the tabs never
