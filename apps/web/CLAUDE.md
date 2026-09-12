@@ -1932,19 +1932,17 @@ stays the one filled button. What keeps it honest:
   so a failed save leaves the form in view. Edit mode passes no
   `onSaveForLater` and gets the two-way `Discard this task?` word for word.
 - **Discard on a reopened Task Draft deletes it** (#388, amending #348 and
-  ADR-0011). The prompt's body says so, and Discard does not close: it swaps
-  the prompt for `DeleteTaskDraftDialog` in
-  [src/discard-confirm.tsx](src/discard-confirm.tsx), `Delete this Task
-  Draft?` with `Keep` (ghost, focused, Escape's answer) and `Delete` (danger),
-  built exactly as the prompt is. Keep lowers it and nothing is written or
-  cleared. Delete runs `settleUnsaved`, then App's `onDeleteReopened`, which is
-  `removeSavedForLaterRequest` (the row's and Create's removal, a 404 counting
-  as gone) and drops the row from `savedForLater` under the row's owner check.
-  A delete that did not land toasts a warning and the form closes anyway; the
-  answers are shut (`busy`) while it is out. A new task's Discard asks nothing
-  more. `onDiscardUnsaved` stays for the one thing still using it, a form typed
-  back to exactly its save. There is no longer a way back to a draft's last
-  save.
+  ADR-0011). The prompt's body says so, and since #399 that prompt is the
+  confirmation: there is no second question. Discard shuts the prompt's
+  answers (`busy`), runs `settleUnsaved`, then App's `onDeleteReopened`, which
+  is `removeSavedForLaterRequest` (the row's and Create's removal, a 404
+  counting as gone) and drops the row from `savedForLater` under the row's
+  owner check. While it is out the prompt stays up and Discard reads
+  `Deleting…` (`discardConfirmCopy`'s `busy`), so a slow delete is not a dead
+  button. A delete that did not land toasts a warning and the form closes
+  anyway. A new task's Discard is unchanged. `onDiscardUnsaved` stays for the
+  one thing still using it, a form typed back to exactly its save. There is no
+  longer a way back to a draft's last save.
 
 **Share / Assign is one connected control with its own class names** (#364).
 `.form-direct-mode` is a hollow track holding two `.form-direct-mode-choice`

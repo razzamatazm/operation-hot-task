@@ -61,9 +61,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { DeleteTaskDraftDialog, DiscardConfirmDialog, TaskForm, ToastProvider, deleteTaskDraftCopy, discardConfirmCopy } = await import(
-  pathToFileURL(bundle).href
-);
+const { DiscardConfirmDialog, TaskForm, ToastProvider, discardConfirmCopy } = await import(pathToFileURL(bundle).href);
 
 /* ── What the person is asked ───────────────────────────── */
 
@@ -139,52 +137,45 @@ test("a reopened form's prompt says its Discard deletes the Task Draft", () => {
   assert.doesNotMatch(html, /keep the version you saved before/);
 });
 
-/* ── Discard on a reopened Task Draft deletes it (#388) ─── */
+/* ── Discard on a reopened Task Draft deletes it (#388, #399) ─── */
 
-/* Pressing Discard on a draft you opened means you don't want the draft. It
-   has no undo, so it asks once more, with the Task Drafts row's own two
-   answers (#345). */
-test("the delete question asks about the Task Draft, with Keep and Delete", () => {
-  const copy = deleteTaskDraftCopy();
-  assert.equal(copy.title, "Delete this Task Draft?");
-  assert.equal(copy.body, "It comes off Task Drafts for good, with your changes.");
-  assert.equal(copy.cancel, "Keep");
-  assert.equal(copy.confirm, "Delete");
-  assert.equal(copy.busy, "Deleting…");
-  assert.doesNotMatch(Object.values(copy).join(" "), /saved for later|\bdraft\b(?<!Task Draft)/i, "Task Draft, never the retired name or a bare draft");
+/* Pressing Discard on a draft you opened means you don't want the draft. The
+   prompt's body already says Discard deletes it, so the prompt is the
+   confirmation (#399): there is no second question. While the delete is out,
+   Discard says so, so a slow delete does not look like a dead button. */
+test("a reopened draft's Discard reads Deleting… while busy; every other Discard keeps its label", () => {
+  const reopened = discardConfirmCopy({ saveForLater: true, reopened: true });
+  assert.equal(reopened.confirm, "Discard", "at rest it is still Discard");
+  assert.equal(reopened.busy, "Deleting…");
+  assert.equal(discardConfirmCopy({ saveForLater: true, reopened: false }).busy, "Discard", "a new task's busy Discard is unchanged");
+  assert.equal(discardConfirmCopy().busy, "Discard", "and so is edit mode's");
 });
 
-test("the delete question renders as an alert dialog, Keep first and Delete in the danger style", () => {
-  const html = renderToStaticMarkup(createElement(DeleteTaskDraftDialog, { onConfirm: () => {}, onCancel: () => {} }));
-  assert.match(html, /class="discard-confirm-overlay"/, "built the way the discard prompt is");
-  assert.match(html, /role="alertdialog"/);
-  assert.match(html, /aria-modal="true"/);
-  assert.match(html, /aria-label="Delete this Task Draft\?"/);
-  assert.match(html, /It comes off Task Drafts for good, with your changes\./);
-  assert.match(
-    html,
-    /<button type="button" class="btn-sm btn-ghost">Keep<\/button><button type="button" class="btn-sm btn-danger">Delete<\/button>/,
-    "Keep, then Delete in the danger style, and nothing else"
+test("while a reopened draft's delete is out, all three answers are shut and Discard reads Deleting…", () => {
+  const busy = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {}, reopened: true, busy: true })
   );
+  assert.match(
+    busy,
+    /<button type="button" class="btn-sm btn-ghost" disabled="">Keep editing<\/button><button type="button" class="btn-sm btn-ghost" disabled="">Save for later<\/button><button type="button" class="btn-sm btn-danger" disabled="">Deleting…<\/button>/
+  );
+  const idle = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {}, reopened: true })
+  );
+  assert.match(idle, /<button type="button" class="btn-sm btn-danger">Discard<\/button>/, "at rest it reads Discard");
+  const fresh = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {}, busy: true })
+  );
+  assert.match(fresh, /<button type="button" class="btn-sm btn-danger" disabled="">Discard<\/button>/, "a new task's busy Discard renders as before");
 });
 
-test("while the delete is out, both answers are shut and Escape does nothing", () => {
-  const html = renderToStaticMarkup(createElement(DeleteTaskDraftDialog, { onConfirm: () => {}, onCancel: () => {}, busy: true }));
-  assert.equal([...html.matchAll(/<button type="button" class="btn-sm btn-[a-z]+" disabled="">/g)].length, 2);
-  assert.match(html, />Deleting…</);
-  const dialog = DIALOG_SOURCE.slice(DIALOG_SOURCE.indexOf("export const DeleteTaskDraftDialog"));
-  const key = dialog.slice(dialog.indexOf("const onKey"));
-  assert.match(key.slice(0, key.indexOf("};")), /if \(!busy\) onCancel\(\);/);
-});
-
-test("the delete question focuses Keep, answers Escape with Keep, and keeps Escape from the form", () => {
-  const dialog = DIALOG_SOURCE.slice(DIALOG_SOURCE.indexOf("export const DeleteTaskDraftDialog"));
-  assert.match(dialog, /keepRef\.current\?\.focus\(\)/, "a stray Return keeps the draft");
-  const key = dialog.slice(dialog.indexOf("const onKey"));
-  assert.match(key, /e\.stopPropagation\(\)/, "the keypress stops here");
-  assert.match(dialog, /addEventListener\("keydown", onKey, true\)/, "captured, so it runs before the form's overlay");
-  const overlay = dialog.slice(dialog.indexOf('className="discard-confirm-overlay"'));
-  assert.doesNotMatch(overlay.slice(0, overlay.indexOf(">")), /onClick/, "the backdrop answers nothing");
+test("the second delete question is gone: the dialog module exports only the prompt and its copy", () => {
+  assert.deepEqual(
+    [...DIALOG_SOURCE.matchAll(/^export const (\w+)/gm)].map((m) => m[1]).sort(),
+    ["DiscardConfirmDialog", "discardConfirmCopy"],
+    "no second dialog and no copy for one"
+  );
+  assert.doesNotMatch(FORM_SOURCE, /deleteAsk|keepReopened|deleteReopened/, "and the form has no state or handler for one");
 });
 
 const fnBody = (name) => {
@@ -192,36 +183,19 @@ const fnBody = (name) => {
   return fn.slice(0, fn.indexOf("\n  };"));
 };
 
-test("Discard on a reopened form only raises the delete question: nothing is written, cleared or closed yet", () => {
+test("Discard on a reopened form deletes the Task Draft at once: shut, settle, delete, say so if it did not land, close", () => {
   const body = fnBody("const confirmDiscard");
-  const branch = body.slice(body.indexOf("if (reopened"), body.indexOf("return;") + "return;".length);
-  assert.match(branch, /if \(reopened && onDeleteReopened\) \{/, "a reopened form with somewhere to delete it");
-  assert.match(branch, /setDiscardAsk\(false\);\s*setDeleteAsk\(true\);/, "swaps the prompt for the delete question");
-  assert.doesNotMatch(branch, /await|onClose|forgetDraft|settleUnsaved|onDiscardUnsaved|onDeleteReopened\(/, "and does nothing else");
-  assert.ok(body.indexOf("if (reopened") < body.indexOf("setDiscarding(true);"), "before anything is shut or awaited");
-  assert.doesNotMatch(body, /onDiscardUnsaved/, "Discard never clears only the unsaved slot any more");
-});
-
-test("the delete question is mounted beside the form's overlay; Keep lowers it and leaves the form open", () => {
-  const mount = FORM_SOURCE.slice(FORM_SOURCE.indexOf("{deleteAsk &&"));
-  const line = mount.slice(0, mount.indexOf("\n"));
-  assert.match(line, /<DeleteTaskDraftDialog onConfirm=\{deleteReopened\} busy=\{discarding\} onCancel=\{keepReopened\} \/>/);
-  assert.ok(FORM_SOURCE.indexOf("{deleteAsk &&") < FORM_SOURCE.indexOf('className="form-overlay"'), "a sibling of the overlay");
-  const keep = fnBody("const keepReopened");
-  assert.match(keep, /setDeleteAsk\(false\);/);
-  assert.doesNotMatch(keep, /onClose|forgetDraft|settleUnsaved|onDiscardUnsaved|onDeleteReopened|setForm/, "nothing written, cleared or closed");
-});
-
-test("Delete settles the typing writes, removes the record, says so if it could not, then closes", () => {
-  const body = fnBody("const deleteReopened");
-  assert.match(body, /if \(!reopened \|\| !onDeleteReopened \|\| discarding\) return;/);
-  const at = (s) => body.indexOf(s);
+  const start = body.indexOf("if (reopened && onDeleteReopened) {");
+  assert.ok(start >= 0, "a reopened form with somewhere to delete it");
+  const branch = body.slice(start, body.indexOf("forgetDraft();"));
+  const at = (s) => branch.indexOf(s);
+  assert.match(branch, /if \(discarding\) return;/, "a second press does nothing");
   assert.ok(at("setDiscarding(true);") >= 0 && at("setDiscarding(true);") < at("await "), "answers shut before anything is awaited");
   assert.ok(at("await settleUnsaved();") >= 0, "a keystroke's write in flight lands first, and none follows");
   assert.ok(at("await settleUnsaved();") < at("await onDeleteReopened(reopened.id)"), "so it cannot bring the record back after the delete");
-  assert.match(body, /if \(!\(await onDeleteReopened\(reopened\.id\)\)\) \{\s*showToast\("Couldn't delete that Task Draft\. It's still on Task Drafts\.", \{ variant: "warn" \}\);/);
-  assert.ok(at("showToast(") < at("onClose();"), "and the form closes either way");
-  assert.doesNotMatch(body, /onDiscardUnsaved|onSaveForLater|onKeepUnsaved/);
+  assert.match(branch, /if \(!\(await onDeleteReopened\(reopened\.id\)\)\) \{\s*showToast\("Couldn't delete that Task Draft\. It's still on Task Drafts\.", \{ variant: "warn" \}\);/);
+  assert.match(branch, /\}\s*onClose\(\);\s*return;/, "and the form closes either way");
+  assert.doesNotMatch(branch, /setDiscardAsk|onDiscardUnsaved|onSaveForLater|onKeepUnsaved/, "the prompt stays up reading Deleting…, and nothing clears only the slot or writes the save");
 });
 
 test("App deletes a reopened Task Draft through the row's own removal, and drops it from the tab", () => {
@@ -238,9 +212,7 @@ test("App deletes a reopened Task Draft through the row's own removal, and drops
 
 test("a new task's Discard and edit mode's still close on the first answer, with no second question", () => {
   const body = fnBody("const confirmDiscard");
-  const after = body.slice(body.indexOf("return;") + "return;".length);
-  assert.match(after, /setDiscarding\(true\);\s*forgetDraft\(\);\s*await settleUnsaved\(\);\s*onClose\(\);/);
-  assert.doesNotMatch(after, /setDeleteAsk/);
+  assert.match(body, /\}\s*setDiscarding\(true\);\s*forgetDraft\(\);\s*await settleUnsaved\(\);\s*onClose\(\);\s*$/, "forget the autosave, settle, close, as before");
   assert.match(FORM_SOURCE, /\{discardAsk && <DiscardConfirmDialog onConfirm=\{confirmDiscard\}/, "the first prompt is unchanged");
 });
 
@@ -284,19 +256,17 @@ test("the form offers Save for later in the prompt on a create form only, and ed
   assert.match(body, /saveForLater\(\)/, "and it is the footer's own Save for later, not a second copy of it");
 });
 
-/* Flipped by #388: this used to assert that Discard on a reopened form cleared
-   only its unsaved typing and left the saved version as it was. The rule now is
-   that Discard, once confirmed, deletes the Task Draft. */
-test("Discard on a reopened form no longer keeps the save: once confirmed it deletes the Task Draft, then closes", () => {
-  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
-  const body = confirm.slice(0, confirm.indexOf("\n  };"));
+/* Flipped by #388, then by #399: this first asserted that Discard on a reopened
+   form cleared only its unsaved typing and left the saved version as it was,
+   then that a second question stood between Discard and the delete. The rule
+   now is that Discard on the prompt deletes the Task Draft. */
+test("Discard on a reopened form no longer keeps the save: it deletes the Task Draft, then closes", () => {
+  const body = fnBody("const confirmDiscard");
   assert.doesNotMatch(body, /onDiscardUnsaved/, "the unsaved slot is not what Discard clears any more");
-  const del = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const deleteReopened"));
-  const delBody = del.slice(0, del.indexOf("\n  };"));
-  assert.match(delBody, /await onDeleteReopened\(reopened\.id\)/, "the record itself goes");
-  assert.match(delBody, /showToast\(/, "and a delete the server could not carry out is said, rather than coming back as a surprise");
-  assert.ok(delBody.indexOf("await onDeleteReopened") < delBody.lastIndexOf("onClose();"), "and only then does it close");
-  assert.doesNotMatch(delBody, /onSaveForLater|onKeepUnsaved|onDiscardUnsaved/, "nothing writes the save or clears only the slot");
+  assert.match(body, /await onDeleteReopened\(reopened\.id\)/, "the record itself goes");
+  assert.match(body, /showToast\(/, "and a delete the server could not carry out is said, rather than coming back as a surprise");
+  assert.ok(body.indexOf("await onDeleteReopened") < body.indexOf("onClose();"), "and only then does it close");
+  assert.doesNotMatch(body, /onSaveForLater|onKeepUnsaved/, "nothing writes the save");
 });
 
 /* Built as the merge confirmation is (#265), because two dialogs that behave

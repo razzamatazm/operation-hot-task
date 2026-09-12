@@ -660,9 +660,10 @@ test("the writes go out one at a time, and every ending waits for them before it
     ["const saveForLater", "await onSaveForLater("],
     ["const handleSubmit", "await onCreate("],
     ["const confirmDiscard", "onClose();"],
-    /* #388: a keystroke's write still out when Delete is pressed lands first,
-       and none follows, so it cannot bring the deleted record back. */
-    ["const deleteReopened", "await onDeleteReopened("]
+    /* #388, #399: a keystroke's write still out when a reopened draft's Discard
+       is pressed lands first, and none follows, so it cannot bring the deleted
+       record back. */
+    ["const confirmDiscard", "await onDeleteReopened("]
   ]) {
     const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
     const fnBody = fn.slice(0, fn.indexOf("\n  };"));
@@ -697,16 +698,16 @@ test("Cancel on an unchanged reopened Saved for Later task asks, with Save for l
   assert.doesNotMatch(close.slice(0, close.indexOf("};")), /sendUnsaved|onClose\(\);[\s\S]*onClose\(\);/, "no silent way out for a reopened form");
 });
 
-/* Flipped by #388: Discard from that prompt used to clear only the unsaved slot
-   and leave the saved record as it was. Now, once the delete question is
-   answered Delete, the record itself is removed, by the row's own request. */
-test("Discard from that prompt, once confirmed, removes the saved record itself, and a 404 counts as removed", async () => {
+/* Flipped by #388, then by #399: Discard from that prompt used to clear only
+   the unsaved slot and leave the saved record as it was, and then asked a
+   second question before deleting. Now Discard itself removes the record, by
+   the row's own request. */
+test("Discard from that prompt removes the saved record itself, with no second question, and a 404 counts as removed", async () => {
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
   const body = confirm.slice(0, confirm.indexOf("\n  };"));
-  assert.match(body, /setDeleteAsk\(true\)/, "it asks the delete question first");
+  assert.doesNotMatch(body, /setDeleteAsk|setDiscardAsk\(false\)/, "no second question: the prompt stays up while the delete is out");
   assert.doesNotMatch(body, /onDiscardUnsaved|onSaveForLater|onKeepUnsaved/, "nothing that clears only the slot or writes the save");
-  const del = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const deleteReopened"));
-  assert.match(del.slice(0, del.indexOf("\n  };")), /await onDeleteReopened\(reopened\.id\)/);
+  assert.match(body, /await onDeleteReopened\(reopened\.id\)/);
   const server = fakeServer({ "DELETE /saved-for-later/saved-1": undefined });
   assert.equal(await removeSavedForLaterRequest(server.request, "saved-1"), true);
   assert.deepEqual(server.calls, ["DELETE /saved-for-later/saved-1"], "one request, to the record, not to its unsaved slot");
@@ -747,8 +748,8 @@ test("App sends a reopened form's typing to its record, and a Delete that did no
   const discard = APP_SOURCE.match(/const onDiscardUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.match(discard, /discardUnsavedRequest\(/);
   assert.doesNotMatch(discard, /showToast/, "silent in App, since a form typed back to its save uses it");
-  const del = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const deleteReopened"));
-  assert.match(del.slice(0, del.indexOf("\n  };")), /showToast\(/, "the Delete itself says when it did not land");
+  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
+  assert.match(confirm.slice(0, confirm.indexOf("\n  };")), /showToast\(/, "Discard itself says when the delete did not land");
 });
 
 test("Create clears the Saved for Later task only after the task was filed", () => {
