@@ -24,6 +24,9 @@ Verified against the repo and local run on `2026-05-04`.
   - Bot task threads (root message ids for threading): `apps/server/data/bot-task-threads.json`
   - Activity feed state: `apps/server/data/activity-feed-state.json`
   - Admin settings (selected notification channel): `apps/server/data/admin-settings.json`
+  - Saved for Later tasks (ADR-0011): `apps/server/data/saved-for-later.json`,
+    beside the tasks file unless `SAVED_FOR_LATER_FILE` says otherwise. Kept
+    apart from tasks on purpose, and private to each owner
 
 See [AGENTS.md](../../AGENTS.md) for validation commands.
 
@@ -57,6 +60,18 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     "merge with that loan?" and a yes re-sends the same body with
     `confirmMerge: true`, which merges as it always has, #265. The flag is an
     answer only — on its own it edits nothing)
+- Saved for Later tasks (#343,
+  [ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md)). Every
+  route answers for the caller only; someone else's, admins included, is a
+  **404**, never a 403, so a request cannot confirm one exists. A deactivated
+  caller gets the same **403** as on every other route. None of them notifies,
+  broadcasts, files a task or touches a loan.
+  - `GET /api/saved-for-later` → `{ items }`, the caller's own, newest saved
+    first
+  - `GET /api/saved-for-later/:id` → `{ item }`
+  - `POST /api/saved-for-later` with `{ form }` → **201** `{ item }`. `form` is
+    the whole new task form, every field; nothing on it is required, and a body
+    that isn't that shape is a **400**
 - Tasks:
   - `GET /api/tasks`
   - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or

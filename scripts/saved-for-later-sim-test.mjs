@@ -1,0 +1,219 @@
+#!/usr/bin/env node
+/*
+ * Saved for Later tasks on the server (#343, ADR-0011).
+ *
+ * A Saved for Later task is someone's scratch work: a new task put aside before
+ * it was filed. ADR-0011 makes three promises about where it lives, and this
+ * file checks each one in the way it can actually be broken.
+ *
+ *   1. It belongs to one person. The store never answers for anyone else: a
+ *      list is that owner's list, a lookup by id is refused for anyone but its
+ *      owner, and the list comes back newest saved first.
+ *   2. It is kept apart from tasks (rule 3). It has its own file, and saving one
+ *      writes nothing to the task store. Structurally, only the server's
+ *      start-up, the router and the Saved for Later routes can reach the store
+ *      at all, the first two only pass it along to the third, and those routes
+ *      can reach nothing that notifies, broadcasts,
+ *      counts or touches tasks and loans. So maintenance, pool nags, signals,
+ *      channel posts, loan rename and merge, and GET /tasks cannot see one by
+ *      accident: none of them has a way to it.
+ *   3. It stores the whole form. The server's shape for it is exactly the new
+ *      task form's fields, held to the autosave's own field list, so a field
+ *      added to the form without being added here fails this suite instead of
+ *      being silently dropped on save.
+ *
+ * The HTTP side (another user and an admin get nothing, a deactivated user is
+ * refused, the task list and loans never show one) is in scripts/smoke-test.mjs,
+ * against a real server with its own isolated data files.
+ *
+ * Run: `node --test scripts/saved-for-later-sim-test.mjs`.
+ */
+import assert from "node:assert/strict";
+import fs, { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { after, test } from "node:test";
+import { pathToFileURL } from "node:url";
+
+import { SavedForLaterStore } from "../apps/server/dist/saved-for-later-store.js";
+import { TaskStore } from "../apps/server/dist/store.js";
+import { savedForLaterFormSchema } from "../apps/server/dist/validation.js";
+
+const repoRoot = path.resolve(import.meta.dirname, "..");
+const root = mkdtempSync(path.join(os.tmpdir(), "saved-for-later-sim-"));
+after(() => rmSync(root, { recursive: true, force: true }));
+let dirs = 0;
+const dirFor = () => {
+  dirs += 1;
+  const dir = path.join(root, String(dirs));
+  fs.mkdirSync(dir);
+  return dir;
+};
+
+const DANA = "creator-1";
+const SAM = "officer-2";
+
+const form = (overrides = {}) => ({
+  folderName: "Smith-1042",
+  loanId: "",
+  taskType: "LOI",
+  urgency: "GREEN",
+  startDate: "",
+  returnDate: "",
+  notes: "Loan Amount: $2,340,000",
+  humperdinkLink: "",
+  points: 0,
+  initialItems: [],
+  pickerMode: "share",
+  recipientUserId: "",
+  recipientNote: "",
+  ...overrides
+});
+
+const freshStore = async () => {
+  const dir = dirFor();
+  const file = path.join(dir, "saved-for-later.json");
+  const store = new SavedForLaterStore(file);
+  await store.init();
+  return { dir, file, store };
+};
+
+// --- 1. One owner ----------------------------------------------------------
+
+test("saving keeps the whole form under its owner", async () => {
+  const { store } = await freshStore();
+  const filled = form({ taskType: "FRAUD", initialItems: ["Missing appraisal"], points: 3, urgency: "RED" });
+  const saved = await store.create(DANA, filled, "2026-09-11T12:00:00.000Z");
+
+  assert.equal(saved.ownerId, DANA);
+  assert.equal(saved.savedAt, "2026-09-11T12:00:00.000Z");
+  assert.ok(saved.id, "it gets an id of its own");
+  assert.deepEqual(saved.form, filled, "every field comes back as it was saved");
+  assert.deepEqual(await store.find(DANA, saved.id), saved);
+});
+
+test("a list is only ever its owner's, and a lookup for anyone else finds nothing", async () => {
+  const { store } = await freshStore();
+  const danas = await store.create(DANA, form({ folderName: "Dana's loan" }));
+  const sams = await store.create(SAM, form({ folderName: "Sam's loan" }));
+
+  assert.deepEqual((await store.list(DANA)).map((item) => item.id), [danas.id]);
+  assert.deepEqual((await store.list(SAM)).map((item) => item.id), [sams.id]);
+  assert.equal(await store.find(SAM, danas.id), undefined, "Sam cannot fetch Dana's by id");
+  assert.equal(await store.find(DANA, sams.id), undefined, "nor Dana Sam's");
+  assert.deepEqual(await store.list("admin-1"), [], "someone with none has an empty list, whatever their role");
+});
+
+test("the list is newest saved first, and two saved in the same instant list the later one first", async () => {
+  const { store } = await freshStore();
+  const monday = await store.create(DANA, form({ folderName: "Monday" }), "2026-09-07T09:00:00.000Z");
+  const wednesday = await store.create(DANA, form({ folderName: "Wednesday" }), "2026-09-09T09:00:00.000Z");
+  const tuesday = await store.create(DANA, form({ folderName: "Tuesday" }), "2026-09-08T09:00:00.000Z");
+  const tuesdayAgain = await store.create(DANA, form({ folderName: "Tuesday again" }), "2026-09-08T09:00:00.000Z");
+
+  assert.deepEqual(
+    (await store.list(DANA)).map((item) => item.form.folderName),
+    [wednesday, tuesdayAgain, tuesday, monday].map((item) => item.form.folderName)
+  );
+});
+
+test("there is no cap: every save is kept", async () => {
+  const { store } = await freshStore();
+  await Promise.all(Array.from({ length: 60 }, (_, n) => store.create(DANA, form({ folderName: `Loan ${n}` }))));
+  assert.equal((await store.list(DANA)).length, 60);
+});
+
+// --- 2. Apart from tasks -----------------------------------------------------
+
+test("saving one writes nothing to the task store", async () => {
+  const { dir, store } = await freshStore();
+  const tasksFile = path.join(dir, "tasks.json");
+  const tasks = new TaskStore(tasksFile);
+  await tasks.init();
+  const before = fs.readFileSync(tasksFile, "utf8");
+
+  await store.create(DANA, form());
+
+  assert.equal(fs.readFileSync(tasksFile, "utf8"), before, "tasks.json is byte for byte what it was");
+  assert.deepEqual(await tasks.allTasks(), []);
+});
+
+/* Every relative import a module makes, type-only ones included: a type import
+   is still a module that knows the store exists. */
+const importsOf = (source) =>
+  [...source.matchAll(/\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)].map(
+    (match) => match[1] ?? match[2]
+  );
+
+const serverModules = () => {
+  const src = path.join(repoRoot, "apps/server/src");
+  return fs
+    .readdirSync(src, { recursive: true })
+    .filter((name) => /\.(ts|tsx|mts|cts)$/.test(name))
+    .map((name) => ({ name, source: fs.readFileSync(path.join(src, name), "utf8") }));
+};
+
+test("only start-up, the router and the Saved for Later routes can reach the store", () => {
+  const reaching = serverModules()
+    .filter(({ source }) => importsOf(source).some((specifier) => /saved-for-later-store(\.js)?$/.test(specifier)))
+    .map(({ name }) => name)
+    .sort();
+  assert.deepEqual(
+    reaching,
+    ["index.ts", "routes.ts", "saved-for-later-routes.ts"],
+    "a new module reading Saved for Later tasks has to be a deliberate decision about ADR-0011, not an import"
+  );
+});
+
+/* The two modules above hold every service, the bot and the notifier, so being
+   allowed to import the store is not enough on its own: either could hand it on.
+   Each may only pass it along. Start-up builds it, starts it and gives it to the
+   router; the router gives it to the Saved for Later routes and nothing else.
+   Counted as the identifier, so a second use anywhere in either file fails. */
+test("start-up and the router only pass the store along, to the Saved for Later routes", () => {
+  const modules = serverModules();
+  const sourceOf = (name) => modules.find((module) => module.name === name).source;
+  const uses = (source) => source.match(/\bsavedForLater\b/g)?.length ?? 0;
+
+  const index = sourceOf("index.ts");
+  assert.match(index, /const savedForLater = new SavedForLaterStore\(/);
+  assert.match(index, /await savedForLater\.init\(\);/);
+  assert.match(index, /buildRouter\([^;]*\bsavedForLater\)\);/);
+  assert.equal(uses(index), 3, "start-up builds it, starts it, and hands it to the router, and does nothing else with it");
+
+  const routes = sourceOf("routes.ts");
+  assert.match(routes, /savedForLater: SavedForLaterStore\): Router =>/);
+  assert.match(routes, /savedForLaterRoutes\(router, getActor, savedForLater\);/);
+  assert.equal(uses(routes), 2, "the router receives it and passes it to the Saved for Later routes, and does nothing else with it");
+});
+
+test("the Saved for Later routes can reach nothing that notifies, broadcasts, counts or touches tasks", () => {
+  const routes = serverModules().find(({ name }) => name === "saved-for-later-routes.ts");
+  assert.ok(routes, "the routes module exists");
+  assert.deepEqual(
+    [...new Set(importsOf(routes.source))].sort(),
+    ["./auth.js", "./saved-for-later-store.js", "./validation.js", "@loan-tasks/shared", "express", "zod"],
+    "no task service, loan service, SSE hub, bot, notifier or activity feed"
+  );
+});
+
+// --- 3. The whole form ------------------------------------------------------
+
+test("the server's shape for a saved form is exactly the new task form's fields", async () => {
+  const { draftFieldNames } = await import(
+    pathToFileURL(path.join(repoRoot, "apps/web/src/create-form-draft.ts")).href
+  );
+  assert.deepEqual(Object.keys(savedForLaterFormSchema.shape).sort(), draftFieldNames().sort());
+});
+
+test("nothing on the form is required: an all-blank form is a valid save", () => {
+  assert.equal(savedForLaterFormSchema.safeParse(form({ folderName: "", notes: "" })).success, true);
+});
+
+test("a form that is not the form's shape is refused", () => {
+  assert.equal(savedForLaterFormSchema.safeParse({ ...form(), taskType: "LUNCH" }).success, false, "an unknown type");
+  assert.equal(savedForLaterFormSchema.safeParse({ ...form(), points: 9 }).success, false, "points out of range");
+  assert.equal(savedForLaterFormSchema.safeParse({ ...form(), isAdmin: true }).success, false, "a stray field");
+  const { notes, ...missing } = form();
+  assert.equal(savedForLaterFormSchema.safeParse(missing).success, false, "a missing field");
+});

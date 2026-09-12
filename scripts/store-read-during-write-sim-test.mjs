@@ -40,6 +40,7 @@ import { after, test } from "node:test";
 import { ActivityFeedStateStore } from "../apps/server/dist/activity-feed-state.js";
 import { ReferenceStore, ThreadStore } from "../apps/server/dist/bot.js";
 import { JsonFile } from "../apps/server/dist/json-file.js";
+import { SavedForLaterStore } from "../apps/server/dist/saved-for-later-store.js";
 import { SettingsStore } from "../apps/server/dist/settings-store.js";
 import { LoanStore, TaskStore } from "../apps/server/dist/store.js";
 import { UserStore } from "../apps/server/dist/user-store.js";
@@ -376,6 +377,44 @@ test("activity-feed state read while a save is half-written comes back as saved"
     assertRead(await read, "read").users.map((user) => user.id),
     ["creator-1", "checker-1"]
   );
+});
+
+test("Saved for Later tasks read while a save is half-written come back as saved", async () => {
+  // A torn read here would answer "you have none saved" — the section would
+  // vanish from the board, and the next save would start from an empty file.
+  const file = fileIn("saved-for-later.json");
+  const store = new SavedForLaterStore(file);
+  await store.init();
+  const form = (folderName) => ({
+    folderName,
+    loanId: "",
+    taskType: "LOI",
+    urgency: "GREEN",
+    startDate: "",
+    returnDate: "",
+    notes: "",
+    humperdinkLink: "",
+    points: 0,
+    initialItems: [],
+    pickerMode: "share",
+    recipientUserId: "",
+    recipientNote: ""
+  });
+  const first = await store.create("creator-1", form("Smith-1042"), "2026-09-11T12:00:00.000Z");
+
+  const hold = holdNextWrite(file);
+  const saving = store.create("creator-1", form("Jones-2210"), "2026-09-11T12:05:00.000Z");
+  await hold.truncated;
+  const listed = outcome(store.list("creator-1"));
+  const found = outcome(store.find("creator-1", first.id));
+  await hold.release();
+  await saving;
+
+  assert.deepEqual(
+    assertRead(await listed, "list").map((item) => item.form.folderName),
+    ["Jones-2210", "Smith-1042"]
+  );
+  assert.equal(assertRead(await found, "find")?.form.folderName, "Smith-1042");
 });
 
 test("card records read while a save is half-written come back as saved", async () => {

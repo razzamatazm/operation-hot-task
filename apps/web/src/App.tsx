@@ -1,6 +1,6 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isFirstTimeInPool, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask } from "@loan-tasks/shared";
-import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isFirstTimeInPool, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
@@ -8,11 +8,12 @@ import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
-import { bylineOf, formatDate, initialsOf } from "./format";
+import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
+import { SavedForLaterSection } from "./saved-for-later";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -3209,18 +3210,6 @@ const ADMIN_ROLE_DEFS: { key: UserRole; label: string; cls: string }[] = [
   { key: "ADMIN", label: "Admin", cls: "admin" }
 ];
 
-const formatAgo = (iso?: string): string => {
-  if (!iso) return "never";
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60000) return "just now";
-  const min = Math.round(diff / 60000);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(diff / 3600000);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(diff / 86400000);
-  return `${day}d ago`;
-};
-
 interface SystemStatus {
   bot: { enabled: boolean; dmCount: number; channelCount: number };
   channelWebhook: boolean;
@@ -3863,6 +3852,28 @@ export const App = () => {
     }
   }, [user]);
 
+  /* The viewer's Saved for Later tasks (#343, ADR-0011): new tasks they put
+     aside, kept on the server and seen by nobody else. Not tasks, so they live
+     beside `tasks` rather than in it, and nothing that reads `tasks` — the
+     counts, the courts, Flat view, admin metrics — can pick one up.
+
+     `savedForLaterOwner` is whose list this is right now. The dev user picker
+     can switch people while a load or a save is in flight, and an answer that
+     comes back for the previous person must not land under the next one's
+     name, which on a shared machine is the whole of the privacy promise. */
+  const [savedForLater, setSavedForLater] = useState<SavedForLaterTask[]>([]);
+  const savedForLaterOwner = useRef(user.id);
+  const loadSavedForLater = useCallback(async (): Promise<void> => {
+    try {
+      const data = await apiRequest<{ items: SavedForLaterTask[] }>("/saved-for-later", { method: "GET" }, user);
+      if (user.id === savedForLaterOwner.current) setSavedForLater(data.items);
+    } catch {
+      /* The section is a convenience on top of the board, like the loan
+         typeahead: a failed load leaves it hidden rather than blocking tasks,
+         and the next load (sign-in, switching person) tries again. */
+    }
+  }, [user]);
+
   /* Runtime client config. Unauthenticated and independent of SSO, so it runs
      on its own rather than waiting on the Teams handshake — /me stays about
      identity. A failure just leaves the app id null, which degrades "Copy
@@ -3985,9 +3996,14 @@ export const App = () => {
        the dev roster locally. The placeholder user has an empty id (and
        dev-header auth would send a non-ASCII display name), so fetching now
        both 401s and risks a header encoding error. */
+    /* Emptied before anything else, so one person's Saved for Later tasks are
+       never on screen under the next person's name while theirs load. */
+    savedForLaterOwner.current = user.id;
+    setSavedForLater([]);
     if (!user.id) return;
     refresh().catch(() => {});
     loadLoans().catch(() => {});
+    loadSavedForLater().catch(() => {});
   }, [user.id]);
 
   useEffect(() => {
@@ -4059,6 +4075,25 @@ export const App = () => {
     }
     await refresh();
     await loadLoans();
+  };
+
+  /* Save-for-later seam (#343), shaped like `onCreate`: the form hands over its
+     values and closes itself once this resolves; a failure is toasted here and
+     rethrown so the form stays open. The saved item goes straight into the list
+     the section renders, so it is on the board the moment the form closes, with
+     no reload. Nothing else is refreshed: saving files no task and touches no
+     loan. */
+  const onSaveForLater = async (form: SavedForLaterForm): Promise<void> => {
+    let saved: { item: SavedForLaterTask };
+    try {
+      saved = await apiRequest<{ item: SavedForLaterTask }>("/saved-for-later", { method: "POST", body: JSON.stringify({ form }) }, user);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to save for later", { variant: "error" });
+      throw err;
+    }
+    if (saved.item.ownerId === savedForLaterOwner.current) {
+      setSavedForLater((current) => [saved.item, ...current.filter((item) => item.id !== saved.item.id)]);
+    }
   };
 
   const onClaim = useCallback(async (taskId: string): Promise<void> => {
@@ -4629,7 +4664,7 @@ export const App = () => {
      never be live while every card below it is already closed. One pass of map
      lookups over the rendered page, so it runs unmemoized. */
   const expandedIdsIn = (list: LoanTask[]): string[] => expandedTaskIds(list, expandOverrides);
-  const renderTaskList = (list: LoanTask[], emptyMessage: string) => {
+  const renderTaskList = (list: LoanTask[], emptyMessage: string, savedItems: SavedForLaterTask[] = []) => {
     const cardProps = {
       user,
       onClaim,
@@ -4664,22 +4699,30 @@ export const App = () => {
     if (!grouped) {
       return <CardList tasks={list} emptyMessage={emptyMessage} now={now} {...cardProps} />;
     }
-    const sections = buildCourtSections(list).filter((s) => s.tasks.length > 0);
-    if (sections.length === 0) {
+    const sections = buildCourtSections(list);
+    if (sections.every((s) => s.tasks.length === 0) && savedItems.length === 0) {
       return <div className="empty-card">{emptyMessage}</div>;
     }
     return (
       <div className="courts">
         {sections.map((s) => (
-          <section className="court" key={s.key} data-court={s.key}>
-            <div className="section-head">
-              <h2>
-                {s.title}
-                <span className="section-count">{s.tasks.length}</span>
-              </h2>
-            </div>
-            <CardList tasks={s.tasks} emptyMessage="" now={now} {...cardProps} />
-          </section>
+          <Fragment key={s.key}>
+            {s.tasks.length > 0 && (
+              <section className="court" data-court={s.key}>
+                <div className="section-head">
+                  <h2>
+                    {s.title}
+                    <span className="section-count">{s.tasks.length}</span>
+                  </h2>
+                </div>
+                <CardList tasks={s.tasks} emptyMessage="" now={now} {...cardProps} />
+              </section>
+            )}
+            {/* Saved for Later (#343, ADR-0011) sits right after Needs you, and
+                keeps that place when Needs you is empty and not drawn. Hidden
+                when the viewer has none; the section decides that itself. */}
+            {s.key === "you" && <SavedForLaterSection items={savedItems} now={now} />}
+          </Fragment>
         ))}
       </div>
     );
@@ -4819,6 +4862,7 @@ export const App = () => {
           tasks={tasks}
           onClose={() => setFormOpen(false)}
           onCreate={onCreate}
+          onSaveForLater={onSaveForLater}
         />
       )}
 
@@ -4869,7 +4913,7 @@ export const App = () => {
                 <NewTaskButton open={formOpen} onClick={() => setFormOpen((o) => !o)} />
               </div>
             </div>
-            {renderTaskList(unifiedTasks, "No tasks yet.")}
+            {renderTaskList(unifiedTasks, "No tasks yet.", savedForLater)}
           </>
         );
       })()}

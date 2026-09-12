@@ -18,6 +18,23 @@ export const initialsOf = (name?: string): string => {
   return (letters.slice(0, 2) || "?").toUpperCase();
 };
 
+/* "5m ago", "3h ago", "2d ago" — rounded, never more precise than a glance
+   needs. Lived in App.tsx for the admin user list's "last seen" until the Saved
+   for Later rows (#343) needed it too, in a module a node test can render.
+   `now` is passed in where the caller already ticks one, so a row does not
+   read a different clock from the list around it. */
+export const formatAgo = (iso?: string, now: number = Date.now()): string => {
+  if (!iso) return "never";
+  const diff = now - new Date(iso).getTime();
+  if (diff < 60000) return "just now";
+  const min = Math.round(diff / 60000);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(diff / 3600000);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(diff / 86400000);
+  return `${day}d ago`;
+};
+
 /* "Heather Finn - Aug 21, 2026, 9:39 AM" — one string, used twice per note:
    the row's hover title and its visually-hidden label. Both have to say the
    same thing, so they read it from the same place. */

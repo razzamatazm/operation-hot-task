@@ -12,6 +12,7 @@ import { LoanService } from "./loan-service.js";
 import { UserStore } from "./user-store.js";
 import { TeamsNotificationProvider } from "./notifications.js";
 import { SettingsStore } from "./settings-store.js";
+import { SavedForLaterStore } from "./saved-for-later-store.js";
 import { TaskService } from "./task-service.js";
 import { startScheduler } from "./scheduler.js";
 import { AppConfig } from "@loan-tasks/shared";
@@ -33,6 +34,10 @@ const bootstrap = async (): Promise<void> => {
   await loanStore.init();
   const userStore = new UserStore(appConfig.usersFile);
   await userStore.init();
+  /* Handed to the router and to nothing else (ADR-0011 rule 3): no service,
+     scheduler or bot handler below can reach a Saved for Later task. */
+  const savedForLater = new SavedForLaterStore(appConfig.savedForLaterFile);
+  await savedForLater.init();
 
   const botClient = new TeamsBotClient(
     appConfig.botAppId,
@@ -114,7 +119,7 @@ const bootstrap = async (): Promise<void> => {
   app.use(cors());
   app.use(express.json());
 
-  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient, settingsStore, loanService));
+  app.use("/api", buildRouter(service, sse, userStore, botClient, activityFeedClient, settingsStore, loanService, savedForLater));
   botClient.register(app);
 
   const resolvedFrontendDist = path.resolve(process.cwd(), appConfig.frontendDist);

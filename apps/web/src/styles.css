@@ -3971,6 +3971,73 @@ button.btn-good:hover {
 .court .section-head { padding: 8px 0 5px; }
 .card-list-grouped { gap: 5px; }
 
+/* ── Saved for Later (#343, ADR-0011) ─────────────────────────
+   A section that is not a court: new tasks the viewer put aside, which are
+   not tasks yet. It takes the courts' heading and spacing and the card's paper
+   and hairline, and a row of its own, because a task row's grid is built for a
+   pair, a due stamp and an action column and a saved task has none of them.
+
+   One line: the loan name in the row's title face, the type behind a hairline
+   in the row's type voice, and when it was saved pushed to the right edge in
+   mono. The name is the part that gives. */
+.saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.saved-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.saved-row-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-row-type {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--line-soft);
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-row-when {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* Grouped rows read as a flat mono list, not floating cards — drop the base
    .task-card elevation so the section header and its hairline carry the structure
    (the "deliberately mono" grouped layout). The 1px border is kept so each row
@@ -4297,7 +4364,8 @@ button.btn-good:hover {
   .task-card-poop-label,
   .app-menu-label,
   .checklist-adder,
-  .section-count {
+  .section-count,
+  .saved-row-when {
     font-size: 11px;
   }
 
@@ -4316,7 +4384,8 @@ button.btn-good:hover {
   .task-card-collapsed-stage,
   .checklist-title,
   .task-card-checklist .checklist-title,
-  .thread-head {
+  .thread-head,
+  .saved-row-type {
     font-size: 12px;
   }
 

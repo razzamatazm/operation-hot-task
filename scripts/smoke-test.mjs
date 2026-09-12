@@ -122,6 +122,10 @@ const createServer = async (preferredPort, extraEnv = {}, { botReferences } = {}
      that have nothing to do with the code under test. */
   const usersFile = path.join(tempDir, "users.json");
   const adminSettingsFile = path.join(tempDir, "admin-settings.json");
+  /* Saved for Later tasks (#343) are private to one person each. The server
+     would already put them beside DATA_FILE, but naming the file here keeps the
+     suite isolated even if that default ever moves. */
+  const savedForLaterFile = path.join(tempDir, "saved-for-later.json");
 
   // Optionally pre-seed stored bot DM references so the share flow can report
   // delivered=true for a "bot-onboarded" user (issue #41). Written before the
@@ -142,6 +146,7 @@ const createServer = async (preferredPort, extraEnv = {}, { botReferences } = {}
       ACTIVITY_FEED_STATE_FILE: activityStateFile,
       USERS_FILE: usersFile,
       ADMIN_SETTINGS_FILE: adminSettingsFile,
+      SAVED_FOR_LATER_FILE: savedForLaterFile,
       ...extraEnv
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -1220,6 +1225,150 @@ const run = async () => {
       body: { roles: ["LOAN_OFFICER", "FILE_CHECKER"] }
     });
     expectStatus(repromote.status, 200, "admin restores FILE_CHECKER", repromote.json);
+    /* Saved for Later tasks (#343, ADR-0011): private to their owner, and not
+       tasks. The structural half — nothing that notifies, broadcasts, runs
+       maintenance or touches a task or loan can reach the store — is in
+       scripts/saved-for-later-sim-test.mjs. This is what a caller can see. */
+    const savedForm = (overrides = {}) => ({
+      folderName: "Smoke Saved Only",
+      loanId: "",
+      taskType: "LOI",
+      urgency: "GREEN",
+      startDate: "",
+      returnDate: "",
+      notes: "smoke-saved-for-later",
+      humperdinkLink: "",
+      points: 0,
+      initialItems: [],
+      pickerMode: "share",
+      recipientUserId: "",
+      recipientNote: "",
+      ...overrides
+    });
+    const tasksBeforeSave = await request(server.baseUrl, "GET", "/tasks");
+    const loansBeforeSave = await request(server.baseUrl, "GET", "/loans");
+    const saved = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.creator,
+      body: { form: savedForm() }
+    });
+    expectStatus(saved.status, 201, "save a new task for later", saved.json);
+    assert.equal(saved.json.item.ownerId, users.creator.id);
+    assert.deepEqual(saved.json.item.form, savedForm(), "the whole form is kept as it was sent");
+    const blankSave = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.creator,
+      body: { form: savedForm({ folderName: "", notes: "" }) }
+    });
+    expectStatus(blankSave.status, 201, "save a form with nothing required filled in", blankSave.json);
+    const ownSaved = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    expectStatus(ownSaved.status, 200, "owner lists their Saved for Later tasks", ownSaved.json);
+    assert.deepEqual(
+      ownSaved.json.items.map((item) => item.id),
+      [blankSave.json.item.id, saved.json.item.id],
+      "newest saved first"
+    );
+    const ownFetch = await request(server.baseUrl, "GET", `/saved-for-later/${saved.json.item.id}`, { user: users.creator });
+    expectStatus(ownFetch.status, 200, "owner fetches their Saved for Later task", ownFetch.json);
+    pushPass("a new task can be saved for later with nothing required, and its owner lists and fetches theirs");
+
+    for (const [label, viewer] of [["another user", users.otherOfficer], ["an admin", users.admin]]) {
+      const theirList = await request(server.baseUrl, "GET", "/saved-for-later", { user: viewer });
+      expectStatus(theirList.status, 200, `${label} lists their own Saved for Later tasks`, theirList.json);
+      assert.deepEqual(theirList.json.items, [], `${label} sees none of the creator's`);
+      const theirFetch = await request(server.baseUrl, "GET", `/saved-for-later/${saved.json.item.id}`, { user: viewer });
+      expectStatus(theirFetch.status, 404, `${label} fetching the creator's Saved for Later task`, theirFetch.json);
+    }
+    pushPass("another user and an admin cannot list or fetch someone else's Saved for Later tasks");
+
+    const tasksAfterSave = await request(server.baseUrl, "GET", "/tasks");
+    assert.equal(tasksAfterSave.json.tasks.length, tasksBeforeSave.json.tasks.length, "saving filed no task");
+    assert.ok(
+      !tasksAfterSave.json.tasks.some((task) => task.notes === "smoke-saved-for-later" || task.folderName === "Smoke Saved Only"),
+      "the task list never shows a Saved for Later task"
+    );
+    const loansAfterSave = await request(server.baseUrl, "GET", "/loans");
+    assert.equal(loansAfterSave.json.loans.length, loansBeforeSave.json.loans.length, "saving minted no loan");
+    assert.ok(!loansAfterSave.json.loans.some((loan) => loan.name === "Smoke Saved Only"));
+    pushPass("saving for later files no task and mints no loan, so the task list and the counts and metrics read from it never see one");
+
+    const badSave = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.creator,
+      body: { form: savedForm({ taskType: "LUNCH" }) }
+    });
+    expectStatus(badSave.status, 400, "a save that isn't the new task form's shape", badSave.json);
+    pushPass("a save that isn't the new task form's shape is refused");
+
+    const renameTask = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Smoke Saved Loan", taskType: "VALUE", notes: "smoke-saved-rename" }
+    });
+    expectStatus(renameTask.status, 201, "create a task to rename the loan from", renameTask.json);
+    const renamedLoanId = renameTask.json.task.loanId;
+    const onLoan = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.creator,
+      body: { form: savedForm({ folderName: "Smoke Saved Loan", loanId: renamedLoanId }) }
+    });
+    expectStatus(onLoan.status, 201, "save for later on an existing loan", onLoan.json);
+    const renameLoan = await request(server.baseUrl, "PATCH", `/loans/${renamedLoanId}`, {
+      user: users.creator,
+      body: { name: "Smoke Saved Loan Renamed", taskId: renameTask.json.task.id }
+    });
+    expectStatus(renameLoan.status, 200, "rename the loan", renameLoan.json);
+    const afterRename = await request(server.baseUrl, "GET", `/saved-for-later/${onLoan.json.item.id}`, { user: users.creator });
+    assert.deepEqual(
+      afterRename.json.item,
+      onLoan.json.item,
+      "the Saved for Later task keeps the loan as typed; it is resolved when the task is created"
+    );
+    pushPass("a loan rename leaves a Saved for Later task exactly as it was saved");
+
+    const mergeKeep = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Smoke Saved Merge Keep", taskType: "VALUE", notes: "smoke-saved-merge", humperdinkLink: "https://humperdink.example/Loans/Details/9001" }
+    });
+    expectStatus(mergeKeep.status, 201, "create the loan a merge keeps", mergeKeep.json);
+    const mergeGone = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: { folderName: "Smoke Saved Merge Gone", taskType: "VALUE", notes: "smoke-saved-merge", humperdinkLink: "https://humperdink.example/Loans/Details/9002" }
+    });
+    expectStatus(mergeGone.status, 201, "create the loan a merge absorbs", mergeGone.json);
+    assert.notEqual(mergeGone.json.task.loanId, mergeKeep.json.task.loanId, "two loans to merge");
+    const onMergedLoan = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.creator,
+      body: {
+        form: savedForm({
+          folderName: "Smoke Saved Merge Gone",
+          loanId: mergeGone.json.task.loanId,
+          humperdinkLink: "https://humperdink.example/Loans/Details/9002"
+        })
+      }
+    });
+    expectStatus(onMergedLoan.status, 201, "save for later on the loan about to be merged", onMergedLoan.json);
+    const mergeBody = { humperdinkLink: "https://humperdink.example/Loans/Details/9001", taskId: mergeGone.json.task.id };
+    const mergeAsk = await request(server.baseUrl, "PATCH", `/loans/${mergeGone.json.task.loanId}`, {
+      user: users.creator,
+      body: mergeBody
+    });
+    expectStatus(mergeAsk.status, 409, "a colliding link asks before merging", mergeAsk.json);
+    const mergeConfirm = await request(server.baseUrl, "PATCH", `/loans/${mergeGone.json.task.loanId}`, {
+      user: users.creator,
+      body: { ...mergeBody, confirmMerge: true }
+    });
+    expectStatus(mergeConfirm.status, 200, "confirmed merge", mergeConfirm.json);
+    assert.ok(mergeConfirm.json.merged, "the loans were merged");
+    const afterMerge = await request(server.baseUrl, "GET", `/saved-for-later/${onMergedLoan.json.item.id}`, { user: users.creator });
+    assert.deepEqual(
+      afterMerge.json.item,
+      onMergedLoan.json.item,
+      "the Saved for Later task keeps the loan as typed through a merge; it is resolved when the task is created"
+    );
+    pushPass("a loan merge leaves a Saved for Later task exactly as it was saved");
+
+    const othersOwnSave = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.otherOfficer,
+      body: { form: savedForm({ folderName: "Other officer's own" }) }
+    });
+    expectStatus(othersOwnSave.status, 201, "another user saves one of their own", othersOwnSave.json);
+
     const deactivationFraud = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: { folderName: "Deactivation Release", taskType: "FRAUD", notes: "check it" }
@@ -1241,6 +1390,17 @@ const run = async () => {
     pushPass("deactivating a checker releases their live fraud checks too");
     const deactivatedMe = await request(server.baseUrl, "GET", "/me", { user: users.otherOfficer });
     expectStatus(deactivatedMe.status, 403, "deactivated user is blocked", deactivatedMe.json);
+    const deactivatedSavedList = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.otherOfficer });
+    expectStatus(deactivatedSavedList.status, 403, "deactivated user lists their Saved for Later tasks", deactivatedSavedList.json);
+    const deactivatedSavedFetch = await request(server.baseUrl, "GET", `/saved-for-later/${othersOwnSave.json.item.id}`, {
+      user: users.otherOfficer
+    });
+    expectStatus(deactivatedSavedFetch.status, 403, "deactivated user fetches their Saved for Later task", deactivatedSavedFetch.json);
+    const deactivatedSave = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.otherOfficer,
+      body: { form: savedForm() }
+    });
+    expectStatus(deactivatedSave.status, 403, "deactivated user saves for later", deactivatedSave.json);
     const reactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
       user: users.admin,
       body: { active: true }
@@ -1248,7 +1408,15 @@ const run = async () => {
     expectStatus(reactivate.status, 200, "admin reactivates user", reactivate.json);
     const reactivatedMe = await request(server.baseUrl, "GET", "/me", { user: users.otherOfficer });
     expectStatus(reactivatedMe.status, 200, "reactivated user is allowed", reactivatedMe.json);
+    const reactivatedSaved = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.otherOfficer });
+    expectStatus(reactivatedSaved.status, 200, "reactivated user lists their Saved for Later tasks", reactivatedSaved.json);
+    assert.deepEqual(
+      reactivatedSaved.json.items.map((item) => item.id),
+      [othersOwnSave.json.item.id],
+      "their Saved for Later task is still there, and nothing was saved while they were deactivated"
+    );
     pushPass("deactivate blocks access, reactivate restores it");
+    pushPass("a deactivated user cannot reach their Saved for Later tasks, and has them back on reactivation");
 
     const selfDeactivate = await request(server.baseUrl, "PATCH", `/users/${users.admin.id}`, {
       user: users.admin,
