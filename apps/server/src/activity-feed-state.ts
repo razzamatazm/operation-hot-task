@@ -20,7 +20,7 @@ export interface KnownUserState {
   roles: UserIdentity["roles"];
 }
 
-interface ActivityFeedStateData {
+export interface ActivityFeedStateData {
   signals: ActivitySignalState[];
   users: KnownUserState[];
 }
@@ -68,7 +68,22 @@ export class ActivityFeedStateStore {
     });
   }
 
-  async replace(state: ActivityFeedStateData): Promise<void> {
-    await this.file.update(() => state);
+  /* Work out the next state from the file as it stands at this change's turn,
+     and save it, in one step (#341). `decide` gets a fresh copy of the state and
+     returns the state to save plus whatever it decided; that decision is what
+     this resolves with, once the save is done. `decide` must be synchronous:
+     anything awaited inside it would let another change in between. A whole-file
+     `replace` built from an earlier read used to overwrite users recorded in the
+     meantime and let overlapping evaluations alert the same signal twice. */
+  async change<R>(
+    decide: (current: ActivityFeedStateData) => { state: ActivityFeedStateData; decision: R }
+  ): Promise<R> {
+    let decision: R | undefined;
+    await this.file.update((current) => {
+      const next = decide(current);
+      decision = next.decision;
+      return next.state;
+    });
+    return decision as R;
   }
 }
