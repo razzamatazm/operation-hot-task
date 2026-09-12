@@ -5,25 +5,23 @@ import type { BoardTab } from "./board-filter";
 
 export type { BoardTab } from "./board-filter";
 
-/* The Tasks board's tab row (#363, three tabs since #390): All Tasks, My Tasks,
-   then Task Drafts.
+/* The Tasks board's tab row (#363, three tabs since #390): All, Mine, then
+   Drafts.
 
-   All Tasks is the board under Everyone and My Tasks the board under Mine; they
-   replaced the app menu's Show row, which kept a choice people make all day one
-   tap too deep. Task Drafts are the viewer's Saved for Later tasks (ADR-0011),
-   kept in a tab of their own so they sit in one place however the board is
-   viewed, and never mixed in with tasks.
+   All is the board under Everyone and Mine the board under Mine; they replaced
+   the app menu's Show row, which kept a choice people make all day one tap too
+   deep. Drafts are the viewer's Saved for Later tasks (ADR-0011), kept in a tab
+   of their own so they sit in one place however the board is viewed, and never
+   mixed in with tasks.
 
-   While a loan is searched, All Tasks carries the loan's name, which can be long
-   and is the one label that ellipsizes. Every tab is drawn, with its count,
+   While a loan is searched, All carries the loan's name, which can be long and
+   is the one label that ellipsizes. Every tab is drawn, with its count,
    including zero.
 
-   Under 480px the three names do not fit on the header's first line at 360px
-   (measured with the touch floor on: `All Tasks` lost 12px to an ellipsis), so
-   each tab also carries a short name, `All`, `Mine`, `Drafts`, which the phone
-   rule in styles.css shows while the full name is visually hidden. Hidden, not
-   removed, and the short one is `aria-hidden`: a screen reader hears `All Tasks
-   13` at every width. A searched loan's name has no short form.
+   The names are the short ones at every width. `All Tasks`, `My Tasks` and
+   `Task Drafts` were cut off on phones and narrow windows, and a second set of
+   names swapped in under a breakpoint still left the widths just above it
+   clipping.
 
    Which tab is open is App's. All / My is stored (as the Show value it
    replaced), Task Drafts never is; `tabForShow` and `showForTab` in
@@ -50,7 +48,7 @@ export const BoardTabs = ({
 }: {
   tab: BoardTab;
   onTabChange: (tab: BoardTab) => void;
-  /* A searched loan's name stands in for `All Tasks` while the search is on. */
+  /* A searched loan's name stands in for `All` while the search is on. */
   allLabel?: ReactNode;
   /* The full text behind a label that may be cut short, a long loan name. */
   allTitle?: string;
@@ -59,12 +57,12 @@ export const BoardTabs = ({
   draftsCount: number;
 }) => {
   const refs = useRef<Partial<Record<BoardTab, HTMLButtonElement | null>>>({});
-  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; short?: string; title?: string; count: number }> = [
+  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; title?: string; count: number }> = [
     allLabel === undefined
-      ? { value: "all", label: "All Tasks", short: "All", count: allCount }
+      ? { value: "all", label: "All", count: allCount }
       : { value: "all", label: allLabel, ...(allTitle ? { title: allTitle } : {}), count: allCount },
-    { value: "mine", label: "My Tasks", short: "Mine", count: mineCount },
-    { value: "drafts", label: "Task Drafts", short: "Drafts", count: draftsCount }
+    { value: "mine", label: "Mine", count: mineCount },
+    { value: "drafts", label: "Drafts", count: draftsCount }
   ];
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
@@ -82,7 +80,7 @@ export const BoardTabs = ({
 
   return (
     <div className="board-tabs" role="tablist" aria-label="Board" onKeyDown={onKeyDown}>
-      {tabs.map(({ value, label, short, title, count }) => {
+      {tabs.map(({ value, label, title, count }) => {
         const selected = value === tab;
         return (
           <button
@@ -100,14 +98,7 @@ export const BoardTabs = ({
             onClick={() => onTabChange(value)}
           >
             <span className="board-tab-label" {...(title ? { title } : {})}>
-              {short ? (
-                <>
-                  <span className="board-tab-name">{label}</span>
-                  <span className="board-tab-short" aria-hidden="true">{short}</span>
-                </>
-              ) : (
-                label
-              )}
+              {label}
             </span>
             <span className="section-count">{count}</span>
           </button>

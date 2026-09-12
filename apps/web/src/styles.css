@@ -1513,35 +1513,6 @@ button.btn-good:hover {
   white-space: nowrap;
 }
 
-/* Short tab names on phones (#390). `All Tasks`, `My Tasks` and `Task Drafts`
-   with their counts need 341px against the header's 329 at 360px, measured with
-   the touch floor forced on, so under 480px each tab shows `All`, `Mine` or
-   `Drafts`. The full name stays in the DOM, visually hidden the way `.sr-only`
-   hides, so it is still the tab's accessible name; the short one is
-   `aria-hidden`. The phone rule sits after the base rule on purpose: a media
-   query adds no specificity. */
-.board-tab-short {
-  display: none;
-}
-
-@media (max-width: 480px) {
-  .board-tab-short {
-    display: inline;
-  }
-
-  .board-tab-name {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-  }
-}
-
 /* ── Tab bar ──────────────────────────────────────────────── */
 .tab-bar {
   display: flex;

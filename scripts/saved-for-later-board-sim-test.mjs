@@ -917,30 +917,26 @@ const renderTabs = (props) =>
   );
 const tabButtons = (html) => [...html.matchAll(/<button [^>]*role="tab"[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
 
-test("the header's tab row is All Tasks, My Tasks, then Task Drafts, each with its count", () => {
+test("the header's tab row is All, Mine, then Drafts, each with its count", () => {
   const html = renderTabs();
   assert.match(html, /^<div class="board-tabs" role="tablist" aria-label="Board">/);
   const [all, mine, drafts, extra] = tabButtons(html);
   assert.equal(extra, undefined, "three tabs");
-  const label = (name, short, count) =>
-    new RegExp(`<span class="board-tab-label"><span class="board-tab-name">${name}</span><span class="board-tab-short" aria-hidden="true">${short}</span></span><span class="section-count">${count}</span></button>$`);
+  const label = (name, count) =>
+    new RegExp(`<span class="board-tab-label">${name}</span><span class="section-count">${count}</span></button>$`);
   assert.match(all, /id="board-tab-all"/);
-  assert.match(all, label("All Tasks", "All", 13));
+  assert.match(all, label("All", 13));
   assert.match(mine, /id="board-tab-mine"/);
-  assert.match(mine, label("My Tasks", "Mine", 4));
+  assert.match(mine, label("Mine", 4));
   assert.match(drafts, /id="board-tab-drafts"/);
-  assert.match(drafts, label("Task Drafts", "Drafts", 2));
+  assert.match(drafts, label("Drafts", 2));
 });
 
-test("under 480px the tabs read All, Mine and Drafts, and a screen reader still hears the full names", () => {
+test("the tabs read All, Mine and Drafts at every width, with no second set of names behind a breakpoint", () => {
   const CSS = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
-  const base = CSS.indexOf(".board-tab-short {\n  display: none;\n}");
-  assert.ok(base >= 0, "the short name is hidden by default");
-  const phone = CSS.slice(base).match(/@media \(max-width: 480px\) \{\s*\.board-tab-short \{\s*display: inline;\s*\}\s*\.board-tab-name \{([\s\S]*?)\}/);
-  assert.ok(phone, "the phone rule sits after the base rule it overrides, so it can win");
-  assert.match(phone[1], /position: absolute;/);
-  assert.match(phone[1], /clip: rect\(0 0 0 0\);/, "visually hidden, not display: none, so the full name stays in the accessible name");
-  assert.doesNotMatch(phone[1], /display: none|visibility: hidden/);
+  const TABS_SOURCE = readFileSync(join(REPO, "apps/web/src/board-tabs.tsx"), "utf8");
+  assert.doesNotMatch(CSS, /\.board-tab-short|\.board-tab-name/);
+  assert.doesNotMatch(TABS_SOURCE, /All Tasks"|My Tasks"|Task Drafts"/);
 });
 
 test("the selected tab is the one announced and the only one Tab lands on", () => {
@@ -964,14 +960,13 @@ test("the selected tab is the one announced and the only one Tab lands on", () =
 
 test("with no drafts the Task Drafts tab is still there, counting none", () => {
   const [, , drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
-  assert.match(drafts, /Task Drafts<\/span><span class="board-tab-short" aria-hidden="true">Drafts<\/span><\/span><span class="section-count">0<\/span>/);
+  assert.match(drafts, /<span class="board-tab-label">Drafts<\/span><span class="section-count">0<\/span>/);
 });
 
 test("while searching, All Tasks carries the loan's name at every width, its full name on hover, and My Tasks keeps its own", () => {
   const [loan, mine] = tabButtons(renderTabs({ allLabel: "Castillo - Harbor View", allTitle: "Castillo - Harbor View", allCount: 2 }));
   assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span><span class="section-count">2<\/span>/);
-  assert.doesNotMatch(loan, /board-tab-short/, "no short name stands in for a loan");
-  assert.match(mine, /<span class="board-tab-name">My Tasks<\/span><span class="board-tab-short" aria-hidden="true">Mine<\/span><\/span><span class="section-count">4<\/span>/);
+  assert.match(mine, /<span class="board-tab-label">Mine<\/span><span class="section-count">4<\/span>/);
 });
 
 test("pressing a tab, or an arrow key across the row, selects it, and the row cycles all three", () => {
