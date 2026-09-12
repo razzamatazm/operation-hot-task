@@ -1260,6 +1260,32 @@ button.btn-good:hover {
   background: color-mix(in srgb, var(--bg), var(--ink) 9%);
 }
 
+/* `Show everyone` (#334), beside the `My tasks` heading and in the Mine empty
+   state. It reads as a link because it is one in every way but the element: it
+   changes a view setting, not a task. So it carries the standing underline every
+   link here carries, in the list header's control voice, and takes the ghost
+   token pair so `button:hover` cannot paint a brand fill under it. */
+.board-show-everyone {
+  --btn-bg: transparent;
+  --btn-bg-hover: transparent;
+  border: none;
+  padding: 2px 0;
+  color: var(--ink-secondary);
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-style: normal;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--line);
+  transition: text-decoration-color 0.15s;
+  cursor: pointer;
+}
+.board-show-everyone:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
 /* ── Tab bar ──────────────────────────────────────────────── */
 .tab-bar {
   display: flex;

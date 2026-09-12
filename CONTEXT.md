@@ -297,6 +297,18 @@ sections.
 _Avoid_: sections (the flat list intentionally has none, apart from the Saved
 for Later group above it)
 
+**Mine filter**:
+An opt-in view preference that narrows the task list to tasks where the viewer
+is a _Party_ — they filed it or they hold it now. **Unclaimed tasks are never
+filtered out**, on either setting, so the pool stays in front of everybody. It
+combines with _Grouped view_ and _Flat view_ rather than being a third view, and
+it applies to the whole board, Done included. It deliberately hides _Observer_
+tasks, which that entry otherwise describes as visible on purpose: turning it on
+is the viewer choosing to set background awareness aside. The default is
+everyone, and the choice is persisted per browser.
+_Avoid_: "tied to", "my tasks" as a term for the set (it is the heading's
+wording, not a concept), "assigned to me" (a task the viewer filed counts too)
+
 ### Saved for Later
 
 **Saved for Later task**:
