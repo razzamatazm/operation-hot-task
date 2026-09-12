@@ -1138,7 +1138,9 @@ test("the save dispatches each field to its own route", () => {
      regex'd. What it dispatches is unchanged, and the order it dispatches in is
      asserted by running it, in `edit-save-order-sim-test.mjs`. */
   const save = readFileSync(join(REPO, "apps/web/src/save-task-edit.ts"), "utf8");
-  const dispatch = /export const saveTaskEdit = async \([\s\S]*?\n\};/.exec(save);
+  /* Since #383 the task's own fields are written by `saveTaskFields`, which both
+     of saveTaskEdit's paths end in, so the dispatch runs through the end of it. */
+  const dispatch = /export const saveTaskEdit = async \([\s\S]*?const saveTaskFields = async \([\s\S]*?\n\};/.exec(save);
   assert.ok(dispatch, "saveTaskEdit is still a dispatch over the edit");
   assert.match(dispatch[0], /edit\.notes !== undefined.*setNotes/);
   assert.match(dispatch[0], /edit\.urgency !== undefined.*setUrgency/);

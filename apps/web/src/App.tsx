@@ -4657,12 +4657,7 @@ export const App = () => {
      refresh below is what makes the whole list agree — not just the task the
      form was open on. A refusal (a link already on another loan, #262's 409) is
      toasted and rethrown, so the form stays open with the typing still in it. */
-  const saveLoanFields = useCallback(async (
-    loanId: string,
-    taskId: string,
-    fields: { name?: string; humperdinkLink?: string },
-    ask?: { linkUntouched: true }
-  ): Promise<void> => {
+  const saveLoanFields = useCallback(async (loanId: string, taskId: string, fields: { name?: string; humperdinkLink?: string }, ask?: { linkUntouched: true }): Promise<void> => {
     const link = fields.humperdinkLink?.trim();
     try {
       await patchLoan(loanId, {
