@@ -223,9 +223,9 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   underline or hover rules. Its three tabs are one tablist with a roving
   tabindex, arrows and Home/End moving across all three.
 - App menu (`.app-menu`): the preferences that are not decisions about a task,
-  in this order — View (Grouped/Flat), History (`7 days` / `14 days` /
-  `30 days` / `All`, #391), Appearance (`Teams` / `Light` / `Dark` /
-  `Contrast`), and Collapse all. Show
+  in this order (the user's, 2026-09-12) — Collapse all, View (Grouped/Flat),
+  Appearance (`Teams` / `Light` / `Dark` / `Contrast`), and History
+  (`7 days` / `14 days` / `30 days` / `All`, #391). Show
   (Everyone/Mine) left it in #390 to become the All Tasks and My Tasks tabs.
   The Tasks board is the only list with a header, so it is the only menu.
   History is a row of its own rather than more View choices because it combines
@@ -242,9 +242,10 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   wrapped History and Appearance onto ragged second lines. One line is what the
   shorter labels buy: `Last` went because the heading already says History, and
   Appearance shows `Teams` and `Contrast` while each button's accessible name
-  stays `Match Teams` and `High contrast`. Collapse all is a plain row under a
-  hairline (`.app-menu-rule`), an action among settings rather than an eleventh
-  box. The panel is `min(288px, 100vw - 32px)` wide and anchors to the actions
+  stays `Match Teams` and `High contrast`. Collapse all leads the panel as a
+  full-width outlined button in the tracks' border and corner, label centred
+  with the open count beside it: it is the one action among settings, so it
+  looks like one. The panel is `min(288px, 100vw - 32px)` wide and anchors to the actions
   group's right edge, as the loan search's does, because its own trigger left it
   too little room on a phone for tracks that do not wrap; `.app-menu` takes no
   `position` for that reason. Not portalled; the header is not clipped, so there

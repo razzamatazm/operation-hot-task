@@ -426,26 +426,20 @@ h1, h2, h3, h4 {
   }
 }
 
-/* Collapse all is an action among settings, so it sits under a hairline as a
-   plain row rather than as an eleventh box. */
-.app-menu-rule {
-  height: 1px;
-  margin: 0 -14px -8px;
-  background: var(--line-soft);
-}
-
+/* Collapse all is the one action among settings, so it leads the panel and is
+   dressed as a button: the tracks' own border and corner, label centred, the
+   open count beside it. */
 .app-menu-action {
   --btn-bg: transparent;
   --btn-bg-hover: var(--control-hover);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 8px;
-  width: calc(100% + 16px);
-  margin: 0 -8px -6px;
-  padding: 7px 8px;
-  border: none;
-  border-radius: 5px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
   font-size: 0.82rem;
   font-weight: 600;

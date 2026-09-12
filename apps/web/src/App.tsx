@@ -2951,6 +2951,21 @@ const AppMenu = ({
       </button>
       {open && (
         <div className="app-menu-panel" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="app-menu-action"
+            aria-disabled={collapseCount === 0}
+            onClick={() => {
+              if (collapseCount === 0) return;
+              onCollapseAll(expandedIds);
+              setOpen(false);
+            }}
+          >
+            Collapse all
+            {collapseCount > 0 && <span className="app-menu-action-count">{collapseCount}</span>}
+          </button>
+
           <div className="app-menu-group" role="group" aria-label="List view">
             <span className="app-menu-label">View</span>
             <div className="app-menu-choices">
@@ -2965,24 +2980,6 @@ const AppMenu = ({
                   aria-checked={grouped === opt.value}
                   className={`app-menu-choice${grouped === opt.value ? " app-menu-choice-on" : ""}`}
                   onClick={() => onGroupedChange(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="app-menu-group" role="group" aria-label="How far back finished tasks go">
-            <span className="app-menu-label">History</span>
-            <div className="app-menu-choices">
-              {BOARD_HISTORY_CHOICES.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={history === opt.value}
-                  className={`app-menu-choice${history === opt.value ? " app-menu-choice-on" : ""}`}
-                  onClick={() => onHistoryChange(opt.value)}
                 >
                   {opt.label}
                 </button>
@@ -3009,21 +3006,23 @@ const AppMenu = ({
             </div>
           </div>
 
-          <div className="app-menu-rule" role="separator" />
-          <button
-            type="button"
-            role="menuitem"
-            className="app-menu-action"
-            aria-disabled={collapseCount === 0}
-            onClick={() => {
-              if (collapseCount === 0) return;
-              onCollapseAll(expandedIds);
-              setOpen(false);
-            }}
-          >
-            Collapse all
-            {collapseCount > 0 && <span className="app-menu-action-count">{collapseCount}</span>}
-          </button>
+          <div className="app-menu-group" role="group" aria-label="How far back finished tasks go">
+            <span className="app-menu-label">History</span>
+            <div className="app-menu-choices">
+              {BOARD_HISTORY_CHOICES.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={history === opt.value}
+                  className={`app-menu-choice${history === opt.value ? " app-menu-choice-on" : ""}`}
+                  onClick={() => onHistoryChange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
