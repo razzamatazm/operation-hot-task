@@ -29,7 +29,7 @@
 import { ACTION_LABELS, Autosave, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { autosaveCopy, browserDraftStorage, clearDraft, draftAction, newerAutosave, readDraftCopy, restoredDraftCopy, writeDraft } from "./create-form-draft";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
+import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
@@ -959,18 +959,20 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      me out of here" — so they must ask the same question, and routing them
      through one function is what stops the two answers drifting apart.
 
-     Untouched forms still close on the first press, in both modes. The check is
-     `formHasChanges` against the values this form opened with, so edit mode
-     measures against the task rather than against a blank form; the FRAUD
-     seeder's half-typed item counts too, being typing that would be lost. */
+     When it asks is `cancelAsks` (#365). Edit mode asks once something moved
+     since it opened, measured against the task rather than a blank form. A
+     create form asks whenever there is anything in it: a reopened Saved for
+     Later task always, a new one whenever it differs from a blank form, so only
+     a completely empty one closes on the first press. The FRAUD seeder's
+     half-typed item counts in both, being typing that would be lost.
+
+     A reopened form therefore never closes silently, so it never has typing to
+     send on the way out: every answer to the prompt settles it (#348). */
   const requestClose = (): void => {
-    if (formHasChanges(openedWith.current, form, seedDraft)) {
+    if (cancelAsks({ editing, reopened: reopened !== undefined, opened: openedWith.current, fresh: opening.fresh, current: form, pendingItemText: seedDraft })) {
       setDiscardAsk(true);
       return;
     }
-    /* A reopened form back where it opened may still owe its record a send:
-       typing sent a moment ago and then deleted again (#348). */
-    if (reopened) sendUnsaved();
     onClose();
   };
 

@@ -332,10 +332,12 @@ through, the row stays and a note says so. One already created or deleted on
 another device simply comes off the list. Nobody can delete someone else's,
 admins included, and trying gets the same answer as a task that never existed.
 
-**Cancel** (#348). Cancel, or Escape, on a create form that has nothing in it
-closes straight away, and so does one reopened from Saved for Later that has not
-been changed. On a create form with typing in it, it asks `Leave this task?`
-with three answers:
+**Cancel** (#348, #365). Cancel, or Escape, on a new task that has nothing in
+it closes straight away. Whenever a create form has anything in it, it asks
+`Leave this task?`, whether or not anything changed since the form opened. That
+covers a new task restored from the autosave and not touched since, and a task
+reopened from Saved for Later, which always asks, changed or not. It has three
+answers:
 
 - **Keep editing**, which has the keyboard focus, so pressing Return by accident
   goes back to the form. Escape answers the same.

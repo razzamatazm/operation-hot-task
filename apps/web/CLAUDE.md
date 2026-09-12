@@ -1632,8 +1632,18 @@ trimmed, a changed task type on its own included, plus the FRAUD seeder's
 half-typed item — the one thing it *does* trim, because the seeder itself
 refuses to commit a whitespace-only one. It is not `taskEdit`, which
 answers the much more forgiving "is this worth sending to the server". An
-untouched form still closes on the first press, because a prompt that appears
-every time is one people stop reading. The backdrop stays inert and raises no
+untouched edit form still closes on the first press, because a prompt that
+appears every time is one people stop reading.
+
+**A create form asks whenever there is anything in it** (#365, the
+maintainer's rule). The decision is `cancelAsks` in
+[src/create-form-state.ts](src/create-form-state.ts), and it splits by mode.
+Edit mode keeps the rule above, measured against the values it opened with. A
+create form is measured against a blank form (`opening.fresh`), the Save for
+later button's own yardstick, so a form restored from the autosave and left
+alone still asks, and only a completely empty new task closes without a prompt.
+A reopened Saved for Later task always asks, changed or not, so it never
+closes silently. The backdrop stays inert and raises no
 prompt either. Confirming is a bare `onClose`, which is the single line the
 draft-saving work hangs "and clear the draft" onto.
 
@@ -1825,8 +1835,9 @@ stays the one filled button. What keeps it honest:
   decision is `unsavedAction`, not the autosave's `draftAction`: it is taken
   against what the form last sent (`unsavedSent`) rather than what it opened
   on, because a form that sends as it goes can be typed back to where it
-  opened with a different copy already on the server. Cancel on an unchanged
-  reopened form sends once more before closing, and a failed Save for later or
+  opened with a different copy already on the server. Cancel on a reopened
+  form always asks (#365), so every way out goes through Save for later, Create
+  or Discard, each of which settles the writes; a failed Save for later or
   Create sends what its stop held back. It writes to the record's `unsaved` slot through `onKeepUnsaved`, never
   over `form`, so `savedAt` and the row's place stay put and Discard can leave
   the save untouched; a form opens on `unsaved` when there is one. The writes

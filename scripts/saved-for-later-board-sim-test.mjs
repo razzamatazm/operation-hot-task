@@ -677,6 +677,44 @@ test("the writes go out one at a time, and every ending waits for them before it
   }
 });
 
+/* ── Cancel always asks when there is anything in it (#365) ── */
+
+test("Cancel on an unchanged reopened Saved for Later task asks, with Save for later pressable in the prompt", async () => {
+  const { cancelAsks, initialCreateForm } = await import(pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href);
+  assert.equal(
+    cancelAsks({ editing: false, reopened: true, opened: FULL_FORM, fresh: initialCreateForm(), current: FULL_FORM }),
+    true,
+    "nothing changed since it opened, and it still asks"
+  );
+  // The prompt's Save for later is the footer's, pressable exactly when the
+  // footer's is, and the footer's is pressable on an unchanged reopened form.
+  const [, disabled] = renderForm({ reopened: reopened(FULL_FORM), directory: DIRECTORY }).match(FOOT_ORDER);
+  assert.equal(disabled, undefined, "so Save for later is an answer, and saving again restarts its saved N ago");
+  const close = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const requestClose"));
+  assert.doesNotMatch(close.slice(0, close.indexOf("};")), /sendUnsaved|onClose\(\);[\s\S]*onClose\(\);/, "no silent way out for a reopened form");
+});
+
+test("Discard from that prompt clears only the unsaved slot, so the saved record is left exactly as it was", async () => {
+  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
+  const body = confirm.slice(0, confirm.indexOf("\n  };"));
+  assert.match(body, /await onDiscardUnsaved\(reopened\.id\)/, "the same Discard a changed reopened form gets");
+  assert.doesNotMatch(body, /onSaveForLater|removeSavedForLater|onKeepUnsaved/, "nothing that writes or removes the save");
+  const server = fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": { item: ITEM } });
+  assert.equal(await discardUnsavedRequest(server.request, "saved-1"), true);
+  assert.deepEqual(server.calls, ["DELETE /saved-for-later/saved-1/unsaved"], "one request, to the unsaved slot, even when there is no unsaved typing");
+});
+
+test("Cancel on a new task restored from the autosave and left untouched asks", async () => {
+  const { cancelAsks, initialCreateForm } = await import(pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href);
+  const restored = { ...FORM, notes: "half a thought" };
+  assert.equal(cancelAsks({ editing: false, reopened: false, opened: restored, fresh: initialCreateForm(), current: restored }), true);
+  assert.equal(
+    cancelAsks({ editing: false, reopened: false, opened: initialCreateForm(), fresh: initialCreateForm(), current: initialCreateForm() }),
+    false,
+    "a completely empty one still closes without a prompt"
+  );
+});
+
 test("what a reopened form sends is decided against its last send, as a truth table", () => {
   const cases = [
     [{ differsFromSave: false, differsFromSent: false, sentExists: false }, "keep", "the save, nothing sent: nothing to do"],
