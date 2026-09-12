@@ -209,8 +209,8 @@ test("a stored Mine reads back as Mine", () => {
 
 /* ── History: how far back finished tasks go (#391) ─────── */
 
-test("the setting offers Last 7, 14 and 30 days, then All", () => {
-  assert.deepEqual(BOARD_HISTORY_CHOICES.map((c) => c.label), ["Last 7 days", "Last 14 days", "Last 30 days", "All"]);
+test("the setting offers 7, 14 and 30 days, then All", () => {
+  assert.deepEqual(BOARD_HISTORY_CHOICES.map((c) => c.label), ["7 days", "14 days", "30 days", "All"]);
   assert.deepEqual(BOARD_HISTORY_CHOICES.map((c) => c.value), [7, 14, 30, "all"]);
 });
 

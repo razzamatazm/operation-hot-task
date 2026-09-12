@@ -140,11 +140,13 @@ const normalizeTheme = (theme?: string): HostTheme =>
 type ThemeChoice = "auto" | HostTheme;
 const THEME_KEY = "loan-tasks:theme";
 const THEME_CHOICES: ThemeChoice[] = ["auto", "light", "dark", "contrast"];
-const THEME_LABELS: Record<ThemeChoice, string> = {
-  auto: "Match Teams",
-  light: "Light",
-  dark: "Dark",
-  contrast: "High contrast"
+/* `short` is what the menu's one-line track has room for; `full` stays the
+   accessible name, so a screen reader still hears `Match Teams`. */
+const THEME_LABELS: Record<ThemeChoice, { short: string; full: string }> = {
+  auto: { short: "Teams", full: "Match Teams" },
+  light: { short: "Light", full: "Light" },
+  dark: { short: "Dark", full: "Dark" },
+  contrast: { short: "Contrast", full: "High contrast" }
 };
 const readThemeChoice = (): ThemeChoice => {
   try {
@@ -2972,7 +2974,7 @@ const AppMenu = ({
 
           <div className="app-menu-group" role="group" aria-label="How far back finished tasks go">
             <span className="app-menu-label">History</span>
-            <div className="app-menu-choices app-menu-choices-wrap">
+            <div className="app-menu-choices">
               {BOARD_HISTORY_CHOICES.map((opt) => (
                 <button
                   key={opt.value}
@@ -2990,22 +2992,24 @@ const AppMenu = ({
 
           <div className="app-menu-group" role="group" aria-label="Appearance">
             <span className="app-menu-label">Appearance</span>
-            <div className="app-menu-choices app-menu-choices-wrap">
+            <div className="app-menu-choices">
               {THEME_CHOICES.map((choice) => (
                 <button
                   key={choice}
                   type="button"
                   role="menuitemradio"
                   aria-checked={themeChoice === choice}
+                  aria-label={THEME_LABELS[choice].full}
                   className={`app-menu-choice${themeChoice === choice ? " app-menu-choice-on" : ""}`}
                   onClick={() => onThemeChange(choice)}
                 >
-                  {THEME_LABELS[choice]}
+                  {THEME_LABELS[choice].short}
                 </button>
               ))}
             </div>
           </div>
 
+          <div className="app-menu-rule" role="separator" />
           <button
             type="button"
             role="menuitem"

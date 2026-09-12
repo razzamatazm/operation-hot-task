@@ -223,22 +223,33 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   underline or hover rules. Its three tabs are one tablist with a roving
   tabindex, arrows and Home/End moving across all three.
 - App menu (`.app-menu`): the preferences that are not decisions about a task,
-  in this order — View (Grouped/Flat), History (`Last 7 days` / `Last 14 days`
-  / `Last 30 days` / `All`, #391), Appearance, and Collapse all. Show
+  in this order — View (Grouped/Flat), History (`7 days` / `14 days` /
+  `30 days` / `All`, #391), Appearance (`Teams` / `Light` / `Dark` /
+  `Contrast`), and Collapse all. Show
   (Everyone/Mine) left it in #390 to become the All Tasks and My Tasks tabs.
   The Tasks board is the only list with a header, so it is the only menu.
   History is a row of its own rather than more View choices because it combines
   with both, and the list it narrows comes from `visibleBoardTasks` in
   [src/board-filter.ts](src/board-filter.ts), which every consumer of the board
-  list reads. History's four choices take the `.app-menu-choices-wrap` modifier
-  Appearance uses, so they wrap rather than overflow the panel on a 360px
-  phone. It is stored per browser beside Grouped (`BOARD_HISTORY_KEY`, and the
-  tabs' `BOARD_SHOW_KEY`), parsed so anything unrecognised is the default.
+  list reads. It is stored per browser beside Grouped (`BOARD_HISTORY_KEY`, and
+  the tabs' `BOARD_SHOW_KEY`), parsed so anything unrecognised is the default.
   Collapse all acts on the list the open tab renders, and on Task Drafts has
-  nothing to close. Anchored to its own trigger
-  rather than portalled; the app bar is not clipped, so there is nothing to
-  escape and no placement to compute. Closes on outside press and Escape, the
-  same two exits every transient surface here answers to.
+  nothing to close.
+  **Each setting is one connected track on one line** (2026-09-12, the user
+  found the old menu busy): `.app-menu-choices` is a hollow track and the chosen
+  `.app-menu-choice` takes the fill, the same shape as the task form's Share /
+  Assign control. It used to be a bordered pill per choice, ten boxes that
+  wrapped History and Appearance onto ragged second lines. One line is what the
+  shorter labels buy: `Last` went because the heading already says History, and
+  Appearance shows `Teams` and `Contrast` while each button's accessible name
+  stays `Match Teams` and `High contrast`. Collapse all is a plain row under a
+  hairline (`.app-menu-rule`), an action among settings rather than an eleventh
+  box. The panel is `min(288px, 100vw - 32px)` wide and anchors to the actions
+  group's right edge, as the loan search's does, because its own trigger left it
+  too little room on a phone for tracks that do not wrap; `.app-menu` takes no
+  `position` for that reason. Not portalled; the header is not clipped, so there
+  is nothing to escape and no placement to compute. Closes on outside press and
+  Escape, the same two exits every transient surface here answers to.
 - **Theme is a choice now, not just a report.** Teams tells the tab which of
   its themes it is running (`hostTheme`); the person can pin one instead
   (`themeChoice`, persisted). One effect decides which wins, which is what lets

@@ -87,9 +87,9 @@ export const BOARD_HISTORY_KEY = "loan-tasks:history";
 export const BOARD_HISTORY_DEFAULT: BoardHistory = 14;
 
 export const BOARD_HISTORY_CHOICES: ReadonlyArray<{ value: BoardHistory; label: string }> = [
-  { value: 7, label: "Last 7 days" },
-  { value: 14, label: "Last 14 days" },
-  { value: 30, label: "Last 30 days" },
+  { value: 7, label: "7 days" },
+  { value: 14, label: "14 days" },
+  { value: 30, label: "30 days" },
   { value: "all", label: "All" }
 ];
 
