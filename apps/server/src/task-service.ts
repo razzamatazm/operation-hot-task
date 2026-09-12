@@ -105,6 +105,21 @@ interface ActivityFeedAlert {
   task: LoanTask;
   message: string;
 }
+
+/* Something a maintenance pass sends once its change to a task is written,
+   carrying the task as it stood after that stage of the change. */
+type MaintenanceEffect =
+  | { kind: "AUTO_COMPLETED"; task: LoanTask }
+  | { kind: "AUTO_ARCHIVED"; task: LoanTask }
+  | { kind: "REMINDED"; task: LoanTask }
+  | { kind: "NAGGED"; task: LoanTask; unclaimedMinutes: number };
+
+/* One task's change in a maintenance pass: what to write, and what to send after. */
+interface MaintenanceStep {
+  task: LoanTask;
+  events: TaskHistoryEvent[];
+  effects: MaintenanceEffect[];
+}
 const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.trunc(points)));
 /* History details open a sentence ("Urgency changed from…"), and the request
    field's noun is stored lowercase because every other use of it is
@@ -2237,131 +2252,102 @@ export class TaskService {
      worse than one that took neither: a test would freeze half of it and drift
      silently on the rest. */
   async runMaintenance(now: Date = new Date()): Promise<{ reminded: number; nagged: number; purged: number; autoArchived: number }> {
+    /* This list only picks candidates. It is as old as the start of the pass, and
+       the pass awaits notifications as it goes, so real time passes before each
+       write. Every change is therefore decided again inside that task's own
+       read-and-write step, against the task as it stands then, and a task the
+       pass takes no action on is never written. The pass used to write this
+       whole list back at the end, which reverted edits, deleted tasks filed
+       meanwhile, and reminded tasks on a state they had already left (#385). */
     const tasks = await this.store.allTasks();
 
     let reminded = 0;
     let nagged = 0;
     let autoArchived = 0;
-    const historyEvents: TaskHistoryEvent[] = [];
-    const updatedTasks: LoanTask[] = [];
 
     for (const task of tasks) {
-      let next = task;
-      const nowIso = now.toISOString();
-
-      if (
-        task.taskType === "OOO" &&
-        ACTIVE_STATUSES.includes(task.status) &&
-        new Date(task.dueAt).getTime() <= now.getTime()
-      ) {
-        next = {
-          ...next,
-          status: "COMPLETED",
-          completedAt: nowIso,
-          updatedAt: nowIso
-        };
-        historyEvents.push(this.makeHistory(task.id, SYSTEM_ACTOR, TASK_COMPLETED_ACTION, "AUTO_COMPLETED_RETURN_DATE", now));
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: next,
-          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-          message: `${next.folderName} wrapped itself up on the return date`,
-          target: "IN_APP"
-        }, now);
-        await this.notify({
-          type: "TASK_STATUS_CHANGED",
-          task: next,
-          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-          message: `Auto-completed while you were out — welcome back`,
-          target: "DM",
-          recipientUserIds: [next.createdBy.id]
-        }, now);
-        // The scheduler closes this task without going through transitionStatus,
-        // so it has to retire the DM cards itself.
-        await this.emitCardSync(next, [], now);
+      if (!this.maintenanceStep(task, now)) {
+        continue;
       }
 
-      // Auto-archive completed/cancelled tasks after 14 days to keep active queues clean.
-      if (["COMPLETED", "CANCELLED"].includes(next.status)) {
-        const reference = next.completedAt ?? next.cancelledAt ?? next.updatedAt;
-        const ageMs = now.getTime() - new Date(reference).getTime();
-        if (ageMs > 14 * 24 * 60 * 60 * 1000) {
-          const from = next.status;
-          next = {
-            ...next,
-            status: "ARCHIVED",
-            archivedAt: nowIso,
-            updatedAt: nowIso
-          };
-          autoArchived += 1;
-          /* The sweep archives as the system, and says so (#239). Without a row
-             here the only archival anyone could name would be a hand-pressed
-             one, and the retention sweep is how most tasks actually leave. */
-          historyEvents.push(
-            this.makeHistory(task.id, SYSTEM_ACTOR, TASK_ARCHIVED_ACTION, `${from} -> ARCHIVED (retention)`, now)
-          );
-          // Archiving retires the reply box the COMPLETED banner still allowed.
-          await this.emitCardSync(next, [], now);
+      let step: MaintenanceStep | undefined;
+      const written = await this.store.updateTask(task.id, (current) => {
+        // Reassigned on every call, so only the decision that was written survives.
+        step = this.maintenanceStep(current, now);
+        return step ? { task: step.task, event: step.events } : undefined;
+      });
+      if (!written || !step) {
+        // Deleted meanwhile, or no longer qualifies: nothing written, nothing sent.
+        continue;
+      }
+
+      this.events.broadcast({ type: "task.changed", payload: written });
+
+      for (const effect of step.effects) {
+        switch (effect.kind) {
+          case "AUTO_COMPLETED":
+            await this.notify({
+              type: "TASK_STATUS_CHANGED",
+              task: effect.task,
+              actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+              message: `${effect.task.folderName} wrapped itself up on the return date`,
+              target: "IN_APP"
+            }, now);
+            await this.notify({
+              type: "TASK_STATUS_CHANGED",
+              task: effect.task,
+              actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+              message: `Auto-completed while you were out — welcome back`,
+              target: "DM",
+              recipientUserIds: [effect.task.createdBy.id]
+            }, now);
+            // The scheduler closes this task without going through transitionStatus,
+            // so it has to retire the DM cards itself.
+            await this.emitCardSync(effect.task, [], now);
+            break;
+          case "AUTO_ARCHIVED":
+            autoArchived += 1;
+            // Archiving retires the reply box the COMPLETED banner still allowed.
+            await this.emitCardSync(effect.task, [], now);
+            break;
+          case "REMINDED": {
+            reminded += 1;
+            const reminderRecipients = this.reminderRecipients(effect.task);
+            if (reminderRecipients.length > 0) {
+              await this.notify({
+                type: "TASK_REMINDER",
+                task: effect.task,
+                actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+                message: `your time's up on ${effect.task.folderName}`,
+                target: "DM",
+                recipientUserIds: reminderRecipients
+              }, now);
+            }
+            break;
+          }
+          case "NAGGED":
+            nagged += 1;
+            await this.notify({
+              type: "TASK_REMINDER",
+              task: effect.task,
+              actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
+              message: `${effect.task.folderName} is still unclaimed after ${effect.unclaimedMinutes} minutes, who's taking it?`,
+              target: "CHANNEL_NAG"
+            }, now);
+            break;
         }
       }
-
-      if (ACTIVE_STATUSES.includes(next.status) && shouldSendReminder(next, now, this.appConfig) && isOverdue(next, now)) {
-        reminded += 1;
-        next = {
-          ...next,
-          lastReminderAt: nowIso,
-          updatedAt: nowIso
-        };
-
-        const reminderRecipients = this.reminderRecipients(next);
-        if (reminderRecipients.length > 0) {
-          await this.notify({
-            type: "TASK_REMINDER",
-            task: next,
-            actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-            message: `your time's up on ${next.folderName}`,
-            target: "DM",
-            recipientUserIds: reminderRecipients
-          }, now);
-        }
-      }
-
-      /* The pool nag (ADR-0005). An unclaimed task blowing its deadline is a
-         staffing problem, so the pressure goes to the room rather than to the
-         creator's inbox — and it repeats, because the whole failure mode is a
-         task getting missed in the shuffle. Flat 20 minutes for every urgency:
-         volume is low because tasks are normally grabbed immediately, and a
-         cadence that varies by urgency is a cadence nobody can predict. It stops
-         at `MAX_POOL_NAGS`, which `isPoolNagDue` enforces off the count stamped
-         here (#207). */
-      if (isPoolNagDue(next, now, this.appConfig)) {
-        const unclaimedMinutes = Math.round((now.getTime() - new Date(inPoolSince(next)).getTime()) / 60000);
-        next = { ...next, lastPoolNagAt: nowIso, poolNagCount: (next.poolNagCount ?? 0) + 1, updatedAt: nowIso };
-        nagged += 1;
-        await this.notify({
-          type: "TASK_REMINDER",
-          task: next,
-          actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-          message: `${next.folderName} is still unclaimed after ${unclaimedMinutes} minutes, who's taking it?`,
-          target: "CHANNEL_NAG"
-        }, now);
-      }
-
-      updatedTasks.push(next);
     }
 
-    const toPurge = updatedTasks.filter((task) => shouldPurgeArchived(task, now, this.appConfig.archiveRetentionDays));
-    const retained = updatedTasks.filter((task) => !toPurge.some((purge) => purge.id === task.id));
-
-    if (toPurge.length > 0 || autoArchived > 0 || reminded > 0 || nagged > 0 || historyEvents.length > 0) {
-      await this.store.replaceTasks(retained);
-      for (const event of historyEvents) {
-        await this.store.appendHistory(event);
-      }
-      for (const task of retained) {
-        this.events.broadcast({ type: "task.changed", payload: task });
-      }
-    }
+    /* Purge by id, and only the ids that still qualify inside the removal step
+       itself, so nothing restored or changed meanwhile is lost. A task this pass
+       just archived carries a fresh `archivedAt` and never qualifies here. */
+    const purgeCandidates = tasks
+      .filter((task) => shouldPurgeArchived(task, now, this.appConfig.archiveRetentionDays))
+      .map((task) => task.id);
+    const purged = await this.store.removeTasks(purgeCandidates, (current) =>
+      shouldPurgeArchived(current, now, this.appConfig.archiveRetentionDays)
+    );
 
     /* No task list handed over: `tasks` above is as old as the start of this
        pass, and a task change saved since then would be missing from it. The
@@ -2371,9 +2357,85 @@ export class TaskService {
     return {
       reminded,
       nagged,
-      purged: toPurge.length,
+      purged: purged.length,
       autoArchived
     };
+  }
+
+  /* What one maintenance pass does to one task, decided from `task` alone: the
+     task to write, the history rows it earned, and what to send once the write
+     lands. `undefined` when the pass has nothing to do to it. Pure apart from
+     history ids, so `runMaintenance` can ask it twice: once of the pass's early
+     read to pick candidates, and again of the task as it stands inside the write
+     step, where the second answer is the one that counts (#385).
+
+     Each effect carries the task as it stood after that stage, which is what its
+     notification used to be sent with. */
+  private maintenanceStep(task: LoanTask, now: Date): MaintenanceStep | undefined {
+    let next = task;
+    const nowIso = now.toISOString();
+    const events: TaskHistoryEvent[] = [];
+    const effects: MaintenanceEffect[] = [];
+
+    if (
+      task.taskType === "OOO" &&
+      ACTIVE_STATUSES.includes(task.status) &&
+      new Date(task.dueAt).getTime() <= now.getTime()
+    ) {
+      next = {
+        ...next,
+        status: "COMPLETED",
+        completedAt: nowIso,
+        updatedAt: nowIso
+      };
+      events.push(this.makeHistory(task.id, SYSTEM_ACTOR, TASK_COMPLETED_ACTION, "AUTO_COMPLETED_RETURN_DATE", now));
+      effects.push({ kind: "AUTO_COMPLETED", task: next });
+    }
+
+    // Auto-archive completed/cancelled tasks after 14 days to keep active queues clean.
+    if (["COMPLETED", "CANCELLED"].includes(next.status)) {
+      const reference = next.completedAt ?? next.cancelledAt ?? next.updatedAt;
+      const ageMs = now.getTime() - new Date(reference).getTime();
+      if (ageMs > 14 * 24 * 60 * 60 * 1000) {
+        const from = next.status;
+        next = {
+          ...next,
+          status: "ARCHIVED",
+          archivedAt: nowIso,
+          updatedAt: nowIso
+        };
+        /* The sweep archives as the system, and says so (#239). Without a row
+           here the only archival anyone could name would be a hand-pressed
+           one, and the retention sweep is how most tasks actually leave. */
+        events.push(this.makeHistory(task.id, SYSTEM_ACTOR, TASK_ARCHIVED_ACTION, `${from} -> ARCHIVED (retention)`, now));
+        effects.push({ kind: "AUTO_ARCHIVED", task: next });
+      }
+    }
+
+    if (ACTIVE_STATUSES.includes(next.status) && shouldSendReminder(next, now, this.appConfig) && isOverdue(next, now)) {
+      next = {
+        ...next,
+        lastReminderAt: nowIso,
+        updatedAt: nowIso
+      };
+      effects.push({ kind: "REMINDED", task: next });
+    }
+
+    /* The pool nag (ADR-0005). An unclaimed task blowing its deadline is a
+       staffing problem, so the pressure goes to the room rather than to the
+       creator's inbox — and it repeats, because the whole failure mode is a
+       task getting missed in the shuffle. Flat 20 minutes for every urgency:
+       volume is low because tasks are normally grabbed immediately, and a
+       cadence that varies by urgency is a cadence nobody can predict. It stops
+       at `MAX_POOL_NAGS`, which `isPoolNagDue` enforces off the count stamped
+       here (#207). */
+    if (isPoolNagDue(next, now, this.appConfig)) {
+      const unclaimedMinutes = Math.round((now.getTime() - new Date(inPoolSince(next)).getTime()) / 60000);
+      next = { ...next, lastPoolNagAt: nowIso, poolNagCount: (next.poolNagCount ?? 0) + 1, updatedAt: nowIso };
+      effects.push({ kind: "NAGGED", task: next, unclaimedMinutes });
+    }
+
+    return effects.length > 0 ? { task: next, events, effects } : undefined;
   }
 
   /* `alertOnNewSignals: false` seeds newly-appeared signal keys into the
