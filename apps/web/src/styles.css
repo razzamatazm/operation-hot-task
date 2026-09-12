@@ -427,15 +427,14 @@ h1, h2, h3, h4 {
 }
 
 /* Collapse all is the one action among settings, so it leads the panel and is
-   dressed as a button: the tracks' own border and corner, label centred, the
-   open count beside it. */
+   dressed as a button: the tracks' own border and corner, label centred. No
+   count of open cards beside it; the user found it noise. */
 .app-menu-action {
   --btn-bg: transparent;
   --btn-bg-hover: var(--control-hover);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
   width: 100%;
   padding: 7px 10px;
   border: 1px solid var(--line);
@@ -450,12 +449,6 @@ h1, h2, h3, h4 {
   --btn-bg-hover: var(--btn-bg);
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.app-menu-action-count {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.68rem;
-  color: var(--muted);
 }
 
 .user-picker {
