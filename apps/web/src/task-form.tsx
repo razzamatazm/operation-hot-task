@@ -30,7 +30,7 @@ import { ACTION_LABELS, Autosave, CreateTaskInput, Loan, LoanTask, SavedForLater
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { autosaveCopy, browserDraftStorage, clearDraft, draftAction, newerAutosave, readDraftCopy, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
-import { DeleteTaskDraftDialog, DiscardConfirmDialog } from "./discard-confirm";
+import { DiscardConfirmDialog } from "./discard-confirm";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
@@ -131,9 +131,9 @@ interface TaskFormProps {
      back to exactly what was saved. Resolves whether nothing unsaved is left;
      never rejects. */
   onDiscardUnsaved?: (savedId: string) => Promise<boolean>;
-  /* Deletes the Task Draft this form was reopened from, once its Discard was
-     confirmed (#388), and drops it from the Task Drafts tab. Resolves whether
-     it is gone, one already gone included; never rejects. */
+  /* Deletes the Task Draft this form was reopened from, when Discard is pressed
+     on its leave prompt (#388, #399), and drops it from the Task Drafts tab.
+     Resolves whether it is gone, one already gone included; never rejects. */
   onDeleteReopened?: (savedId: string) => Promise<boolean>;
   /* The new task form's autosave as the server last gave it to App (#371), on
      the way into New Task. The form opens on it, or on this browser's offline
@@ -283,12 +283,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   /* Is the "discard this task?" prompt up (#283)? Set by an exit taken on a
      form that has something in it; see `requestClose` below. */
   const [discardAsk, setDiscardAsk] = useState(false);
-  /* Is the delete question up (#388)? Raised in place of the prompt when
-     Discard is pressed on a reopened Task Draft. */
-  const [deleteAsk, setDeleteAsk] = useState(false);
-  /* Is a Discard or a Delete being carried out (#348, #388)? It waits on the
-     typing writes, and a Delete on the server, and the answers stay shut until
-     it is done so a second press cannot race it. */
+  /* Is a Discard being carried out (#348, #388)? It waits on the typing writes,
+     and on a reopened Task Draft the delete on the server, and the answers stay
+     shut until it is done so a second press cannot race it. */
   const [discarding, setDiscarding] = useState(false);
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. */
@@ -617,7 +614,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     return () => window.clearTimeout(timer);
   }, [form, reopened, onKeepUnsaved, onDiscardUnsaved]);
 
-  /* Before Save for later, Create, Discard or Delete acts (#348, #388): no
+  /* Before Save for later, Create or Discard acts (#348, #388): no
      further unsaved typing is sent, and the one already out lands first.
      Otherwise a keystroke's write could reach the server after the ending and
      put typing back on a record just saved, or bring back one just deleted.
@@ -992,40 +989,29 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      comes down and the draft stays exactly where it was.
 
      On a reopened Task Draft (#388) Discard means the person does not want the
-     draft, which has no undo, so it only swaps the prompt for the delete
-     question. Nothing is written, cleared or closed until that is answered. */
-  const confirmDiscard = async (): Promise<void> => {
-    if (reopened && onDeleteReopened) {
-      setDiscardAsk(false);
-      setDeleteAsk(true);
-      return;
-    }
-    setDiscarding(true);
-    forgetDraft();
-    await settleUnsaved();
-    onClose();
-  };
-
-  /* Keep, on the delete question (#388): back to the form exactly as it was,
-     nothing written and nothing cleared. */
-  const keepReopened = (): void => {
-    setDeleteAsk(false);
-  };
-
-  /* Delete, on the delete question (#388). The typing writes settle first, so a
+     draft, and deletes it straight away: the prompt's body already says so, so
+     the prompt is the confirmation (#399). The answers shut first, and the
+     prompt stays up reading `Deleting…`. The typing writes settle next, so a
      keystroke's write still out cannot land after the delete and bring the
      record back. Then the record goes, through the same removal the Task Drafts
      row and Create use, which counts one already gone as deleted. If it could
      not be deleted the form still closes, since that is what the person asked
      for, and says the draft is still there rather than letting it surprise
      anyone. */
-  const deleteReopened = async (): Promise<void> => {
-    if (!reopened || !onDeleteReopened || discarding) return;
-    setDiscarding(true);
-    await settleUnsaved();
-    if (!(await onDeleteReopened(reopened.id))) {
-      showToast("Couldn't delete that Task Draft. It's still on Task Drafts.", { variant: "warn" });
+  const confirmDiscard = async (): Promise<void> => {
+    if (reopened && onDeleteReopened) {
+      if (discarding) return;
+      setDiscarding(true);
+      await settleUnsaved();
+      if (!(await onDeleteReopened(reopened.id))) {
+        showToast("Couldn't delete that Task Draft. It's still on Task Drafts.", { variant: "warn" });
+      }
+      onClose();
+      return;
     }
+    setDiscarding(true);
+    forgetDraft();
+    await settleUnsaved();
     onClose();
   };
 
@@ -1085,7 +1071,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
           A create form's prompt also offers Save for later (#348), available
           exactly when the footer's is. Edit mode's is the two-way prompt. */}
       {discardAsk && <DiscardConfirmDialog onConfirm={confirmDiscard} {...(!editing && onSaveForLater ? { onSaveForLater: saveFromPrompt, saveForLaterDisabled: !worthSavingForLater, reopened: reopened !== undefined } : {})} busy={discarding} onCancel={() => setDiscardAsk(false)} />}
-      {deleteAsk && <DeleteTaskDraftDialog onConfirm={deleteReopened} busy={discarding} onCancel={keepReopened} />}
       {/* The backdrop is deliberately inert (#114): a stray click here used to
           call onClose, which unmounts this component and silently destroys the
           whole draft. It stays inert — clicking it is still not an exit and does

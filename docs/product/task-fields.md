@@ -377,15 +377,14 @@ answers:
   is unavailable when that one is.
 - **Discard**. On a new task it throws the typing away and clears the autosave,
   with no further question. On a reopened Task Draft it deletes the draft
-  (#388): pressing Discard on a draft you opened means you don't want it. It
-  asks once more first, `Delete this Task Draft?`, with the Task Drafts row's
-  own two answers. **Keep** has the keyboard focus and Escape answers the same;
-  it goes back to the form with everything as it was and the draft still on
-  Task Drafts. **Delete** removes the draft for good, typing kept from an
-  earlier visit included, takes it off the Task Drafts tab so the count drops,
-  and closes the form. One already created or deleted on another device counts
-  as deleted. If the delete does not go through, the form still closes and a
-  note says the draft is still on Task Drafts.
+  (#388): pressing Discard on a draft you opened means you don't want it. The
+  prompt already says so, so there is no second question (#399). Discard
+  removes the draft for good, typing kept from an earlier visit included,
+  takes it off the Task Drafts tab so the count drops, and closes the form.
+  While that is going through, the prompt's answers can't be pressed, Escape
+  does nothing, and Discard reads `Deleting…`. One already created or deleted
+  on another device counts as deleted. If the delete does not go through, the
+  form still closes and a note says the draft is still on Task Drafts.
 
 The prompt on a reopened task says so: `Save your changes for later, or discard
 them and delete this Task Draft.` There is no longer a way to put a reopened
