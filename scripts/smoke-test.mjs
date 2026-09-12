@@ -1322,6 +1322,35 @@ const run = async () => {
     );
     pushPass("a loan rename leaves a Saved for Later task exactly as it was saved");
 
+    /* #370: every Humperdink tab is the same loan, stored as its Details page. */
+    const fromDocs = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Smoke Humperdink Tabs",
+        taskType: "VALUE",
+        notes: "smoke-370",
+        humperdinkLink: "https://humperdink.loneoakfund.com/Loans/Docs/770001-sm?tab=2"
+      }
+    });
+    expectStatus(fromDocs.status, 201, "file a task from a loan's Docs page", fromDocs.json);
+    assert.equal(
+      fromDocs.json.task.humperdinkLink,
+      "https://humperdink.loneoakfund.com/Loans/Details/770001-SM",
+      "the task stores the Details page"
+    );
+    const fromFunding = await request(server.baseUrl, "POST", "/tasks", {
+      user: users.creator,
+      body: {
+        folderName: "Smoke Humperdink Tabs (rush)",
+        taskType: "VALUE",
+        notes: "smoke-370",
+        humperdinkLink: "https://humperdink.loneoakfund.com/Loans/Funding/770001-SM"
+      }
+    });
+    expectStatus(fromFunding.status, 201, "file a task from the same loan's Funding page", fromFunding.json);
+    assert.equal(fromFunding.json.task.loanId, fromDocs.json.task.loanId, "another tab of the same loan files onto that loan");
+    pushPass("filing a task from any Humperdink tab stores and matches the loan's Details page");
+
     const mergeKeep = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: { folderName: "Smoke Saved Merge Keep", taskType: "VALUE", notes: "smoke-saved-merge", humperdinkLink: "https://humperdink.example/Loans/Details/9001" }
@@ -1786,12 +1815,19 @@ const run = async () => {
       body: {
         folderName: "Integration Authorized",
         taskType: "VALUE",
-        notes: "good key"
+        notes: "good key",
+        humperdinkLink: "https://www.humperdink.loneoakfund.com/Loans/DueDiligence/770002-in/"
       }
     });
     expectStatus(authorized.status, 201, "integration authorized create", authorized.json);
     assert.equal(authorized.json.task.createdBy.id, "integration");
     pushPass("integration endpoint auth works when enabled");
+    assert.equal(
+      authorized.json.task.humperdinkLink,
+      "https://humperdink.loneoakfund.com/Loans/Details/770002-IN",
+      "an imported task stores the loan's Details page (#370)"
+    );
+    pushPass("the integration import stores a Humperdink link as its Details page");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {

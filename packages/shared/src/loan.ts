@@ -13,11 +13,45 @@ export const normalizeLoanName = (name: string): string =>
     .trim()
     .replace(/\s+/g, " ");
 
+/* The one Humperdink host, and the page a loan's link is stored as (#370). */
+export const HUMPERDINK_HOST = "humperdink.loneoakfund.com";
+const HUMPERDINK_LOAN_PATH = /^\/Loans\/[^/]+\/(\d+-[A-Za-z]+)\/?$/i;
+
+/* A Humperdink loan has a page per tab — Details, Docs, DueDiligence,
+   Funding and more — each with its own URL, and all of them are the same
+   loan. So every one of them is rewritten to the Details page before
+   anything stores, compares or merges on it (#370):
+   `https://humperdink.loneoakfund.com/Loans/Details/<NUMBER>-<LETTERS>`.
+
+   Tolerates what the key already tolerated — host case, a leading www.,
+   a trailing slash, surrounding spaces — and drops a query string or a
+   fragment. Only the Humperdink host is rewritten: the same path on another
+   site is somebody else's page. A link that doesn't match that shape exactly
+   (a loan number with no letters, a deeper path, a dev seed link) comes back
+   as it was, trimmed. Returns "" for an empty/whitespace link. */
+export const canonicalHumperdinkLink = (link: string | undefined): string => {
+  const value = (link ?? "").trim();
+  if (!value) return "";
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return value;
+  if (url.hostname.toLowerCase().replace(/^www\./, "") !== HUMPERDINK_HOST || url.port) return value;
+  const match = HUMPERDINK_LOAN_PATH.exec(url.pathname);
+  if (!match?.[1]) return value;
+  return `https://${HUMPERDINK_HOST}/Loans/Details/${match[1].toUpperCase()}`;
+};
+
 /* Canonical form for a Humperdink link so trivially-different spellings of
    the same URL collapse to one key (case-insensitive host, no trailing
-   slash, drop a leading www.). Returns "" for an empty/whitespace link. */
+   slash, drop a leading www.). A Humperdink loan page keys as its Details
+   page, whichever tab it was copied from (`canonicalHumperdinkLink`).
+   Returns "" for an empty/whitespace link. */
 export const normalizeLinkKey = (link: string | undefined): string => {
-  const value = (link ?? "").trim();
+  const value = canonicalHumperdinkLink(link);
   if (!value) return "";
   try {
     const url = new URL(value);

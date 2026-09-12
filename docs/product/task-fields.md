@@ -194,6 +194,16 @@ is wrong on all of them.
     link that already has a loan simply joins that loan, which is the dedupe that
     stops a duplicate record being minted. Nobody's tasks are absorbed there,
     because there is no second record yet.
+- **Every tab of a Humperdink loan is the same link** (#370). A loan's Details,
+  Docs, DueDiligence and Funding pages each have their own URL; whichever one is
+  pasted, the app saves the Details page
+  (`https://humperdink.loneoakfund.com/Loans/Details/<NUMBER>-<LETTERS>`), so
+  pasting the Docs URL of a loan another record holds raises the merge question
+  on the first try. Links saved before this were rewritten once when the server
+  started, after a backup. Two records that turned out to hold the same loan
+  were **not** merged then: the server logged them, and saving either one's link
+  asks the merge question. A link that isn't a Humperdink loan page is saved as
+  typed.
 - **Every affected task records it.** A loan edit writes a history row on each
   task the loan reaches — `TASK_LOAN_NAME_AMENDED` and/or
   `TASK_LOAN_LINK_AMENDED`, naming who did it and both values

@@ -361,3 +361,13 @@ canonical unique key for a Loan once it has one), they're auto-merged: the
 newer record's tasks repoint to the original, and the newer name is kept
 as an alias. Triggered automatically, surfaced with a visible notice —
 never a silent, unnoticed change.
+
+**Humperdink link key**:
+A loan's Humperdink link is stored and compared as its **Details page**,
+`https://humperdink.loneoakfund.com/Loans/Details/<NUMBER>-<LETTERS>`. A
+Humperdink loan has a page per tab (Details, Docs, DueDiligence, Funding and
+more), and a link copied from any of them is rewritten to the Details page
+first, ignoring host case, `www.`, a trailing slash, a query string or a
+fragment. So links from two tabs of one loan are the same key: they match at
+filing, raise the merge question on an edit, and find the same loan in search.
+A link of any other shape is kept as typed. See ADR-0001's #370 addendum.

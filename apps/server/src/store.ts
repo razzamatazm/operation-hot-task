@@ -125,6 +125,11 @@ export class TaskStore {
     }
   }
 
+  /* Copy tasks.json into `dir` as it stands, before a migration rewrites it (#370). */
+  async backupInto(dir: string): Promise<void> {
+    await this.file.copyInto(dir);
+  }
+
   async allTasks(): Promise<LoanTask[]> {
     const data = await this.file.read();
     return data.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -266,6 +271,11 @@ export class LoanStore {
 
   async init(): Promise<void> {
     await this.file.init();
+  }
+
+  /* Copy loans.json into `dir` as it stands, before a migration rewrites it (#370). */
+  async backupInto(dir: string): Promise<void> {
+    await this.file.copyInto(dir);
   }
 
   async all(): Promise<Loan[]> {
