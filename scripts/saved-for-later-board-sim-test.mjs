@@ -961,7 +961,7 @@ test("the selected tab is the one announced and the only one Tab lands on", () =
 
 test("with no drafts the Task Drafts tab is still there, counting none", () => {
   const [, , drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
-  assert.match(drafts, /<span aria-hidden="true">Drafts<\/span><\/span><span class="section-count">0<\/span>/);
+  assert.match(drafts, /<span class="sr-only">Task Drafts<\/span><span aria-hidden="true">Drafts<\/span><\/span><span class="section-count">0<\/span>/);
 });
 
 test("while searching, All Tasks carries the loan's name at every width, its full name on hover, and My Tasks keeps its own", () => {

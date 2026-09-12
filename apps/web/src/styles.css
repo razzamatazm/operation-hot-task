@@ -1471,9 +1471,9 @@ button.btn-good:hover {
   font-size: 0.82rem;
 }
 
-/* The Tasks board's tab row (#363): Tasks, then Task Drafts, where the heading
-   stood. Each tab is the heading's own type (the display face at 0.95rem/700)
-   with its count chip, so the row reads as the two headings it replaced. Each
+/* The Tasks board's tab row (#363, #390): All, Mine, then Drafts, where the
+   heading stood. Each tab is the heading's own type (the display face at
+   0.95rem/700) with its count chip, so the row reads as headings. Each
    is a `.tab-btn`, so muted at rest, ink and the --brand underline when open,
    and no fill, all come from the one tab rule below; `.board-tab` only sets
    the heading's type and drops the nav bar's padding and its overlap onto a
@@ -1481,9 +1481,9 @@ button.btn-good:hover {
    declared later in this file and would otherwise win.
 
    The row sits left of the actions group and never pushes it: the group is
-   pushed right by `margin-left: auto`, and the Tasks tab is the part that gives.
+   pushed right by `margin-left: auto`, and the All tab is the part that gives.
    While a loan is searched its label is the loan's name, which can be long, so
-   it ellipsizes; Task Drafts never shrinks. */
+   it ellipsizes; Mine and Drafts never shrink. */
 .board-tabs {
   display: flex;
   align-items: center;
