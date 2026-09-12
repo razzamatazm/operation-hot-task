@@ -1063,7 +1063,14 @@ test("the app menu has no Show group", () => {
   for (const group of ["List view", "How far back finished tasks go", "Appearance"]) {
     assert.match(menu, new RegExp(`aria-label="${group}"`), `${group} stays`);
   }
-  assert.match(menu, /Collapse all/);
+  assert.match(menu, /Collapse All Tasks/);
+});
+
+test("the app menu reads Collapse All Tasks, then View, Appearance and History", () => {
+  const menu = APP_SOURCE.slice(APP_SOURCE.indexOf("const AppMenu = ("), APP_SOURCE.indexOf("const NewTaskButton = ("));
+  const at = ["Collapse All Tasks", 'aria-label="List view"', 'aria-label="Appearance"', 'aria-label="How far back finished tasks go"'].map((marker) => menu.indexOf(marker));
+  assert.ok(at.every((i) => i >= 0), "every block is in the menu");
+  assert.deepEqual([...at].sort((a, b) => a - b), at, "in the user's order");
 });
 
 test("picking a loan opens All Tasks and remembers the tab it came from, without touching the stored choice", () => {
