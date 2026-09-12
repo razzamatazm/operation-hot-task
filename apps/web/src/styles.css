@@ -4795,6 +4795,9 @@ button.btn-good:hover {
   font-weight: 600;
   color: var(--ink-secondary);
 }
+.thread-proto-C .msg-proto-speaker-time {
+  white-space: nowrap;
+}
 .thread-proto-C .msg-body {
   padding: 6px 0;
 }

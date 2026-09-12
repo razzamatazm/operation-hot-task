@@ -75,13 +75,17 @@ export const ProtoThread = ({ todayLabel, children }: { todayLabel: string; chil
 
 const firstName = (name: string): string => name.trim().split(/\s+/)[0] ?? name;
 
+/* The margin is 102px of text; the full date wrapped to three lines there. */
+const marginTime = (iso: string): string =>
+  new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
 /* Variant C: who and when, in the margin column, standing in for the avatar. */
 export const ProtoSpeaker = ({ name, at }: { name: string; at: string }) => {
   if (useConversationVariant() !== "C") return null;
   return (
     <span className="msg-proto-speaker" aria-hidden="true">
       <b>{firstName(name)}</b>
-      <span>{formatDate(at)}</span>
+      <span className="msg-proto-speaker-time">{marginTime(at)}</span>
     </span>
   );
 };
