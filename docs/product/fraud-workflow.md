@@ -149,12 +149,13 @@ Rules:
   Send Back → `Awaiting Items` (pass++). Same `Pending Approval → Completed`
   gate as before.
 - **Free-text is the discussion thread, not a dedicated field (#68).** The
-  FRAUD card's free-text surface is the shared discussion thread (headed by
-  `NOTES_FIELD_LABELS.FRAUD` = "Notes") plus the per-item notes — there
-  is **no separate submission-notes field**. The create form's `Notes` (#69)
-  seeds that thread, and since #301 takes its heading from that same table
-  rather than hardcoding the word — a Fraud Check is the one type whose field
-  stays in the conversation, so it is also the one type still headed `Notes`.
+  FRAUD card's free-text surface is the shared discussion thread plus the
+  per-item notes — there is **no separate submission-notes field**. The create
+  form's `Notes` (#69) seeds that thread, and since #301 takes its label from
+  `NOTES_FIELD_LABELS` rather than hardcoding the word. On the card the thread
+  is headed `Conversation`, like every other type's (#387): it used to take the
+  field's label, and one section wearing two names depending on the type read
+  as two different things.
 
 ## Note-Required Hand-Back
 

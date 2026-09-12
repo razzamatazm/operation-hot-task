@@ -20,7 +20,7 @@ import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
-import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
+import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -2459,7 +2459,7 @@ const TaskCard = memo(({
   );
   const notesBlock = (
     <>
-      <div className="thread-head">{threadHeadLabel(task)}</div>
+      <div className="thread-head">{THREAD_HEAD_LABEL}</div>
       <div className="msgs" ref={reviewListRef}>
         <ThreadMessages
           task={task}

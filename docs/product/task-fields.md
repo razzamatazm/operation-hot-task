@@ -478,9 +478,10 @@ is gone seven days after it was last written.
     extra document to generate
   - OOO: `Coverage Notes`
   - Fraud: `Notes` — the one type whose field is still the thread's first
-    message, so this heads the card's free-text **discussion thread** (#68)
-    rather than a box, and is not a separate outstanding-items field; relabeled
-    from `Discussion` to `Notes` for consistency (#81). The create form (#69)
+    message, so there is no box; it is not a separate outstanding-items field;
+    relabeled from `Discussion` to `Notes` for consistency (#81). The label
+    names the field on the forms only: on the card the thread is headed
+    `Conversation`, as it is on every type (#387). The create form (#69)
     seeds that thread and carries an outstanding-items checklist seeder beside
-    it; since #301 its heading comes from this table like every other type — see
+    it; since #301 its label comes from this table like every other type — see
     [fraud-workflow.md](fraud-workflow.md#structured-outstanding-items-checklist-44)

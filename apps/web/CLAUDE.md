@@ -1140,15 +1140,24 @@ nested card chrome, in this order:
    test that names it for no visual change. The panel's own border is the
    separator, so `.task-card-expanded > .task-card-terms + *` drops the sibling
    hairline.
-5. **Notes** — reply thread + add-note input, all in one avatar + text style: a
+5. **Conversation** — reply thread + add-note input, all in one avatar + text style: a
    note is a single row, glyph then what they said, with no name/timestamp line
    above it (#165) — the author and the time ride the row's `title` and a
    visually-hidden span instead. Thread caps at 178px (`.msgs` `max-height`)
    with internal scroll and auto-scroll-to-newest on new entries / re-open.
-   On a FRAUD task, which still carries its field here, the originating note is
-   the first row, in the same style as the replies, and the head reads with the
-   field's label. On the other five the field has left, so the head reads
-   `Conversation` — naming the box next door would be a lie — and a task with
+   **Drawn on the same ruled page as the two sections above** (#387, chosen
+   over three variants on the real card, branch
+   `prototype/conversation-styling`): `Conversation` sits in the 116px left
+   margin and spans the list and the composer, so the margin's hairline runs
+   the whole section; the bubbles and composer sit right of it; there is no
+   closing hairline, since nothing follows. It rides the `.loi-terms` selector
+   lists like `.checklist` does, and `.thread-head` has no face of its own.
+   Under 560px it stacks like the other two. The head reads `Conversation` on
+   **every** type (`THREAD_HEAD_LABEL`), a FRAUD task included: it used to take
+   the field's label there, `Notes`, and one section with two names depending
+   on the type read as two things. On a FRAUD task, which still carries its
+   field here, the originating note is the first row, in the same style as the
+   replies. On the other five the field has left, and a task with
    no replies renders `.msgs-empty` rather than an unexplained gap. Since #300
    that empty conversation is the normal case rather than the LOI's oddity. It
    invites a reply only when the viewer has a composer; an Observer, or anyone

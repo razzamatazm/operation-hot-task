@@ -26,12 +26,12 @@ export const NOTES_FIELD_LABELS: Readonly<Record<TaskType, string>> = {
   BUDDY_CHAT: "Concerns",
   VALUE: "Things to Look Out For",
   // FRAUD's free-text surface is the shared discussion thread (#68): the
-  // structured checklist carries outstanding items, and this label heads the
-  // card's thread rather than a box. It is the one type still headed "Notes",
-  // and now that it is the only one, the word reads as what it is — a
-  // conversation. Relabeled from "Discussion" back to "Notes" (#81); the create
-  // form's rival hardcoded "Notes" was removed in #301, so this is the single
-  // source for that type too.
+  // structured checklist carries outstanding items, and there is no box. This
+  // label names the field on the create and edit forms. It used to head the
+  // card's thread too; since #387 every thread is headed "Conversation", Fraud
+  // Checks included. Relabeled from "Discussion" back to "Notes" (#81); the
+  // create form's rival hardcoded "Notes" was removed in #301, so this is the
+  // single source for that type too.
   FRAUD: "Notes",
   LOAN_DOCS: "Extras and Edits",
   OOO: "Coverage Notes"
