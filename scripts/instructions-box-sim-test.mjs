@@ -439,3 +439,62 @@ test("App.tsx draws these components and paints no notes row of its own", () => 
     "App.tsx no longer builds message rows itself — a second copy could echo the field again"
   );
 });
+
+/* ── A Fraud Check's outstanding items share the margin (#367) ─
+   A Fraud Check has no instructions box, but its standing ask — the
+   outstanding-items list — is drawn on the same ruled page: label in the left
+   margin, one vertical hairline, the list on the right, one closing hairline.
+   The rules are shared selector lists rather than a copy, so the two cannot
+   drift. Comments are stripped before parsing so a brace in prose can't split
+   a rule. */
+
+const CSS_RULES = [...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
+  ([, selectors, body]) => ({ selectors: selectors.split(",").map((s) => s.trim()), body })
+);
+const sharedRules = (a, b) => CSS_RULES.filter((r) => r.selectors.includes(a) && r.selectors.includes(b));
+
+test("the outstanding items and the instructions box are laid out by the same rules", () => {
+  assert.ok(
+    sharedRules(".loi-terms", ".checklist").some((r) => /grid-template-columns:\s*116px/.test(r.body)),
+    "one rule sets the margin column for both"
+  );
+  assert.ok(
+    sharedRules(".loi-terms", ".checklist").some((r) => /grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(r.body)),
+    "and one rule collapses both to a single column on a phone"
+  );
+  assert.ok(
+    sharedRules(".loi-terms-head", ".checklist-head").some((r) => /border-right:/.test(r.body)),
+    "one rule draws the vertical hairline for both"
+  );
+  assert.ok(
+    sharedRules(".loi-terms-head", ".checklist-head").some((r) => /border-right:\s*none/.test(r.body) && /text-align:\s*left/.test(r.body)),
+    "and one rule stacks both labels, left-aligned, on a phone"
+  );
+  assert.ok(
+    sharedRules(".loi-terms-title", ".checklist-title").some((r) => /font-size:/.test(r.body) && /letter-spacing:/.test(r.body)),
+    "one rule sets the label's face, size and tracking for both"
+  );
+  assert.ok(
+    sharedRules(".task-card-expanded > .task-card-terms + *", ".task-card-expanded > .task-card-checklist + *").some((r) =>
+      /border-top:\s*none/.test(r.body)
+    ),
+    "the block's own closing hairline replaces the body's sibling hairline after either"
+  );
+});
+
+test("no rule styles the old outstanding-items heading on its own", () => {
+  for (const selector of [".checklist", ".checklist-head", ".checklist-title", ".task-card-checklist .checklist", ".task-card-checklist .checklist-title"]) {
+    const alone = CSS_RULES.filter((r) => r.selectors.includes(selector) && r.selectors.length === 1);
+    assert.deepEqual(alone, [], `${selector} has no styling of its own left behind`);
+  }
+});
+
+test("the checklist puts its label in the margin cell and everything else in the body cell", () => {
+  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  const checklist = app.split("const FraudChecklist")[1].split("/* ── Task Card")[0];
+  const head = checklist.indexOf('className="checklist-head"');
+  const body = checklist.indexOf('className="checklist-body"');
+  assert.ok(head > -1 && body > head, "the label cell comes first, then the body cell");
+  assert.ok(checklist.indexOf('className="checklist-items"') > body, "the items sit in the body cell");
+  assert.ok(checklist.indexOf("checklist-add") > body, "and so does the composer");
+});

@@ -1274,164 +1274,172 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     await api.addItem(task.id, value);
   };
 
+  /* The same ruled page as the instructions box (#367): the label in the left
+     margin cell, everything else in the body cell right of the hairline. Two
+     cells, so the grid `.loi-terms` shares with `.checklist` lays both out. */
   return (
     <div className="checklist">
       <div className="checklist-head">
         <span className="checklist-title">Outstanding items</span>
       </div>
 
-      {sorted.length > 0 && (
-        <ul className="checklist-items">
-          {sorted.map((item) => {
-            const editingText = active?.id === item.id && active.kind === "text";
-            /* Per item, not per status: your own not-yet-handed-off item is
-               yours to retype, and the checker may re-ask a committed one
-               (which uncheck+stales it). */
-            const canEditText = canEditChecklistItemText(task, user, item);
-            /* The viewer's own note on this item, whichever field that is —
-               what the single "+ note" button offers when it's missing. Which
-               field belongs to which seat is shared's to know, not the view's. */
-            const ownNote = ownChecklistNote(item, seat);
-            const editingNote = active?.id === item.id && active.kind === "note";
-            return (
-              <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}`}>
-                <div className="checklist-item-main">
-                  <button
-                    type="button"
-                    className={`checklist-check${item.checked ? " checklist-check-on" : ""}`}
-                    role="checkbox"
-                    aria-checked={item.checked}
-                    aria-label={item.checked ? `Mark "${item.text}" unresolved` : `Mark "${item.text}" resolved`}
-                    disabled={!canRecord}
-                    onClick={() => { if (canRecord) void api.toggle(task.id, item.id, !item.checked); }}
-                  >
-                    {item.checked && <CheckIcon />}
-                  </button>
-
-                  <ChecklistAdderChip task={task} addedBy={item.addedBy} />
-
-                  {editingText ? (
-                    <input
-                      className="checklist-item-input"
-                      value={draft}
-                      autoFocus
-                      onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); }
-                        if (e.key === "Escape") closeEditor();
-                      }}
-                      onBlur={() => void saveEditor(item)}
-                    />
-                  ) : (
+      <div className="checklist-body">
+        {sorted.length > 0 && (
+          <ul className="checklist-items">
+            {sorted.map((item) => {
+              const editingText = active?.id === item.id && active.kind === "text";
+              /* Per item, not per status: your own not-yet-handed-off item is
+                 yours to retype, and the checker may re-ask a committed one
+                 (which uncheck+stales it). */
+              const canEditText = canEditChecklistItemText(task, user, item);
+              /* The viewer's own note on this item, whichever field that is —
+                 what the single "+ note" button offers when it's missing. Which
+                 field belongs to which seat is shared's to know, not the view's. */
+              const ownNote = ownChecklistNote(item, seat);
+              const editingNote = active?.id === item.id && active.kind === "note";
+              return (
+                <li key={item.id} className={`checklist-item${item.checked ? " checklist-item-done" : ""}${item.stale ? " checklist-item-stale" : ""}`}>
+                  <div className="checklist-item-main">
                     <button
                       type="button"
-                      className="checklist-item-text"
-                      disabled={!canEditText}
-                      title={canEditText ? "Edit item" : undefined}
-                      onClick={() => { if (canEditText) openEditor(item.id, "text", item.text); }}
+                      className={`checklist-check${item.checked ? " checklist-check-on" : ""}`}
+                      role="checkbox"
+                      aria-checked={item.checked}
+                      aria-label={item.checked ? `Mark "${item.text}" unresolved` : `Mark "${item.text}" resolved`}
+                      disabled={!canRecord}
+                      onClick={() => { if (canRecord) void api.toggle(task.id, item.id, !item.checked); }}
                     >
-                      {item.text}
+                      {item.checked && <CheckIcon />}
                     </button>
-                  )}
 
-                  <span className="checklist-badges">
-                    {item.stale && <span className="checklist-badge checklist-badge-stale" title="Text changed after it was checked — re-verify">stale · re-verify</span>}
-                  </span>
+                    <ChecklistAdderChip task={task} addedBy={item.addedBy} />
 
-                  {/* Gated delete (#66): only for a fresh item you added, on your
-                      own turn, before it's handed off. Locks once submitted /
-                      sent / bounced. */}
-                  {canDeleteChecklistItem(task, user, item) && (
-                    <button
-                      type="button"
-                      className="checklist-delete"
-                      title="Delete this item (only until you hand it off)"
-                      aria-label={`Delete "${item.text}"`}
-                      onClick={() => void api.deleteItem(task.id, item.id)}
-                    >
-                      <TrashIcon />
-                    </button>
-                  )}
-
-                  {/* Exactly ONE "+ note" per row: the viewer's own seat's
-                      field, and none at all for a viewer holding no seat. There
-                      were two identical buttons here, one per field, and a
-                      viewer who satisfied both seat predicates saw both — which
-                      is how someone could write a note in the other person's
-                      name. The label stays "+ note" either way; "checker note"
-                      wasn't worth differentiating when you only ever have one.
-
-                      It rides inline at the end of the item's own row (not a
-                      separate line below), saving a line per item that has no
-                      note yet. Once the note exists it moves to its full row
-                      below — a real note needs the room. */}
-                  {canRecord && !editingNote && !ownNote && (
-                    <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
-                  )}
-                </div>
-
-                {/* Both seats' notes are shown when present — a fraud record you
-                    can only half-read is no record — but only your own is
-                    clickable, and the editor writes only your own field. Each
-                    keeps the author's full name rather than a chip: a sentence
-                    stays attributed to a person. */}
-                {(editingNote || item.note || item.checkerNote) && (
-                  <div className="checklist-item-notes">
-                    {editingNote ? (
-                      <div className="checklist-note-edit">
-                        <input
-                          className="checklist-item-input"
-                          placeholder={seat === "checker" ? "Why this isn't sufficient / needs rework…" : "Why it's not needed / how it was handled…"}
-                          value={draft}
-                          autoFocus
-                          onChange={(e) => setDraft(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
-                          onBlur={() => void saveEditor(item)}
-                        />
-                      </div>
-                    ) : null}
-
-                    {!(editingNote && seat === "creator") && item.note ? (
+                    {editingText ? (
+                      <input
+                        className="checklist-item-input"
+                        value={draft}
+                        autoFocus
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); }
+                          if (e.key === "Escape") closeEditor();
+                        }}
+                        onBlur={() => void saveEditor(item)}
+                      />
+                    ) : (
                       <button
                         type="button"
-                        className="checklist-note checklist-note-creator"
-                        disabled={!(canRecord && seat === "creator")}
-                        onClick={() => { if (canRecord && seat === "creator") openEditor(item.id, "note", item.note ?? ""); }}
+                        className="checklist-item-text"
+                        disabled={!canEditText}
+                        title={canEditText ? "Edit item" : undefined}
+                        onClick={() => { if (canEditText) openEditor(item.id, "text", item.text); }}
                       >
-                        <b>{task.createdBy.displayName}:</b> {item.note}
+                        {item.text}
                       </button>
-                    ) : null}
+                    )}
 
-                    {!(editingNote && seat === "checker") && item.checkerNote ? (
+                    <span className="checklist-badges">
+                      {item.stale && <span className="checklist-badge checklist-badge-stale" title="Text changed after it was checked — re-verify">stale · re-verify</span>}
+                    </span>
+
+                    {/* Gated delete (#66): only for a fresh item you added, on your
+                        own turn, before it's handed off. Locks once submitted /
+                        sent / bounced. */}
+                    {canDeleteChecklistItem(task, user, item) && (
                       <button
                         type="button"
-                        className="checklist-note checklist-note-checker"
-                        disabled={!(canRecord && seat === "checker")}
-                        onClick={() => { if (canRecord && seat === "checker") openEditor(item.id, "note", item.checkerNote ?? ""); }}
+                        className="checklist-delete"
+                        title="Delete this item (only until you hand it off)"
+                        aria-label={`Delete "${item.text}"`}
+                        onClick={() => void api.deleteItem(task.id, item.id)}
                       >
-                        <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
+                        <TrashIcon />
                       </button>
-                    ) : null}
+                    )}
+
+                    {/* Exactly ONE "+ note" per row: the viewer's own seat's
+                        field, and none at all for a viewer holding no seat. There
+                        were two identical buttons here, one per field, and a
+                        viewer who satisfied both seat predicates saw both — which
+                        is how someone could write a note in the other person's
+                        name. The label stays "+ note" either way; "checker note"
+                        wasn't worth differentiating when you only ever have one.
+
+                        It rides inline at the end of the item's own row (not a
+                        separate line below), saving a line per item that has no
+                        note yet. Once the note exists it moves to its full row
+                        below — a real note needs the room. */}
+                    {canRecord && !editingNote && !ownNote && (
+                      <button type="button" className="checklist-note-add" onClick={() => openEditor(item.id, "note", "")}>+ note</button>
+                    )}
                   </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
 
-      {canRecord && (
-        <div className="checklist-add">
-          <input
-            className="checklist-item-input"
-            placeholder="Add an item, press Enter…"
-            value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addItem(); } }}
-          />
-          <button type="button" className="btn-sm" onClick={() => void addItem()} disabled={!newItem.trim()}>Add</button>
-        </div>
-      )}
+                  {/* Both seats' notes are shown when present — a fraud record you
+                      can only half-read is no record — but only your own is
+                      clickable, and the editor writes only your own field. Each
+                      keeps the author's full name rather than a chip: a sentence
+                      stays attributed to a person. */}
+                  {(editingNote || item.note || item.checkerNote) && (
+                    <div className="checklist-item-notes">
+                      {editingNote ? (
+                        <div className="checklist-note-edit">
+                          <input
+                            className="checklist-item-input"
+                            placeholder={seat === "checker" ? "Why this isn't sufficient / needs rework…" : "Why it's not needed / how it was handled…"}
+                            value={draft}
+                            autoFocus
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEditor(item); } if (e.key === "Escape") closeEditor(); }}
+                            onBlur={() => void saveEditor(item)}
+                          />
+                        </div>
+                      ) : null}
+
+                      {!(editingNote && seat === "creator") && item.note ? (
+                        <button
+                          type="button"
+                          className="checklist-note checklist-note-creator"
+                          disabled={!(canRecord && seat === "creator")}
+                          onClick={() => { if (canRecord && seat === "creator") openEditor(item.id, "note", item.note ?? ""); }}
+                        >
+                          <b>{task.createdBy.displayName}:</b> {item.note}
+                        </button>
+                      ) : null}
+
+                      {!(editingNote && seat === "checker") && item.checkerNote ? (
+                        <button
+                          type="button"
+                          className="checklist-note checklist-note-checker"
+                          disabled={!(canRecord && seat === "checker")}
+                          onClick={() => { if (canRecord && seat === "checker") openEditor(item.id, "note", item.checkerNote ?? ""); }}
+                        >
+                          <b>{task.assignee?.displayName ?? "Checker"}:</b> {item.checkerNote}
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* Flush on an empty list, the way the create form's seeder does it:
+            the dashed divider separates the composer from items above it, and
+            with none it would be a stray rule at the top of the body cell. */}
+        {canRecord && (
+          <div className={`checklist-add${sorted.length > 0 ? "" : " checklist-add-flush"}`}>
+            <input
+              className="checklist-item-input"
+              placeholder="Add an item, press Enter…"
+              value={newItem}
+              onChange={(e) => setNewItem(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addItem(); } }}
+            />
+            <button type="button" className="btn-sm" onClick={() => void addItem()} disabled={!newItem.trim()}>Add</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
