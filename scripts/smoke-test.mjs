@@ -1414,6 +1414,43 @@ const run = async () => {
     assert.deepEqual(savedUntouched.json.item, latest.json.item, "exactly as the creator last saved it");
     pushPass("another user and an admin cannot reopen, update or remove someone else's Saved for Later task");
 
+    /* Typing on a reopened one that nobody saved (#348, ADR-0011 rule 5). Kept on
+       the record beside the save, so the save and its savedAt stay put; Discard
+       takes it away and the record answers back exactly as it was saved. */
+    const asSaved = savedUntouched.json.item;
+    const keptUnsaved = await request(server.baseUrl, "PUT", `/saved-for-later/${asSaved.id}/unsaved`, {
+      user: users.creator,
+      body: { form: savedForm({ notes: "typed into, tab closed" }) }
+    });
+    expectStatus(keptUnsaved.status, 200, "keep unsaved typing on a reopened Saved for Later task", keptUnsaved.json);
+    assert.deepEqual(keptUnsaved.json.item.unsaved, savedForm({ notes: "typed into, tab closed" }), "the typing is on the record");
+    assert.deepEqual(keptUnsaved.json.item.form, asSaved.form, "the save is untouched");
+    assert.equal(keptUnsaved.json.item.savedAt, asSaved.savedAt, "and so is saved N ago");
+    const reopenedWithTyping = await request(server.baseUrl, "GET", `/saved-for-later/${asSaved.id}`, { user: users.creator });
+    assert.deepEqual(reopenedWithTyping.json.item.unsaved, savedForm({ notes: "typed into, tab closed" }), "reopening reads it back");
+    const countWithTyping = (await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator })).json.items.length;
+    assert.equal(countWithTyping, afterResave.json.items.length, "no second copy anywhere in the section");
+    const badUnsaved = await request(server.baseUrl, "PUT", `/saved-for-later/${asSaved.id}/unsaved`, {
+      user: users.creator,
+      body: { form: savedForm({ taskType: "LUNCH" }) }
+    });
+    expectStatus(badUnsaved.status, 400, "unsaved typing with a body that isn't the form's shape", badUnsaved.json);
+    for (const [label, viewer] of [["another user", users.otherOfficer], ["an admin", users.admin]]) {
+      const theirKeep = await request(server.baseUrl, "PUT", `/saved-for-later/${asSaved.id}/unsaved`, {
+        user: viewer,
+        body: { form: savedForm({ notes: "not yours" }) }
+      });
+      expectStatus(theirKeep.status, 404, `${label} writing typing onto the creator's Saved for Later task`, theirKeep.json);
+      const theirDiscard = await request(server.baseUrl, "DELETE", `/saved-for-later/${asSaved.id}/unsaved`, { user: viewer });
+      expectStatus(theirDiscard.status, 404, `${label} discarding typing on the creator's Saved for Later task`, theirDiscard.json);
+    }
+    const discarded = await request(server.baseUrl, "DELETE", `/saved-for-later/${asSaved.id}/unsaved`, { user: users.creator });
+    expectStatus(discarded.status, 200, "discard unsaved typing on a reopened Saved for Later task", discarded.json);
+    assert.deepEqual(discarded.json.item, asSaved, "the record is exactly as it was last saved");
+    const afterDiscard = await request(server.baseUrl, "GET", `/saved-for-later/${asSaved.id}`, { user: users.creator });
+    assert.deepEqual(afterDiscard.json.item, asSaved, "and stays that way");
+    pushPass("typing on a reopened Saved for Later task is kept on that record without moving the save, and Discard leaves the save as it was");
+
     /* Deleting from the board (#345) calls the same route. Refusing someone
        else's must say nothing about whether it exists: the answer to a real one
        that isn't yours is the answer to an id nobody ever saved. */

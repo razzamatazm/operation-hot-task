@@ -314,7 +314,11 @@ was left. It is still the create form, not edit mode, so it has both buttons:
 - A row whose task was created or removed on another device comes off the list
   when tapped, with a note saying so.
 - A reopened form never touches the form's autosave: it does not open on it,
-  write to it or clear it.
+  write to it or clear it. Its typing is kept on the Saved for Later task
+  itself instead (#348), as it is typed, so a tab that closes or a Teams switch
+  that reloads loses nothing. That typing sits beside the save rather than over
+  it: the row keeps its place and its `saved N ago`, and the next time the task
+  is reopened the form opens on the typing. The next New Task never offers it.
 
 **Deleting one** (#345). Each row in the Saved for Later section has a delete
 control at its right end, separate from the rest of the row, so pressing it
@@ -328,10 +332,25 @@ through, the row stays and a note says so. One already created or deleted on
 another device simply comes off the list. Nobody can delete someone else's,
 admins included, and trying gets the same answer as a task that never existed.
 
-The Cancel prompt is not built yet. Until it is,
-Cancel on a reopened form that has been changed asks the ordinary "Discard this
-task?" question, and discarding only throws the changes away; the Saved for
-Later task stays as it was last saved.
+**Cancel** (#348). Cancel, or Escape, on a create form that has nothing in it
+closes straight away, and so does one reopened from Saved for Later that has not
+been changed. On a create form with typing in it, it asks `Leave this task?`
+with three answers:
+
+- **Keep editing**, which has the keyboard focus, so pressing Return by accident
+  goes back to the form. Escape answers the same.
+- **Save for later**, which does exactly what the button on the form does, and
+  is unavailable when that one is.
+- **Discard**. On a new task it throws the typing away and clears the autosave.
+  On a reopened Saved for Later task it throws away the changes since it was
+  last saved, including typing kept from an earlier visit, and leaves the saved
+  task exactly as it was saved. If the server cannot throw the changes away,
+  the form still closes and a note says they will be there next time.
+
+The prompt on a reopened task says so: `Save your changes for later, or discard
+them and keep the version you saved before.` Editing an existing task is
+unchanged: its Cancel still asks `Discard this task?` with Keep editing and
+Discard, since there is nothing to save for later.
 
 - Required fields:
   - Folder Name

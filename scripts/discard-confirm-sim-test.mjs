@@ -91,6 +91,100 @@ test("the prompt renders as an alert dialog carrying the question and both answe
   assert.match(html, />Keep editing</, "and so is the no");
 });
 
+/* ── The three-way prompt (#348, ADR-0011) ──────────────── */
+
+/* Once a create form can put the task aside, "your progress won't be saved" is
+   no longer true of leaving it, so the create form asks a different question.
+   Edit mode has nowhere to save for later and keeps the question above. */
+test("a create form's prompt offers Save for later beside Discard and Keep editing, in words that are true", () => {
+  const fresh = discardConfirmCopy({ saveForLater: true, reopened: false });
+  assert.equal(fresh.title, "Leave this task?");
+  assert.equal(fresh.body, "Save it for later to pick it back up from the board, or discard it.");
+  assert.equal(fresh.save, "Save for later");
+  assert.equal(fresh.confirm, "Discard");
+  assert.equal(fresh.cancel, "Keep editing");
+
+  const reopened = discardConfirmCopy({ saveForLater: true, reopened: true });
+  assert.equal(reopened.title, "Leave this task?");
+  assert.equal(
+    reopened.body,
+    "Save your changes for later, or discard them and keep the version you saved before.",
+    "a reopened one says Discard throws away the changes, not the saved task"
+  );
+  assert.equal(reopened.save, "Save for later");
+  assert.doesNotMatch(`${fresh.body} ${reopened.body}`, /won.t be saved/, "nothing claims the progress is lost when it need not be");
+});
+
+test("the three-way prompt renders all three answers, safe first and destructive last", () => {
+  const html = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {} })
+  );
+  assert.match(html, /role="alertdialog"/);
+  assert.match(html, /Leave this task\?/);
+  assert.match(
+    html,
+    /<button type="button" class="btn-sm btn-ghost">Keep editing<\/button><button type="button" class="btn-sm btn-ghost">Save for later<\/button><button type="button" class="btn-sm btn-danger">Discard<\/button>/,
+    "Keep editing, then Save for later, then Discard in the danger style"
+  );
+});
+
+test("a reopened form's prompt says its Discard keeps the earlier save", () => {
+  const html = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {}, reopened: true })
+  );
+  assert.match(html, /keep the version you saved before/);
+});
+
+test("Save for later in the prompt is unavailable exactly when the footer's is", () => {
+  const html = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {}, saveForLaterDisabled: true })
+  );
+  assert.match(html, /<button type="button" class="btn-sm btn-ghost" disabled="">Save for later<\/button>/);
+});
+
+test("while a Discard is being carried out, every answer is shut and Escape does nothing", () => {
+  const html = renderToStaticMarkup(
+    createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {}, onSaveForLater: () => {}, busy: true })
+  );
+  assert.equal([...html.matchAll(/<button type="button" class="btn-sm btn-[a-z]+" disabled="">/g)].length, 3, "all three answers");
+  const key = DIALOG_SOURCE.slice(DIALOG_SOURCE.indexOf("const onKey"));
+  assert.match(key.slice(0, key.indexOf("};")), /if \(!busy\) onCancel\(\);/);
+  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
+  const body = confirm.slice(0, confirm.indexOf("\n  };"));
+  assert.ok(body.indexOf("setDiscarding(true);") >= 0 && body.indexOf("setDiscarding(true);") < body.indexOf("await "), "shut before anything is awaited");
+  assert.match(FORM_SOURCE, /busy=\{discarding\} onCancel=\{\(\) => setDiscardAsk\(false\)\}/);
+});
+
+test("without Save for later the prompt is the two-way one, word for word", () => {
+  const html = renderToStaticMarkup(createElement(DiscardConfirmDialog, { onConfirm: () => {}, onCancel: () => {} }));
+  assert.doesNotMatch(html, /Save for later/);
+  assert.match(html, /Discard this task\?/);
+});
+
+test("the form offers Save for later in the prompt on a create form only, and edit mode's prompt is unchanged", () => {
+  const mount = FORM_SOURCE.slice(FORM_SOURCE.indexOf("{discardAsk &&"));
+  const line = mount.slice(0, mount.indexOf("\n"));
+  assert.match(
+    line,
+    /\{\.\.\.\(!editing && onSaveForLater \? \{ onSaveForLater: saveFromPrompt, saveForLaterDisabled: !worthSavingForLater, reopened: reopened !== undefined \} : \{\}\)\}/,
+    "the three-way prompt is the create form's, with the footer button's own availability"
+  );
+  const fromPrompt = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const saveFromPrompt"));
+  const body = fromPrompt.slice(0, fromPrompt.indexOf("};"));
+  assert.match(body, /setDiscardAsk\(false\);/, "the prompt comes down, so a failed save leaves the form in view");
+  assert.match(body, /saveForLater\(\)/, "and it is the footer's own Save for later, not a second copy of it");
+});
+
+test("Discard on a reopened form throws away only its unsaved typing, then closes", () => {
+  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
+  const body = confirm.slice(0, confirm.indexOf("\n  };"));
+  assert.match(body, /if \(reopened && onDiscardUnsaved\b/, "only a reopened form has unsaved typing on the server");
+  assert.match(body, /showToast\(/, "and a Discard the server could not carry out is said, rather than coming back as a surprise");
+  assert.match(body, /await onDiscardUnsaved\(reopened\.id\)/, "the unsaved slot, never the record");
+  assert.ok(body.indexOf("await onDiscardUnsaved") < body.lastIndexOf("onClose();"), "and only then does it close");
+  assert.doesNotMatch(body, /onSaveForLater|removeSavedForLater/, "the saved version is left as it was");
+});
+
 /* Built as the merge confirmation is (#265), because two dialogs that behave
    differently are two dialogs people have to read twice. */
 test("the safe answer takes focus, and the backdrop answers nothing", () => {
@@ -130,7 +224,8 @@ test("the exit asks only when there is something to lose, measured from the open
     "against the values the form opened with, plus the seeder's half-typed item"
   );
   assert.match(body, /setDiscardAsk\(true\)/, "a touched form asks");
-  assert.match(body, /else onClose\(\)/, "an untouched one closes on the spot, as it always did");
+  assert.match(body, /return;\s*\}[\s\S]*\n    onClose\(\);/, "an untouched one closes on the spot, as it always did");
+  assert.match(body, /if \(reopened\) sendUnsaved\(\);/, "a reopened one first sends what it still owes its record (#348)");
   assert.match(FORM_SOURCE, /const openedWith = useRef\(form\)/, "the opening values are captured once, at open");
 });
 

@@ -311,7 +311,8 @@ item), "parked", "unfinished" (reads as the opposite of the Finished section),
 **Autosave**:
 The form's quiet, accidental safety net: one unfinished new-task form per
 person, kept in that browser only. Distinct from a _Saved for Later task_,
-which is deliberate, listed, and kept on the server.
+which is deliberate, listed, and kept on the server. Typing into a reopened
+Saved for Later task never goes to the autosave; it is kept on that task.
 _Avoid_: "draft" for either
 
 ### Loan model

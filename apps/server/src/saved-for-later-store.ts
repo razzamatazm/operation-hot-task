@@ -72,22 +72,49 @@ export class SavedForLaterStore {
      over. Whichever save lands last is what is kept; there is nothing to compare
      against and nothing to refuse, because two devices saving the same one is
      the same person twice. Someone else's, or one that no longer exists, finds
-     nothing and changes nothing. */
+     nothing and changes nothing.
+
+     Any unsaved typing on it goes (#348): what was on screen is the save now. */
   async update(
     ownerId: string,
     id: string,
     form: SavedForLaterForm,
     savedAt: string = new Date().toISOString()
   ): Promise<SavedForLaterTask | undefined> {
-    let updated: SavedForLaterTask | undefined;
+    return this.change(ownerId, id, ({ unsaved: _unsaved, ...item }) => ({ ...item, savedAt, form }));
+  }
+
+  /* Typing on a reopened one that nobody saved (#348, ADR-0011 rule 5), kept
+     beside the save rather than over it. `form` and `savedAt` do not move, so
+     the row keeps its place and its "saved N ago", and Discard can still leave
+     exactly what was saved. Latest write wins, like a save. One that has gone
+     (created or deleted elsewhere) is not brought back by it. */
+  async keepUnsaved(ownerId: string, id: string, unsaved: SavedForLaterForm): Promise<SavedForLaterTask | undefined> {
+    return this.change(ownerId, id, (item) => ({ ...item, unsaved }));
+  }
+
+  /* Discard on a reopened one (#348): the unsaved typing goes and the save is
+     left as it was. Nothing to clear is not an error. */
+  async clearUnsaved(ownerId: string, id: string): Promise<SavedForLaterTask | undefined> {
+    return this.change(ownerId, id, ({ unsaved: _unsaved, ...item }) => item);
+  }
+
+  /* One of this owner's records replaced by `next` of it, inside the file's
+     queue; `undefined`, with nothing written, for someone else's or one gone. */
+  private async change(
+    ownerId: string,
+    id: string,
+    next: (item: SavedForLaterTask) => SavedForLaterTask
+  ): Promise<SavedForLaterTask | undefined> {
+    let changed: SavedForLaterTask | undefined;
     await this.file.update((data) => {
       const index = data.items.findIndex((item) => item.id === id && item.ownerId === ownerId);
       if (index === -1) return data;
-      updated = { ...data.items[index]!, savedAt, form };
-      data.items[index] = updated;
+      changed = next(data.items[index]!);
+      data.items[index] = changed;
       return data;
     });
-    return updated;
+    return changed;
   }
 
   /* Gone for good (#344, ADR-0011 rule 4): what happens once the task it held

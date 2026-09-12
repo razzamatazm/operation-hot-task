@@ -79,6 +79,16 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     `savedAt`, so it never becomes a copy. The latest save wins, with no
     version check and no conflict answer. Same **400** for a body that isn't
     the form's shape
+  - `PUT /api/saved-for-later/:id/unsaved` with `{ form }` → `{ item }` (#348).
+    Typing on a reopened one that nobody saved, sent by the web form as it is
+    typed. Kept on the record as `unsaved`, beside `form`: `form` and `savedAt`
+    do not move, so the list order and "saved N ago" stay put. Latest write
+    wins. Never creates a record, so one created or deleted elsewhere stays
+    gone. Same **400** as a save. A later `PUT /:id` folds it into the save and
+    clears it
+  - `DELETE /api/saved-for-later/:id/unsaved` → `{ item }` (#348). Discard on a
+    reopened one: `unsaved` goes and the record answers back exactly as it was
+    last saved. Nothing to clear is not an error
   - `DELETE /api/saved-for-later/:id` → **204** (#344). The web app calls it
     once the task a reopened one held has been created through
     `POST /api/tasks`, and only then, so a filing that fails leaves the record

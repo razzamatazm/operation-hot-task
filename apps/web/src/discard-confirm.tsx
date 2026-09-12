@@ -36,12 +36,26 @@ import { useEffect, useRef } from "react";
    The question is short because there is nothing to explain — the person knows
    what they typed. What they may not know is that nothing is saved anywhere
    yet, which is the whole point of the second sentence. */
-export const discardConfirmCopy = (): { title: string; body: string; confirm: string; cancel: string } => ({
-  title: "Discard this task?",
-  body: "Your progress won't be saved.",
-  confirm: "Discard",
-  cancel: "Keep editing"
-});
+/* Since #348 a create form's prompt has a third answer, Save for later
+   (ADR-0011), and "your progress won't be saved" stops being true of leaving:
+   the person can keep it. So the create form asks a question that names both
+   ways out. A reopened Saved for Later task says what its Discard does, which
+   is throw away the changes and keep the version saved before, because
+   "discard" on a task the person can see on the board reads like deleting it.
+   Edit mode has nowhere to save for later and keeps the original question. */
+export const discardConfirmCopy = (
+  offer: { saveForLater: boolean; reopened: boolean } = { saveForLater: false, reopened: false }
+): { title: string; body: string; confirm: string; cancel: string; save: string } => {
+  const answers = { confirm: "Discard", cancel: "Keep editing", save: "Save for later" };
+  if (!offer.saveForLater) return { title: "Discard this task?", body: "Your progress won't be saved.", ...answers };
+  return {
+    title: "Leave this task?",
+    body: offer.reopened
+      ? "Save your changes for later, or discard them and keep the version you saved before."
+      : "Save it for later to pick it back up from the board, or discard it.",
+    ...answers
+  };
+};
 
 /* The dialog itself. Rendered by the form as a sibling of its overlay rather
    than a child, so its own z-index is measured against the app instead of
@@ -55,12 +69,29 @@ export const discardConfirmCopy = (): { title: string; body: string; confirm: st
    the one that keeps the typing. */
 export const DiscardConfirmDialog = ({
   onConfirm,
-  onCancel
+  onCancel,
+  onSaveForLater,
+  saveForLaterDisabled,
+  reopened = false,
+  busy = false
 }: {
   onConfirm: () => void;
   onCancel: () => void;
+  /* The create form's third answer (#348). Absent, as in edit mode, means the
+     two-way prompt exactly as it was. */
+  onSaveForLater?: () => void;
+  /* Unavailable exactly when the footer's Save for later is, so the two cannot
+     disagree about whether there is anything to keep. */
+  saveForLaterDisabled?: boolean;
+  /* The form came from a Saved for Later task, so Discard keeps its earlier
+     save and the prompt says so. */
+  reopened?: boolean;
+  /* An answer is being carried out (#348: Discard on a reopened form waits on
+     the server). Every answer is shut and Escape does nothing until it is done,
+     so a second press cannot race the first. */
+  busy?: boolean;
 }) => {
-  const copy = discardConfirmCopy();
+  const copy = discardConfirmCopy({ saveForLater: onSaveForLater !== undefined, reopened });
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
   /* Focus lands on "Keep editing": this dialog appears over a form somebody was
@@ -79,12 +110,12 @@ export const DiscardConfirmDialog = ({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onCancel();
+        if (!busy) onCancel();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onCancel]);
+  }, [onCancel, busy]);
 
   return (
     <div className="discard-confirm-overlay">
@@ -92,10 +123,18 @@ export const DiscardConfirmDialog = ({
         <h3 className="discard-confirm-title">{copy.title}</h3>
         <p className="discard-confirm-body">{copy.body}</p>
         <div className="discard-confirm-actions">
-          <button type="button" className="btn-sm btn-ghost" ref={cancelRef} onClick={onCancel}>
+          <button type="button" className="btn-sm btn-ghost" ref={cancelRef} disabled={busy || undefined} onClick={onCancel}>
             {copy.cancel}
           </button>
-          <button type="button" className="btn-sm btn-danger" onClick={onConfirm}>
+          {/* Between the safe answer and the destructive one, in the ghost style
+              the form's footer gives it, so Discard stays the one loud button
+              and furthest from where focus lands. */}
+          {onSaveForLater && (
+            <button type="button" className="btn-sm btn-ghost" disabled={busy || saveForLaterDisabled || undefined} onClick={onSaveForLater}>
+              {copy.save}
+            </button>
+          )}
+          <button type="button" className="btn-sm btn-danger" disabled={busy || undefined} onClick={onConfirm}>
             {copy.confirm}
           </button>
         </div>
