@@ -74,8 +74,6 @@ export interface HumperdinkRateTier {
 export interface HumperdinkTerms {
   /* Core: the terms panel's headline figures. */
   loanAmount?: string;
-  totalValue?: string;
-  ltv?: string;
   termMonths?: string;
   rateTiers?: HumperdinkRateTier[];
   originationFeePoints?: string;
@@ -236,17 +234,22 @@ interface TermFieldSpec {
   unit?: string;
   /** Prose the desk typed: its own block, and it keeps its own newlines. */
   prose?: true;
+  /** Left out of the note when the value is zero. */
+  hideZero?: true;
 }
 
+/* Total Value and LTV are deliberately absent: the desk doesn't use them on an
+   LOI check. A payload from an older script that still carries them has them
+   dropped by `readTerms`, which only reads what is listed here. */
 const TERM_FIELDS: readonly TermFieldSpec[] = [
   { field: "loanAmount", heading: "Loan Terms", label: "Loan Amount" },
-  { field: "totalValue", heading: "Loan Terms", label: "Total Value" },
-  { field: "ltv", heading: "Loan Terms", label: "LTV" },
   { field: "termMonths", heading: "Loan Terms", label: "Term", unit: "months" },
   /* The rate tiers render here, between Term and the fees — see
      `RATE_TIER_AFTER` and the renderer below. */
   { field: "originationFeePoints", heading: "Loan Terms", label: "Origination Fee", unit: "points" },
-  { field: "brokerFeePoints", heading: "Loan Terms", label: "Broker Fee", unit: "points" },
+  /* A loan with no broker says nothing about a broker fee, rather than
+     `Broker Fee: 0.0000 points`. */
+  { field: "brokerFeePoints", heading: "Loan Terms", label: "Broker Fee", unit: "points", hideZero: true },
   { field: "evaluationFee", heading: "Loan Terms", label: "Evaluation Fee" },
   { field: "loanTermNotes", heading: "Loan Term Notes", label: "Loan Term Notes", prose: true },
   { field: "juniorFinancingAmount", heading: "Junior Financing", label: "Amount" },
@@ -423,6 +426,12 @@ export interface HumperdinkNoteSection {
 const CONTACTS_HEADING = "Contacts";
 const PROPERTIES_HEADING = "Properties Acquired";
 
+/** `"0.0000"`, `"$0.00"`, `"0%"` — a displayed figure that means zero. */
+const isZero = (value: string): boolean => {
+  const digits = value.replace(/[$,%\s]/g, "");
+  return digits !== "" && Number(digits) === 0;
+};
+
 /** One rate tier as a line: `Months 1–12 at 7.90%`. */
 const rateTierLine = (tier: HumperdinkRateTier): string => {
   const span = tier.startMonth && tier.endMonth ? `Months ${tier.startMonth}–${tier.endMonth}` : "Months";
@@ -446,10 +455,17 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
     else sections.push({ heading, lines: [text] });
   };
 
+  /* Always the same order — the people, then the terms, then the properties.
+     The broker and borrower lead because they are the first thing the checker
+     looks for, and a note whose blocks moved around between two loans would be
+     unreadable side by side. */
+  for (const contact of payload.contacts ?? []) push(CONTACTS_HEADING, `${contact.type}: ${contact.name}`);
+
   const terms = payload.terms;
   if (terms) {
     for (const spec of TERM_FIELDS) {
-      const value = terms[spec.field];
+      const raw = terms[spec.field];
+      const value = raw && spec.hideZero && isZero(raw) ? "" : raw;
       /* Prose gets its own bare block rather than a `Label: …` line: it is what
          the desk typed and it carries its own newlines. */
       if (value) push(spec.heading, spec.prose ? value : `${spec.label}: ${value}${spec.unit ? ` ${spec.unit}` : ""}`);
@@ -459,10 +475,6 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
     }
   }
 
-  /* The people and the properties come after the terms, always in that order —
-     the LOI's notes field is called "Loan Terms and Contacts", and a note whose
-     blocks moved around between two loans would be unreadable side by side. */
-  for (const contact of payload.contacts ?? []) push(CONTACTS_HEADING, `${contact.type}: ${contact.name}`);
   for (const property of payload.properties ?? []) {
     push(PROPERTIES_HEADING, property.purchasePrice ? `${property.address} — ${property.purchasePrice}` : property.address);
   }

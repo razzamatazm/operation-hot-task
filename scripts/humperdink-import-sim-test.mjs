@@ -30,29 +30,13 @@ import {
   loanNameFromPageTitle,
   parseHumperdinkPayload
 } from "../packages/shared/src/humperdink.ts";
-import { readCreateFormIntent, teamsTaskDeepLink } from "../packages/shared/src/deep-link.ts";
 
 const USERSCRIPT = readFileSync(new URL("../tools/humperdink/send-to-hot-task.user.js", import.meta.url), "utf8");
 
 const LOAN_URL = "https://humperdink.loneoakfund.com/Loans/Details/335203";
 
-/* ── The one line an installer fills in (#198) ────────────
-
-   The control opens Hot Task's create form after it copies, which needs the
-   Teams app id. A userscript has no config store, so the id is a constant at
-   the top of the file — and the tests here have to be able to set it, so they
-   rewrite that one line before running the script. The assertion is the point:
-   rename or reshape the constant and this goes red rather than silently
-   testing a script with no link in it. */
-const APP_ID_LINE = /^(\s*var HOT_TASK_APP_ID = )"[^"]*";$/m;
-/* The same line, capturing the value instead of the prefix, so a test can ask
-   what the file actually ships with rather than restating it. */
-const APP_ID_LINE_VALUE = /^\s*var HOT_TASK_APP_ID = "([^"]*)";$/m;
-
-const userscriptWithAppId = (appId) => {
-  assert.match(USERSCRIPT, APP_ID_LINE);
-  return USERSCRIPT.replace(APP_ID_LINE, `$1${JSON.stringify(appId)};`);
-};
+/* What the button says once the loan is on the clipboard. */
+const COPIED = "Copied — paste it into Import from Humperdink on an LOI Check";
 
 /* ── The loan terms panel, as Humperdink renders it ──────
 
@@ -161,13 +145,6 @@ const runUserscript = ({
   clipboard = "ok",
   fields = TERMS_FIELDS,
   grids = withGrids(),
-  /* Every test states the id it wants, so this default is only the "nobody has
-     told it where Hot Task is" case — the pre-#198 copy-and-tell behaviour. It
-     is deliberately NOT the shipped value: the two tests that care about what
-     the file ships with read it out of the file. */
-  appId = "",
-  /* "blocked" makes window.open return null, the way a popup blocker does. */
-  popups = "ok",
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -296,21 +273,15 @@ const runUserscript = ({
     return handle;
   };
 
-  /* Every tab the control asks the browser to open (#198). A blocked popup is
-     recorded too — the control has to notice the refusal, not just the ask. */
+  /* Every tab the control asks the browser to open. The control only copies,
+     so the tests below expect this to stay empty. */
   const opened = [];
-  const openedWindows = [];
   const open = (href, target, features) => {
     opened.push({ href, target, features });
-    if (popups === "blocked") return null;
-    /* A real `window.open` handle carries an `opener` back to this page. The
-       control nulls it; the test watches that it does. */
-    const handle = { href, opener: { href: url.href } };
-    openedWindows.push(handle);
-    return handle;
+    return { href, opener: null };
   };
 
-  const source = userscriptWithAppId(appId);
+  const source = USERSCRIPT;
   const sandbox = { document, location: url, navigator, open, setTimeout: unrefed, clearTimeout, console, URL };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
@@ -319,7 +290,6 @@ const runUserscript = ({
   return {
     copied,
     opened,
-    openedWindows,
     button: mountedButton,
     get buttonsMounted() {
       return buttonsMounted;
@@ -367,7 +337,7 @@ test("pressing it copies a versioned payload with the loan name and the page URL
   assert.equal(payload.version, HUMPERDINK_PAYLOAD_VERSION);
   assert.equal(payload.loanName, "Adams - Harbor");
   assert.equal(payload.loanUrl, LOAN_URL);
-  assert.equal(page.button.textContent, "Copied — paste it into Hot Task");
+  assert.equal(page.button.textContent, COPIED);
 });
 
 test("the copied URL drops query and hash, so one loan is one key", async () => {
@@ -421,7 +391,7 @@ test("a browser with no async clipboard API falls back to execCommand", async ()
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, clipboard: "no-async-api" });
   await page.press();
   assert.equal(parseHumperdinkPayload(page.copied[0]).ok, true);
-  assert.equal(page.button.textContent, "Copied — paste it into Hot Task");
+  assert.equal(page.button.textContent, COPIED);
 });
 
 test("a refused clipboard says so instead of claiming a copy", async () => {
@@ -636,8 +606,6 @@ const scrapeNote = async (fields, grids = withGrids()) => {
 test("the core terms travel, read by element id", async () => {
   const terms = await scrapeTerms(TERMS_FIELDS);
   assert.equal(terms.loanAmount, "$1,300,000");
-  assert.equal(terms.totalValue, "$3,260,267");
-  assert.equal(terms.ltv, "39.87%");
   assert.equal(terms.termMonths, "24");
   assert.equal(terms.originationFeePoints, "2.0000");
   assert.equal(terms.brokerFeePoints, "2.0000");
@@ -696,29 +664,39 @@ test("a loan using none of the conditional panels carries none of them", async (
   }
 });
 
-/* The whole note the saved loan produces: core terms, its two contacts, and no
-   property block because its one property is a refinance. */
-test("its note is the core terms and its people, and nothing else", async () => {
+/* The whole note the saved loan produces: its two contacts first, then the core
+   terms, and no property block because its one property is a refinance. */
+test("its note is its people and the core terms, and nothing else", async () => {
   const note = await scrapeNote(TERMS_FIELDS);
   assert.equal(
     note,
     [
+      "Contacts",
+      "Broker: Dan LuVisi",
+      "Borrower: Duda Adams",
+      "",
       "Loan Terms",
       "Loan Amount: $1,300,000",
-      "Total Value: $3,260,267",
-      "LTV: 39.87%",
       "Term: 24 months",
       "Interest Rate: Months 1–12 at 7.90%",
       "Interest Rate: Months 13–24 at 8.40%",
       "Origination Fee: 2.0000 points",
       "Broker Fee: 2.0000 points",
-      "Evaluation Fee: $1,750.00",
-      "",
-      "Contacts",
-      "Broker: Dan LuVisi",
-      "Borrower: Duda Adams"
+      "Evaluation Fee: $1,750.00"
     ].join("\n")
   );
+});
+
+/* The page still carries both fields; the desk doesn't want them in the note. */
+test("Total Value and LTV stay behind", async () => {
+  const note = await scrapeNote(TERMS_FIELDS);
+  assert.doesNotMatch(note, /Total Value|LTV|\$3,260,267|39\.87%/);
+});
+
+/* An older script still sends them; the note leaves them out all the same. */
+test("Total Value and LTV from an older script are dropped", () => {
+  const result = parseHumperdinkPayload(payloadText({ terms: { loanAmount: "$1", totalValue: "$9", ltv: "40%" } }));
+  assert.deepEqual(result.payload.terms, { loanAmount: "$1" });
 });
 
 /* Humperdink pre-fills its unused CONDITIONAL panels with zeroes rather than
@@ -794,6 +772,7 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
     [
+      "Contacts",
       "Loan Terms",
       "Loan Term Notes",
       "Junior Financing",
@@ -801,8 +780,7 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
       "Seller Financing",
       "Disbursement Options",
       "Interest Reserve",
-      "Partial Reconveyance",
-      "Contacts"
+      "Partial Reconveyance"
     ]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
@@ -821,12 +799,12 @@ test("a page missing a core terms element reports it and copies nothing", async 
   const page = runUserscript({
     title: "Adams - Harbor - Details",
     href: LOAN_URL,
-    fields: withFields({ LTV: null, txtEvaluation: null })
+    fields: withFields({ LoanTerm: null, txtEvaluation: null })
   });
   await page.press();
   assert.deepEqual(page.copied, []);
   assert.match(page.button.textContent, /loan terms/);
-  assert.match(page.button.textContent, /LTV/);
+  assert.match(page.button.textContent, /LoanTerm/);
   assert.match(page.button.textContent, /txtEvaluation/);
 });
 
@@ -891,8 +869,8 @@ test("junk in the terms field costs the import nothing", () => {
 });
 
 test("non-string and empty term values are dropped, not stringified", () => {
-  const result = withTerms({ loanAmount: 500000, ltv: "  ", totalValue: "$1", termMonths: null });
-  assert.deepEqual(result.payload.terms, { totalValue: "$1" });
+  const result = withTerms({ loanAmount: 500000, evaluationFee: "  ", originationFeePoints: "$1", termMonths: null });
+  assert.deepEqual(result.payload.terms, { originationFeePoints: "$1" });
 });
 
 test("a term long enough to swamp the note is capped", () => {
@@ -918,14 +896,24 @@ test("a rate row with no rate still says which months it covers", () => {
   assert.equal(humperdinkNoteText(result.payload), "Loan Terms\nInterest Rate: Months 1–12");
 });
 
-/* A zero in the CORE set is a loan term, not an unused panel. A loan with no
-   broker really does have a broker fee of zero, and the note has to say so —
-   dropping the line leaves the reader unable to tell it from a field the script
-   failed to read. */
+/* A zero in the CORE set is a loan term, not an unused panel, so it still says
+   so — except the broker fee, which the desk only wants to see when there is
+   one. */
 test("a zero in the core terms is a real term and says so", async () => {
-  const note = await scrapeNote(withFields({ BrokerFeePoints: "0.0000", txtEvaluation: "$0.00" }));
-  assert.match(note, /Broker Fee: 0\.0000 points/);
+  const note = await scrapeNote(withFields({ OriginationFeePoints: "0.0000", txtEvaluation: "$0.00" }));
+  assert.match(note, /Origination Fee: 0\.0000 points/);
   assert.match(note, /Evaluation Fee: \$0\.00/);
+});
+
+test("a zero broker fee is left out of the note", async () => {
+  const note = await scrapeNote(withFields({ BrokerFeePoints: "0.0000" }));
+  assert.doesNotMatch(note, /Broker Fee/);
+  assert.match(note, /Origination Fee: 2\.0000 points\nEvaluation Fee/);
+});
+
+test("a broker fee that isn't zero still shows", async () => {
+  const note = await scrapeNote(withFields({ BrokerFeePoints: "1.5000" }));
+  assert.match(note, /Broker Fee: 1\.5000 points/);
 });
 
 /* #196 lists the combined/blended figures as their own conditional group, and
@@ -933,7 +921,7 @@ test("a zero in the core terms is a real term and says so", async () => {
 test("the blended figures read as their own block under the junior loan", async () => {
   const note = await scrapeNote(withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%" }));
   const headings = note.split("\n\n").map((block) => block.split("\n")[0]);
-  assert.deepEqual(headings, ["Loan Terms", "Junior Financing", "Blended Totals", "Contacts"]);
+  assert.deepEqual(headings, ["Contacts", "Loan Terms", "Junior Financing", "Blended Totals"]);
 });
 
 /* ── The people and the properties (#197) ───────────────────
@@ -1092,14 +1080,14 @@ test("an acquisition with no purchase price filled in carries the address alone"
 });
 
 /* AC: "Note sections read in a stable order alongside the terms from #196." */
-test("the people and the properties read after the terms, always in that order", async () => {
+test("the people lead the note and the properties close it, always in that order", async () => {
   const note = await scrapeNote(
     withFields({ txtLoanTermsNotes: "Rate locked 14 days." }),
     withGrids({ propertyRows: [acquisitionRow()] })
   );
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
-    ["Loan Terms", "Loan Term Notes", "Contacts", "Properties Acquired"]
+    ["Contacts", "Loan Terms", "Loan Term Notes", "Properties Acquired"]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
 });
@@ -1232,147 +1220,41 @@ test("a grid that stays empty is refused, not imported as a loan with nobody on 
   assert.match(page.button.textContent, /contacts \(they hadn't finished loading\)/);
 });
 
-/* ── Landing where you can paste (#198) ──────────────────
+/* ── The clipboard is the whole handoff ──────────────────
 
-   Copying was only half the trip: the filer still had to switch to Teams, find
-   Hot Task and open New Task before the payload had anywhere to go. The control
-   now does both — copy, then open Hot Task on the create form.
-
-   The link carries no data. It says "open the create form" and nothing else,
-   because the loan is already on the clipboard, and the URL it builds has to be
-   the one `teamsTaskDeepLink` builds — the userscript can't import from this
-   workspace, so this is what stops the two drifting. */
-
-const HOT_TASK_APP_ID = "6a1b2c3d-0000-4444-8888-abcdefabcdef";
+   The control used to open Hot Task's create form in a new tab after copying
+   (#198). That was dropped: the filer opens an LOI Check in Hot Task and pastes
+   into Import from Humperdink. These hold the control to copy-only. */
 
 const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
 
-/* The id the file ships with. It used to ship blank for each installer to fill
-   in; that was reversed because everyone installs this by hand and the lookup
-   bought nothing. Read out of the file rather than restated, so the assertions
-   below can say "as shipped" and mean it.
-
-   This is the ORG CATALOG's id for Hot Task, not the `id` in teams-app/manifest.json
-   (`bca6db0b-…`). Publishing through the Teams admin center assigns a new one,
-   and only the catalog's resolves in a deep link. Pinned here as a literal on
-   purpose: the trap this guards is somebody "fixing" the userscript to agree
-   with the manifest, which reads like a typo repair and would silently stop the
-   button opening anything. */
-const SHIPPED_APP_ID = USERSCRIPT.match(APP_ID_LINE_VALUE)?.[1];
-
-test("the file ships with the catalog's app id, so a fresh install opens Hot Task", async () => {
-  assert.equal(SHIPPED_APP_ID, "f80d9b67-a393-4383-990f-2406ae2f4987");
-  const page = goodPage({ appId: SHIPPED_APP_ID });
-  await page.press();
-  assert.equal(page.copied.length, 1);
-  assert.equal(page.opened.length, 1);
-  assert.equal(page.opened[0].href, teamsTaskDeepLink(SHIPPED_APP_ID, undefined, { createForm: true }));
-  assert.match(page.button.textContent, /Copied — opening Hot Task/);
-});
-
-/* Blanking the constant stays supported and documented: an org catalog can
-   assign an app id other than the manifest's, and copy-and-tell is the honest
-   fallback when nobody knows which. */
-test("blanked, it still copies and says to paste it yourself", async () => {
-  const page = goodPage({ appId: "" });
-  await page.press();
-  assert.equal(page.copied.length, 1);
-  assert.deepEqual(page.opened, []);
-  assert.match(page.button.textContent, /Copied — paste it into Hot Task/);
-});
-
-test("with an app id, one press copies the loan AND opens Hot Task", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID });
+test("one press copies the loan and opens nothing", async () => {
+  const page = goodPage();
   await page.press();
   assert.equal(page.copied.length, 1);
   assert.equal(JSON.parse(page.copied[0]).loanName, "Adams - Harbor");
-  assert.equal(page.opened.length, 1);
-  assert.match(page.button.textContent, /Copied — opening Hot Task/);
+  assert.deepEqual(page.opened, []);
+  assert.equal(page.button.textContent, COPIED);
 });
 
-test("the url it opens is the one the shared builder builds", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID });
-  await page.press();
-  assert.equal(page.opened[0].href, teamsTaskDeepLink(HOT_TASK_APP_ID, undefined, { createForm: true }));
+test("the script carries no Teams link and no app id", () => {
+  assert.doesNotMatch(USERSCRIPT, /teams\.microsoft\.com/);
+  assert.doesNotMatch(USERSCRIPT, /HOT_TASK_APP_ID/);
+  assert.doesNotMatch(USERSCRIPT, /window\.open/);
 });
 
-test("the link names no task and carries no loan data — the clipboard has it", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID });
-  await page.press();
-  const context = JSON.parse(new URL(page.opened[0].href).searchParams.get("context"));
-  assert.deepEqual(context, { openCreateForm: true });
-  assert.equal(readCreateFormIntent({ page: context }), true);
-  assert.doesNotMatch(page.opened[0].href, /Adams|335203/);
-});
-
-/* Humperdink's loan page is the thing the filer is reading; sending them off it
-   to file a task about it would cost more than the two clicks this saves. */
-test("Hot Task opens in a new tab, leaving the loan page where it was", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID });
-  await page.press();
-  assert.equal(page.opened[0].target, "_blank");
-});
-
-/* `window.open(url, "_blank", "noopener")` returns null on SUCCESS, which is
-   exactly what a blocked popup returns — pass it and every successful open
-   reports itself as refused. The opener is severed on the handle instead. */
-test("the noopener feature is not passed, so a real open isn't read as a refusal", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID });
-  await page.press();
-  assert.equal(page.opened[0].features, undefined);
-  assert.equal(page.openedWindows[0].opener, null);
-  assert.match(page.button.textContent, /Copied — opening Hot Task/);
-});
-
-test("a second press opens a second time rather than going quiet", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID });
+test("a second press copies again", async () => {
+  const page = goodPage();
   await page.press();
   await page.press();
   assert.equal(page.copied.length, 2);
-  assert.equal(page.opened.length, 2);
-});
-
-/* ── Nothing on the clipboard, nowhere to go ─────────────
-
-   The copy is the capability and the link is the convenience, so the link never
-   runs ahead of it. Landing on an empty create form with nothing to paste is
-   worse than staying put. */
-
-test("a page it couldn't read copies nothing and opens nothing", async () => {
-  const page = runUserscript({ title: "Humperdink", href: LOAN_URL, appId: HOT_TASK_APP_ID });
-  await page.press();
-  assert.deepEqual(page.copied, []);
   assert.deepEqual(page.opened, []);
 });
 
-test("a refused clipboard does not open Hot Task", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID, clipboard: "dead" });
-  await page.press();
-  assert.deepEqual(page.copied, []);
-  assert.deepEqual(page.opened, []);
-  assert.match(page.button.textContent, /Couldn't reach the clipboard/);
-});
-
-test("a press while the grids are still loading opens nothing", async () => {
-  const page = runUserscript({
-    title: "Adams - Harbor - Details",
-    href: LOAN_URL,
-    appId: HOT_TASK_APP_ID,
-    grids: withGrids({ contactRows: [], propertyRows: [] })
-  });
+test("a press while the grids are still loading copies nothing", async () => {
+  const page = goodPage({ grids: withGrids({ contactRows: [], propertyRows: [] }) });
   assert.equal(page.button.textContent, "Loading…");
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.deepEqual(page.opened, []);
   assert.match(page.button.textContent, /Still loading/);
-});
-
-/* A control that silently did nothing would look identical to one that worked,
-   which is why `copyText` reports a refused clipboard. Same rule here. */
-test("a blocked popup is reported, and the copy still stands", async () => {
-  const page = goodPage({ appId: HOT_TASK_APP_ID, popups: "blocked" });
-  await page.press();
-  assert.equal(page.copied.length, 1);
-  assert.equal(page.opened.length, 1);
-  assert.match(page.button.textContent, /Copied — couldn't open Hot Task/);
 });
