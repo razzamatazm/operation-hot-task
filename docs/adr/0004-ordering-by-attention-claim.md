@@ -69,3 +69,17 @@ for how long they have had it.
 Lists with no paused task sort exactly as before. The flat view (its own
 status-bucket sort), the `Done` and `Finished` sections (newest-first by
 completion), `isOverdue`, the reminder engine and `courtOf` are all unchanged.
+
+## Addendum (2026-09-12): In flight splits on Party first
+
+`In flight` is the one court that mixes the viewer's own work with Observer
+tasks, and the glossary had always described it with the viewer's own tasks
+first. It now sorts that way: every task the viewer is a Party to sits above
+every Observer task, and the two tiers above apply inside each half
+(`byInFlightOrder`, beside `byAttentionClaim`).
+
+Two statements above no longer hold for `In flight`. "The tier always wins" is
+true within a half, but being a Party outranks it, so a held check the viewer is
+part of sits above somebody else's live deadline. And an `In flight` list with
+no paused task can still reorder, since the Party split comes first. `Needs you`
+and `Up for grabs` keep the two-tier order unchanged.
