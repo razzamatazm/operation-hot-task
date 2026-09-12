@@ -19,7 +19,9 @@
  *
  * What it touches (all under apps/server/data, or beside --data-file):
  *   tasks.json          replaced (previous copy backed up first)
- *   loans.json          replaced — the loans the seeded tasks hang off
+ *   loans.json          replaced — the loans the seeded tasks hang off, each
+ *                       holding the Humperdink link its tasks show, with one
+ *                       pair named to collide on purpose (see MERGE_PAIR)
  *   bot-note-cards.json, bot-detail-cards.json, bot-task-threads.json,
  *   activity-feed-state.json
  *                       emptied — every entry is keyed by a task id that no
@@ -116,7 +118,16 @@ const checklistItem = (id, text, addedBy, extra = {}) => ({
 });
 
 /* Loans the tasks hang off (ADR-0001). A couple of tasks deliberately share
-   one, so the "two tasks on the same file" case is visible. */
+   one, so the "two tasks on the same file" case is visible.
+
+   Each loan RECORD holds its Humperdink link, and the tasks copy it from here
+   (#316). It used to be minted onto the tasks only, so the board showed links
+   no loan held, and the merge question — asked when a pasted link is one
+   another loan record already holds — could never fire on seed data. One link
+   per loan, all distinct: two seeded loans sharing one would already be one
+   loan. */
+const humperdinkLinkFor = (loanId) => `https://humperdink.example.com/loans/${loanId}`;
+
 const LOANS = [
   { id: "seed-loan-alvarez", name: "Alvarez-2201" },
   { id: "seed-loan-brennan", name: "Brennan-1187" },
@@ -127,9 +138,22 @@ const LOANS = [
   { id: "seed-loan-goodwin", name: "Goodwin-1502" },
   { id: "seed-loan-hollis", name: "Hollis-6034" },
   { id: "seed-loan-ingram", name: "Ingram-2276" }
-];
+].map((loan) => ({ ...loan, humperdinkLink: humperdinkLinkFor(loan.id) }));
 
 const loanFor = (id) => LOANS.find((loan) => loan.id === id);
+
+/* The pair that collides on purpose (#316), so the merge question can be
+   checked by hand with no setup. Suzie filed both tasks and both are still on
+   the open board: she opens the Castillo task, pastes Alvarez's link, saves,
+   and the app asks whether to fold the two loans together. Nothing about these
+   two loans is special beyond that — any seeded loan's link pasted into
+   another's task collides — but this is the one written down and printed, and
+   the dev-reset sim test holds it to that. */
+const MERGE_PAIR = {
+  as: "Suzie",
+  editTaskId: "seed-claimed",
+  pasteFromLoanId: "seed-loan-alvarez"
+};
 
 /* One task per shape worth looking at. Ids are readable rather than UUIDs —
    nothing validates the format, and `seed-` makes leftovers obvious. */
@@ -380,12 +404,28 @@ const materialize = (seed) => {
   const task = { ...seed, folderName };
   if (loan) {
     task.loanName = loan.name;
-    task.humperdinkLink = `https://humperdink.example.com/loans/${loan.id}`;
+    task.humperdinkLink = loan.humperdinkLink;
   }
   return task;
 };
 
 const tasks = TASKS.map(materialize);
+
+/* Resolved before anything is written, like `materialize`'s checks: a pair
+   naming a task or loan that has since been renamed out of the cast should
+   stop the run, not crash it after the store has already been replaced. */
+const mergePairHint = (() => {
+  const edited = tasks.find((task) => task.id === MERGE_PAIR.editTaskId);
+  const source = loanFor(MERGE_PAIR.pasteFromLoanId);
+  if (!edited?.loanId || !source || edited.loanId === source.id) {
+    throw new Error("MERGE_PAIR must name a seeded task and a different seeded loan");
+  }
+  return (
+    `To see the merge question: as ${MERGE_PAIR.as}, edit the ${edited.taskType} task on ${edited.folderName}, ` +
+    `paste ${source.name}'s link (${source.humperdinkLink}) and save. ` +
+    "Confirming the merge uses the pair up; reset again to get it back."
+  );
+})();
 
 /* Enough history that the panel isn't blank: the filing, and the move that put
    the task where it is now. Actions match the ones the server writes. */
@@ -452,6 +492,25 @@ const survivingLoans = keep
   ? (existingLoans.loans ?? []).filter((loan) => !String(loan.id).startsWith("seed-loan-"))
   : [];
 
+/* A store seeded before #316 had no loan holding a seeded link, so filing a
+   task by pasting one minted a loan of your own that holds it. --keep keeps
+   that loan and writes the seeded one beside it, and two loans then share a
+   link: the merge question would name yours rather than the pair's. Which
+   record is right isn't the seeder's call, so it says so and carries on.
+   The key is a loose copy of the shared `normalizeLinkKey` (host case, `www.`,
+   trailing slash) — this script runs on a fresh clone before anything is
+   built, so it can't import the compiled one. */
+const linkKey = (link) =>
+  String(link ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(https?:\/\/)www\./, "$1")
+    .replace(/\/+$/, "");
+const clashes = survivingLoans.flatMap((kept) => {
+  const seeded = LOANS.find((loan) => linkKey(kept.humperdinkLink) && linkKey(loan.humperdinkLink) === linkKey(kept.humperdinkLink));
+  return seeded ? [`  "${kept.name}" already holds ${seeded.name}'s link (${seeded.humperdinkLink})`] : [];
+});
+
 await fs.mkdir(dataDir, { recursive: true });
 await writeJson(dataFile, {
   tasks: [...survivingTasks, ...tasks],
@@ -512,6 +571,12 @@ if (castAdded > 0) {
 }
 if (!keep) {
   console.log("Cleared bot card / thread / activity-signal state. Existing users, admin settings and bot references untouched.");
+}
+console.log(mergePairHint);
+if (clashes.length > 0) {
+  console.log(
+    ["Warning: a loan you kept shares a link with a seeded one, so the merge question may name yours instead:", ...clashes].join("\n")
+  );
 }
 /* No restart needed: the store re-reads the file on every call, so a running
    dev server serves the new board on the next refresh. */
