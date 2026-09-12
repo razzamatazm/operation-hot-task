@@ -269,10 +269,27 @@ Each slot has one job. When adding info, replace something — don't append:
   screen, and under 560px on the reserved line under it, which puts it above
   the names (2026-09-10, the user's call). It briefly lived in the pair beside
   the word `Unclaimed`, which cost the row a second reserved line; sharing the
-  stage's line is what took that back. Read-only there: a five-slot
-  editable track inside a row that is itself a press target is five touch
-  targets nobody asked for, and the creator rates it in the expanded body or
-  on the edit form.
+  stage's line is what took that back. Read-only, for everyone.
+
+  **The rating is changed in the task form and nowhere else** (#335, the
+  user's call). Filing sets it and `Edit Task` changes it; every rating the card
+  draws is read-only for every viewer, the creator included. The click-to-rate
+  track that used to live on the card is gone, along with its handler. The
+  server's points route and its permission are untouched — the form uses them.
+
+  **An open card draws the rating in exactly one place, and never in the
+  body.** The row does not unmount when a card expands, so #332's track and the
+  body's old `How Bad?` line drew the same number twice on every open pool
+  task. One rule, `ratingSurface` in [src/poop-rating.tsx](src/poop-rating.tsx),
+  picks the surface, and the two ask `ratingBlock` with their own name:
+  - **row** — unclaimed and out for the first time (this track);
+  - **menu** — every other state: dropped and re-offered, claimed, in flight,
+    closed. A labelled `role="group"` block (`.task-card-menu-rating`) directly
+    above the timestamps, folded into `menuHasContent`.
+
+  An unrated task draws nothing on either, for anyone.
+  `scripts/rating-placement-sim-test.mjs` sweeps every state for more than one
+  copy, for a control, and for rules left addressing a block nothing emits.
 
   Fixed 5-slot track everywhere it appears — slots 1..N in full colour, the
   rest ghosted, so a 3 reads as three *out of five* rather than as three
@@ -1964,8 +1981,9 @@ reads the markup back. `CheckIcon` / `TrashIcon` moved to
 **Urgency and poop points are on the form** (#261), preloaded from the task —
 a select sitting on GREEN while the task is RED is a control that lies. No
 due-date input appears: changing the urgency re-derives `dueAt` server-side from
-the moment of the edit, the same computation filing uses. The collapsed row
-keeps its click-to-rate poop track; two ways to one number is intended. Both are
+the moment of the edit, the same computation filing uses. Since #335 the
+form is the only place the poops change — every rating the card draws is
+read-only (see *Poop*). Both are
 drawn for the filer alone (`creatorOnlyFields`) — urgency stays the creator's,
 because an assignee who can extend their own deadline is not accepting a deal
 (ADR-0008 rule 5), and the poops say what the creator thinks the ask is worth.

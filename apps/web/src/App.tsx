@@ -1,7 +1,8 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isFirstTimeInPool, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
+import { ratingBlock } from "./poop-rating";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
@@ -411,63 +412,6 @@ const stageSuffix = (task: LoanTask): string => {
     return "";
   }
   return "";
-};
-
-/* ── Poop score control ───────────────────────────────────── */
-const PoopDisplay = ({
-  count,
-  canEdit,
-  onChange
-}: {
-  count: number;
-  canEdit: boolean;
-  /* Optional because the read-only track has nothing to call: the collapsed
-     row draws one and holds no rating handler at all. */
-  onChange?: (next: number) => void;
-}) => {
-  const safeCount = Math.max(0, Math.min(5, count | 0));
-
-  if (safeCount === 0 && !canEdit) return null;
-
-  const titleText = canEdit
-    ? `How Bad? ${safeCount}/5 — click to rate`
-    : `How Bad? ${safeCount}/5`;
-
-  return (
-    <span
-      className={`poop-track${canEdit ? " poop-track-editable" : ""}`}
-      onClick={(e) => e.stopPropagation()}
-      title={titleText}
-      aria-label={titleText}
-    >
-      {[1, 2, 3, 4, 5].map((n) => {
-        const filled = n <= safeCount;
-        const className = `poop-slot${filled ? " poop-slot-on" : ""}`;
-        if (!canEdit) {
-          return (
-            <span key={n} className={className} aria-hidden="true">
-              💩
-            </span>
-          );
-        }
-        return (
-          <button
-            key={n}
-            type="button"
-            className={className}
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange?.(n === safeCount ? 0 : n);
-            }}
-            aria-label={`Set How Bad? to ${n}`}
-            aria-pressed={filled}
-          >
-            💩
-          </button>
-        );
-      })}
-    </span>
-  );
 };
 
 /* Sliders rather than a cog: what is behind it is a set of view preferences,
@@ -1205,9 +1149,8 @@ const TwoExitPanel = ({
    member and there is no due-date input: `dueAt` is derived from the urgency
    band server-side, or on an OOO task from the return date.
 
-   `setPoints` is the edit form's way to the same route the row's click-to-rate
-   track uses, and exists alongside `onUpdatePoints` rather than replacing it
-   because the two want opposite failure behaviour — see `amendApi` below.
+   `setPoints` is the only way the web app sets the poops: since #335 every
+   rating the card draws is read-only, and the form is the one control.
 
    `setDates` takes both dates in one call because they are one range: the rule
    is that the start is on or before the return, which cannot be checked against
@@ -1511,7 +1454,6 @@ const TaskCard = memo(({
   onDeleteMessage,
   onSaveInstructions,
   onAddCompletedNote,
-  onUpdatePoints,
   onEditTask,
   taskHistory,
   onShare,
@@ -1551,7 +1493,6 @@ const TaskCard = memo(({
   /* Append a note to an already-COMPLETED task (#45). Server keeps the task
      COMPLETED — no visible reopen. */
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
-  onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   /* Open the edit form on this task (#260). App owns the form and the save, so
      the row hands over an id and nothing else — a card that held the draft
      would lose it on every list refresh. */
@@ -2415,6 +2356,14 @@ const TaskCard = memo(({
     </div>
   );
 
+  /* How Bad?, on a task whose one copy lives in the menu (#335): dropped and
+     re-offered, claimed, in flight or closed. Read-only for everyone — the
+     rating changes in the task form alone. Reference detail like the
+     timestamps under it, and wrapped the same way: a labelled `group`,
+     announced as part of the panel without becoming an arrow-key stop. Null
+     for an unrated task, so `menuHasContent` reads it like any other block. */
+  const menuRating = ratingBlock("menu", task);
+
   /* Whether the menu has anything worth opening. Written as "is any block
      non-empty" rather than a list of action checks, because the answer stopped
      being about actions when the timestamps moved in: a closed task and a task
@@ -2429,6 +2378,7 @@ const TaskCard = memo(({
     shareMenuItemBlock,
     assignMenuItemBlock,
     cancelStage !== "idle",
+    menuRating,
     menuTimestamps
   ].some(Boolean);
   const actionsMenu = menuHasContent && (
@@ -2468,6 +2418,7 @@ const TaskCard = memo(({
           {!pendingTerminal && secondaryActionsBlock}
           {!pendingTerminal && shareMenuItemBlock}
           {!pendingTerminal && assignMenuItemBlock}
+          {!pendingTerminal && menuRating}
           {!pendingTerminal && menuTimestamps}
         </div>,
         document.body
@@ -2545,22 +2496,10 @@ const TaskCard = memo(({
     <CardMenuScopeProvider>
       <div className="task-card-expanded">
         <Timeline task={task} />
-        {/* How Bad?, moved off the collapsed row. It is a rating the creator
-            sets once and everyone else reads occasionally — not something the
-            row has to answer while you scan it — and five emoji riding the
-            type label were the loudest thing in the densest surface in the
-            app. An unrated task read-only renders nothing: PoopDisplay returns
-            null, so no empty block appears here. */}
-        {(task.points ?? 0) > 0 || (isCreator && !isClosed) ? (
-          <div className="task-card-poop-row">
-            <span className="task-card-poop-label">How Bad?</span>
-            <PoopDisplay
-              count={task.points ?? 0}
-              canEdit={isCreator && !isClosed}
-              onChange={(n) => { void onUpdatePoints(task.id, n); }}
-            />
-          </div>
-        ) : null}
+        {/* No How Bad? here, in any state (#335): the row carries it on a
+            task out for the first time, the hamburger on every other, and the
+            row does not unmount on expand, so a copy here was the same number
+            twice. */}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
         {instructionsBlock}
         <div className="thread">{notesBlock}</div>
@@ -2619,8 +2558,8 @@ const TaskCard = memo(({
               different x on every row and was simply not being found. The ↗ is
               gone (a unicode arrow standing in for an icon, and a colour emoji
               on mobile); the name is still the link and says so with the same
-              standing underline every link carries now. The rating moved into
-              the expanded body, and the per-row loan filter is gone. */}
+              standing underline every link carries now. The per-row loan filter
+              is gone. */}
           <span className="task-card-collapsed-folder">
             {task.taskType !== "OOO" && task.humperdinkLink ? (
               <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
@@ -2703,9 +2642,7 @@ const TaskCard = memo(({
               stamped equal to `createdAt` the way the dev seed writes it. A bare
               `!task.pooledSince` reads as "this has been dropped" on every seeded
               open task on the board. */}
-            {isUnclaimed(task) && isFirstTimeInPool(task) && (task.points ?? 0) > 0 && (
-              <PoopDisplay count={task.points ?? 0} canEdit={false} />
-            )}
+            {ratingBlock("row", task)}
           </span>
         </span>
         <span className={`task-card-grouped-due${groupedOverdue ? " task-card-grouped-due-overdue" : ""}${due.done ? " task-card-grouped-due-done" : ""}`} title={dueTitle}>
@@ -2830,7 +2767,6 @@ const CardList = ({
   onDeleteMessage,
   onSaveInstructions,
   onAddCompletedNote,
-  onUpdatePoints,
   onEditTask,
   taskHistory,
   onShare,
@@ -2869,7 +2805,6 @@ const CardList = ({
      field cannot produce different results. */
   onSaveInstructions: (taskId: string, text: string) => Promise<void>;
   onAddCompletedNote: (taskId: string, text: string) => Promise<void>;
-  onUpdatePoints: (taskId: string, points: number) => Promise<void>;
   /* Open the edit form on this task (#260). App owns the form and the save, so
      the row hands over an id and nothing else — a card that held the draft
      would lose it on every list refresh. */
@@ -2914,7 +2849,6 @@ const CardList = ({
           onDeleteMessage={onDeleteMessage}
           onSaveInstructions={onSaveInstructions}
           onAddCompletedNote={onAddCompletedNote}
-          onUpdatePoints={onUpdatePoints}
           onEditTask={onEditTask}
           taskHistory={taskHistory}
           onShare={onShare}
@@ -4538,15 +4472,6 @@ export const App = () => {
      check and it carries no edit at all now. `saveLoanFields` below is the one
      remaining caller of `patchLoan`, and it always has a task behind it. */
 
-  const onUpdatePoints = useCallback(async (taskId: string, points: number): Promise<void> => {
-    try {
-      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/points`, { method: "POST", body: JSON.stringify({ points }) }, user);
-      await refresh();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to update poops", { variant: "error" });
-    }
-  }, [user, refresh, showToast]);
-
   /* The web app's first caller of GET /tasks/:id/history (ADR-0002 noted it had
      none). `useMemo`'d for the same reason `amendApi` is: a fresh literal every
      render would defeat TaskCard's memo across the whole list.
@@ -4573,12 +4498,11 @@ export const App = () => {
      can express a due date, because no route accepts one, and there is
      deliberately nothing that can post a whole task at once.
 
-     All three rethrow after toasting, unlike `onUpdatePoints`: the edit form
-     holds a draft, so a refused save has to leave it open with the text still
-     in it rather than swallow the rejection and close over the creator's
-     typing. `onUpdatePoints` is the row's click-to-rate track, where there is
-     no draft to protect and a toast is the whole story — which is why the two
-     hit the same route through different members instead of one.
+     All of them rethrow after toasting: the edit form holds a draft, so a
+     refused save has to leave it open with the text still in it rather than
+     swallow the rejection and close over the creator's typing. The form is the
+     only web path to the poops since #335 retired the card's click-to-rate
+     track.
 
      None of them refreshes. A save can call two or three of them and the list
      is the same list afterwards either way, so the refetch belongs once at the
@@ -4883,7 +4807,6 @@ export const App = () => {
       onDeleteMessage,
       onSaveInstructions,
       onAddCompletedNote,
-      onUpdatePoints,
       onEditTask,
       taskHistory: taskHistoryApi,
       onShare,

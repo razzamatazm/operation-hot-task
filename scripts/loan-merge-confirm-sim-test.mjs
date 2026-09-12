@@ -176,7 +176,7 @@ test("the surviving loan-edit surface saves through the one path that asks", () 
 });
 
 test("the flag rides only on the re-send, after a yes", () => {
-  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("const onUpdatePoints"));
+  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("const taskHistoryApi"));
   assert.match(patch, /return await send\(\);/, "the first save carries nothing extra, so a collision is refused");
   assert.match(patch, /if \(!confirmed\)[\s\S]*?throw new MergeDeclined\(\)/, "a no sends nothing and rejects");
   const afterDecline = patch.slice(patch.indexOf("if (!confirmed)"));
@@ -198,7 +198,7 @@ test("declining is silent, and every other refusal still speaks", () => {
 test("a confirmed merge still shows the notice it always did, said once", () => {
   const notices = APP.match(/Merged with "\$\{result\.merged\.intoLoanName\}"/g) ?? [];
   assert.equal(notices.length, 1, "the notice belongs to the step that merged, not to each caller");
-  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("const onUpdatePoints"));
+  const patch = APP.slice(APP.indexOf("const patchLoan = useCallback"), APP.indexOf("const taskHistoryApi"));
   assert.match(patch, /Merged with/, "so any surface that saves a loan inherits it");
   assert.match(patch, /variant: "info"/, "as the same transient toast (ADR-0001 addendum 2026-07-31)");
 });

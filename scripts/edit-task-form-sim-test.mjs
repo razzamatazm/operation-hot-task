@@ -1152,8 +1152,13 @@ test("the save dispatches each field to its own route", () => {
   assert.equal((shell[0].match(/refresh\(\)/g) ?? []).length, 1);
 });
 
-/* ADR-0008 rule 4: two paths to one number is worth more than the tidiness of
-   removing the fast one. The collapsed row keeps its click-to-rate track. */
-test("the poop track on the row still works", () => {
-  assert.match(app, /onChange=\{\(n\) => \{ void onUpdatePoints\(task\.id, n\); \}\}/);
+/* ADR-0008 rule 4 kept a click-to-rate track on the card beside the form. #335
+   retired it at the user's call: the form is the one place the poops change,
+   and every rating the card draws is read-only
+   (`scripts/rating-placement-sim-test.mjs`). The route and its permission are
+   unchanged — the route is asserted above. */
+test("the form is the only web path to the poops route", () => {
+  assert.doesNotMatch(app, /onUpdatePoints/, "the card holds no rating handler");
+  assert.doesNotMatch(app, /\/points`/, "App posts to no points route of its own");
+  assert.match(app, /setPoints: \(taskId, points\) => amend\(taskId, "points"/, "the form's amend path still reaches it");
 });

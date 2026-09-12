@@ -22,9 +22,11 @@
   - Inactive slots are monochrome poop emoji styling
   - Active slots are full-color poop emojis
 - The **creator** may change the points after filing, on any non-closed task,
-  through `POST /api/tasks/:id/points`. Two ways in, deliberately (ADR-0008
-  rule 4): the click-to-rate track on the collapsed row, and the `Edit Task`
-  form (see [task-fields.md](task-fields.md)). A points change is silent — it
+  through `POST /api/tasks/:id/points`. One way in since #335: the task form
+  — filing, or `Edit Task` afterwards (see [task-fields.md](task-fields.md)).
+  Every rating the card draws is read-only, for everyone: on the row of a task
+  out in the pool for the first time, in the task's menu otherwise, and never
+  in the open card. A points change is silent — it
   is recorded in the task's history and DMs nobody.
 - Nobody else may, at any status, and nobody may on a closed task
 - Legacy tasks missing points are backfilled to `1`
