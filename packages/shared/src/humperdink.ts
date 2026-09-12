@@ -224,8 +224,8 @@ const termValue = (value: unknown, cap = TERM_VALUE_CAP): string =>
    appear, and `tsc` has nothing to say about it.
 
    `heading` groups consecutive entries into a block, so the order here IS the
-   note's order. #197 adds its contacts and properties as further blocks after
-   these rather than among them. */
+   order of the terms within the note. #197's contacts come before these and
+   its properties after, as whole blocks rather than among them. */
 interface TermFieldSpec {
   field: Exclude<keyof HumperdinkTerms, "rateTiers">;
   heading: string;
@@ -422,7 +422,7 @@ export interface HumperdinkNoteSection {
   lines: string[];
 }
 
-/** The two blocks #197 adds after the terms. */
+/** The two blocks #197 adds: contacts before the terms, properties after. */
 const CONTACTS_HEADING = "Contacts";
 const PROPERTIES_HEADING = "Properties Acquired";
 
@@ -445,7 +445,7 @@ const rateTierLine = (tier: HumperdinkRateTier): string => {
    loan with none of these produces no empty sections", because a term the loan
    doesn't have never reached the payload in the first place.
 
-   Exported so #197 can append its own sections and so tests can assert the
+   Exported so #197's sections sit in the same list and so tests can assert the
    order without pattern-matching a wall of text. */
 export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNoteSection[] => {
   const sections: HumperdinkNoteSection[] = [];
