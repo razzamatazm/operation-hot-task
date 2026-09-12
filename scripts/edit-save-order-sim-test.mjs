@@ -69,11 +69,15 @@ const oooTask = (over = {}) => ({ id: "task-ooo", taskType: "OOO", ...over });
 /* Records every write a save attempts, in order, and lets a named one reject —
    which is how the merge decline is staged: the loan call is the one that
    asks, so the loan call is the one that rejects. */
-const recorder = ({ rejects, error } = {}) => {
+const recorder = ({ rejects, error, once = false } = {}) => {
   const calls = [];
+  let rejected = false;
   const step = (name) => async (...args) => {
     calls.push({ name, args });
-    if (name === rejects) throw error ?? new Error("refused");
+    if (name === rejects && !(once && rejected)) {
+      rejected = true;
+      throw error ?? new Error("refused");
+    }
   };
   return {
     calls,
@@ -222,6 +226,110 @@ test("a loan-less task whose loan fields did not move still saves", async () => 
   assert.deepEqual(rec.names(), ["setNotes"], "nothing asks for a loan that nothing is writing to");
 });
 
+/* ── A link another loan record also holds (#383) ───────── */
+
+/* The #370 start-up rewrite can leave two loan records on one canonical link,
+   and it does not merge them. The only place that asks is a save that sends the
+   link, and Edit Task never sent an unchanged one, so a pair was only ever asked
+   about by somebody pasting the URL from another Humperdink tab. A save on either
+   task now carries the loan's own link along with whatever else moved, so the
+   server's existing check asks. What is new is the No: the person never touched
+   the link, so declining it cannot cost them the rest of their edit. */
+
+const SHARED = "https://h.example/loans/41/details";
+const shared = { sharedLink: SHARED };
+
+test("a notes-only save on a shared link sends the link first, marked as untouched", async () => {
+  const rec = recorder();
+  await saveTaskEdit(loiTask(), { notes: "new terms" }, rec.write, shared);
+  assert.deepEqual(rec.names(), ["saveLoanFields", "setNotes"], "the question goes first, the notes follow");
+  assert.deepEqual(
+    rec.calls[0].args,
+    ["loan-1", "task-1", { humperdinkLink: SHARED }, { linkUntouched: true }],
+    "the loan's own link, and the dialog is told the person did not move it"
+  );
+});
+
+test("a rename rides the same loan call as the shared link", async () => {
+  const rec = recorder();
+  await saveTaskEdit(loiTask(), { folderName: "Harbor 41", notes: "new terms" }, rec.write, shared);
+  assert.deepEqual(rec.names(), ["saveLoanFields", "setNotes"], "still one loan call, not two");
+  assert.deepEqual(rec.calls[0].args.slice(2), [{ name: "Harbor 41", humperdinkLink: SHARED }, { linkUntouched: true }]);
+});
+
+test("No on an untouched link still saves everything else, and quietly", async () => {
+  const rec = recorder({ rejects: "saveLoanFields", error: new MergeDeclined() });
+  await saveTaskEdit(loiTask(), { notes: "new terms", urgency: "RED" }, rec.write, shared);
+  assert.deepEqual(
+    rec.names(),
+    ["saveLoanFields", "setUrgency", "setNotes"],
+    "resolves, so the form closes like any save; with no rename there is no second loan call"
+  );
+});
+
+test("No with a rename re-sends the rename alone, then the task's fields", async () => {
+  const rec = recorder({ rejects: "saveLoanFields", error: new MergeDeclined(), once: true });
+  await saveTaskEdit(loiTask(), { folderName: "Harbor 41", notes: "new terms" }, rec.write, shared);
+  assert.deepEqual(rec.names(), ["saveLoanFields", "saveLoanFields", "setNotes"]);
+  assert.deepEqual(
+    rec.calls[1].args,
+    ["loan-1", "task-1", { name: "Harbor 41" }],
+    "the link is left off, so both records keep what they had and only the name lands"
+  );
+});
+
+test("every save on a shared link asks again; there is no remembering a No", async () => {
+  const rec = recorder({ rejects: "saveLoanFields", error: new MergeDeclined() });
+  await saveTaskEdit(loiTask(), { notes: "first" }, rec.write, shared);
+  await saveTaskEdit(loiTask(), { notes: "second" }, rec.write, shared);
+  assert.deepEqual(rec.names(), ["saveLoanFields", "setNotes", "saveLoanFields", "setNotes"]);
+  assert.deepEqual(rec.calls[2].args[2], { humperdinkLink: SHARED }, "the second save carried the link too");
+});
+
+test("any other refusal on the shared-link call still stops the save", async () => {
+  const rec = recorder({ rejects: "saveLoanFields", error: new Error("Loan not found") });
+  await assert.rejects(saveTaskEdit(loiTask(), { notes: "new terms" }, rec.write, shared));
+  assert.deepEqual(rec.names(), ["saveLoanFields"], "only a No is allowed through");
+});
+
+test("a link the person changed still cancels the whole save on No, shared or not", async () => {
+  const rec = recorder({ rejects: "saveLoanFields", error: new MergeDeclined() });
+  await assert.rejects(
+    saveTaskEdit(loiTask(), { humperdinkLink: "https://h.example/loans/9/details", notes: "new terms" }, rec.write, shared),
+    (err) => err instanceof MergeDeclined
+  );
+  assert.deepEqual(rec.names(), ["saveLoanFields"], "the form stays open, nothing else went");
+  assert.deepEqual(rec.calls[0].args.length, 3, "and it is asked as a changed link, not an untouched one");
+});
+
+test("a link nobody else holds is never sent on its own account", async () => {
+  const rec = recorder();
+  await saveTaskEdit(loiTask(), { notes: "new terms" }, rec.write, {});
+  assert.deepEqual(rec.names(), ["setNotes"]);
+});
+
+test("loan fields locked for this person: no link, no question", async () => {
+  const rec = recorder();
+  await saveTaskEdit(loiTask(), { notes: "new terms" }, rec.write, { ...shared, loanLocked: true });
+  assert.deepEqual(rec.names(), ["setNotes"]);
+});
+
+test("an out-of-office task and an empty save never reach the shared link", async () => {
+  const ooo = recorder();
+  await saveTaskEdit(oooTask(), { notes: "back on the 4th" }, ooo.write, shared);
+  assert.deepEqual(ooo.names(), ["setNotes"], "OOO has no loan behind it");
+
+  const empty = recorder();
+  await saveTaskEdit(loiTask(), {}, empty.write, shared);
+  assert.deepEqual(empty.names(), [], "nothing changed, so nothing is sent and nothing is asked");
+});
+
+test("a loan-less task with a shared link in hand still just saves its fields", async () => {
+  const rec = recorder();
+  await saveTaskEdit(loiTask({ loanId: undefined }), { notes: "new terms" }, rec.write, shared);
+  assert.deepEqual(rec.names(), ["setNotes"]);
+});
+
 /* ── What is left in <App> ──────────────────────────────── */
 
 /* The shell keeps the parts that are the shell's: the api calls themselves, the
@@ -230,7 +338,9 @@ test("a loan-less task whose loan fields did not move still saves", async () => 
 test("the shell dispatches through the one ordered save and refreshes once", () => {
   const dispatch = /const onSaveEdit = useCallback\([\s\S]*?\n  \}, \[amendApi[^\]]*\]\);/.exec(APP);
   assert.ok(dispatch, "onSaveEdit is still where a save starts");
-  assert.match(dispatch[0], /await saveTaskEdit\(task, edit, \{ \.\.\.amendApi, saveLoanFields \}\)/, "and it goes through the ordered save");
+  assert.match(dispatch[0], /await saveTaskEdit\(task, edit, \{ \.\.\.amendApi, saveLoanFields \}, \{/, "and it goes through the ordered save");
+  assert.match(dispatch[0], /sharedLink: sharedLinkOf\(task\.loanId, loans\)/, "telling it when another loan record holds the link (#383)");
+  assert.match(dispatch[0], /loanLocked: Boolean\(loanEditRefusal\(task, user\)\)/, "and when the loan fields are shut to this person");
   assert.equal((dispatch[0].match(/refresh\(\)/g) ?? []).length, 1, "one refetch for the whole save");
   assert.match(dispatch[0], /NoLoanToCorrect/, "the loan-less refusal is the one it says out loud");
   /* A decline is not a failure and gets no toast — the only `showToast` in here

@@ -237,9 +237,11 @@ export class LoanService {
        (#370). The start-up rewrite to Details pages can leave two records on
        one link, and deliberately does not merge them; it is this question, the
        next time a link is saved onto either record, that brings them together.
-       The edit form sends a link only when its text changed, so in the app that
-       is a paste from another Humperdink tab; an API caller re-sending the same
-       link is asked too. */
+       The edit form sends a record's own link on any save when its loan list
+       shows another record holding it (#383), so in the app that is the next
+       save on a task of either loan; an API caller re-sending the same link is
+       asked too. A re-sent link that neither moved nor collides writes nothing
+       at all; see the early return below. */
     const nextKey = input.humperdinkLink !== undefined ? normalizeLinkKey(input.humperdinkLink) : undefined;
     const collision = nextKey
       ? (await this.loans.all()).find(
@@ -262,6 +264,20 @@ export class LoanService {
         survivingName: original.name,
         absorbedName: duplicate.name
       });
+    }
+
+    /* Nothing moves and nothing collides: write nothing (#383). Edit Task sends a
+       record's own link when its loan list shows another record holding it, and
+       a stale list (the pair merged elsewhere since) sends one that matches
+       nothing. Writing anyway would bump `updatedAt`, which ranks loan search,
+       and re-broadcast every task on the loan for no change. */
+    if (!collision) {
+      const name = input.name?.trim();
+      const nameMoves = Boolean(name) && name !== loan.name;
+      const linkMoves =
+        input.humperdinkLink !== undefined &&
+        (canonicalHumperdinkLink(input.humperdinkLink) || undefined) !== loan.humperdinkLink;
+      if (!nameMoves && !linkMoves) return { loan };
     }
 
     const updated = await this.applyUpdate(loan, input, options.actor);
@@ -510,7 +526,7 @@ export class LoanService {
       const who = named.map((loan) => `"${loan.name}" (${loan.id})`).join(", ");
       console.warn(
         `[loans] ${group.length} loan records share the Humperdink link ${link} and were NOT merged (#370): ${who}. ` +
-          `In Edit Task on either loan, pasting that loan's link from another Humperdink tab asks whether to merge them.`
+          `The next Edit Task save that changes anything on a task of either loan asks whether to merge them.`
       );
     }
     return collisions;

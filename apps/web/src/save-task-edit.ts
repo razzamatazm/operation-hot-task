@@ -30,12 +30,33 @@ import type { TaskEdit } from "./create-form-state";
    test with no build — including `AmendApi`, which erases and so does not drag
    <App> in behind it. */
 export interface TaskEditWrites extends AmendApi {
+  /* `ask.linkUntouched` is set only when the link travels because another loan
+     record holds it, not because the person changed it (#383). It changes the
+     merge question's wording and nothing else about the call. */
   saveLoanFields: (
     loanId: string,
     taskId: string,
-    fields: { name?: string; humperdinkLink?: string }
+    fields: { name?: string; humperdinkLink?: string },
+    ask?: { linkUntouched: true }
   ) => Promise<void>;
 }
+
+/* What the save needs to know about the loan behind the task, beyond the edit.
+
+   `sharedLink` is the loan's current link, present only when another loan
+   record holds the same one (#383) — the pair the #370 start-up rewrite left
+   unmerged. `loanLocked` is ADR-0008 rule 5 refusing this person the loan
+   fields; a locked save never sends the link, shared or not. */
+export interface SaveLoanContext {
+  sharedLink?: string | undefined;
+  loanLocked?: boolean;
+}
+
+/* A No to the merge question. Recognised by name rather than `instanceof`
+   because the class lives in a TSX module this file cannot import and still
+   type-strip into a node test — the same reason `linkCollisionIn` duck-types
+   the request error. */
+const isMergeDeclined = (err: unknown): boolean => err instanceof Error && err.name === "MergeDeclined";
 
 /* The task's name is the loan's name, and this task has no loan behind it yet.
    Its own type rather than a message, so the shell can say so out loud without
@@ -59,7 +80,43 @@ export type SaveTarget = Pick<LoanTask, "id" | "taskType" | "loanId">;
    which for the refusal that asks a question is nothing at all. The refetch
    afterwards belongs to the caller: a save runs however many of these it needs
    and the list is the same list at the end either way. */
-export const saveTaskEdit = async (task: SaveTarget, edit: TaskEdit, write: TaskEditWrites): Promise<void> => {
+export const saveTaskEdit = async (
+  task: SaveTarget,
+  edit: TaskEdit,
+  write: TaskEditWrites,
+  loan: SaveLoanContext = {}
+): Promise<void> => {
+  /* A link another loan record also holds, which the person did not touch
+     (#383). Any real change on the task sends the loan's own link along, so the
+     server's existing check asks whether to merge the pair — the only moment
+     the app can ask, since the start-up rewrite deliberately doesn't merge.
+
+     A No here is not a No to the save. The person came to change something
+     else, so the loan call goes again without the link (only if it has a rename
+     to carry) and the task's fields follow; the save resolves and the form
+     closes as usual. That is the difference from a link the person changed,
+     below, where No means they didn't want the save they typed. */
+  const { sharedLink } = loan;
+  const loanId = task.loanId;
+  if (
+    task.taskType !== "OOO" &&
+    loanId &&
+    sharedLink &&
+    !loan.loanLocked &&
+    edit.humperdinkLink === undefined &&
+    Object.keys(edit).length > 0
+  ) {
+    const name = edit.folderName !== undefined ? { name: edit.folderName } : {};
+    try {
+      await write.saveLoanFields(loanId, task.id, { ...name, humperdinkLink: sharedLink }, { linkUntouched: true });
+    } catch (err) {
+      if (!isMergeDeclined(err)) throw err;
+      if (edit.folderName !== undefined) await write.saveLoanFields(loanId, task.id, name);
+    }
+    await saveTaskFields(task, edit, write);
+    return;
+  }
+
   /* The loan record first, because it is the only write that can ask.
 
      Under the old order the request field went ahead of it, so someone who
@@ -88,11 +145,14 @@ export const saveTaskEdit = async (task: SaveTarget, edit: TaskEdit, write: Task
     });
   }
 
-  /* Then the task's own fields, one focused route each, in the order the form
-     reads top to bottom. Nothing here can express a due date: changing the
-     urgency re-derives it server-side from the moment of the edit, exactly as
-     filing does, and changing an OOO task's return date re-derives it from
-     that. */
+  await saveTaskFields(task, edit, write);
+};
+
+/* The task's own fields, one focused route each, in the order the form reads
+   top to bottom. Nothing here can express a due date: changing the urgency
+   re-derives it server-side from the moment of the edit, exactly as filing
+   does, and changing an OOO task's return date re-derives it from that. */
+const saveTaskFields = async (task: SaveTarget, edit: TaskEdit, write: TaskEditWrites): Promise<void> => {
   if (edit.dates !== undefined) await write.setDates(task.id, edit.dates);
   if (edit.urgency !== undefined) await write.setUrgency(task.id, edit.urgency);
   if (edit.points !== undefined) await write.setPoints(task.id, edit.points);

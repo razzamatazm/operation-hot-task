@@ -87,18 +87,27 @@ export const linkCollisionIn = (error: unknown): LoanLinkCollision | undefined =
    someone would be upset to discover after the fact, and it is true of exactly
    one of the two records — the newer one, which is often the one they are
    standing in. Both names appear, in the roles they will actually play. */
+/* `linkUntouched` (#383) is the save that never touched the link: another loan
+   record already holds this loan's link, and the save carried it along to ask.
+   "Saving it here combines…" would say the person did something to the link, so
+   that case opens by saying the link is shared, then gives the same detail. */
 export const mergeConfirmCopy = (
-  collision: Pick<LoanLinkCollision, "loanName" | "survivingName" | "absorbedName">
-): { title: string; body: string; confirm: string; cancel: string } => ({
-  title: `Merge with "${collision.loanName}"?`,
-  body:
-    `That Humperdink link already belongs to "${collision.loanName}". Saving it here combines the two into ` +
+  collision: Pick<LoanLinkCollision, "loanName" | "survivingName" | "absorbedName">,
+  { linkUntouched = false }: { linkUntouched?: boolean } = {}
+): { title: string; body: string; confirm: string; cancel: string } => {
+  const consequence =
     `one loan, kept under the older name, "${collision.survivingName}". Every task on "${collision.absorbedName}" ` +
     `moves onto it, "${collision.absorbedName}" is kept only as an old name, and its separate record goes away. ` +
-    `This can't be undone from here.`,
-  confirm: "Merge the loans",
-  cancel: "Keep them separate"
-});
+    `This can't be undone from here.`;
+  return {
+    title: `Merge with "${collision.loanName}"?`,
+    body: linkUntouched
+      ? `This loan's Humperdink link is also on "${collision.loanName}". If you merge them, the two become ${consequence}`
+      : `That Humperdink link already belongs to "${collision.loanName}". Saving it here combines the two into ${consequence}`,
+    confirm: "Merge the loans",
+    cancel: "Keep them separate"
+  };
+};
 
 /* The dialog itself. Rendered by App above whatever surface asked — the edit
    form is itself a modal, so this layers over it.
@@ -110,16 +119,18 @@ export const mergeConfirmCopy = (
    answer is the one that sends nothing. */
 export const MergeConfirmDialog = ({
   collision,
+  linkUntouched,
   busy,
   onConfirm,
   onCancel
 }: {
   collision: LoanLinkCollision;
+  linkUntouched?: boolean;
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) => {
-  const copy = mergeConfirmCopy(collision);
+  const copy = mergeConfirmCopy(collision, { linkUntouched: Boolean(linkUntouched) });
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
   /* Focus lands on "Keep them separate": the destructive answer should never be

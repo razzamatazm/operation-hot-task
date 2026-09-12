@@ -2106,6 +2106,15 @@ question, and a toast cannot ask a question (ADR-0008 rule 7).
   shows the existing transient "Merged with …" notice (ADR-0001 addendum
   2026-07-31), fired inside `patchLoan` rather than by each caller, so the notice
   belongs to the step that merged and a third editing surface inherits it.
+- **A link another record already holds is asked about on any save** (#383).
+  When shared `sharedLinkOf` says the task's loan shares its link with another
+  loan record, `saveTaskEdit` sends that link with whatever else moved, so the
+  same dialog comes up with its `linkUntouched` wording: the link is also on the
+  other loan, rather than "saving it here combines". Here a No is not a No to the
+  save. `saveTaskEdit` catches that decline, re-sends a rename without the link
+  if there is one, saves the task's fields and resolves, so the form closes with
+  no toast. A link the person changed keeps the rule above. Nothing is sent when
+  the loan fields are locked (`loanRefusal`), on OOO, or on an empty edit.
 
 **A Save sends only what moved.** `taskEdit` diffs the task against the form
 and returns the changed fields; App turns that into one call per field, on the

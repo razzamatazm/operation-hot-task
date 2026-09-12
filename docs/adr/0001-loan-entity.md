@@ -132,9 +132,12 @@ clustering all agree.
   changes the shape of a record rather than acting on a task.
 - **Records that collide after the rewrite are not merged.** Each collision is
   logged at every start-up while it lasts, naming the records, and the merge
-  question handles it the next time a link is saved onto either record. The edit
-  form sends a link only when its text changed, so in the app that means pasting
-  the loan's link from another Humperdink tab; re-pasting the identical Details
-  link sends nothing. Merging them automatically would absorb one
+  question handles it the next time a link is saved onto either record. Since
+  #383 the edit form sends a loan's own link on any save that changes something,
+  whenever the loan list shows another record holding it, so in the app the next
+  Edit Task save on a task of either loan asks. A No there keeps the records
+  separate and still saves the rest of the edit, and the next save asks again. A
+  link the person changes themselves is unchanged: No cancels the save. Merging
+  them automatically would absorb one
   loan's tasks into another with nobody asked, which ADR-0008 rule 7 refuses;
   whether to do that anyway is a separate decision.
