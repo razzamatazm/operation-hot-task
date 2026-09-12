@@ -76,7 +76,8 @@ import {
   submitBlockReason,
   shouldPurgeArchived,
   shouldSendReminder,
-  SYSTEM_ACTOR
+  SYSTEM_ACTOR,
+  canonicalHumperdinkLink
 } from "@loan-tasks/shared";
 import {
   ActivityFeedStateData,
@@ -197,7 +198,8 @@ export class TaskService {
     // link it. OOO tasks are never loan-related and carry no loanId/link.
     let loanId: string | undefined;
     let resolvedFolderName = folderName;
-    let resolvedLink = input.humperdinkLink?.trim();
+    // The loan's Details page, whichever tab the link was copied from (#370).
+    let resolvedLink = canonicalHumperdinkLink(input.humperdinkLink) || undefined;
     if (!isOoo && this.loans) {
       const loan = await this.loans.resolveForTask({
         ...(input.loanId ? { loanId: input.loanId } : {}),

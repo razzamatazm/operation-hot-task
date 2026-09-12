@@ -9,6 +9,7 @@ import { buildRouter } from "./routes.js";
 import { SseHub } from "./sse.js";
 import { LoanStore, TaskStore } from "./store.js";
 import { LoanService } from "./loan-service.js";
+import { backupStores } from "./data-backup.js";
 import { UserStore } from "./user-store.js";
 import { TeamsNotificationProvider } from "./notifications.js";
 import { SettingsStore } from "./settings-store.js";
@@ -71,6 +72,19 @@ const bootstrap = async (): Promise<void> => {
     userStore.getIdentity(userId)
   );
   const loanService = new LoanService(loanStore, store, sse);
+  /* Idempotent (#370): every stored Humperdink link becomes its loan's Details
+     page, after copying tasks.json and loans.json into data/backups/. Runs
+     before the backfill below, which clusters on links. Records left sharing a
+     link are logged one by one and never merged here. */
+  const relinked = await loanService.canonicalizeStoredLinks({
+    backup: () => backupStores([store, loanStore], path.join(path.dirname(appConfig.dataFile), "backups"))
+  });
+  if (relinked.backupDir) {
+    console.log(
+      `loan_link_rewrite loans=${relinked.loansRewritten} tasks=${relinked.tasksRewritten} ` +
+        `collisions=${relinked.collisions.length} backup=${relinked.backupDir}`
+    );
+  }
   // One-time, idempotent migration (ADR-0001): back existing non-OOO tasks
   // with Loan records + loanId. Safe to run every boot — only touches tasks
   // that still lack a loanId.

@@ -78,6 +78,16 @@ export class JsonFile<T> {
     });
   }
 
+  /* Copy the file, byte for byte and under its own name, into `dir` (#370's
+     start-up backup). Queued like everything else, so the copy is the file
+     between two saves and never a half-written one. */
+  copyInto(dir: string): Promise<void> {
+    return this.enqueue(async () => {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.copyFile(this.filePath, path.join(dir, path.basename(this.filePath)));
+    });
+  }
+
   private async load(): Promise<T> {
     try {
       const parsed: unknown = JSON.parse(await fs.readFile(this.filePath, "utf8"));

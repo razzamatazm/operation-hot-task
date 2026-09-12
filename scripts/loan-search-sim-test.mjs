@@ -128,6 +128,30 @@ test("a pasted Humperdink link suggests the loan carrying it", () => {
   }
 });
 
+test("a loan is found by any of its Humperdink page URLs (#370)", () => {
+  const paged = [
+    loan("loan-castillo", "Castillo Ranch", "2026-09-01T12:00:00.000Z", {
+      humperdinkLink: "https://humperdink.loneoakfund.com/Loans/Details/329366-SL"
+    }),
+    /* A record written before #370's start-up rewrite, still on its Docs page. */
+    loan("loan-alvarez", "Alvarez", "2026-09-02T12:00:00.000Z", {
+      humperdinkLink: "https://humperdink.loneoakfund.com/Loans/Docs/401122-AB"
+    })
+  ];
+  for (const page of ["Details", "Docs", "DueDiligence", "Funding"]) {
+    assert.deepEqual(
+      ids(loanSearchResults(`https://humperdink.loneoakfund.com/Loans/${page}/329366-SL`, paged, new Set())),
+      ["loan-castillo"],
+      page
+    );
+    assert.deepEqual(
+      ids(loanSearchResults(`https://humperdink.loneoakfund.com/Loans/${page}/401122-AB?tab=1`, paged, new Set())),
+      ["loan-alvarez"],
+      `${page} finds a record still holding another page`
+    );
+  }
+});
+
 test("a link no loan carries is a no-match, not a fuzzy guess", () => {
   assert.equal(loanSearchResults("https://app.humperdink.com/loans/9999", loans, myLoanIds).kind, "no-match");
 });

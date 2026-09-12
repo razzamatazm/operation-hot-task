@@ -6,6 +6,7 @@ import {
   TaskHistoryEvent,
   UpdateLoanInput,
   UserIdentity,
+  canonicalHumperdinkLink,
   clusterLoanNames,
   findLoanForCreate,
   normalizeLinkKey,
@@ -21,6 +22,15 @@ import { SseHub } from "./sse.js";
 interface LoanFieldChanges {
   name?: { from: string; to: string };
   link?: { from: string; to: string };
+}
+
+/* What the start-up link rewrite did (#370). `collisions` are loan records the
+   rewrite left holding one link; they are reported, never merged here. */
+export interface LinkRewriteResult {
+  loansRewritten: number;
+  tasksRewritten: number;
+  backupDir?: string;
+  collisions: Array<{ link: string; loans: Array<{ id: string; name: string }> }>;
 }
 
 export interface LoanMergeNotice {
@@ -170,10 +180,12 @@ export class LoanService {
       return existing;
     }
     const now = new Date().toISOString();
+    // Stored as the loan's Details page, whichever tab it was copied from (#370).
+    const link = canonicalHumperdinkLink(input.humperdinkLink);
     const loan: Loan = {
       id: uuid(),
       name,
-      ...(input.humperdinkLink?.trim() ? { humperdinkLink: input.humperdinkLink.trim() } : {}),
+      ...(link ? { humperdinkLink: link } : {}),
       createdAt: now,
       updatedAt: now
     };
@@ -218,16 +230,22 @@ export class LoanService {
       throw new Error("Loan not found");
     }
 
-    /* Only a link that is actually MOVING can collide. A rename that leaves the
-       link alone is never refused, and neither is re-saving the link the loan
-       already has — a loan colliding with itself is the same record. */
+    /* Only a save that carries a link can collide. A rename that leaves the link
+       alone is never refused, and a loan never collides with itself.
+
+       A link that did not move still collides when ANOTHER record holds it
+       (#370). The start-up rewrite to Details pages can leave two records on
+       one link, and deliberately does not merge them; it is this question, the
+       next time a link is saved onto either record, that brings them together.
+       The edit form sends a link only when its text changed, so in the app that
+       is a paste from another Humperdink tab; an API caller re-sending the same
+       link is asked too. */
     const nextKey = input.humperdinkLink !== undefined ? normalizeLinkKey(input.humperdinkLink) : undefined;
-    const collision =
-      nextKey && nextKey !== normalizeLinkKey(loan.humperdinkLink)
-        ? (await this.loans.all()).find(
-            (other) => other.id !== loan.id && normalizeLinkKey(other.humperdinkLink) === nextKey
-          )
-        : undefined;
+    const collision = nextKey
+      ? (await this.loans.all()).find(
+          (other) => other.id !== loan.id && normalizeLinkKey(other.humperdinkLink) === nextKey
+        )
+      : undefined;
 
     if (collision && !options.confirmMerge) {
       /* The same older-record-wins rule the merge below applies, asked one step
@@ -267,7 +285,8 @@ export class LoanService {
   private async applyUpdate(loan: Loan, input: UpdateLoanInput, actor?: UserIdentity): Promise<Loan> {
     const name = input.name?.trim();
     const linkProvided = input.humperdinkLink !== undefined;
-    const link = input.humperdinkLink?.trim();
+    // Stored as the loan's Details page, whichever tab it was copied from (#370).
+    const link = canonicalHumperdinkLink(input.humperdinkLink);
     const next: Loan = {
       ...loan,
       ...(name ? { name } : {}),
@@ -409,6 +428,92 @@ export class LoanService {
       delete next.humperdinkLink;
     }
     return next;
+  }
+
+  /* Start-up rewrite (#370, idempotent): every stored Humperdink link, on loans
+     and on the copies tasks carry, becomes its loan's Details page. Records
+     written before the rule hold whichever tab somebody copied.
+
+     `backup` runs once, before the first write, and only when there is
+     something to rewrite — a second start-up finds nothing, backs nothing up
+     and writes nothing.
+
+     Nothing is merged. Two records that land on one link are the same loan
+     entered twice, but folding them absorbs one loan's tasks into another, and
+     that is a question for a person (ADR-0008 rule 7). Each collision is
+     logged at every start-up while it lasts, and the merge question asks it
+     the next time a link is saved onto either record (see `update`). Like the message-identity migration, this changes the shape
+     of a record rather than acting on a task: no history, no `updatedAt`. */
+  async canonicalizeStoredLinks(options: { backup: () => Promise<string> }): Promise<LinkRewriteResult> {
+    const rewrite = <T extends { humperdinkLink?: string }>(record: T): T | undefined => {
+      if (record.humperdinkLink === undefined) return undefined;
+      const link = canonicalHumperdinkLink(record.humperdinkLink);
+      if (link === record.humperdinkLink) return undefined;
+      const next = { ...record };
+      if (link) {
+        next.humperdinkLink = link;
+      } else {
+        delete next.humperdinkLink;
+      }
+      return next;
+    };
+
+    const loans = await this.loans.all();
+    const rewrittenLoanIds = new Set<string>();
+    const nextLoans = loans.map((loan) => {
+      const next = rewrite(loan);
+      if (!next) return loan;
+      rewrittenLoanIds.add(loan.id);
+      return next;
+    });
+    const staleTaskIds = (await this.tasks.allTasks()).filter((task) => rewrite(task)).map((task) => task.id);
+    if (rewrittenLoanIds.size === 0 && staleTaskIds.length === 0) {
+      return { loansRewritten: 0, tasksRewritten: 0, collisions: this.reportLinkCollisions(loans) };
+    }
+
+    const backupDir = await options.backup();
+    if (rewrittenLoanIds.size > 0) {
+      await this.loans.replaceAll(nextLoans);
+    }
+    let tasksRewritten = 0;
+    for (const taskId of staleTaskIds) {
+      const written = await this.tasks.updateTask(taskId, (current) => {
+        const next = rewrite(current);
+        return next ? { task: next } : undefined;
+      });
+      if (written) tasksRewritten += 1;
+    }
+
+    return {
+      loansRewritten: rewrittenLoanIds.size,
+      tasksRewritten,
+      backupDir,
+      collisions: this.reportLinkCollisions(nextLoans)
+    };
+  }
+
+  /* Loan records sharing one link key, each group logged. Asked at every
+     start-up, not only the one that rewrote: a pair stays a pair until somebody
+     merges it, and a log line written once is easy to miss or lose to a crash. */
+  private reportLinkCollisions(loans: Loan[]): LinkRewriteResult["collisions"] {
+    const byKey = new Map<string, Loan[]>();
+    for (const loan of loans) {
+      const key = normalizeLinkKey(loan.humperdinkLink);
+      if (key) byKey.set(key, [...(byKey.get(key) ?? []), loan]);
+    }
+    const collisions: LinkRewriteResult["collisions"] = [];
+    for (const group of byKey.values()) {
+      if (group.length < 2) continue;
+      const named = group.map((loan) => ({ id: loan.id, name: loan.name }));
+      const link = group[0]?.humperdinkLink ?? "";
+      collisions.push({ link, loans: named });
+      const who = named.map((loan) => `"${loan.name}" (${loan.id})`).join(", ");
+      console.warn(
+        `[loans] ${group.length} loan records share the Humperdink link ${link} and were NOT merged (#370): ${who}. ` +
+          `In Edit Task on either loan, pasting that loan's link from another Humperdink tab asks whether to merge them.`
+      );
+    }
+    return collisions;
   }
 
   /* One-time migration (idempotent): create a Loan per distinct existing

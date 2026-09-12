@@ -99,3 +99,42 @@ the loan — one click from the list directly beneath that header.
 Creating a loan is unchanged. Filing a task still mints one, joins an existing
 one by name or link, and fills in a link the loan was missing, for anybody who
 may file a task. The rule is about *changing* an existing loan.
+
+## Addendum (2026-09-11, #370): the link key is the loan's Details page
+
+"Humperdink link is the canonical unique key" above meant the URL as pasted,
+give or take host case, `www.` and a trailing slash. But a Humperdink loan has a
+page per tab, each with its own URL (`/Loans/Details/329366-SL`,
+`/Loans/Docs/329366-SL`, `/Loans/DueDiligence/329366-SL`,
+`/Loans/Funding/329366-SL`), so one loan could be two keys: a link copied from
+the Docs tab never matched the same loan held under its Details link, never
+raised the merge question, and missed in search.
+
+**The key is now the Details page.** Any link of the form
+`<Humperdink host>/Loans/<one page segment>/<digits>-<letters>` is rewritten to
+`https://humperdink.loneoakfund.com/Loans/Details/<ID>` (id upper-cased), with
+host case, `www.`, a trailing slash, surrounding spaces, a query string and a
+fragment all ignored. Only the Humperdink host is rewritten. A link that does
+not match that shape exactly is left as it was. The rule is
+`canonicalHumperdinkLink` in `packages/shared`, and `normalizeLinkKey` applies
+it, so filing, the edit-time merge question, search and the backfill's
+clustering all agree.
+
+- **Stored in that form** on the loan and on each task's copy, whenever a link
+  is saved: filing a task, `Edit Task`, and the inbound import.
+- **The merge question asks on the canonical link**, and it also asks when the
+  saved link is one another record already holds, even if this record's own
+  link did not move. That case exists only because of the next point.
+- **Existing records are rewritten once, at server start-up**, after copying
+  `tasks.json` and `loans.json` into `data/backups/<timestamp>/`. The rewrite is
+  idempotent: a start-up with nothing to rewrite takes no backup and writes
+  nothing. It adds no history row and does not touch `updatedAt`, because it
+  changes the shape of a record rather than acting on a task.
+- **Records that collide after the rewrite are not merged.** Each collision is
+  logged at every start-up while it lasts, naming the records, and the merge
+  question handles it the next time a link is saved onto either record. The edit
+  form sends a link only when its text changed, so in the app that means pasting
+  the loan's link from another Humperdink tab; re-pasting the identical Details
+  link sends nothing. Merging them automatically would absorb one
+  loan's tasks into another with nobody asked, which ADR-0008 rule 7 refuses;
+  whether to do that anyway is a separate decision.
