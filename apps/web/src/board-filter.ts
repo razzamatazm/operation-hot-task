@@ -20,7 +20,7 @@
    Both predicates are imported as values, which ties this module to
    `@loan-tasks/shared`'s compiled `dist` under node. That is the price of not
    restating either test here; the sim test's `pretest` guards freshness. */
-import { isTaskParty, isUnclaimed } from "@loan-tasks/shared";
+import { CLOSED_STATUSES, isTaskParty, isUnclaimed } from "@loan-tasks/shared";
 import type { LoanTask, UserIdentity } from "@loan-tasks/shared";
 
 export type BoardShow = "everyone" | "mine";
@@ -68,7 +68,6 @@ export const parseBoardHistory = (stored: string | null | undefined): BoardHisto
   BOARD_HISTORY_CHOICES.find((c) => String(c.value) === stored)?.value ?? BOARD_HISTORY_DEFAULT;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const CLOSED: ReadonlyArray<LoanTask["status"]> = ["COMPLETED", "CANCELLED", "ARCHIVED"];
 
 type HistoryFields = Pick<LoanTask, "status" | "completedAt" | "cancelledAt" | "archivedAt" | "updatedAt">;
 
@@ -76,7 +75,7 @@ type HistoryFields = Pick<LoanTask, "status" | "completedAt" | "cancelledAt" | "
    within while its close stamp is no older than the window: the completion
    stamp first, so archiving a finished task does not restart its clock. */
 export const isWithinHistory = (task: HistoryFields, history: BoardHistory, now: number): boolean => {
-  if (history === "all" || !CLOSED.includes(task.status)) return true;
+  if (history === "all" || !CLOSED_STATUSES.includes(task.status)) return true;
   const stamp = task.completedAt ?? task.cancelledAt ?? task.archivedAt ?? task.updatedAt;
   return new Date(stamp).getTime() >= now - history * DAY_MS;
 };

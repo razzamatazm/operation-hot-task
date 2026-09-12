@@ -1021,7 +1021,7 @@ is the list rearranging itself under the viewer, which is the thing #161
 removed. The button is `aria-disabled` rather than `disabled` when nothing
 below it is open, so it holds its place in the tab order and a screen reader
 user can hear that there is nothing to collapse; its accessible name says
-which list it acts on, because three headers render the same two words.
+which list it acts on.
 
 ### There is no status stripe (deleted 2026-09-06)
 

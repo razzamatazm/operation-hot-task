@@ -118,8 +118,8 @@ has it, and it combines with either view and with Show:
 - **A link to a closed task outside the window still lands.** The task opens
   and stays on the board until the page reloads; the History setting itself is
   not changed.
-- Persisted per browser. Nothing is stored for anything unrecognised, so a
-  fresh browser is on `Last 14 days`, which is the fixed window the board had
+- Persisted per browser. A fresh browser, or a stored value the app does not
+  recognise, reads as `Last 14 days`, which is the fixed window the board had
   before the setting existed. The admin Tasks tab count is open work only, so
   History does not change it. It is a view over what the server sends, and the
   server's own auto-archive and purge are unchanged (see
