@@ -481,11 +481,15 @@ const run = async () => {
     const task = makeTask({ loanId: loan.id, folderName: "Marlow", humperdinkLink: details });
     await taskStore.upsertTask(task);
     const taskBefore = await taskStore.findTask(task.id);
+    const loanBefore = await loanStore.find(loan.id);
 
     const res = await service.update(loan.id, { humperdinkLink: details }, { actor });
     assert.equal(res.merged, undefined, "nothing to merge");
     assert.equal(res.loan.humperdinkLink, details, "the link is what it was");
     assert.equal((await loanStore.all()).length, 1);
+    assert.deepEqual(await loanStore.find(loan.id), loanBefore, "the loan is not rewritten, so search ranking does not move");
+    const sameName = await service.update(loan.id, { name: " Marlow ", humperdinkLink: hdLink("Docs", "401133-cd") }, { actor });
+    assert.equal(sameName.loan.updatedAt, loanBefore.updatedAt, "nor for its own name and another tab of its own link");
     assert.equal((await taskStore.allHistoryForTask(task.id)).length, 0, "no history row on the task");
     assert.deepEqual(await taskStore.findTask(task.id), taskBefore, "and the task is byte-for-byte unchanged");
 

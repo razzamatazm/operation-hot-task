@@ -240,8 +240,8 @@ export class LoanService {
        The edit form sends a record's own link on any save when its loan list
        shows another record holding it (#383), so in the app that is the next
        save on a task of either loan; an API caller re-sending the same link is
-       asked too. A re-sent link that neither moved nor collides writes no
-       history row and changes no task: `applyUpdate` records only what moved. */
+       asked too. A re-sent link that neither moved nor collides writes nothing
+       at all; see the early return below. */
     const nextKey = input.humperdinkLink !== undefined ? normalizeLinkKey(input.humperdinkLink) : undefined;
     const collision = nextKey
       ? (await this.loans.all()).find(
@@ -264,6 +264,20 @@ export class LoanService {
         survivingName: original.name,
         absorbedName: duplicate.name
       });
+    }
+
+    /* Nothing moves and nothing collides: write nothing (#383). Edit Task sends a
+       record's own link when its loan list shows another record holding it, and
+       a stale list (the pair merged elsewhere since) sends one that matches
+       nothing. Writing anyway would bump `updatedAt`, which ranks loan search,
+       and re-broadcast every task on the loan for no change. */
+    if (!collision) {
+      const name = input.name?.trim();
+      const nameMoves = Boolean(name) && name !== loan.name;
+      const linkMoves =
+        input.humperdinkLink !== undefined &&
+        (canonicalHumperdinkLink(input.humperdinkLink) || undefined) !== loan.humperdinkLink;
+      if (!nameMoves && !linkMoves) return { loan };
     }
 
     const updated = await this.applyUpdate(loan, input, options.actor);
