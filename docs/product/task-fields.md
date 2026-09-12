@@ -201,9 +201,11 @@ is wrong on all of them.
   pasting the Docs URL of a loan another record holds raises the merge question
   on the first try. Links saved before this were rewritten once when the server
   started, after a backup. Two records that turned out to hold the same loan
-  were **not** merged then: the server logged them, and saving either one's link
-  asks the merge question. A link that isn't a Humperdink loan page is saved as
-  typed.
+  were **not** merged then: the server logs them at every start-up while they
+  last, and pasting that loan's link from another Humperdink tab into Edit Task
+  on either one asks the merge question. Re-pasting the exact link a record
+  already shows changes nothing, so it sends nothing and asks nothing. A link
+  that isn't a Humperdink loan page is saved as typed.
 - **Every affected task records it.** A loan edit writes a history row on each
   task the loan reaches — `TASK_LOAN_NAME_AMENDED` and/or
   `TASK_LOAN_LINK_AMENDED`, naming who did it and both values

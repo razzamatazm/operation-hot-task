@@ -1356,6 +1356,13 @@ const run = async () => {
       body: { folderName: "Smoke Saved Merge Keep", taskType: "VALUE", notes: "smoke-saved-merge", humperdinkLink: "https://humperdink.example/Loans/Details/9001" }
     });
     expectStatus(mergeKeep.status, 201, "create the loan a merge keeps", mergeKeep.json);
+    const tabAsk = await request(server.baseUrl, "PATCH", `/loans/${mergeKeep.json.task.loanId}`, {
+      user: users.creator,
+      body: { taskId: mergeKeep.json.task.id, humperdinkLink: "https://humperdink.loneoakfund.com/Loans/Funding/770001-SM" }
+    });
+    expectStatus(tabAsk.status, 409, "another tab of a held loan asks before merging (#370)", tabAsk.json);
+    assert.ok(JSON.stringify(tabAsk.json).includes("Smoke Humperdink Tabs"), "naming the loan that holds its Details page");
+    pushPass("pasting a loan's Funding URL where another loan holds its Details URL raises the merge question over HTTP");
     const mergeGone = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: { folderName: "Smoke Saved Merge Gone", taskType: "VALUE", notes: "smoke-saved-merge", humperdinkLink: "https://humperdink.example/Loans/Details/9002" }

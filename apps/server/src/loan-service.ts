@@ -236,7 +236,10 @@ export class LoanService {
        A link that did not move still collides when ANOTHER record holds it
        (#370). The start-up rewrite to Details pages can leave two records on
        one link, and deliberately does not merge them; it is this question, the
-       next time either link is saved, that brings them together. */
+       next time a link is saved onto either record, that brings them together.
+       The edit form sends a link only when its text changed, so in the app that
+       is a paste from another Humperdink tab; an API caller re-sending the same
+       link is asked too. */
     const nextKey = input.humperdinkLink !== undefined ? normalizeLinkKey(input.humperdinkLink) : undefined;
     const collision = nextKey
       ? (await this.loans.all()).find(
@@ -438,8 +441,8 @@ export class LoanService {
      Nothing is merged. Two records that land on one link are the same loan
      entered twice, but folding them absorbs one loan's tasks into another, and
      that is a question for a person (ADR-0008 rule 7). Each collision is
-     logged, and the merge question asks it the next time either link is saved
-     (see `update`). Like the message-identity migration, this changes the shape
+     logged at every start-up while it lasts, and the merge question asks it
+     the next time a link is saved onto either record (see `update`). Like the message-identity migration, this changes the shape
      of a record rather than acting on a task: no history, no `updatedAt`. */
   async canonicalizeStoredLinks(options: { backup: () => Promise<string> }): Promise<LinkRewriteResult> {
     const rewrite = <T extends { humperdinkLink?: string }>(record: T): T | undefined => {
@@ -465,7 +468,7 @@ export class LoanService {
     });
     const staleTaskIds = (await this.tasks.allTasks()).filter((task) => rewrite(task)).map((task) => task.id);
     if (rewrittenLoanIds.size === 0 && staleTaskIds.length === 0) {
-      return { loansRewritten: 0, tasksRewritten: 0, collisions: [] };
+      return { loansRewritten: 0, tasksRewritten: 0, collisions: this.reportLinkCollisions(loans) };
     }
 
     const backupDir = await options.backup();
@@ -481,29 +484,36 @@ export class LoanService {
       if (written) tasksRewritten += 1;
     }
 
-    // Only groups this pass produced: a group with no rewritten member was
-    // already sharing a link before, and is not this rewrite's to report.
+    return {
+      loansRewritten: rewrittenLoanIds.size,
+      tasksRewritten,
+      backupDir,
+      collisions: this.reportLinkCollisions(nextLoans)
+    };
+  }
+
+  /* Loan records sharing one link key, each group logged. Asked at every
+     start-up, not only the one that rewrote: a pair stays a pair until somebody
+     merges it, and a log line written once is easy to miss or lose to a crash. */
+  private reportLinkCollisions(loans: Loan[]): LinkRewriteResult["collisions"] {
     const byKey = new Map<string, Loan[]>();
-    for (const loan of nextLoans) {
+    for (const loan of loans) {
       const key = normalizeLinkKey(loan.humperdinkLink);
       if (key) byKey.set(key, [...(byKey.get(key) ?? []), loan]);
     }
     const collisions: LinkRewriteResult["collisions"] = [];
     for (const group of byKey.values()) {
-      if (group.length < 2 || !group.some((loan) => rewrittenLoanIds.has(loan.id))) continue;
-      const collision = {
-        link: group[0]?.humperdinkLink ?? "",
-        loans: group.map((loan) => ({ id: loan.id, name: loan.name }))
-      };
-      collisions.push(collision);
+      if (group.length < 2) continue;
+      const named = group.map((loan) => ({ id: loan.id, name: loan.name }));
+      const link = group[0]?.humperdinkLink ?? "";
+      collisions.push({ link, loans: named });
+      const who = named.map((loan) => `"${loan.name}" (${loan.id})`).join(", ");
       console.warn(
-        `[loans] ${group.length} loan records now share the Humperdink link ${collision.link} and were NOT merged ` +
-          `(#370): ${collision.loans.map((loan) => `"${loan.name}" (${loan.id})`).join(", ")}. ` +
-          `Saving either link in Edit Task asks whether to merge them.`
+        `[loans] ${group.length} loan records share the Humperdink link ${link} and were NOT merged (#370): ${who}. ` +
+          `In Edit Task on either loan, pasting that loan's link from another Humperdink tab asks whether to merge them.`
       );
     }
-
-    return { loansRewritten: rewrittenLoanIds.size, tasksRewritten, backupDir, collisions };
+    return collisions;
   }
 
   /* One-time migration (idempotent): create a Loan per distinct existing

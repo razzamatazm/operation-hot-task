@@ -131,7 +131,10 @@ clustering all agree.
   nothing. It adds no history row and does not touch `updatedAt`, because it
   changes the shape of a record rather than acting on a task.
 - **Records that collide after the rewrite are not merged.** Each collision is
-  logged at start-up, naming the records, and the merge question handles it the
-  next time either link is saved. Merging them automatically would absorb one
+  logged at every start-up while it lasts, naming the records, and the merge
+  question handles it the next time a link is saved onto either record. The edit
+  form sends a link only when its text changed, so in the app that means pasting
+  the loan's link from another Humperdink tab; re-pasting the identical Details
+  link sends nothing. Merging them automatically would absorb one
   loan's tasks into another with nobody asked, which ADR-0008 rule 7 refuses;
   whether to do that anyway is a separate decision.

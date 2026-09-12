@@ -423,8 +423,10 @@ const run = async () => {
   });
 
   /* After the start-up rewrite two records can hold the SAME Details link. They
-     are not merged there; the merge question handles it the next time either
-     link is saved — including a save of the very link the record already has. */
+     are not merged there; the merge question handles it the next time a link is
+     saved onto either record. In the app that is a paste from another tab (the
+     edit form sends only a link whose text changed); the service also asks when
+     an API caller re-sends the link the record already has. */
   await withTempDir(async ({ service, loanStore }) => {
     const details = hdLink("Details", "401122-AB");
     await loanStore.replaceAll([
@@ -535,7 +537,9 @@ const run = async () => {
 
     const second = await service.canonicalizeStoredLinks({ backup });
     assert.equal(backupsTaken, 1, "a second start-up finds nothing, so takes no backup");
-    assert.deepEqual(second, { loansRewritten: 0, tasksRewritten: 0, collisions: [] }, "and rewrites nothing");
+    assert.equal(second.loansRewritten + second.tasksRewritten, 0, "and rewrites nothing");
+    assert.equal(second.backupDir, undefined);
+    assert.deepEqual(second.collisions, first.collisions, "but reports the unmerged pair again, every start-up it lasts");
     pass("start-up rewrites stored links to Details pages after a backup, reports collisions, merges nothing, and is idempotent");
   });
 
