@@ -1404,10 +1404,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                   {form.pickerMode === "assign" ? "Assign Directly" : "Share Directly"}
                   <span className="form-label-optional"> - Optional</span>
                 </span>
-                <div className="seg" role="group" aria-label="Share or assign">
+                <div className="form-direct-mode" role="group" aria-label="Share or assign">
                   <button
                     type="button"
-                    className={form.pickerMode === "share" ? "seg-on" : ""}
+                    className={`form-direct-mode-choice${form.pickerMode === "share" ? " form-direct-mode-on" : ""}`}
                     aria-pressed={form.pickerMode === "share"}
                     onClick={() => setForm((c) => ({ ...c, pickerMode: "share" }))}
                   >
@@ -1415,7 +1415,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                   </button>
                   <button
                     type="button"
-                    className={form.pickerMode === "assign" ? "seg-on" : ""}
+                    className={`form-direct-mode-choice${form.pickerMode === "assign" ? " form-direct-mode-on" : ""}`}
                     aria-pressed={form.pickerMode === "assign"}
                     onClick={() => setForm((c) => ({ ...c, pickerMode: "assign" }))}
                   >
