@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -17,8 +17,9 @@ import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn }
 import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
-import { TaskDraftsPage } from "./saved-for-later";
-import { SavedForLaterRequest, discardUnsavedRequest, keepUnsavedRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
+import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
+import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
+import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { CardMenuScopeProvider, InstructionsSection, ThreadMessages, threadHeadLabel } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -3927,6 +3928,27 @@ export const App = () => {
     }
   }, [user]);
 
+  /* The viewer's autosave (#371): the new task form's typing, kept on the
+     server like a Saved for Later task and listed beside them on the Task
+     Drafts tab. Loaded with them, and again on the way into New Task so the
+     form opens on the latest.
+
+     Held as the newer of the server's copy and this browser's offline one, so
+     typing the server never got still shows on the tab, and opens. A server
+     that could not be asked leaves what App already held in the running. Same
+     owner check as the list: an answer for the previous person is dropped. */
+  const [autosave, setAutosave] = useState<Autosave | null>(null);
+  const loadAutosave = useCallback(async (): Promise<void> => {
+    const { reached, item } = await loadAutosaveRequest(savedForLaterRequestFor(user));
+    if (user.id !== savedForLaterOwner.current) return;
+    const offline = readDraftCopy(browserDraftStorage(), user.id);
+    const at = Date.now();
+    setAutosave((current) => {
+      const best = newerAutosave(autosaveCopy(reached ? item : current, at), offline);
+      return best ? { ownerId: user.id, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null;
+    });
+  }, [user]);
+
   /* Runtime client config. Unauthenticated and independent of SSO, so it runs
      on its own rather than waiting on the Teams handshake — /me stays about
      identity. A failure just leaves the app id null, which degrades "Copy
@@ -4053,10 +4075,12 @@ export const App = () => {
        never on screen under the next person's name while theirs load. */
     savedForLaterOwner.current = user.id;
     setSavedForLater([]);
+    setAutosave(null);
     if (!user.id) return;
     refresh().catch(() => {});
     loadLoans().catch(() => {});
     loadSavedForLater().catch(() => {});
+    loadAutosave().catch(() => {});
   }, [user.id]);
 
   useEffect(() => {
@@ -4166,6 +4190,9 @@ export const App = () => {
     }
     if (saved.ownerId === savedForLaterOwner.current) {
       setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== savedId)]);
+      /* A new form's typing was its autosave, and the server cleared that in the
+         same write (#371), so the Autosaved row goes as the draft row arrives. */
+      if (!savedId) setAutosave(null);
     }
   };
 
@@ -4224,6 +4251,51 @@ export const App = () => {
   const onDiscardUnsaved = useCallback(async (savedId: string): Promise<boolean> => {
     return discardUnsavedRequest(savedForLaterRequestFor(user), savedId);
   }, [user]);
+
+  /* Opening New Task (#371). The button and the Task Drafts tab's Autosaved row
+     are the same way in, so tapping the row opens exactly what New Task would.
+     The latest autosave is asked for first, so typing done on another device
+     since sign-in is what the form opens on; a server that does not answer in
+     time opens on what App already holds. A form opened while that was out is
+     left alone. */
+  const openNewTask = useCallback(async (): Promise<void> => {
+    setReopened(null);
+    await loadAutosave();
+    if (formOpenNow.current) return;
+    setFormOpen(true);
+  }, [loadAutosave]);
+
+  /* A new task form's typing, written to the server's autosave as it is typed
+     (#371). Silent, and the board is left alone, for the reason
+     `onKeepUnsaved` is: it runs every time somebody pauses. */
+  const onKeepAutosave = useCallback(async (form: SavedForLaterForm): Promise<boolean> => {
+    return keepAutosaveRequest(savedForLaterRequestFor(user), form);
+  }, [user]);
+
+  /* A new task form forgetting its autosave: filed, discarded, Start fresh,
+     saved for later, or emptied back out. The Autosaved row goes with it. Silent
+     when the server could not forget it; the form has already cleared this
+     browser's copy. */
+  const onForgetAutosave = useCallback(async (): Promise<boolean> => {
+    if (user.id === savedForLaterOwner.current) setAutosave(null);
+    return forgetAutosaveRequest(savedForLaterRequestFor(user));
+  }, [user]);
+
+  /* The Autosaved row's delete (#371), once its question was answered yes. The
+     server first, then this browser's offline copy and the row, so a delete that
+     did not land leaves the row where it was, with a word about it, the way a
+     draft's does. */
+  const deleteAutosave = useCallback(async (): Promise<boolean> => {
+    const removed = await forgetAutosaveRequest(savedForLaterRequestFor(user));
+    if (user.id !== savedForLaterOwner.current) return false;
+    if (!removed) {
+      showToast("Couldn't delete the autosaved task. Try again.", { variant: "error" });
+      return false;
+    }
+    clearDraft(browserDraftStorage(), user.id);
+    setAutosave(null);
+    return true;
+  }, [user, showToast]);
 
   const onClaim = useCallback(async (taskId: string): Promise<void> => {
     try {
@@ -4981,9 +5053,10 @@ export const App = () => {
           typing never re-renders App or the task list. Mounted only while
           open; unmounting on close throws that state away — which is why the
           form asks before it calls `onClose` on anything a person has typed
-          into (#283), and why it keeps its own saved copy in localStorage so a
-          reload or a closed tab can be picked back up (#284). Both of those
-          live in the child; App still holds nothing but "is it open". */}
+          into (#283), and why it autosaves as it is typed so a reload or a
+          closed tab can be picked back up (#284), on the server since #371.
+          Both of those live in the child; App holds "is it open" and the
+          autosave the form opens on, which the Task Drafts tab also lists. */}
       {formOpen && (
         <TaskForm
           key={reopened?.id ?? "new"}
@@ -4999,7 +5072,9 @@ export const App = () => {
           onSaveForLater={onSaveForLater}
           onKeepUnsaved={onKeepUnsaved}
           onDiscardUnsaved={onDiscardUnsaved}
-          {...(reopened ? { reopened } : {})}
+          onKeepAutosave={onKeepAutosave}
+          onForgetAutosave={onForgetAutosave}
+          {...(reopened ? { reopened } : { autosave })}
         />
       )}
 
@@ -5059,7 +5134,7 @@ export const App = () => {
                 tasksLabel={searchLoan ? searchLoan.name : mine ? "My tasks" : "Tasks"}
                 {...(searchLoan ? { tasksTitle: searchLoan.name } : {})}
                 tasksCount={boardTasks.length}
-                draftsCount={savedForLater.length}
+                draftsCount={taskDraftsCount(savedForLater, autosave, now)}
               />
               {boardTab === "tasks" && (searchLoan ? <LoanSearchStatus loan={searchLoan} onClear={clearSearch} /> : mine && showEveryone)}
               <div className="task-grid-head-actions">
@@ -5075,12 +5150,12 @@ export const App = () => {
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
                 />
-                <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
+                <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); } }} />
               </div>
             </div>
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>
               {body === "drafts" ? (
-                <TaskDraftsPage items={savedForLater} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} />
+                <TaskDraftsPage items={savedForLater} autosave={autosave} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} onOpenAutosave={openNewTask} onDeleteAutosave={deleteAutosave} />
               ) : body === "search-empty" && searchLoan ? (
                 <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
               ) : body === "mine-empty" ? (
@@ -5110,7 +5185,7 @@ export const App = () => {
                 themeChoice={themeChoice}
                 onThemeChange={setThemeChoice}
               />
-              <NewTaskButton open={formOpen} onClick={() => { setReopened(null); setFormOpen((o) => !o); }} />
+              <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); } }} />
             </div>
           </div>
           {renderTaskList(allTasksAdmin, "No tasks yet.")}

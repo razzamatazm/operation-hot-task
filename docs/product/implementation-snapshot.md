@@ -26,7 +26,8 @@ Verified against the repo and local run on `2026-05-04`.
   - Admin settings (selected notification channel): `apps/server/data/admin-settings.json`
   - Saved for Later tasks (ADR-0011): `apps/server/data/saved-for-later.json`,
     beside the tasks file unless `SAVED_FOR_LATER_FILE` says otherwise. Kept
-    apart from tasks on purpose, and private to each owner
+    apart from tasks on purpose, and private to each owner. The new task form's
+    autosave (#371) lives in the same file, under `autosaves`, one per owner
 
 See [AGENTS.md](../../AGENTS.md) for validation commands.
 
@@ -73,7 +74,9 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `GET /api/saved-for-later/:id` → `{ item }`
   - `POST /api/saved-for-later` with `{ form }` → **201** `{ item }`. `form` is
     the whole new task form, every field; nothing on it is required, and a body
-    that isn't that shape is a **400**
+    that isn't that shape is a **400**. `clearAutosave: true` (#371) also clears
+    the caller's autosave in the same write; the web app sends it from a new
+    task form, and not from a reopened one whose record had gone
   - `PUT /api/saved-for-later/:id` with `{ form }` → `{ item }` (#344). Saves a
     reopened one again: the same record takes the whole new form and a new
     `savedAt`, so it never becomes a copy. The latest save wins, with no
@@ -95,6 +98,17 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
     where it was; and when its owner deletes one from the board and confirms
     (#345). Someone else's and an id that never existed get the identical
     **404** and body
+- The new task form's autosave (#371, ADR-0011 rule 5). One per person, kept
+  in the Saved for Later store and under the same rules: the caller's own only,
+  the same **403** for a deactivated caller, and deleted with its owner. No id
+  in the path, because there is only ever the caller's. Seven days after its
+  last write it is gone: a read never returns one that old and removes it, and
+  every write drops everyone's that has aged out.
+  - `GET /api/autosave` → `{ item }`, the caller's autosave or `null`
+  - `PUT /api/autosave` with `{ form }` → `{ item }`. Written by the new task
+    form as it is typed into; replaces the caller's autosave and restarts its
+    seven days. Same **400** as a save
+  - `DELETE /api/autosave` → **204**, including when there was none
 - Tasks:
   - `GET /api/tasks`
   - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or

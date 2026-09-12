@@ -26,9 +26,9 @@
    rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
-import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, Autosave, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, restoredDraftCopy, writeDraft } from "./create-form-draft";
+import { autosaveCopy, browserDraftStorage, clearDraft, draftAction, newerAutosave, readDraftCopy, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
@@ -131,6 +131,19 @@ interface TaskFormProps {
      reopened form, and a form typed back to exactly what was saved. Resolves
      whether nothing unsaved is left; never rejects. */
   onDiscardUnsaved?: (savedId: string) => Promise<boolean>;
+  /* The new task form's autosave as the server last gave it to App (#371), on
+     the way into New Task. The form opens on it, or on this browser's offline
+     copy when that one was written later. A reopened form, an edit form and a
+     prefilled one never open on it. */
+  autosave?: Autosave | null;
+  /* Writes a new task form's typing to the server's autosave, as it is typed
+     (#371). Resolves whether it landed, and never rejects: it runs off a timer
+     mid-sentence, and a write that did not land is kept in this browser instead,
+     silently. */
+  onKeepAutosave?: (form: CreateFormValues) => Promise<boolean>;
+  /* Forgets the server's autosave: a create, a discard, Start fresh, Save for
+     later, or a form emptied back out. Never rejects. */
+  onForgetAutosave?: () => Promise<boolean>;
   /* Values the form opens with (#194). Omitted — the everyday case — opens it
      blank, exactly as before. The defaults and the FRAUD seeder / recipient
      picker / OOO date fields all live in `create-form-state.ts`; see there for
@@ -141,7 +154,7 @@ interface TaskFormProps {
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, edit, reopened, onKeepUnsaved, onDiscardUnsaved }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, edit, reopened, onKeepUnsaved, onDiscardUnsaved, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -172,6 +185,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     storage: edit || reopened ? null : browserDraftStorage(),
     userId: user.id
   }));
+  /* Whether this form has a seat on the server's autosave (#371): a new task
+     form does, and a reopened or edit form does not, for the reasons it has no
+     browser storage above. Nothing further down reads, writes or forgets the
+     server's autosave without it. */
+  const autosaveSeat = !edit && !reopened;
+  /* The server calls behind that seat, pinned at open for the reason the seat's
+     user id is. App's callbacks follow whoever is signed in now, and the dev
+     user picker can change that mid-form; held from open, they write and forget
+     the autosave of the person who opened the form, never the next person's. */
+  const [autosaveCalls] = useState(() => ({ keep: onKeepAutosave, forget: onForgetAutosave }));
   /* What the form opens with, worked out once. Lazy, so re-renders don't rebuild
      it and a changing `initialValues` identity can't reset a half-typed form:
      the values seed the form once, at open. Reopening remounts this component,
@@ -207,8 +230,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       return { values, fresh: initialCreateForm(), fromDraft: false };
     }
     const fresh = initialCreateForm(initialValues);
-    const restored = initialValues ? null : readDraft(draftSeat.storage, draftSeat.userId);
-    return { values: restored ?? fresh, fresh, fromDraft: restored !== null };
+    /* The server's autosave, or this browser's offline copy of typing the
+       server never got, whichever was written last (#371). */
+    const restored = initialValues
+      ? null
+      : newerAutosave(autosaveCopy(autosave, Date.now()), readDraftCopy(draftSeat.storage, draftSeat.userId));
+    return { values: restored?.values ?? fresh, fresh, fromDraft: restored !== null };
   });
   const [form, setForm] = useState<CreateFormValues>(opening.values);
   /* The form exactly as it opened, kept so closing it can ask whether anything
@@ -216,8 +243,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      changes while the form is up: the same object the lazy initializer above
      produced, captured on the first render and read on the way out. */
   const openedWith = useRef(form);
-  /* Does this person have a saved draft on disk, as far as this form knows
-     (#284)? True at open when the form was restored from one, and kept honest by
+  /* Does this person have an autosave out there, on the server or in this
+     browser, as far as this form knows (#284, #371)? True at open when the form
+     was restored from one, and kept honest by
      the effect below. It is what stops an untouched form clearing a draft it
      never wrote — and what makes emptying a restored form back out clear the
      copy behind it rather than leave the old values waiting to reappear. */
@@ -468,26 +496,64 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      blank-slate open, which is what makes a changed task type on its own worth
      saving, and against the values this form opened with.
 
-     Storage that is missing, locked down or full is handled inside the write
-     and clear themselves, silently — nothing here can throw at a person
-     mid-sentence, and the write reports back whether it actually landed. */
+     Since #371 the copy is kept on the server, so it follows the person to
+     another device and the Task Drafts tab can list it. Each write is a request
+     now, so it settles on the one-second debounce a reopened form's typing is
+     written on rather than the 400ms a browser write could afford.
+
+     This browser keeps a copy only of what the server did not take
+     (`keepAutosave`): a write that lands removes it, a write that fails writes
+     it. So a server that cannot be reached behaves like the form always did, a
+     reload still loses nothing, and nobody is told about it on every keystroke.
+     Storage that is missing, locked down or full is handled inside the local
+     write and clear themselves, silently.
+
+     Writes go into the same queue a reopened form's do (`unsavedWrites`), so
+     every ending, which waits on that queue, can never be followed by a write
+     that puts the typing back. The timer does nothing once an ending has
+     begun, for the same reason. */
+  const keepAutosave = (values: CreateFormValues): void => {
+    draftStored.current = true;
+    unsavedWrites.current = unsavedWrites.current
+      .then(async () => {
+        const landed = autosaveCalls.keep ? await autosaveCalls.keep(values) : false;
+        if (landed) clearDraft(draftSeat.storage, draftSeat.userId);
+        else writeDraft(draftSeat.storage, draftSeat.userId, values);
+      })
+      .catch(() => {});
+  };
+
+  /* The draft is done with. Every ending a person can mean by it — the task got
+     filed, they confirmed the discard prompt, Start fresh, Save for later — and
+     a form emptied back out go through here, so none of them can grow its own
+     idea of what forgetting a draft involves. Both copies go: this browser's at
+     once, and the server's after any write still out, so none lands after it. A
+     reopened or edit form has no seat on the server's and stops at the first. */
+  const forgetDraft = (): void => {
+    clearDraft(draftSeat.storage, draftSeat.userId);
+    draftStored.current = false;
+    if (!autosaveSeat) return;
+    unsavedWrites.current = unsavedWrites.current
+      .then(async () => {
+        if (autosaveCalls.forget) await autosaveCalls.forget();
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
-    if (editing) return;
+    if (!autosaveSeat) return;
     const timer = window.setTimeout(() => {
+      if (ending.current) return;
       const action = draftAction({
         changedFromBlank: formHasChanges(opening.fresh, form),
         movedSinceOpen: formHasChanges(openedWith.current, form),
         onDisk: draftStored.current
       });
-      if (action === "write") {
-        draftStored.current = writeDraft(draftSeat.storage, draftSeat.userId, form);
-      } else if (action === "clear") {
-        clearDraft(draftSeat.storage, draftSeat.userId);
-        draftStored.current = false;
-      }
-    }, DRAFT_SAVE_DEBOUNCE_MS);
+      if (action === "write") keepAutosave(form);
+      else if (action === "clear") forgetDraft();
+    }, UNSAVED_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [form, editing, opening.fresh, draftSeat]);
+  }, [form, autosaveSeat, opening.fresh]);
 
   /* ── Keeping unsaved typing on its record (#348) ─────────────
      A reopened Saved for Later task has no seat in the browser autosave, so the
@@ -543,14 +609,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     const timer = window.setTimeout(sendUnsaved, UNSAVED_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [form, reopened, onKeepUnsaved, onDiscardUnsaved]);
-
-  /* The draft is done with. Both endings a person can mean by it — the task got
-     filed, or they confirmed the discard prompt — go through here, so neither
-     can grow its own idea of what forgetting a draft involves. */
-  const forgetDraft = (): void => {
-    clearDraft(draftSeat.storage, draftSeat.userId);
-    draftStored.current = false;
-  };
 
   /* Before Save for later, Create or Discard acts (#348): no further unsaved
      typing is sent, and the one already out lands first. Otherwise a keystroke's

@@ -1,10 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { SavedForLaterForm, SavedForLaterTask, newestSavedFirst } from "@loan-tasks/shared";
+import { Autosave, SavedForLaterForm, SavedForLaterTask, isAutosaveExpired, newestSavedFirst } from "@loan-tasks/shared";
 import { JsonFile } from "./json-file.js";
 
 interface SavedForLaterData {
   items: SavedForLaterTask[];
+  /* The new task form's autosave (#371), at most one per owner. In this file
+     rather than one of its own so every rule about who can reach Saved for Later
+     tasks, and removing them with their owner, covers it too. Absent from a file
+     written before it existed, which reads as nobody having one. */
+  autosaves: Autosave[];
 }
+
+/* Everyone's autosave that has not aged out by `now`. */
+const unexpired = (autosaves: Autosave[], now: number): Autosave[] =>
+  autosaves.filter((autosave) => !isAutosaveExpired(autosave.savedAt, now));
 
 /* Saved for Later tasks (#343, ADR-0011), in a file of their own.
 
@@ -27,10 +36,13 @@ export class SavedForLaterStore {
 
   constructor(filePath: string) {
     this.file = new JsonFile<SavedForLaterData>(filePath, {
-      empty: () => ({ items: [] }),
+      empty: () => ({ items: [], autosaves: [] }),
       decode: (parsed) => {
         const raw = parsed as Partial<SavedForLaterData> | null;
-        return { items: Array.isArray(raw?.items) ? raw.items : [] };
+        return {
+          items: Array.isArray(raw?.items) ? raw.items : [],
+          autosaves: Array.isArray(raw?.autosaves) ? raw.autosaves : []
+        };
       }
     });
   }
@@ -58,13 +70,73 @@ export class SavedForLaterStore {
     return items.find((item) => item.id === id && item.ownerId === ownerId);
   }
 
-  async create(ownerId: string, form: SavedForLaterForm, savedAt: string = new Date().toISOString()): Promise<SavedForLaterTask> {
+  /* Save a new task for later. `clearAutosave` is the new task form putting its
+     own typing aside (#371): the owner's autosave goes in the same write, so the
+     one form can never be on the Task Drafts tab twice, as a Saved for Later task
+     and as an autosave, the way a second request that failed would leave it. Not
+     asked for by a reopened form whose record had gone, whose typing is not the
+     autosave. */
+  async create(
+    ownerId: string,
+    form: SavedForLaterForm,
+    savedAt: string = new Date().toISOString(),
+    options: { clearAutosave?: boolean } = {}
+  ): Promise<SavedForLaterTask> {
     const item: SavedForLaterTask = { id: randomUUID(), ownerId, savedAt, form };
     await this.file.update((data) => {
       data.items.push(item);
+      if (options.clearAutosave) data.autosaves = data.autosaves.filter((autosave) => autosave.ownerId !== ownerId);
       return data;
     });
     return item;
+  }
+
+  /* ── The autosave (#371) ─────────────────────────────────────
+     One per owner, answered for that owner only, and gone seven days after its
+     last write. Nothing sweeps the file on a timer, so age is enforced where the
+     autosave is touched: a read never answers with an aged-out one, and removes
+     it, and every write drops everyone's that has aged out. */
+
+  /* This owner's autosave, or nothing: none, someone else's, or aged out. */
+  async getAutosave(ownerId: string, now: number = Date.now()): Promise<Autosave | undefined> {
+    const { autosaves } = await this.file.read();
+    const found = autosaves.find((autosave) => autosave.ownerId === ownerId);
+    if (!found) return undefined;
+    if (!isAutosaveExpired(found.savedAt, now)) return found;
+    await this.file.update((data) => {
+      const kept = unexpired(data.autosaves, now);
+      if (kept.length === data.autosaves.length) return undefined;
+      data.autosaves = kept;
+      return data;
+    });
+    return undefined;
+  }
+
+  /* Write this owner's autosave over whatever was there. Latest write wins, as
+     two windows typing into two forms is the same person twice. Ages are judged
+     as of this write, which is what `savedAt` says it is. */
+  async keepAutosave(ownerId: string, form: SavedForLaterForm, savedAt: string = new Date().toISOString()): Promise<Autosave> {
+    const autosave: Autosave = { ownerId, savedAt, form };
+    const written = Date.parse(savedAt);
+    const now = Number.isFinite(written) ? written : Date.now();
+    await this.file.update((data) => {
+      data.autosaves = [...unexpired(data.autosaves, now).filter((other) => other.ownerId !== ownerId), autosave];
+      return data;
+    });
+    return autosave;
+  }
+
+  /* Forget this owner's autosave. True when there was one to forget. */
+  async clearAutosave(ownerId: string): Promise<boolean> {
+    let cleared = false;
+    await this.file.update((data) => {
+      const kept = data.autosaves.filter((autosave) => autosave.ownerId !== ownerId);
+      cleared = kept.length !== data.autosaves.length;
+      if (!cleared) return undefined;
+      data.autosaves = kept;
+      return data;
+    });
+    return cleared;
   }
 
   /* Save a reopened one again (#344): the same record takes the whole new form
@@ -125,21 +197,22 @@ export class SavedForLaterStore {
     await this.file.update((data) => {
       const kept = data.items.filter((item) => !(item.id === id && item.ownerId === ownerId));
       removed = kept.length !== data.items.length;
-      return { items: kept };
+      return { ...data, items: kept };
     });
     return removed;
   }
 
   /* Rule 6: it goes when its owner goes. Every one this owner held, gone, and
-     how many that was. Someone with none writes nothing. Only removing a person
-     calls this; deactivating one does not, so reactivating them finds theirs
-     where they left it. */
+     how many that was, and their autosave with them (#371). Someone with none of
+     either writes nothing. Only removing a person calls this; deactivating one
+     does not, so reactivating them finds theirs where they left it. */
   async removeAllFor(ownerId: string): Promise<number> {
     let removed = 0;
     await this.file.update((data) => {
       const kept = data.items.filter((item) => item.ownerId !== ownerId);
+      const autosaves = data.autosaves.filter((autosave) => autosave.ownerId !== ownerId);
       removed = data.items.length - kept.length;
-      return removed > 0 ? { items: kept } : undefined;
+      return removed > 0 || autosaves.length !== data.autosaves.length ? { items: kept, autosaves } : undefined;
     });
     return removed;
   }

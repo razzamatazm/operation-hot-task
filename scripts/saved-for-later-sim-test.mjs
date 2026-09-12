@@ -256,9 +256,123 @@ test("nobody can keep or clear typing on someone else's, or on one that is gone"
   assert.deepEqual(await store.list(DANA), [danas]);
 });
 
+// --- The autosave (#371) -----------------------------------------------------
+/* The new task form's accidental safety net, moved off the browser onto the
+   server so it follows its owner the way a Saved for Later task does. One per
+   person, private under the same rules, and gone seven days after it was last
+   written. Kept in this same store and file, so everything above about who can
+   reach it holds for it without a second set of guards. */
+
+const DAY = 24 * 60 * 60 * 1000;
+
+test("an autosave is one per person: writing again replaces it, never adds a second", async () => {
+  const { store } = await freshStore();
+  const first = await store.keepAutosave(DANA, form({ notes: "half a thought" }), "2026-09-11T12:00:00.000Z");
+  assert.deepEqual(first, { ownerId: DANA, savedAt: "2026-09-11T12:00:00.000Z", form: form({ notes: "half a thought" }) });
+
+  await store.keepAutosave(DANA, form({ notes: "the whole thought" }), "2026-09-11T12:01:00.000Z");
+  const now = Date.parse("2026-09-11T12:02:00.000Z");
+  assert.deepEqual(await store.getAutosave(DANA, now), {
+    ownerId: DANA,
+    savedAt: "2026-09-11T12:01:00.000Z",
+    form: form({ notes: "the whole thought" })
+  });
+});
+
+test("an autosave is its owner's alone, and is not a Saved for Later task", async () => {
+  const { store } = await freshStore();
+  const now = Date.parse("2026-09-11T12:00:00.000Z");
+  await store.keepAutosave(DANA, form({ notes: "Dana's typing" }), new Date(now).toISOString());
+
+  assert.equal(await store.getAutosave(SAM, now), undefined, "Sam gets nothing");
+  assert.equal(await store.getAutosave("admin-1", now), undefined, "nor does anyone else, whatever their role");
+  assert.deepEqual(await store.list(DANA), [], "and it is never listed as a Saved for Later task");
+  assert.equal(await store.clearAutosave(SAM), false, "nobody else can clear it");
+  assert.equal((await store.getAutosave(DANA, now)).form.notes, "Dana's typing", "so it is still there");
+});
+
+test("an autosave last written seven days ago is gone, and reading it prunes it", async () => {
+  const { file, store } = await freshStore();
+  const written = Date.parse("2026-09-04T12:00:00.000Z");
+  await store.keepAutosave(DANA, form({ notes: "stale" }), new Date(written).toISOString());
+
+  assert.ok(await store.getAutosave(DANA, written + 7 * DAY - 1), "a moment inside seven days it is still there");
+  assert.equal(await store.getAutosave(DANA, written + 7 * DAY), undefined, "at seven days it is gone");
+  assert.ok(!fs.readFileSync(file, "utf8").includes("stale"), "and the file no longer holds it");
+});
+
+test("writing again restarts the seven days", async () => {
+  const { store } = await freshStore();
+  const monday = Date.parse("2026-09-07T12:00:00.000Z");
+  await store.keepAutosave(DANA, form(), new Date(monday).toISOString());
+  await store.keepAutosave(DANA, form({ notes: "came back to it" }), new Date(monday + 6 * DAY).toISOString());
+  assert.ok(await store.getAutosave(DANA, monday + 8 * DAY), "measured from the last write, not the first");
+});
+
+test("any autosave write clears everyone's that has aged out, so nothing stale sits in the file", async () => {
+  const { file, store } = await freshStore();
+  const long = Date.now() - 30 * DAY;
+  await store.keepAutosave(SAM, form({ notes: "Sam's forgotten one" }), new Date(long).toISOString());
+  await store.keepAutosave(DANA, form({ notes: "Dana's today" }));
+  const raw = fs.readFileSync(file, "utf8");
+  assert.ok(!raw.includes("Sam's forgotten one"), "Sam's month-old autosave went with Dana's write");
+  assert.ok(raw.includes("Dana's today"));
+});
+
+test("clearing an autosave takes it away; clearing when there is none is not an error", async () => {
+  const { store } = await freshStore();
+  await store.keepAutosave(DANA, form());
+  assert.equal(await store.clearAutosave(DANA), true);
+  assert.equal(await store.getAutosave(DANA), undefined);
+  assert.equal(await store.clearAutosave(DANA), false, "nothing left to clear");
+});
+
+test("saving a new task for later can clear the autosave in the same write, so it never shows twice", async () => {
+  const { store } = await freshStore();
+  await store.keepAutosave(DANA, form({ notes: "typed" }));
+  await store.keepAutosave(SAM, form({ notes: "Sam's own" }));
+
+  const saved = await store.create(DANA, form({ notes: "typed" }), undefined, { clearAutosave: true });
+
+  assert.deepEqual((await store.list(DANA)).map((item) => item.id), [saved.id], "one Saved for Later task");
+  assert.equal(await store.getAutosave(DANA), undefined, "and no autosave beside it");
+  assert.ok(await store.getAutosave(SAM), "Sam's is untouched");
+});
+
+test("saving for later without asking leaves the autosave alone", async () => {
+  const { store } = await freshStore();
+  await store.keepAutosave(DANA, form({ notes: "an unrelated new form" }));
+  await store.create(DANA, form({ notes: "a reopened one whose record had gone" }));
+  assert.equal((await store.getAutosave(DANA)).form.notes, "an unrelated new form");
+});
+
+test("removing a person takes their autosave with their Saved for Later tasks", async () => {
+  const { file, store } = await freshStore();
+  await store.keepAutosave(DANA, form({ notes: "Dana's autosave" }));
+  await store.keepAutosave(SAM, form({ notes: "Sam's autosave" }));
+
+  await store.removeAllFor(DANA);
+
+  assert.equal(await store.getAutosave(DANA), undefined);
+  assert.ok(await store.getAutosave(SAM), "Sam's is untouched");
+  assert.ok(!fs.readFileSync(file, "utf8").includes(DANA), "nothing of Dana's is left in the file");
+});
+
+test("a Saved for Later file written before the autosave moved to the server still reads", async () => {
+  const { file } = await freshStore();
+  const legacy = { items: [{ id: "old-1", ownerId: DANA, savedAt: "2026-09-10T12:00:00.000Z", form: form() }] };
+  fs.writeFileSync(file, JSON.stringify(legacy));
+  const store = new SavedForLaterStore(file);
+  await store.init();
+  assert.equal((await store.list(DANA)).length, 1);
+  assert.equal(await store.getAutosave(DANA), undefined);
+  await store.keepAutosave(DANA, form({ notes: "first autosave" }));
+  assert.equal((await store.list(DANA)).length, 1, "writing one keeps the saved tasks");
+});
+
 // --- 2. Apart from tasks -----------------------------------------------------
 
-test("saving one writes nothing to the task store", async () => {
+test("saving one, or autosaving, writes nothing to the task store", async () => {
   const { dir, store } = await freshStore();
   const tasksFile = path.join(dir, "tasks.json");
   const tasks = new TaskStore(tasksFile);
@@ -266,6 +380,7 @@ test("saving one writes nothing to the task store", async () => {
   const before = fs.readFileSync(tasksFile, "utf8");
 
   await store.create(DANA, form());
+  await store.keepAutosave(DANA, form({ notes: "typing" }));
 
   assert.equal(fs.readFileSync(tasksFile, "utf8"), before, "tasks.json is byte for byte what it was");
   assert.deepEqual(await tasks.allTasks(), []);

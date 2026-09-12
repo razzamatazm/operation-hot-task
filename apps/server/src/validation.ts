@@ -298,3 +298,10 @@ export const savedForLaterFormSchema = z
 export const savedForLaterBodySchema = z.object({
   form: savedForLaterFormSchema
 });
+
+/* A new task saved for later (POST). `clearAutosave` is the new task form
+   putting its own typing aside (#371), so the autosave goes in the same write
+   and the one form is never on the Task Drafts tab twice. */
+export const savedForLaterCreateBodySchema = savedForLaterBodySchema.extend({
+  clearAutosave: z.boolean().optional()
+});

@@ -65,8 +65,12 @@ admin All Tasks tab has no tab row.
 - **Task Drafts** lists the new tasks the viewer put aside with **Save for
   later** on the create form (the button keeps that wording; only the tab says
   Task Drafts). Newest saved first. The tab is always there, and its count is
-  how many they have. With none, its page says `No task drafts. Use Save for
-  later on a new task to keep one here.` Only their owner ever sees them. Each
+  how many rows its page shows. With none, its page says `No task drafts. Use
+  Save for later on a new task to keep one here.` Only their owner ever sees
+  them. The viewer's autosave is listed here too (#371), as one more row placed
+  by when it was last written, reading `Autosaved N ago` instead of `saved N
+  ago`; tapping it opens New Task on it, and its delete forgets it (see
+  [task-fields.md](task-fields.md#create-task-fields)). Each
   row is the loan as it was typed (or `No loan yet`), the task type and `saved N
   ago`, and nothing else: no who-to-whom, due time or poop rating. Tapping a row
   reopens the create form on it, every field restored, to save for later again

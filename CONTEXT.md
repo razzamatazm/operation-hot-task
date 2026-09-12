@@ -324,13 +324,20 @@ the task list, so they stay in one place however the board is viewed (#363).
 The name is a UI label only. In the code, the docs and conversation the term is
 still _Saved for Later task_, because a bare "draft" means the autosave, and the
 create form's button still says Save for later. The _Mine filter_ and the loan
-search act on the Tasks tab and never on this one.
+search act on the Tasks tab and never on this one. The tab also lists the
+viewer's _Autosave_, reading `Autosaved N ago`, which is not a Task Draft (#371).
 
 **Autosave**:
 The form's quiet, accidental safety net: one unfinished new-task form per
-person, kept in that browser only. Distinct from a _Saved for Later task_,
-which is deliberate, listed, and kept on the server. Typing into a reopened
-Saved for Later task never goes to the autosave; it is kept on that task.
+person, kept on the server as it is typed and gone seven days after it was last
+written, so it follows that person to any device (#371). Private in exactly the
+way a _Saved for Later task_ is, and listed beside them on the **Task Drafts**
+tab as `Autosaved N ago`; tapping it opens New Task on it. Distinct from a
+_Saved for Later task_, which is deliberate, never expires and can be many.
+Saving the form for later turns the autosave into one and clears it. The browser
+keeps a copy only of typing the server has not got, as an offline fallback, so a
+server that cannot be reached loses nothing. Typing into a reopened Saved for
+Later task never goes to the autosave; it is kept on that task.
 _Avoid_: "draft" for either
 
 ### Loan model

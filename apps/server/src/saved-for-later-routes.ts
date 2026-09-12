@@ -3,7 +3,7 @@ import type { UserIdentity } from "@loan-tasks/shared";
 import { ZodError } from "zod";
 import { AuthError } from "./auth.js";
 import { SavedForLaterStore } from "./saved-for-later-store.js";
-import { savedForLaterBodySchema } from "./validation.js";
+import { savedForLaterBodySchema, savedForLaterCreateBodySchema } from "./validation.js";
 
 /* The Saved for Later routes (#343, ADR-0011). A module of its own so what it
    can reach is visible in its imports: the caller's identity, the store and the
@@ -59,8 +59,8 @@ export const savedForLaterRoutes = (
   router.post("/saved-for-later", async (req, res) => {
     try {
       const actor = await getActor(req);
-      const { form } = savedForLaterBodySchema.parse(req.body);
-      res.status(201).json({ item: await store.create(actor.id, form) });
+      const { form, clearAutosave } = savedForLaterCreateBodySchema.parse(req.body);
+      res.status(201).json({ item: await store.create(actor.id, form, undefined, { clearAutosave: clearAutosave === true }) });
     } catch (error) {
       send(res, error, "Failed to save for later");
     }
@@ -115,6 +115,43 @@ export const savedForLaterRoutes = (
       res.json({ item });
     } catch (error) {
       send(res, error, "Failed to discard unsaved changes");
+    }
+  });
+
+  /* The new task form's autosave (#371): one per person, the caller's own, and
+     private like everything else here. There is no id in the path because there
+     is nothing to choose between, which is also why nobody can name someone
+     else's. Seven days after its last write it is gone. */
+  router.get("/autosave", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      res.json({ item: (await store.getAutosave(actor.id)) ?? null });
+    } catch (error) {
+      send(res, error, "Failed to load the autosave");
+    }
+  });
+
+  /* Written by the new task form as it is typed into, on the same debounce a
+     reopened one's typing uses. Same body and same 400 as a save. */
+  router.put("/autosave", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const { form } = savedForLaterBodySchema.parse(req.body);
+      res.json({ item: await store.keepAutosave(actor.id, form) });
+    } catch (error) {
+      send(res, error, "Failed to autosave");
+    }
+  });
+
+  /* Create, Discard, Start fresh, a form emptied back out, and the row's delete
+     on the Task Drafts tab. Nothing to clear is not an error. */
+  router.delete("/autosave", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      await store.clearAutosave(actor.id);
+      res.status(204).end();
+    } catch (error) {
+      send(res, error, "Failed to clear the autosave");
     }
   });
 

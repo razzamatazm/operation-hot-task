@@ -1451,6 +1451,72 @@ const run = async () => {
     assert.deepEqual(afterDiscard.json.item, asSaved, "and stays that way");
     pushPass("typing on a reopened Saved for Later task is kept on that record without moving the save, and Discard leaves the save as it was");
 
+    /* The new task form's autosave, on the server since #371: one per person,
+       private like a Saved for Later task, and cleared in the same write when
+       the form it holds is saved for later. */
+    const noAutosave = await request(server.baseUrl, "GET", "/autosave", { user: users.creator });
+    expectStatus(noAutosave.status, 200, "read an autosave nobody has written", noAutosave.json);
+    assert.equal(noAutosave.json.item, null, "none yet");
+    const autosaved = await request(server.baseUrl, "PUT", "/autosave", {
+      user: users.creator,
+      body: { form: savedForm({ notes: "smoke-autosave, half typed" }) }
+    });
+    expectStatus(autosaved.status, 200, "autosave a new task form", autosaved.json);
+    assert.equal(autosaved.json.item.ownerId, users.creator.id);
+    const autosavedAgain = await request(server.baseUrl, "PUT", "/autosave", {
+      user: users.creator,
+      body: { form: savedForm({ notes: "smoke-autosave, typed some more" }) }
+    });
+    expectStatus(autosavedAgain.status, 200, "autosave the same form again", autosavedAgain.json);
+    const ownAutosave = await request(server.baseUrl, "GET", "/autosave", { user: users.creator });
+    assert.deepEqual(ownAutosave.json.item.form, savedForm({ notes: "smoke-autosave, typed some more" }), "one autosave, the latest write");
+    const listWithAutosave = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.equal(listWithAutosave.json.items.length, countWithTyping, "an autosave is not a Saved for Later task");
+    const badAutosave = await request(server.baseUrl, "PUT", "/autosave", {
+      user: users.creator,
+      body: { form: savedForm({ taskType: "LUNCH" }) }
+    });
+    expectStatus(badAutosave.status, 400, "an autosave that isn't the new task form's shape", badAutosave.json);
+    for (const [label, viewer] of [["another user", users.otherOfficer], ["an admin", users.admin]]) {
+      const theirRead = await request(server.baseUrl, "GET", "/autosave", { user: viewer });
+      expectStatus(theirRead.status, 200, `${label} reads their own autosave`, theirRead.json);
+      assert.equal(theirRead.json.item, null, `${label} never gets the creator's`);
+      const theirClear = await request(server.baseUrl, "DELETE", "/autosave", { user: viewer });
+      expectStatus(theirClear.status, 204, `${label} clears their own autosave`, theirClear.json);
+    }
+    const stillAutosaved = await request(server.baseUrl, "GET", "/autosave", { user: users.creator });
+    assert.deepEqual(stillAutosaved.json.item, ownAutosave.json.item, "someone else clearing theirs leaves the creator's alone");
+    const tasksWithAutosave = await request(server.baseUrl, "GET", "/tasks");
+    assert.ok(
+      !tasksWithAutosave.json.tasks.some((task) => typeof task.notes === "string" && task.notes.startsWith("smoke-autosave")),
+      "the task list never shows an autosave"
+    );
+    pushPass("the new task form's autosave is kept on the server, one per person, and nobody else can read or clear it");
+
+    const putAside = await request(server.baseUrl, "POST", "/saved-for-later", {
+      user: users.creator,
+      body: { form: savedForm({ notes: "smoke-autosave, typed some more" }), clearAutosave: true }
+    });
+    expectStatus(putAside.status, 201, "save the autosaved form for later", putAside.json);
+    const afterPutAside = await request(server.baseUrl, "GET", "/autosave", { user: users.creator });
+    assert.equal(afterPutAside.json.item, null, "the autosave went in the same write");
+    const draftsAfterPutAside = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
+    assert.equal(
+      draftsAfterPutAside.json.items.filter((item) => item.form.notes === "smoke-autosave, typed some more").length,
+      1,
+      "and it is one Saved for Later task"
+    );
+    const removedPutAside = await request(server.baseUrl, "DELETE", `/saved-for-later/${putAside.json.item.id}`, { user: users.creator });
+    expectStatus(removedPutAside.status, 204, "tidy the put-aside one away", removedPutAside.json);
+    await request(server.baseUrl, "PUT", "/autosave", { user: users.creator, body: { form: savedForm({ notes: "smoke-autosave, to clear" }) } });
+    const clearedAutosave = await request(server.baseUrl, "DELETE", "/autosave", { user: users.creator });
+    expectStatus(clearedAutosave.status, 204, "clear the autosave", clearedAutosave.json);
+    const afterClear = await request(server.baseUrl, "GET", "/autosave", { user: users.creator });
+    assert.equal(afterClear.json.item, null, "it is gone");
+    const clearAgain = await request(server.baseUrl, "DELETE", "/autosave", { user: users.creator });
+    expectStatus(clearAgain.status, 204, "clearing with nothing to clear is not an error", clearAgain.json);
+    pushPass("saving the autosaved form for later clears the autosave in the same write, and clearing it takes it away");
+
     /* Deleting from the board (#345) calls the same route. Refusing someone
        else's must say nothing about whether it exists: the answer to a real one
        that isn't yours is the answer to an id nobody ever saved. */
@@ -1522,6 +1588,11 @@ const run = async () => {
       body: { form: savedForm({ folderName: "Other officer's own" }) }
     });
     expectStatus(othersOwnSave.status, 201, "another user saves one of their own", othersOwnSave.json);
+    const othersAutosave = await request(server.baseUrl, "PUT", "/autosave", {
+      user: users.otherOfficer,
+      body: { form: savedForm({ notes: "smoke-autosave, other officer's" }) }
+    });
+    expectStatus(othersAutosave.status, 200, "another user autosaves a form of their own", othersAutosave.json);
 
     const deactivationFraud = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
@@ -1564,6 +1635,14 @@ const run = async () => {
       user: users.otherOfficer
     });
     expectStatus(deactivatedRemove.status, 403, "deactivated user removes their Saved for Later task", deactivatedRemove.json);
+    for (const [method, label, body] of [
+      ["GET", "reads their autosave"],
+      ["PUT", "autosaves", { form: savedForm({ notes: "while deactivated" }) }],
+      ["DELETE", "clears their autosave"]
+    ]) {
+      const refused = await request(server.baseUrl, method, "/autosave", { user: users.otherOfficer, ...(body ? { body } : {}) });
+      expectStatus(refused.status, 403, `deactivated user ${label}`, refused.json);
+    }
     const reactivate = await request(server.baseUrl, "PATCH", `/users/${users.otherOfficer.id}`, {
       user: users.admin,
       body: { active: true }
@@ -1579,7 +1658,9 @@ const run = async () => {
       "their Saved for Later task is still there, and nothing was saved while they were deactivated"
     );
     pushPass("deactivate blocks access, reactivate restores it");
-    pushPass("a deactivated user cannot reach their Saved for Later tasks, and has them back on reactivation");
+    const reactivatedAutosave = await request(server.baseUrl, "GET", "/autosave", { user: users.otherOfficer });
+    assert.equal(reactivatedAutosave.json.item?.form.notes, "smoke-autosave, other officer's", "their autosave is still there too");
+    pushPass("a deactivated user cannot reach their Saved for Later tasks or autosave, and has them back on reactivation");
 
     const selfDeactivate = await request(server.baseUrl, "PATCH", `/users/${users.admin.id}`, {
       user: users.admin,
@@ -1645,7 +1726,9 @@ const run = async () => {
       user: users.otherOfficer
     });
     expectStatus(removedFetch.status, 404, "fetching a removed user's Saved for Later task", removedFetch.json);
-    pushPass("removing a user removes their Saved for Later tasks, and only theirs");
+    const removedAutosave = await request(server.baseUrl, "GET", "/autosave", { user: users.otherOfficer });
+    assert.equal(removedAutosave.json.item, null, "the removed user's autosave went with them");
+    pushPass("removing a user removes their Saved for Later tasks and autosave, and only theirs");
 
     /* A removal that fails after deleting the record leaves Saved for Later
        tasks with no owner, and a retry finds no user. The retry still has to

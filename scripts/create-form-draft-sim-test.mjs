@@ -19,15 +19,17 @@ import test from "node:test";
 import {
   DRAFT_KEY_PREFIX,
   DRAFT_MAX_AGE_MS,
-  DRAFT_SAVE_DEBOUNCE_MS,
   DRAFT_VERSION,
+  autosaveCopy,
   browserDraftStorage,
   clearDraft,
   draftAction,
   draftFieldNames,
   draftKey,
+  newerAutosave,
   parseDraft,
   readDraft,
+  readDraftCopy,
   restoredDraftCopy,
   serializeDraft,
   writeDraft
@@ -81,6 +83,50 @@ const FILLED = {
   recipientUserId: "user-3",
   recipientNote: "yours if you can take it today"
 };
+
+/* ── The server's copy and the offline one (#371) ───────── */
+
+/* Since #371 the autosave is kept on the server, and this browser's copy is only
+   what the server has not got yet: written when a server write fails, removed
+   when one lands. So opening New Task can find two, and the rule for which one
+   comes back is here, as values in and values out. */
+
+test("the browser's copy is read back with when it was written, so it can be weighed against the server's", () => {
+  const storage = fakeStorage();
+  writeDraft(storage, "dana", FILLED, NOW - DAY);
+  assert.deepEqual(readDraftCopy(storage, "dana", NOW), { values: FILLED, savedAt: NOW - DAY });
+  assert.deepEqual(readDraft(storage, "dana", NOW), FILLED, "readDraft is the same read, values only");
+  assert.equal(readDraftCopy(storage, "sam", NOW), null, "nobody else's");
+  assert.equal(readDraftCopy(null, "dana", NOW), null, "no storage, no copy");
+});
+
+test("the server's autosave becomes a form to restore, with its time in milliseconds", () => {
+  const item = { ownerId: "dana", savedAt: new Date(NOW - 3 * 60000).toISOString(), form: FILLED };
+  const copy = autosaveCopy(item, NOW);
+  assert.deepEqual(copy, { values: FILLED, savedAt: NOW - 3 * 60000 });
+  assert.notEqual(copy.values.initialItems, FILLED.initialItems, "sharing no array with the object it came from");
+});
+
+test("no server autosave, an aged-out one, or one that is not the form's shape is nothing to restore", () => {
+  assert.equal(autosaveCopy(null, NOW), null);
+  assert.equal(autosaveCopy(undefined, NOW), null);
+  assert.equal(autosaveCopy({ savedAt: new Date(NOW - 7 * DAY).toISOString(), form: FILLED }, NOW), null, "seven days old");
+  assert.equal(autosaveCopy({ savedAt: "not a time", form: FILLED }, NOW), null, "an undatable one");
+  const { notes, ...missing } = FILLED;
+  assert.equal(autosaveCopy({ savedAt: new Date(NOW).toISOString(), form: missing }, NOW), null, "a field missing");
+  assert.equal(autosaveCopy({ savedAt: new Date(NOW).toISOString(), form: { ...FILLED, points: "3" } }, NOW), null, "a field of the wrong shape");
+});
+
+test("with both a server autosave and an offline copy, the one written last comes back", () => {
+  const server = { values: { ...FILLED, notes: "on the server" }, savedAt: NOW - 60000 };
+  const offline = { values: { ...FILLED, notes: "typed while the server was down" }, savedAt: NOW - 1000 };
+  assert.equal(newerAutosave(server, offline), offline, "typing that never reached the server is the newer");
+  assert.equal(newerAutosave({ ...server, savedAt: NOW }, offline).values.notes, "on the server", "a later write elsewhere wins");
+  assert.equal(newerAutosave(server, { ...offline, savedAt: server.savedAt }), server, "the server's on a tie, since it is the one every device sees");
+  assert.equal(newerAutosave(server, null), server);
+  assert.equal(newerAutosave(null, offline), offline);
+  assert.equal(newerAutosave(null, null), null);
+});
 
 /* ── The stored shape ───────────────────────────────────── */
 
@@ -347,12 +393,6 @@ test("a form typed into and then emptied back out clears the copy behind it", ()
 test("an untouched form with nothing of its own on disk does nothing at all", () => {
   assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: false, onDisk: false }), "keep");
   assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: true, onDisk: false }), "keep");
-});
-
-/* Written as they type, so the only question is how often; a few hundred ms
-   makes a sentence one write rather than forty. */
-test("the save settles shortly after the typing stops, not on the way out", () => {
-  assert.ok(DRAFT_SAVE_DEBOUNCE_MS > 0 && DRAFT_SAVE_DEBOUNCE_MS <= 1000, "a few hundred milliseconds");
 });
 
 /* The whole of "worth saving" is #283's predicate against a blank-slate open,

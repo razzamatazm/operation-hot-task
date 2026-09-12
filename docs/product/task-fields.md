@@ -352,6 +352,35 @@ them and keep the version you saved before.` Editing an existing task is
 unchanged: its Cancel still asks `Discard this task?` with Keep editing and
 Discard, since there is nothing to save for later.
 
+**The autosave** (#284, #285; on the server since #371,
+[ADR-0011](../adr/0011-saved-for-later-is-private-server-state.md) rule 5). A
+new task form keeps itself as it is typed, a second after the typing stops, on
+the server under the person typing, so a closed tab, a Teams reload or another
+device loses nothing. There is one per person: the latest new task form they
+typed into and did not finish. Nobody else can see it, admins included, and it
+is gone seven days after it was last written.
+
+- **Opening New Task** opens on it, with `Hot Task saved your progress. Picking
+  up where you left off.` and `Start fresh` across the top. Start fresh empties
+  the form and forgets the autosave.
+- **On the Task Drafts tab** it is one more row, placed among the drafts by when
+  it was last written: the loan as typed (or `No loan yet`), the task type and
+  `Autosaved N ago`. Tapping it opens New Task on it, exactly as the New Task
+  button would. Its delete control asks `Delete this saved task?` like a
+  draft's, and a yes forgets the autosave. The tab's count includes it.
+- **Save for later** turns it into an ordinary Saved for Later task and clears
+  the autosave in the same step, so the tab never lists the same form twice.
+  **Create** and **Discard** forget it.
+- A reopened Saved for Later task and an edit never open on it, write it or
+  forget it. A form opened prefilled does not open on it either, but it is still
+  a new task form: typing into it becomes the autosave, and creating or
+  discarding it forgets the autosave.
+- **When the server cannot be reached**, the form behaves as it always did and
+  says nothing about it. This browser keeps a copy of whatever the server did
+  not take, and the next New Task on this browser opens on whichever copy was
+  written last. That copy is only a fallback: a write that reaches the server
+  removes it.
+
 - Required fields:
   - Folder Name
   - Task Type: `LOI`, `Buddy Chat`, `Value`, `Fraud`, `Loan Docs`, `OOO`
