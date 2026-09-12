@@ -26,7 +26,7 @@
    rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
-import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { DRAFT_SAVE_DEBOUNCE_MS, browserDraftStorage, clearDraft, draftAction, readDraft, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
@@ -94,14 +94,33 @@ interface TaskFormProps {
   /* Persist the task, then fire the optional post-create share (#46) with its
      delivered/couldn't-reach toast, and refresh. Resolves once the task is
      created; rejects only when the create itself fails (App has already shown
-     the error toast) so the form stays open for a retry. */
-  onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
+     the error toast) so the form stays open for a retry.
+
+     `savedId` is the Saved for Later task this form was reopened from (#344),
+     so App can remove it once the task exists, and only then. */
+  onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string, savedId?: string) => Promise<void>;
   /* Put this new task aside (#343, ADR-0011): App keeps the whole form on the
      server and lists it in the board's Saved for Later section. Resolves once it
      is saved; rejects only when the save fails (App has already shown the
      error) so the form stays open. Absent means no Save for later button, and
-     App never passes it to edit mode. */
-  onSaveForLater?: (form: CreateFormValues) => Promise<void>;
+     App never passes it to edit mode.
+
+     `savedId` names the record a reopened form came from (#344), so the save
+     lands on that record instead of making a copy. */
+  onSaveForLater?: (form: CreateFormValues, savedId?: string) => Promise<void>;
+  /* The Saved for Later task this create form was reopened from (#344,
+     ADR-0011). Present means the form opens on that record's values, every
+     field, and stays the create form: Create Task and Save for later both
+     work, and both name this record to App.
+
+     It never touches the browser autosave, the way edit mode does not. The
+     autosave is one unrelated new-task form kept against a lost tab, and a
+     reopened record is already kept on the server; letting this form write
+     there would make a second copy of the record, and letting it clear there
+     would throw away somebody's other typing. What abandoned typing on a
+     reopened form should do instead is #348's, and this prop is where that
+     work reads which record the form belongs to. */
+  reopened?: SavedForLaterTask;
   /* Values the form opens with (#194). Omitted — the everyday case — opens it
      blank, exactly as before. The defaults and the FRAUD seeder / recipient
      picker / OOO date fields all live in `create-form-state.ts`; see there for
@@ -112,7 +131,7 @@ interface TaskFormProps {
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, edit }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, edit, reopened }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -140,7 +159,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Null storage in edit mode is the whole of "edit mode saves no draft": there
      is nothing to switch off further down, because there is nowhere to write. */
   const [draftSeat] = useState<{ storage: ReturnType<typeof browserDraftStorage>; userId: string }>(() => ({
-    storage: edit ? null : browserDraftStorage(),
+    storage: edit || reopened ? null : browserDraftStorage(),
     userId: user.id
   }));
   /* What the form opens with, worked out once. Lazy, so re-renders don't rebuild
@@ -165,6 +184,14 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     if (edit) {
       const values = editFormValues(edit.task);
       return { values, fresh: values, fromDraft: false };
+    }
+    /* A reopened Saved for Later task (#344) opens on its record, every field,
+       copied so the form's state can never be the list's object. `fresh` stays
+       the blank-slate open, which keeps Save for later pressable straight away:
+       saving it again unchanged is a real save, and restarts its "saved N ago". */
+    if (reopened) {
+      const values = { ...reopened.form, initialItems: [...reopened.form.initialItems] };
+      return { values, fresh: initialCreateForm(), fromDraft: false };
     }
     const fresh = initialCreateForm(initialValues);
     const restored = initialValues ? null : readDraft(draftSeat.storage, draftSeat.userId);
@@ -619,7 +646,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       await onCreate(
         payload,
         assignAtCreate ? "" : form.recipientUserId,
-        form.recipientNote.trim() || undefined
+        form.recipientNote.trim() || undefined,
+        reopened?.id
       );
       /* The task exists now, so the copy of it kept against losing it is over
          (#284) — the next New Task opens blank. Only on success: a create that
@@ -825,7 +853,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     const values = pendingItem ? { ...form, initialItems: [...form.initialItems, pendingItem] } : form;
     setSavingForLater(true);
     try {
-      await onSaveForLater(values);
+      await onSaveForLater(values, reopened?.id);
       forgetDraft();
       onClose();
     } catch {

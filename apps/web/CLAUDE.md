@@ -1681,6 +1681,27 @@ stays the one filled button. What keeps it honest:
 - **The list is emptied on every identity change** before the new one loads,
   and a load or save that comes back for the previous person is dropped, so a
   shared machine never shows one person's saved tasks under another's name.
+- **A row is one button, `.saved-row-open`, inside the `<li>`** (#344). The
+  whole row is the press target, dressed as the row rather than as a control:
+  no fill at rest, `--row-hover` through the button tokens, and the row lifts
+  to `--shadow-md` under the cursor like a task row. A child of the `<li>` and
+  not the `<li>` itself so a second control (delete, #345) can sit beside it
+  without nesting buttons.
+- **Reopening opens the create form, never edit mode** (#344). App fetches the
+  latest save of that record (`reopenSavedForLaterRequest`) and mounts the
+  create form with `reopened`, keyed on the record's id. The form opens on
+  every field of it, with `opening.fresh` still the blank form so Save for
+  later is pressable at once. Both endings name the record: Save for later
+  passes it to `onSaveForLater`, which PUTs onto it, and Create passes it to
+  `onCreate`, which removes it only after `POST /tasks` succeeded. The three
+  requests live in
+  [src/saved-for-later-requests.ts](src/saved-for-later-requests.ts),
+  framework-free, so what a 404 means for each is driven against a fake server
+  in the board sim test.
+- **A reopened form has no autosave seat**, the same null storage edit mode
+  has. Writing there would make a second copy of a record the server already
+  keeps; clearing there would throw away an unrelated new-task form. `reopened`
+  is also the seam #348 reads to send abandoned typing back to the record.
 
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request

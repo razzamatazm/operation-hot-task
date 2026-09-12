@@ -292,8 +292,34 @@ notification, mints no loan and counts toward nothing, and nobody else can see
 it, admins included. The loan is kept exactly as typed and is only resolved
 when the task is finally created. There is no expiry and no limit on how many
 one person holds. A form opened from Humperdink is the same create form, so it
-has the button too. Reopening, deleting and the Cancel prompt are not built
-yet.
+has the button too.
+
+**Reopening one** (#344). Tapping a row in the Saved for Later section opens
+the create form on the latest save of that task, with every field exactly as it
+was left. It is still the create form, not edit mode, so it has both buttons:
+
+- **Save for later** saves onto that same task, so the section does not grow
+  and its `saved N ago` starts again. It is pressable straight away. If the same
+  one is open on two devices, whichever saves last is kept, with no prompt. If
+  it was created or removed on another device in the meantime, pressing Save for
+  later keeps what is on screen as a new Saved for Later task rather than losing
+  it.
+- **Create Task** files an ordinary task through the ordinary create, with its
+  ordinary notifications, and the Saved for Later task is then gone for good. If
+  the filing fails, the Saved for Later task is left exactly where it was. The
+  loan is resolved at that moment, from the text as it was typed: a loan picked
+  from the typeahead is only kept if it still exists under that name, so a loan
+  renamed or merged while it sat there resolves the way it would for any new
+  task.
+- A row whose task was created or removed on another device comes off the list
+  when tapped, with a note saying so.
+- A reopened form never touches the form's autosave: it does not open on it,
+  write to it or clear it.
+
+Deleting one and the Cancel prompt are not built yet. Until the prompt is,
+Cancel on a reopened form that has been changed asks the ordinary "Discard this
+task?" question, and discarding only throws the changes away; the Saved for
+Later task stays as it was last saved.
 
 - Required fields:
   - Folder Name

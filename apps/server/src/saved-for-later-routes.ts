@@ -65,4 +65,38 @@ export const savedForLaterRoutes = (
       send(res, error, "Failed to save for later");
     }
   });
+
+  /* Save a reopened one for later again (#344). The same record, the whole new
+     form, and the latest save wins: no version check and no conflict answer. */
+  router.put("/saved-for-later/:id", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const { form } = savedForLaterBodySchema.parse(req.body);
+      const item = await store.update(actor.id, req.params.id, form);
+      if (!item) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      res.json({ item });
+    } catch (error) {
+      send(res, error, "Failed to save for later");
+    }
+  });
+
+  /* Remove one (#344). The web app calls this once the task it held has been
+     created, and only then, so a filing that fails leaves it where it was. The
+     task itself is filed through POST /tasks like any other, which is why this
+     module never needs to reach the task service. */
+  router.delete("/saved-for-later/:id", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      if (!(await store.remove(actor.id, req.params.id))) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      res.status(204).end();
+    } catch (error) {
+      send(res, error, "Failed to remove Saved for Later task");
+    }
+  });
 };

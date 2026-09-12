@@ -74,6 +74,15 @@ See [AGENTS.md](../../AGENTS.md) for validation commands.
   - `POST /api/saved-for-later` with `{ form }` → **201** `{ item }`. `form` is
     the whole new task form, every field; nothing on it is required, and a body
     that isn't that shape is a **400**
+  - `PUT /api/saved-for-later/:id` with `{ form }` → `{ item }` (#344). Saves a
+    reopened one again: the same record takes the whole new form and a new
+    `savedAt`, so it never becomes a copy. The latest save wins, with no
+    version check and no conflict answer. Same **400** for a body that isn't
+    the form's shape
+  - `DELETE /api/saved-for-later/:id` → **204** (#344). The web app calls it
+    once the task a reopened one held has been created through
+    `POST /api/tasks`, and only then, so a filing that fails leaves the record
+    where it was
 - Tasks:
   - `GET /api/tasks`
   - `POST /api/tasks` (non-OOO: links/creates a Loan via `loanId` or

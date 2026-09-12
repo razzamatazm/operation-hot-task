@@ -2,8 +2,9 @@
 
 Status: Accepted, partly built. Settled while triaging #337. Built so far
 (#343): saving a new task for later, the server store and its owner-only
-routes, and the Grouped view section. Not yet built: reopening, deleting, Flat
-view, removal with the owner, and the Cancel prompt.
+routes, and the Grouped view section. (#344): reopening one, saving it again
+onto the same record, and creating it, which removes it. (#347): removal with
+the owner. Not yet built: deleting, Flat view, and the Cancel prompt.
 
 ## Context
 
