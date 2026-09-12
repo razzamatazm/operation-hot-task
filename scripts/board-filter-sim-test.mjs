@@ -16,12 +16,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BOARD_HISTORY_CHOICES,
   BOARD_SHOW_CHOICES,
   boardBody,
   isOnMineBoard,
+  isWithinHistory,
+  parseBoardHistory,
   parseBoardShow,
   visibleBoardTasks
 } from "../apps/web/src/board-filter.ts";
+
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.parse("2026-09-12T12:00:00.000Z");
+const daysAgo = (n) => new Date(NOW - n * DAY).toISOString();
+/* Every task in the Mine and search fixtures below is open or was last updated
+   two days before NOW, so History never has a say in those tests. */
+const base = { history: 14, now: NOW };
 
 const viewer = { id: "u-viewer", displayName: "Viewer" };
 const other = { id: "u-other", displayName: "Other" };
@@ -94,17 +104,17 @@ const board = [
 ];
 
 test("Everyone hands back the list it was given", () => {
-  assert.equal(visibleBoardTasks(board, { show: "everyone", viewer }), board, "same reference, so nothing downstream re-renders");
+  assert.equal(visibleBoardTasks(board, { show: "everyone", viewer, ...base }), board, "same reference, so nothing downstream re-renders");
 });
 
 test("Mine keeps the tasks the rule keeps, in the order they came", () => {
-  const ids = visibleBoardTasks(board, { show: "mine", viewer }).map((t) => t.id);
+  const ids = visibleBoardTasks(board, { show: "mine", viewer, ...base }).map((t) => t.id);
   assert.deepEqual(ids, ["filed", "pool", "held", "done-mine"]);
 });
 
 test("Mine can come back empty", () => {
   const theirs = [task("observed", { assignee: third, status: "CLAIMED" })];
-  assert.deepEqual(visibleBoardTasks(theirs, { show: "mine", viewer }), []);
+  assert.deepEqual(visibleBoardTasks(theirs, { show: "mine", viewer, ...base }), []);
 });
 
 /* ── A picked loan (#333) ───────────────────────────────── */
@@ -121,22 +131,22 @@ const loanBoard = [
 ];
 
 test("a picked loan keeps only that loan's tasks, active and closed, in the order they came", () => {
-  const ids = visibleBoardTasks(loanBoard, { show: "everyone", viewer, loanId: "loan-h" }).map((t) => t.id);
+  const ids = visibleBoardTasks(loanBoard, { show: "everyone", viewer, ...base, loanId: "loan-h" }).map((t) => t.id);
   assert.deepEqual(ids, ["h-open", "h-observed", "h-done"]);
 });
 
 test("a picked loan shows the whole file even with Mine on", () => {
-  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, loanId: "loan-h" }).map((t) => t.id);
+  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, ...base, loanId: "loan-h" }).map((t) => t.id);
   assert.deepEqual(ids, ["h-open", "h-observed", "h-done"], "somebody else's work and closed tasks the viewer was not a Party to stay");
 });
 
 test("a picked loan with nothing on the board comes back empty", () => {
-  assert.deepEqual(visibleBoardTasks(loanBoard, { show: "everyone", viewer, loanId: "loan-none" }), []);
+  assert.deepEqual(visibleBoardTasks(loanBoard, { show: "everyone", viewer, ...base, loanId: "loan-none" }), []);
 });
 
 test("no picked loan leaves the Show setting in charge", () => {
-  assert.equal(visibleBoardTasks(loanBoard, { show: "everyone", viewer, loanId: null }), loanBoard, "same reference");
-  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, loanId: null }).map((t) => t.id);
+  assert.equal(visibleBoardTasks(loanBoard, { show: "everyone", viewer, ...base, loanId: null }), loanBoard, "same reference");
+  const ids = visibleBoardTasks(loanBoard, { show: "mine", viewer, ...base, loanId: null }).map((t) => t.id);
   assert.deepEqual(ids, ["h-open", "other-open", "unlinked", "other-done"]);
 });
 
@@ -155,6 +165,140 @@ test("nothing stored, or anything unrecognised, reads as Everyone", () => {
 
 test("a stored Mine reads back as Mine", () => {
   assert.equal(parseBoardShow("mine"), "mine");
+});
+
+/* ── History: how far back finished tasks go (#391) ─────── */
+
+test("the setting offers Last 7, 14 and 30 days, then All", () => {
+  assert.deepEqual(BOARD_HISTORY_CHOICES.map((c) => c.label), ["Last 7 days", "Last 14 days", "Last 30 days", "All"]);
+  assert.deepEqual(BOARD_HISTORY_CHOICES.map((c) => c.value), [7, 14, 30, "all"]);
+});
+
+test("nothing stored, or anything unrecognised, reads as Last 14 days", () => {
+  assert.equal(parseBoardHistory(null), 14, "first load");
+  assert.equal(parseBoardHistory(undefined), 14);
+  for (const garbage of ["", "14 days", "07", "ALL", "60", "0", "-7", "true", "{}"]) {
+    assert.equal(parseBoardHistory(garbage), 14, JSON.stringify(garbage));
+  }
+});
+
+test("each stored choice reads back as itself", () => {
+  assert.equal(parseBoardHistory("7"), 7);
+  assert.equal(parseBoardHistory("14"), 14);
+  assert.equal(parseBoardHistory("30"), 30);
+  assert.equal(parseBoardHistory("all"), "all");
+});
+
+test("a stored choice survives being written and read back", () => {
+  for (const { value } of BOARD_HISTORY_CHOICES) {
+    assert.equal(parseBoardHistory(String(value)), value);
+  }
+});
+
+/* Closed tasks at a spread of ages, each closed by a different stamp so the
+   close-stamp fallback order is exercised, plus open and in-flight work filed
+   a year ago. */
+const aged = [
+  task("done-6", { status: "COMPLETED", completedAt: daysAgo(6), updatedAt: daysAgo(1) }),
+  task("cancelled-8", { status: "CANCELLED", cancelledAt: daysAgo(8), updatedAt: daysAgo(1) }),
+  task("archived-13", { status: "ARCHIVED", completedAt: daysAgo(13), archivedAt: daysAgo(1), updatedAt: daysAgo(1) }),
+  task("archived-15", { status: "ARCHIVED", archivedAt: daysAgo(15), updatedAt: daysAgo(1) }),
+  task("stampless-29", { status: "COMPLETED", updatedAt: daysAgo(29) }),
+  task("done-31", { status: "COMPLETED", completedAt: daysAgo(31) }),
+  task("done-100", { status: "COMPLETED", completedAt: daysAgo(100) }),
+  task("open-old", { createdAt: daysAgo(400), updatedAt: daysAgo(400) }),
+  task("claimed-old", { status: "CLAIMED", assignee: third, createdAt: daysAgo(400), updatedAt: daysAgo(400) }),
+  task("awaiting-old", { taskType: "FRAUD", status: "AWAITING_ITEMS", assignee: third, createdAt: daysAgo(400), updatedAt: daysAgo(400) })
+];
+const shown = (history, extra = {}) =>
+  visibleBoardTasks(aged, { show: "everyone", viewer, history, now: NOW, ...extra }).map((t) => t.id);
+const OPEN_OLD = ["open-old", "claimed-old", "awaiting-old"];
+
+test("Last 7 days keeps closed tasks inside a week and drops the rest", () => {
+  assert.deepEqual(shown(7), ["done-6", ...OPEN_OLD]);
+});
+
+test("Last 14 days keeps closed tasks inside two weeks, reading the completion stamp before a later archive", () => {
+  assert.deepEqual(shown(14), ["done-6", "cancelled-8", "archived-13", ...OPEN_OLD]);
+});
+
+test("Last 30 days keeps closed tasks inside a month, falling back to the last update when nothing else is stamped", () => {
+  assert.deepEqual(shown(30), ["done-6", "cancelled-8", "archived-13", "archived-15", "stampless-29", ...OPEN_OLD]);
+});
+
+test("All keeps every closed task, and hands back the list it was given", () => {
+  assert.deepEqual(shown("all"), aged.map((t) => t.id));
+  assert.equal(visibleBoardTasks(aged, { show: "everyone", viewer, history: "all", now: NOW }), aged, "same reference");
+});
+
+test("open and in-flight work is never cut, however old", () => {
+  for (const { value } of BOARD_HISTORY_CHOICES) {
+    const ids = shown(value);
+    for (const id of OPEN_OLD) assert.ok(ids.includes(id), `${id} under ${value}`);
+  }
+});
+
+test("a task closed exactly on the edge of the window is still in it", () => {
+  const edge = [task("edge", { status: "COMPLETED", completedAt: daysAgo(7) })];
+  assert.deepEqual(visibleBoardTasks(edge, { show: "everyone", viewer, history: 7, now: NOW }).map((t) => t.id), ["edge"]);
+  const past = [task("past", { status: "COMPLETED", completedAt: new Date(NOW - 7 * DAY - 1).toISOString() })];
+  assert.deepEqual(visibleBoardTasks(past, { show: "everyone", viewer, history: 7, now: NOW }), []);
+});
+
+test("Last 14 days cuts exactly what the fixed fourteen-day window cut", () => {
+  /* The rule this replaced, as it stood in App's buildSorted. */
+  const cutoff = NOW - 14 * DAY;
+  const legacy = aged.filter((t) => {
+    if (!["COMPLETED", "CANCELLED", "ARCHIVED"].includes(t.status)) return true;
+    const stamp = t.completedAt ?? t.cancelledAt ?? t.archivedAt ?? t.updatedAt;
+    return new Date(stamp).getTime() >= cutoff;
+  });
+  assert.deepEqual(shown(parseBoardHistory(null)), legacy.map((t) => t.id));
+});
+
+test("an uncut list comes back as the same reference", () => {
+  const recent = aged.filter((t) => t.id === "done-6" || OPEN_OLD.includes(t.id));
+  assert.equal(visibleBoardTasks(recent, { show: "everyone", viewer, history: 7, now: NOW }), recent);
+});
+
+test("History and Mine combine", () => {
+  const mixed = [
+    task("mine-recent", { createdBy: viewer, status: "COMPLETED", completedAt: daysAgo(2) }),
+    task("mine-old", { createdBy: viewer, status: "COMPLETED", completedAt: daysAgo(20) }),
+    task("theirs-recent", { assignee: third, status: "COMPLETED", completedAt: daysAgo(2) })
+  ];
+  const ids = visibleBoardTasks(mixed, { show: "mine", viewer, history: 14, now: NOW }).map((t) => t.id);
+  assert.deepEqual(ids, ["mine-recent"]);
+});
+
+test("a picked loan ignores History and shows the loan's closed tasks of any age, in the order they came", () => {
+  const onLoan = [
+    task("l-open", { loanId: "loan-h" }),
+    task("l-done-3", { loanId: "loan-h", status: "COMPLETED", completedAt: daysAgo(3) }),
+    task("o-done-60", { loanId: "loan-o", status: "COMPLETED", completedAt: daysAgo(60) }),
+    task("l-done-60", { loanId: "loan-h", status: "ARCHIVED", archivedAt: daysAgo(60) })
+  ];
+  const searched = visibleBoardTasks(onLoan, { show: "mine", viewer, history: 7, now: NOW, loanId: "loan-h" }).map((t) => t.id);
+  assert.deepEqual(searched, ["l-open", "l-done-3", "l-done-60"]);
+  const cleared = visibleBoardTasks(onLoan, { show: "everyone", viewer, history: 7, now: NOW, loanId: null }).map((t) => t.id);
+  assert.deepEqual(cleared, ["l-open", "l-done-3"], "clearing the search puts the cutoff back");
+});
+
+test("a kept task stays on the board outside the window, and only that one", () => {
+  const ids = shown(7, { keep: new Set(["done-100"]) });
+  assert.deepEqual(ids, ["done-6", "done-100", ...OPEN_OLD]);
+});
+
+test("a kept task is still subject to Mine", () => {
+  const theirs = [task("theirs-old", { assignee: third, status: "COMPLETED", completedAt: daysAgo(40) })];
+  assert.deepEqual(visibleBoardTasks(theirs, { show: "mine", viewer, history: 7, now: NOW, keep: new Set(["theirs-old"]) }), []);
+});
+
+test("isWithinHistory answers for one task", () => {
+  assert.equal(isWithinHistory(aged[0], 7, NOW), true);
+  assert.equal(isWithinHistory(aged[1], 7, NOW), false);
+  assert.equal(isWithinHistory(aged[6], "all", NOW), true);
+  assert.equal(isWithinHistory(aged[7], 7, NOW), true, "open work is always within");
 });
 
 /* ── Which tab's body the board shows (#363) ────────────── */

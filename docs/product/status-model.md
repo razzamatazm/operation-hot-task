@@ -154,8 +154,22 @@
 
 ## Done-View Retention (UI)
 
-`Cancelled` tasks stay visible in the web Done view for the same closed-task
-retention window as `Completed` / `Archived` (they no longer disappear
-immediately on cancel). This is a UI filter only; the backend
-auto-archive/purge behavior is unchanged — see
-[reminders-retention.md](reminders-retention.md).
+How far back the web Done view goes is the app menu's **History** setting
+(#391): `Last 7 days`, `Last 14 days` (the default), `Last 30 days` or `All`.
+Every user has it, and it is stored per browser like Grouped and Show. A closed
+task (`Completed`, `Cancelled` or `Archived`) stays on the board while its close
+stamp (completed, else cancelled, else archived, else last update) is inside
+the window; `All` applies no cutoff. Open and in-flight tasks are never cut,
+however old. `Cancelled` rides the same window as the other two (it no longer
+disappears immediately on cancel).
+
+Two things see past the window without changing it. A loan search shows every
+task on that loan the app holds, closed ones of any age included, and clearing
+the search puts the cutoff back. A link to a closed task outside the window
+opens it and keeps it on the board until the page reloads.
+
+This is a UI filter only. `All` means every task the server still keeps; the
+backend auto-archive and archive purge are unchanged — see
+[reminders-retention.md](reminders-retention.md). There is no longer an admin
+`All Tasks` tab: it existed to show closed tasks past the fixed fourteen-day
+window this setting replaced.

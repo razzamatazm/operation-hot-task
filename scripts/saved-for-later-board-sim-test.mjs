@@ -894,7 +894,6 @@ test("neither Grouped nor Flat view draws a Saved for Later section: the task li
   assert.match(source, /^const renderTaskList = \(list: LoanTask\[\], emptyMessage: string\) =>/, "no third argument to smuggle drafts in");
   assert.doesNotMatch(source, /savedItems|savedSection|SavedForLater|TaskDrafts|savedForLater/, "no draft reaches either view");
   assert.match(APP_SOURCE, /renderTaskList\(boardTasks, "No tasks yet\."\)/, "the Tasks board passes its tasks only");
-  assert.match(APP_SOURCE, /renderTaskList\(allTasksAdmin, "No tasks yet\."\)/, "and admin All Tasks the same");
   assert.equal((APP_SOURCE.match(/<SavedForLaterSection\b/g) ?? []).length, 0, "the old section is gone");
   assert.doesNotMatch(SECTION_SOURCE, /export const SavedForLaterSection\b/);
 });
@@ -963,7 +962,7 @@ test("App holds the tab in plain state that opens on Tasks and is never stored",
 
 const boardBlock = () => {
   const start = APP_SOURCE.indexOf(`{activeTab === "active" && (() => {`);
-  const end = APP_SOURCE.indexOf(`{activeTab === "all" && isAdmin && (`);
+  const end = APP_SOURCE.indexOf(`{activeTab === "metrics" && isAdmin && (`);
   assert.ok(start >= 0 && end > start, "the Tasks board block exists");
   return APP_SOURCE.slice(start, end);
 };
@@ -981,7 +980,7 @@ test("the tab row is always drawn on the Tasks board, so Mine and an empty searc
   const tabsProps = block.slice(tabs, block.indexOf("/>", tabs));
   assert.match(tabsProps, /draftsCount=\{taskDraftsCount\(savedForLater, autosave, now\)\}/, "counted from every draft the viewer has, not a filtered list");
   assert.match(tabsProps, /tasksCount=\{boardTasks\.length\}/, "the Tasks count is the board's own, as the heading's was");
-  assert.equal((APP_SOURCE.match(/<BoardTabs\b/g) ?? []).length, 1, "admin All Tasks has no tab row");
+  assert.equal((APP_SOURCE.match(/<BoardTabs\b/g) ?? []).length, 1, "the Tasks board is the only list with a tab row");
 });
 
 test("switching tabs swaps the body: the Task Drafts page lists every draft, never narrowed by Mine or the search", () => {
