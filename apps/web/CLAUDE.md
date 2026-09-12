@@ -1623,17 +1623,20 @@ took the whole draft with them. Both now go through one `requestClose` in
 [src/task-form.tsx](src/task-form.tsx) — one door, so the two exits can never
 answer differently — which raises
 [src/discard-confirm.tsx](src/discard-confirm.tsx) when there is anything to
-lose. "Anything to lose" is `formHasChanges` in
+lose. In edit mode "anything to lose" is `formHasChanges` in
 [src/create-form-state.ts](src/create-form-state.ts): the form differing from
-the values it OPENED with, which is what lets one predicate serve both modes —
-an edit form is full of values nobody typed, and measuring those against a
-blank form would prompt every time. Deliberately over-eager: any field, nothing
+the values it OPENED with, because an edit form is full of values nobody typed,
+and measuring those against a blank form would prompt every time. A create form
+uses the same predicate against a blank form instead (#365, below).
+Deliberately over-eager: any field, nothing
 trimmed, a changed task type on its own included, plus the FRAUD seeder's
 half-typed item — the one thing it *does* trim, because the seeder itself
 refuses to commit a whitespace-only one. It is not `taskEdit`, which
 answers the much more forgiving "is this worth sending to the server". An
 untouched edit form still closes on the first press, because a prompt that
-appears every time is one people stop reading.
+appears every time is one people stop reading. The backdrop stays inert and
+raises no prompt either. Confirming is a bare `onClose`, which is the single
+line the draft-saving work hangs "and clear the draft" onto.
 
 **A create form asks whenever there is anything in it** (#365, the
 maintainer's rule). The decision is `cancelAsks` in
@@ -1643,9 +1646,7 @@ create form is measured against a blank form (`opening.fresh`), the Save for
 later button's own yardstick, so a form restored from the autosave and left
 alone still asks, and only a completely empty new task closes without a prompt.
 A reopened Saved for Later task always asks, changed or not, so it never
-closes silently. The backdrop stays inert and raises no
-prompt either. Confirming is a bare `onClose`, which is the single line the
-draft-saving work hangs "and clear the draft" onto.
+closes silently.
 
 **And it remembers what you typed** (#284). The prompt above only covers the
 exits the app can see. The one it exists for — the Teams tab that reloads, the
@@ -1741,10 +1742,11 @@ beside it. What keeps it honest:
   saved draft. A confirmation would be a prompt over a form nobody asked for,
   and a misfire costs one keystroke to start saving again.
 - **It re-points `openedWith` at the blank form**, which is the subtle half.
-  That ref is what Cancel and the save timer measure "has anything happened
-  here" against; left on the restored values, an emptied form would read as
-  heavily changed — Cancel would ask to discard a form with nothing in it, and
-  the timer would immediately write the blank over the draft just deleted. It
+  That ref is what the save timer measures "has anything happened here"
+  against; left on the restored values, an emptied form would read as heavily
+  changed, and the timer would immediately write the blank over the draft just
+  deleted. (Cancel on a create form measures against the blank form since #365,
+  so an emptied one closes without asking regardless.) It
   also clears everything that is a field without being in the values object —
   the typeahead's three pieces of state, the FRAUD seeder's box, the Humperdink
   paste box and its "Imported" button — and takes the line down: after `Start
