@@ -53,6 +53,34 @@ export interface SavedForLaterTask {
   unsaved?: SavedForLaterForm;
 }
 
+/* The new task form's autosave (#284, moved to the server by #371): the one
+   unfinished new-task form a person has, kept as they type so a reload, a Teams
+   switch or another device loses nothing. Not a Saved for Later task: nobody
+   pressed anything, so there is one per person rather than a list, and it ages
+   out. Private under ADR-0011's rules like one, and kept in the same store.
+
+   `form` is the same shape a Saved for Later task keeps. `savedAt` is the last
+   write, and the only thing expiry reads. */
+export interface Autosave {
+  ownerId: string;
+  savedAt: string;
+  form: SavedForLaterForm;
+}
+
+/* Seven days from the last write: long enough that a Friday interruption is
+   still there on Monday, short enough that nothing genuinely stale comes back.
+   One number for the server, which prunes on it, and the web app's offline
+   copy, which is held to it by `scripts/saved-for-later-board-sim-test.mjs`. */
+export const AUTOSAVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/* Whether an autosave last written at `savedAt` has aged out by `now`. An
+   unreadable time counts as aged out: there is no telling how old it is, and a
+   form nobody can date is not one to put back in front of someone. */
+export const isAutosaveExpired = (savedAt: string, now: number): boolean => {
+  const written = Date.parse(savedAt);
+  return !Number.isFinite(written) || now - written >= AUTOSAVE_MAX_AGE_MS;
+};
+
 /* Newest saved first: the order the board's section lists them in, and the
    order the server hands them back. One comparator so the two cannot disagree
    about which comes first. */

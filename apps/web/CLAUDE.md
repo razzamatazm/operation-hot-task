@@ -1640,8 +1640,10 @@ draft-saving work hangs "and clear the draft" onto.
 **And it remembers what you typed** (#284). The prompt above only covers the
 exits the app can see. The one it exists for — the Teams tab that reloads, the
 session that drops — runs nothing on the way out, so the new task form keeps a
-copy of itself in `localStorage` as it is typed into and opens on that copy next
-time. What that looks like on screen is #285, below.
+copy of itself as it is typed into and opens on that copy next time. It was a
+`localStorage` copy until #371 moved it to the server, with `localStorage` kept
+only as the offline fallback (below). What that looks like on screen is #285,
+below.
 
 The rules are [src/create-form-draft.ts](src/create-form-draft.ts) —
 framework-free, storage handed in as three methods, so seven-day expiry and
@@ -1654,17 +1656,18 @@ framework-free, storage handed in as three methods, so seven-day expiry and
   pinned when the form opens, because the mock user picker can change who is
   signed in mid-form and the live id would file the first person's typing under
   the second person's name.
-- **Written as they type**, on a 400ms trailing debounce keyed on the values.
-  Never on unmount or `beforeunload`: a save that needs an exit path to run is
-  not there for the failure this exists to survive.
+- **Written as they type**, on a trailing debounce keyed on the values: a
+  second since #371 (`UNSAVED_SAVE_DEBOUNCE_MS`, the reopened form's), because
+  each write is now a request. Never on unmount or `beforeunload`: a save that
+  needs an exit path to run is not there for the failure this exists to survive.
 - **Worth saving is `formHasChanges` again**, measured against a blank-slate
   open — so a changed task type on its own is enough, and the prompt and the
   draft can never disagree about what "untouched" means. Measured against
   `openedWith` instead it would call a restored draft unchanged and stop saving
   it.
-- **Forgotten in one place** (`forgetDraft`), reached by exactly two endings: a
-  successful create, and confirming the discard prompt. Declining changes
-  nothing. A restored draft is not rewritten just for being opened, so its seven
+- **Forgotten in one place** (`forgetDraft`), reached by a successful create,
+  confirming the discard prompt, Start fresh (#285), Save for later (#343), and
+  a form emptied back out. Declining the prompt changes nothing. A restored draft is not rewritten just for being opened, so its seven
   days mean untouched rather than unopened.
 - **Edit mode has null storage** rather than a rule not to save — there is
   nowhere to write, so nothing further down can slip.
@@ -1675,6 +1678,26 @@ framework-free, storage handed in as three methods, so seven-day expiry and
   still exists and still carries the name in the box, so a loan renamed, merged
   or removed during the week the draft sat there behaves like any typed no-match
   (ADR-0001) rather than erroring.
+
+**It lives on the server since #371** (ADR-0011 rule 5), and `localStorage` is
+only its offline fallback. What changed underneath the bullets above:
+
+- **Opening reads two copies and takes the newer.** App passes `autosave`, the
+  server's copy, which `openNewTask` fetches again on the way in
+  (`loadAutosaveRequest`, giving up after two seconds so a hanging server never
+  holds the form shut). The form weighs it against the browser's copy with
+  `newerAutosave`, so typing the server never got still comes back.
+- **A write goes to the server first** (`keepAutosave`, through
+  `onKeepAutosave`). A write that lands removes the browser's copy; one that
+  fails writes it. Neither is ever toasted.
+- **`forgetDraft` forgets both**, the browser's at once and the server's after
+  any write still out, and only on a form with an `autosaveSeat`: a reopened or
+  edit form has none, as it has no storage.
+- **Autosave writes join `unsavedWrites`**, the queue every ending already waits
+  on, and the timer does nothing once `ending` is set, so no keystroke's write
+  can land after Create, Save for later or Discard and put the typing back.
+- **Save for later from a new form sends `clearAutosave`**, which the server
+  applies in the same write, so the Task Drafts tab never lists one form twice.
 
 Two rules moved out of the component to be tested rather than described:
 `draftAction` (write / keep / clear, as a truth table) and `createLoanId` above.
@@ -1749,7 +1772,13 @@ stays the one filled button. What keeps it honest:
   or count, because the tab above it is both, and with nothing saved it is an
   `.empty-card` naming the Save for later button that fills it. A row is
   `.saved-row`: loan name, type, `saved N ago`, and no more, because a saved
-  task has no pair, due stamp or action to draw. It is not a `TaskCard` and not
+  task has no pair, due stamp or action to draw. Since #371 the page also takes
+  `autosave` and draws it as one more `.saved-row` in the same shape, sorted in
+  by `savedAt` and reading `Autosaved N ago`; its tap is `onOpenAutosave` (App's
+  `openNewTask`, the New Task button's own way in) and its delete
+  `onDeleteAutosave`, through the same in-row question. `taskDraftsCount` is the
+  tab's count, so the tab never counts a row the page does not draw, an aged-out
+  autosave included. It is not a `TaskCard` and not
   a court; `tasks` never holds one.
 - **The list is emptied on every identity change** before the new one loads,
   and a load or save that comes back for the previous person is dropped, so a

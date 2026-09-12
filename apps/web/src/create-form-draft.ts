@@ -49,16 +49,6 @@ export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
    values in front of someone that they never typed. */
 export const DRAFT_VERSION = 1;
 
-/* How long the form waits after the last keystroke before saving. The draft is
-   written as someone types rather than on the way out, because the failure this
-   ticket exists to survive is the one where nothing gets to run on the way out
-   — so the only question is how often, and the answer is "shortly after they
-   stop". Long enough that a sentence is one write rather than forty; short
-   enough that nobody types for a whole thought and loses it. Lives here with
-   the rest of the rules so the timing is one number with one reason, not a
-   magic 400 buried in an effect. */
-export const DRAFT_SAVE_DEBOUNCE_MS = 400;
-
 /* The three methods this needs from `window.localStorage`, and nothing else.
    Narrow on purpose: it is what makes the tests a plain object rather than a
    DOM, and it keeps this module honest about how little it touches. */
@@ -161,7 +151,30 @@ export const serializeDraft = (values: CreateFormValues, savedAt: number): strin
    somewhere) is not treated as corrupt; it simply lives a little longer. The
    failure it would otherwise cause is throwing away work over a wrong clock,
    which is worse than the one it prevents. */
-export const parseDraft = (raw: string | null, now: number): CreateFormValues | null => {
+export const parseDraft = (raw: string | null, now: number): CreateFormValues | null => parseDraftCopy(raw, now)?.values ?? null;
+
+/* An autosave that could come back, and when it was written, in epoch
+   milliseconds. The browser's offline copy and the server's autosave (#371)
+   both become one of these, so the form can weigh the two with one rule. */
+export interface AutosaveCopy {
+  values: CreateFormValues;
+  savedAt: number;
+}
+
+/* Something claiming to be the form's values, as exactly those values, or
+   `null` if any field is missing or the wrong shape. Arrays are copied so the
+   caller's form state can never share a reference with something a second read
+   would hand out again. */
+const formValuesOf = (candidate: unknown): CreateFormValues | null => {
+  if (typeof candidate !== "object" || candidate === null) return null;
+  const values = candidate as Record<string, unknown>;
+  for (const key of DRAFT_KEYS) {
+    if (!DRAFT_FIELDS[key](values[key])) return null;
+  }
+  return { ...pickValues(values as unknown as CreateFormValues), initialItems: [...(values.initialItems as string[])] };
+};
+
+const parseDraftCopy = (raw: string | null, now: number): AutosaveCopy | null => {
   if (!raw) return null;
   let parsed: unknown;
   try {
@@ -174,14 +187,36 @@ export const parseDraft = (raw: string | null, now: number): CreateFormValues | 
   if (record.version !== DRAFT_VERSION) return null;
   if (typeof record.savedAt !== "number" || !Number.isFinite(record.savedAt)) return null;
   if (now - record.savedAt >= DRAFT_MAX_AGE_MS) return null;
-  const values = record.values as Record<string, unknown> | undefined;
-  if (typeof values !== "object" || values === null) return null;
-  for (const key of DRAFT_KEYS) {
-    if (!DRAFT_FIELDS[key](values[key])) return null;
-  }
-  /* Arrays are copied so the caller's form state can never share a reference
-     with something a second read would hand out again. */
-  return { ...pickValues(values as unknown as CreateFormValues), initialItems: [...(values.initialItems as string[])] };
+  const values = formValuesOf(record.values);
+  return values ? { values, savedAt: record.savedAt } : null;
+};
+
+/* The server's autosave (#371) as a copy the form can restore, or `null` for
+   none, one aged out, or one that is not the form's shape. The server already
+   refuses a malformed write and never answers with an aged-out one; asking again
+   here costs nothing and means an old copy App held since sign-in cannot come
+   back past its seven days. */
+export const autosaveCopy = (
+  item: { savedAt: string; form: unknown } | null | undefined,
+  now: number
+): AutosaveCopy | null => {
+  if (!item) return null;
+  const savedAt = Date.parse(item.savedAt);
+  if (!Number.isFinite(savedAt) || now - savedAt >= DRAFT_MAX_AGE_MS) return null;
+  const values = formValuesOf(item.form);
+  return values ? { values, savedAt } : null;
+};
+
+/* Which autosave a New Task opens on, given the server's and this browser's
+   offline copy (#371). The one written last: the offline copy only exists
+   because a write to the server failed, so when it is the newer it is typing
+   the server never got, and when it is the older a later write reached the
+   server from somewhere. A tie goes to the server's, the copy every device
+   sees. */
+export const newerAutosave = (server: AutosaveCopy | null, offline: AutosaveCopy | null): AutosaveCopy | null => {
+  if (!server) return offline;
+  if (!offline) return server;
+  return offline.savedAt > server.savedAt ? offline : server;
 };
 
 /* This person's draft, or `null`. Prunes on the way past: a record that came
@@ -203,13 +238,21 @@ export const readDraft = (
   storage: DraftStorage | null,
   userId: string,
   now: number = Date.now()
-): CreateFormValues | null => {
+): CreateFormValues | null => readDraftCopy(storage, userId, now)?.values ?? null;
+
+/* The same read, with when the copy was written, so it can be weighed against
+   the server's autosave (#371). */
+export const readDraftCopy = (
+  storage: DraftStorage | null,
+  userId: string,
+  now: number = Date.now()
+): AutosaveCopy | null => {
   if (!storage) return null;
   try {
     const raw = storage.getItem(draftKey(userId));
-    const values = parseDraft(raw, now);
-    if (!values && raw !== null) storage.removeItem(draftKey(userId));
-    return values;
+    const copy = parseDraftCopy(raw, now);
+    if (!copy && raw !== null) storage.removeItem(draftKey(userId));
+    return copy;
   } catch {
     /* storage unavailable — degrade silently */
     return null;

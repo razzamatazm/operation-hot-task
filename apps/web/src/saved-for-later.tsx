@@ -1,6 +1,6 @@
-import { TASK_TYPE_LABELS, newestSavedFirst } from "@loan-tasks/shared";
-import type { SavedForLaterTask } from "@loan-tasks/shared";
-import { useEffect, useRef, useState } from "react";
+import { TASK_TYPE_LABELS, isAutosaveExpired, newestSavedFirst } from "@loan-tasks/shared";
+import type { Autosave, SavedForLaterTask } from "@loan-tasks/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatAgo } from "./format";
 import { TrashIcon } from "./icons";
 
@@ -27,9 +27,34 @@ import { TrashIcon } from "./icons";
    fills the row, so the whole row is the press target the way a task row is,
    and hands that row's record to `onOpen`. The button is a child of the `<li>`
    rather than the `<li>` itself so the delete control (#345) sits beside it on
-   the row without nesting one button inside another. */
+   the row without nesting one button inside another.
+
+   The viewer's autosave is listed here too (#371): the new task form's typing,
+   kept on the server, so a person can find it from the board as well as by
+   opening New Task. It is one more row in the same shape, placed by when it was
+   last written like every draft, reading `Autosaved N ago` where a draft reads
+   `saved N ago`. Tapping it opens New Task, which restores it; its delete asks
+   the same question and forgets the autosave. Only one ever shows, and one
+   seven days old does not show at all. */
 
 const NO_LOAN_YET = "No loan yet";
+
+/* The autosave's row id. Saved for Later ids are UUIDs, so this cannot collide
+   with one. */
+const AUTOSAVE_ROW_ID = "autosave";
+
+/* What a row needs: a Saved for Later task, or the autosave standing in as one. */
+type DraftRowItem = Pick<SavedForLaterTask, "id" | "savedAt" | "form"> & { autosaved?: true };
+
+/* The autosave the page lists and the tab counts, or null: none, or aged out. */
+const shownAutosave = (autosave: Autosave | null | undefined, now: number): Autosave | null =>
+  autosave && !isAutosaveExpired(autosave.savedAt, now) ? autosave : null;
+
+/* The Task Drafts tab's count (#363, #371): every Saved for Later task, and the
+   autosave when there is one to show. One rule, so the tab can never count a row
+   the page does not draw. */
+export const taskDraftsCount = (items: SavedForLaterTask[], autosave: Autosave | null | undefined, now: number): number =>
+  items.length + (shownAutosave(autosave, now) ? 1 : 0);
 
 /* The second step of deleting one (#345). Deleting has no undo, so the row asks
    once, in place, the way the thread's `Delete` and the Instructions box's
@@ -74,16 +99,16 @@ export const SavedForLaterDeleteConfirm = ({
   );
 };
 
-const SavedForLaterRow = ({
+const SavedForLaterRow = <T extends DraftRowItem,>({
   item,
   now,
   onOpen,
   onDelete
 }: {
-  item: SavedForLaterTask;
+  item: T;
   now: number;
-  onOpen: (item: SavedForLaterTask) => void;
-  onDelete: (item: SavedForLaterTask) => Promise<boolean>;
+  onOpen: (item: T) => void;
+  onDelete: (item: T) => Promise<boolean>;
 }) => {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -134,13 +159,13 @@ const SavedForLaterRow = ({
             <span className="saved-row-name">{name}</span>
             <span className="saved-row-type">{TASK_TYPE_LABELS[item.form.taskType]}</span>
             <time className="saved-row-when" dateTime={item.savedAt}>
-              saved {formatAgo(item.savedAt, now)}
+              {`${item.autosaved ? "Autosaved" : "saved"} ${formatAgo(item.savedAt, now)}`}
             </time>
           </button>
           <button
             type="button"
             className="saved-row-delete"
-            aria-label={`Delete saved task: ${name}`}
+            aria-label={`${item.autosaved ? "Delete autosaved task" : "Delete saved task"}: ${name}`}
             title="Delete"
             ref={deleteRef}
             onClick={() => setConfirming(true)}
@@ -153,18 +178,40 @@ const SavedForLaterRow = ({
   );
 };
 
+type ListedRow =
+  | { kind: "saved"; item: SavedForLaterTask }
+  | { kind: "autosave"; item: DraftRowItem };
+
 export const TaskDraftsPage = ({
   items,
+  autosave,
   now,
   onOpen,
-  onDelete
+  onDelete,
+  onOpenAutosave = () => {},
+  onDeleteAutosave = async () => false
 }: {
   items: SavedForLaterTask[];
+  /* The viewer's autosave (#371), listed as one more row when there is one. */
+  autosave?: Autosave | null;
   now: number;
   onOpen: (item: SavedForLaterTask) => void;
   /* Resolves true once the row is off the list, false when it stayed. */
   onDelete: (item: SavedForLaterTask) => Promise<boolean>;
+  /* Tapping the Autosaved row: opens New Task, which restores it. */
+  onOpenAutosave?: () => void;
+  /* The Autosaved row's delete, once confirmed. Resolves as `onDelete` does. */
+  onDeleteAutosave?: () => Promise<boolean>;
 }) => {
+  /* Every row, newest written first: the Saved for Later tasks, and the
+     autosave placed among them by when it was last written. */
+  const listed = useMemo<ListedRow[]>(() => {
+    const shown = shownAutosave(autosave, now);
+    const rows: ListedRow[] = items.map((item) => ({ kind: "saved", item }));
+    if (shown) rows.push({ kind: "autosave", item: { id: AUTOSAVE_ROW_ID, savedAt: shown.savedAt, form: shown.form, autosaved: true } });
+    return rows.sort((a, b) => newestSavedFirst(a.item, b.item));
+  }, [items, autosave, now]);
+
   /* Where focus goes once a delete lands. The row that held it is gone, and a
      keyboard user dropped onto the page body has lost their place in the list,
      so focus moves to the row that took its place, or the new last row. A delete
@@ -175,16 +222,16 @@ export const TaskDraftsPage = ({
   const refocus = useRef<{ id: string; index: number } | null>(null);
   useEffect(() => {
     const mark = refocus.current;
-    if (!mark || items.some((i) => i.id === mark.id)) return;
+    if (!mark || listed.some((i) => i.item.id === mark.id)) return;
     refocus.current = null;
     const rows = listRef.current?.querySelectorAll<HTMLButtonElement>(".saved-row-open");
     if (!rows || rows.length === 0) return;
     rows[Math.min(mark.index, rows.length - 1)]?.focus();
-  }, [items]);
+  }, [listed]);
 
-  const deleteRow = async (item: SavedForLaterTask, index: number): Promise<boolean> => {
+  const deleteRow = async <T extends DraftRowItem,>(item: T, index: number, remove: (item: T) => Promise<boolean>): Promise<boolean> => {
     refocus.current = { id: item.id, index };
-    const removed = await onDelete(item);
+    const removed = await remove(item);
     if (!removed) refocus.current = null;
     return removed;
   };
@@ -192,15 +239,24 @@ export const TaskDraftsPage = ({
   /* The button keeps its own wording, Save for later, while the tab says Task
      Drafts (the maintainer's call on #363), so the empty page names the button
      that fills it. */
-  if (items.length === 0) {
+  if (listed.length === 0) {
     return <div className="empty-card">No task drafts. Use Save for later on a new task to keep one here.</div>;
   }
-  const ordered = [...items].sort(newestSavedFirst);
   return (
     <ul className="saved-list" ref={listRef}>
-      {ordered.map((item, index) => (
-        <SavedForLaterRow key={item.id} item={item} now={now} onOpen={onOpen} onDelete={(it) => deleteRow(it, index)} />
-      ))}
+      {listed.map((row, index) =>
+        row.kind === "autosave" ? (
+          <SavedForLaterRow
+            key={row.item.id}
+            item={row.item}
+            now={now}
+            onOpen={onOpenAutosave}
+            onDelete={(it) => deleteRow(it, index, onDeleteAutosave)}
+          />
+        ) : (
+          <SavedForLaterRow key={row.item.id} item={row.item} now={now} onOpen={onOpen} onDelete={(it) => deleteRow(it, index, onDelete)} />
+        )
+      )}
     </ul>
   );
 };

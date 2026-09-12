@@ -175,6 +175,56 @@ test("with no draft the form opens exactly as it always has", () => {
   assert.doesNotMatch(html, /Second TD needs confirming/);
 });
 
+/* ── The autosave on the server (#371) ──────────────────── */
+
+/* Since #371 App hands the form the server's autosave, and this browser only
+   holds what the server never got. The form opens on whichever was written
+   last, and says so the same way either way. */
+const serverAutosave = (values, ageMs = 0) => ({
+  ownerId: USER.id,
+  savedAt: new Date(Date.now() - ageMs).toISOString(),
+  form: values
+});
+
+test("an autosave kept on the server comes back in the form, field for field, with the restored line and Start fresh", () => {
+  const html = render({ autosave: serverAutosave(FILLED, 60000) });
+  assert.match(html, /value="Adams - Harbor"/, "the loan");
+  assert.match(html, /Second TD needs confirming/, "the request text");
+  assert.match(html, /<option value="FRAUD" selected/, "the type");
+  assert.match(html, /Missing appraisal/, "the outstanding items");
+  assert.ok(html.includes(restoredDraftCopy().note), "the line saying where it came from");
+  assert.match(html, />Start fresh</, "and the way out");
+  assert.equal(storage.size, 0, "nothing from this browser was needed");
+});
+
+test("typing that only reached this browser comes back over an older autosave on the server", () => {
+  saveDraft(USER.id, { ...FILLED, notes: "typed while the server was down" }, 1000);
+  const html = render({ autosave: serverAutosave({ ...FILLED, notes: "the last write the server got" }, 60000) });
+  assert.match(html, /typed while the server was down/);
+  assert.doesNotMatch(html, /the last write the server got/);
+});
+
+test("a newer autosave on the server, typed on another device, comes back over an older copy in this browser", () => {
+  saveDraft(USER.id, { ...FILLED, notes: "an old offline copy" }, 60 * 60000);
+  const html = render({ autosave: serverAutosave({ ...FILLED, notes: "typed on the phone" }, 60000) });
+  assert.match(html, /typed on the phone/);
+  assert.doesNotMatch(html, /an old offline copy/);
+});
+
+test("a server autosave seven days old does not come back", () => {
+  const html = render({ autosave: serverAutosave(FILLED, 8 * DAY) });
+  assert.doesNotMatch(html, /Adams - Harbor/);
+  assert.ok(!html.includes(restoredDraftCopy().note), "and nothing is said about one");
+});
+
+test("a prefilled form and an edit form ignore the server autosave", () => {
+  const prefilled = render({ autosave: serverAutosave(FILLED), initialValues: { folderName: "Whitfield 4471" } });
+  assert.match(prefilled, /value="Whitfield 4471"/);
+  assert.doesNotMatch(prefilled, /Second TD needs confirming/);
+  const editing = render({ autosave: serverAutosave(FILLED), edit: { task: TASK, onSave: async () => {} } });
+  assert.doesNotMatch(editing, /Second TD needs confirming/);
+});
+
 /* A restored draft is the first thing that can put a person in the recipient
    picker before anyone has touched the form, and the effect that drops an
    ineligible pick runs on the first render. Handed an empty directory — the
@@ -255,7 +305,8 @@ test("edit mode has nowhere to save a draft to, rather than a rule not to", () =
     /storage: edit \|\| reopened \? null : browserDraftStorage\(\)/,
     "edit mode's storage is null, so every draft call is already a no-op"
   );
-  assert.match(FORM_SOURCE, /if \(editing\) return;/, "and the save effect leaves immediately too");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened;/, "nor a seat on the server's autosave");
+  assert.match(FORM_SOURCE, /if \(!autosaveSeat\) return;/, "and the save effect leaves immediately too");
 });
 
 test("an edit form leaves an existing draft alone rather than clearing it", () => {
@@ -305,11 +356,12 @@ test("the draft is written as the person types, on a timer, not on the way out",
   const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("── Keeping the draft (#284)"));
   const body = effect.slice(0, effect.indexOf("}, [form,"));
   assert.match(body, /window\.setTimeout\(/, "a trailing debounce");
-  assert.match(body, /DRAFT_SAVE_DEBOUNCE_MS/, "settling shortly after the typing stops");
-  assert.match(body, /writeDraft\(draftSeat\.storage, draftSeat\.userId, form\)/, "saving the whole form");
+  assert.match(body, /UNSAVED_SAVE_DEBOUNCE_MS/, "the debounce a reopened form's typing is written on, since each write is a request (#371)");
+  assert.match(body, /keepAutosave\(form\)/, "saving the whole form");
+  assert.match(body, /if \(ending\.current\) return;/, "and never once Create, Save for later or Discard has begun");
   assert.match(
     effect.slice(0, effect.indexOf("]);") + 3),
-    /\}, \[form, editing, opening\.fresh, draftSeat\]\);/,
+    /\}, \[form, autosaveSeat, opening\.fresh\]\);/,
     "keyed on the values, so every change restarts the timer"
   );
   assert.doesNotMatch(
@@ -334,8 +386,36 @@ test("worth saving is the discard prompt's own check, against a blank-slate open
   assert.match(body, /changedFromBlank: formHasChanges\(opening\.fresh, form\)/, "different from a form opened fresh");
   assert.match(body, /movedSinceOpen: formHasChanges\(openedWith\.current, form\)/, "and something moved since");
   assert.match(body, /onDisk: draftStored\.current/, "and whether there is a copy out there already");
-  assert.match(body, /draftStored\.current = writeDraft\(/, "a write records whether it actually landed");
-  assert.match(body, /clearDraft\(draftSeat\.storage, draftSeat\.userId\)/, "a form emptied back out clears it");
+  assert.match(body, /forgetDraft\(\);/, "a form emptied back out forgets it, on the server and in this browser");
+});
+
+/* #371: the server holds the autosave, and this browser only what the server
+   did not take, so a tab that reloads while the server is down still loses
+   nothing and nobody is told about it on every keystroke. */
+test("a write goes to the server, and this browser keeps a copy only when the server did not take it", () => {
+  const keep = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const keepAutosave"));
+  const body = keep.slice(0, keep.indexOf("\n  };"));
+  assert.ok(body.length > 0, "the form has a keepAutosave");
+  assert.match(body, /draftStored\.current = true;/, "there is a copy out there now, on one side or the other");
+  assert.match(body, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "queued behind the last write, in the queue every ending waits on");
+  assert.match(body, /await autosaveCalls\.keep\(values\)/, "the server first");
+  assert.match(
+    FORM_SOURCE,
+    /const \[autosaveCalls\] = useState\(\(\) => \(\{ keep: onKeepAutosave, forget: onForgetAutosave \}\)\);/,
+    "through the calls App handed over at open, so a person switched in mid-form never gets the first person's typing"
+  );
+  assert.match(body, /if \(landed\) clearDraft\(draftSeat\.storage, draftSeat\.userId\);/, "landed: the browser's copy goes");
+  assert.match(body, /else writeDraft\(draftSeat\.storage, draftSeat\.userId, values\);/, "did not: the browser keeps it");
+  assert.doesNotMatch(body, /showToast/, "and nothing is said either way");
+});
+
+test("forgetting the autosave forgets it on the server and in this browser, and only a new task form touches the server's", () => {
+  const forget = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const forgetDraft"));
+  const body = forget.slice(0, forget.indexOf("\n  };"));
+  assert.match(body, /clearDraft\(draftSeat\.storage, draftSeat\.userId\);/, "this browser's copy");
+  assert.match(body, /if \(!autosaveSeat\) return;/, "a reopened or edit form stops there");
+  assert.match(body, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "after any write still out, so none lands after it");
+  assert.match(body, /autosaveCalls\.forget\(\)/, "and the server's, the one belonging to whoever opened the form");
 });
 
 /* Not asked for by the ticket, which never contemplates opening New Task
@@ -362,7 +442,7 @@ test("the draft's owner is pinned at open, not read live", () => {
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
   assert.match(seat.slice(0, seat.indexOf("}));")), /userId: user\.id/);
   const after = FORM_SOURCE.slice(FORM_SOURCE.indexOf("}));", FORM_SOURCE.indexOf("const [draftSeat]")));
-  assert.doesNotMatch(after, /(read|write|clear)Draft\([^)]*user\.id/, "no draft call reads the live user");
+  assert.doesNotMatch(after, /(read|write|clear)Draft(Copy)?\([^)]*user\.id/, "no draft call reads the live user");
 });
 
 /* ── How the forgetting is wired ────────────────────────── */
@@ -371,8 +451,8 @@ test("there is one way to forget a draft, and every ending goes through it", () 
   assert.match(FORM_SOURCE, /const forgetDraft = \(\): void => \{/, "one named thing");
   assert.equal(
     FORM_SOURCE.match(/forgetDraft\(\);/g).length,
-    4,
-    "used by exactly the four endings: a create, the discard prompt, Start fresh (#285), and Save for later (#343, ADR-0011 rule 5)"
+    5,
+    "used by exactly the four endings (a create, the discard prompt, Start fresh (#285), and Save for later (#343, ADR-0011 rule 5)) and a form emptied back out"
   );
 });
 

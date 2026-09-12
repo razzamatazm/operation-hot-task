@@ -24,7 +24,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { TASK_TYPE_LABELS } from "@loan-tasks/shared";
+import { AUTOSAVE_MAX_AGE_MS, TASK_TYPE_LABELS } from "@loan-tasks/shared";
 import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -40,10 +40,10 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export { TaskDraftsPage, SavedForLaterDeleteConfirm } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
+    `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { BoardTabs } from ${JSON.stringify(join(REPO, "apps/web/src/board-tabs.tsx"))};\n` +
-    `export { draftKey, serializeDraft } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
-    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
+    `export { draftKey, serializeDraft, DRAFT_MAX_AGE_MS } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
+    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction, loadAutosaveRequest, keepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
 );
 const bundle = join(scratch, "saved-for-later.mjs");
 await build({
@@ -61,14 +61,19 @@ const {
   TaskDraftsPage,
   BoardTabs,
   SavedForLaterDeleteConfirm,
+  taskDraftsCount,
   draftKey,
   serializeDraft,
+  DRAFT_MAX_AGE_MS,
   saveForLaterRequest,
   reopenSavedForLaterRequest,
   removeSavedForLaterRequest,
   keepUnsavedRequest,
   discardUnsavedRequest,
-  unsavedAction
+  unsavedAction,
+  loadAutosaveRequest,
+  keepAutosaveRequest,
+  forgetAutosaveRequest
 } = await import(pathToFileURL(bundle).href);
 const SECTION_SOURCE = readFileSync(join(REPO, "apps/web/src/saved-for-later.tsx"), "utf8");
 
@@ -195,8 +200,8 @@ const item = (id, minutesAgo, overrides = {}) => ({
   form: { ...FORM, ...overrides }
 });
 
-const renderSection = (items) =>
-  renderToStaticMarkup(createElement(TaskDraftsPage, { items, now: NOW, onOpen: () => {}, onDelete: async () => true }));
+const renderSection = (items, extra = {}) =>
+  renderToStaticMarkup(createElement(TaskDraftsPage, { items, now: NOW, onOpen: () => {}, onDelete: async () => true, ...extra }));
 
 test("with no drafts the page says there are none", () => {
   assert.equal(
@@ -300,19 +305,21 @@ test("declining — Keep or Escape — deletes nothing and puts the row back", (
 test("once a delete lands, focus moves to the row that took its place, and a failed one leaves it on the row", () => {
   const section = SECTION_SOURCE.match(/export const TaskDraftsPage = [\s\S]*?\n\};/)?.[0];
   assert.ok(section);
-  const deleteRow = section.match(/const deleteRow = async \([\s\S]*?\n  \};/)?.[0];
+  const deleteRow = section.match(/const deleteRow = async <T extends DraftRowItem,>\([\s\S]*?\n  \};/)?.[0];
   assert.ok(deleteRow, "the section wraps the delete");
   assert.ok(
-    deleteRow.indexOf("refocus.current = { id: item.id, index }") < deleteRow.indexOf("await onDelete(item)"),
+    deleteRow.indexOf("refocus.current = { id: item.id, index }") >= 0 &&
+      deleteRow.indexOf("refocus.current = { id: item.id, index }") < deleteRow.indexOf("await remove(item)"),
     "it marks where the row was before asking"
   );
+  assert.match(section, /onDelete=\{\(it\) => deleteRow\(it, index, onDelete\)\}/, "a draft's row deletes through it");
   assert.match(deleteRow, /if \(!removed\) refocus\.current = null;/, "a delete that did not land clears the mark");
-  const effect = section.match(/useEffect\(\(\) => \{([\s\S]*?)\}, \[items\]\);/)?.[1];
+  const effect = section.match(/useEffect\(\(\) => \{([\s\S]*?)\}, \[listed\]\);/)?.[1];
   assert.ok(effect, "the section moves focus when its list changes");
-  assert.match(effect, /items\.some\(\(i\) => i\.id === mark\.id\)\) return;/, "only once the row is really gone");
+  assert.match(effect, /listed\.some\(\(i\) => i\.item\.id === mark\.id\)\) return;/, "only once the row is really gone");
   assert.match(effect, /querySelectorAll<HTMLButtonElement>\("\.saved-row-open"\)/);
   assert.match(effect, /\[Math\.min\(mark\.index, rows\.length - 1\)\]\?\.focus\(\)/, "the next row, or the new last one");
-  assert.ok(section.indexOf("useEffect(") < section.indexOf("if (items.length === 0)"), "hooks run before the empty return");
+  assert.ok(section.indexOf("useEffect(") < section.indexOf("if (listed.length === 0)"), "hooks run before the empty return");
 });
 
 test("removing one takes its row off the page, and removing the last leaves the page saying there are none", () => {
@@ -338,6 +345,136 @@ test("confirming removes it from the server, then from the section; a failure sa
 test("a row with no loan typed says No loan yet", () => {
   const html = renderSection([item("a", 5, { folderName: "   " })]);
   assert.match(html, /<span class="saved-row-name">No loan yet<\/span>/);
+});
+
+/* ── The autosave on the Task Drafts tab (#371) ──────────── */
+
+const autosaveOf = (minutesAgo, overrides = {}) => ({
+  ownerId: USER.id,
+  savedAt: new Date(NOW - minutesAgo * 60000).toISOString(),
+  form: { ...FORM, ...overrides }
+});
+const rowsOf = (html) => [...html.matchAll(/<li class="saved-row">([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+
+test("with an autosave, the page shows one Autosaved row with the loan, the type and when, among the drafts newest first", () => {
+  const html = renderSection([item("a", 10, { folderName: "Saved one" }), item("b", 1, { folderName: "Saved just now" })], {
+    autosave: autosaveOf(3, { folderName: "Castillo", taskType: "LOI" })
+  });
+  const rows = rowsOf(html);
+  assert.equal(rows.length, 3, "two drafts and the autosave");
+  const autosaved = rows.filter((row) => row.includes("Autosaved"));
+  assert.equal(autosaved.length, 1, "exactly one Autosaved row");
+  assert.equal(
+    autosaved[0].match(/^<button type="button" class="saved-row-open">([\s\S]*?)<\/button>/)?.[1],
+    `<span class="saved-row-name">Castillo</span>` +
+      `<span class="saved-row-type">${TASK_TYPE_LABELS.LOI}</span>` +
+      `<time class="saved-row-when" dateTime="${new Date(NOW - 3 * 60000).toISOString()}">Autosaved 3m ago</time>`
+  );
+  assert.deepEqual(
+    rows.map((row) => row.match(/<span class="saved-row-name">([^<]*)<\/span>/)[1]),
+    ["Saved just now", "Castillo", "Saved one"],
+    "placed by when it was written, like every draft"
+  );
+  assert.doesNotMatch(html, /on this device/, "it follows the person, so it never says which device");
+});
+
+test("an Autosaved row with no loan typed says No loan yet, and the page is a list even with no saved drafts", () => {
+  const html = renderSection([], { autosave: autosaveOf(3, { folderName: "  " }) });
+  assert.match(html, /^<ul class="saved-list">/, "not the empty page");
+  assert.match(html, /<span class="saved-row-name">No loan yet<\/span>/);
+  assert.match(html, />Autosaved 3m ago<\/time>/);
+});
+
+test("with no autosave, or one seven days old, no Autosaved row shows", () => {
+  assert.doesNotMatch(renderSection([item("a", 5)]), /Autosaved/, "none handed in");
+  assert.doesNotMatch(renderSection([item("a", 5)], { autosave: null }), /Autosaved/, "none on the server");
+  assert.doesNotMatch(renderSection([item("a", 5)], { autosave: autosaveOf(7 * 24 * 60) }), /Autosaved/, "aged out");
+  assert.equal(
+    renderSection([], { autosave: autosaveOf(8 * 24 * 60) }),
+    `<div class="empty-card">No task drafts. Use Save for later on a new task to keep one here.</div>`,
+    "and an aged-out one alone leaves the page empty"
+  );
+});
+
+test("the Task Drafts tab counts the autosave with the drafts, and App draws the count from the same rule", () => {
+  assert.equal(taskDraftsCount([item("a", 5), item("b", 6)], autosaveOf(3), NOW), 3);
+  assert.equal(taskDraftsCount([item("a", 5), item("b", 6)], null, NOW), 2);
+  assert.equal(taskDraftsCount([item("a", 5)], autosaveOf(7 * 24 * 60), NOW), 1, "an aged-out one is not counted");
+  assert.equal(taskDraftsCount([], autosaveOf(3), NOW), 1);
+  assert.match(APP_SOURCE, /draftsCount=\{taskDraftsCount\(savedForLater, autosave, now\)\}/);
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*autosave=\{autosave\}/, "the page is handed the same autosave the count is");
+});
+
+test("the Autosaved row's bin asks the same question a draft's does, and never opens the form", () => {
+  const html = renderSection([], { autosave: autosaveOf(3, { folderName: "Castillo" }) });
+  const [row] = rowsOf(html);
+  assert.match(row, /<button type="button" class="saved-row-delete" aria-label="Delete autosaved task: Castillo"/, "its own control, named for the row");
+  assert.match(SECTION_SOURCE, /onOpen=\{onOpenAutosave\}/, "pressing the row opens New Task");
+  assert.match(SECTION_SOURCE, /onDelete=\{\(it\) => deleteRow\(it, index, onDeleteAutosave\)\}/, "the bin forgets the autosave, once confirmed, and focus moves on like a draft's");
+  assert.equal((SECTION_SOURCE.match(/<SavedForLaterDeleteConfirm\b/g) ?? []).length, 1, "one confirmation, shared by every row");
+});
+
+test("the Autosaved seven days are the server's seven days", () => {
+  assert.equal(DRAFT_MAX_AGE_MS, AUTOSAVE_MAX_AGE_MS);
+});
+
+test("tapping the Autosaved row opens New Task exactly as the New Task button does, on the latest autosave", () => {
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpenAutosave=\{openNewTask\}/);
+  assert.match(APP_SOURCE, /<NewTaskButton open=\{formOpen\} onClick=\{[^}]*openNewTask\(\)/, "the button takes the same way in");
+  const opener = APP_SOURCE.match(/const openNewTask = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.ok(opener, "App has an openNewTask");
+  assert.ok(opener.indexOf("setReopened(null)") >= 0, "a New Task, not a reopened record");
+  assert.ok(opener.indexOf("await loadAutosave()") > opener.indexOf("setReopened(null)"), "asks the server for the latest autosave first");
+  assert.ok(
+    opener.indexOf("if (formOpenNow.current) return;") > opener.indexOf("await loadAutosave()") &&
+      opener.indexOf("setFormOpen(true)") > opener.indexOf("if (formOpenNow.current) return;"),
+    "and leaves a form opened meanwhile alone"
+  );
+  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{ autosave \}\)\}/, "a New Task gets the autosave; a reopened record never does");
+  assert.match(createMount, /onKeepAutosave=\{onKeepAutosave\}/);
+  assert.match(createMount, /onForgetAutosave=\{onForgetAutosave\}/);
+});
+
+test("App loads the autosave with the drafts, empties it on every identity change, and merges this browser's offline copy", () => {
+  const identity = APP_SOURCE.slice(APP_SOURCE.indexOf("savedForLaterOwner.current = user.id;"));
+  const block = identity.slice(0, identity.indexOf("}, [user.id]);"));
+  assert.ok(block.indexOf("setAutosave(null)") >= 0 && block.indexOf("setAutosave(null)") < block.indexOf("if (!user.id) return;"), "emptied before anything loads");
+  assert.match(block, /loadAutosave\(\)/, "and loaded with the drafts");
+  const loader = APP_SOURCE.match(/const loadAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.ok(loader, "App has a loadAutosave");
+  assert.match(loader, /loadAutosaveRequest\(/);
+  assert.match(loader, /if \(user\.id !== savedForLaterOwner\.current\) return;/, "an answer for the previous person is dropped");
+  assert.match(loader, /readDraftCopy\(browserDraftStorage\(\), user\.id\)/, "this browser's offline copy is weighed too");
+  assert.match(loader, /newerAutosave\(/);
+});
+
+test("App's autosave callbacks are silent: typing never toasts or re-renders the board", () => {
+  const keep = APP_SOURCE.match(/const onKeepAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.match(keep, /keepAutosaveRequest\(/);
+  assert.doesNotMatch(keep, /showToast|setAutosave|setSavedForLater/);
+  const forget = APP_SOURCE.match(/const onForgetAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.match(forget, /forgetAutosaveRequest\(/);
+  assert.match(forget, /setAutosave\(null\)/, "a form that ended takes the row with it");
+  assert.doesNotMatch(forget, /showToast/);
+});
+
+test("deleting the Autosaved row forgets it on the server and in this browser; a failure says so and keeps the row", () => {
+  const handler = APP_SOURCE.match(/const deleteAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
+  assert.ok(handler, "App has a deleteAutosave");
+  assert.match(handler, /forgetAutosaveRequest\(/);
+  assert.match(handler, /if \(user\.id !== savedForLaterOwner\.current\) return false;/);
+  const refused = handler.indexOf("if (!removed)");
+  const toast = handler.indexOf("showToast(");
+  const local = handler.indexOf("clearDraft(browserDraftStorage(), user.id)");
+  const dropped = handler.indexOf("setAutosave(null)");
+  assert.ok(refused >= 0 && toast > refused && local > toast && dropped > toast, "refused: toast and keep; otherwise both copies go");
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onDeleteAutosave=\{deleteAutosave\}/);
+});
+
+test("saving a new form for later leaves one draft and no Autosaved row", () => {
+  const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
+  assert.match(handler, /if \(!savedId\) setAutosave\(null\);/, "the row goes the moment the draft appears; the server cleared it in the same write");
 });
 
 /* ── Reopening one (#344) ────────────────────────────────── */
@@ -435,7 +572,7 @@ test("a reopened form never reads or writes the autosave, and knows which record
 test("App opens the create form on the reopened record, one mount per record", () => {
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.match(createMount, /key=\{reopened\?\.id \?\? "new"\}/, "a different record remounts the form");
-  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{\}\)\}/, "and hands it the record, when there is one");
+  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{ autosave \}\)\}/, "and hands it the record, when there is one");
   const opener = APP_SOURCE.match(/const openSavedForLater = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.ok(opener, "App has an openSavedForLater handler");
   assert.match(opener, /reopenSavedForLaterRequest\(/, "it fetches the latest save before opening");
@@ -630,6 +767,52 @@ test("discarding throws the unsaved typing away; one already gone counts as disc
   await assert.doesNotReject(discardUnsavedRequest(fakeServer({ "DELETE /saved-for-later/saved-1/unsaved": new Error("offline") }).request, "saved-1"));
 });
 
+/* ── The autosave on the server (#371) ───────────────────── */
+
+const AUTOSAVE = { ownerId: USER.id, savedAt: "2026-09-11T11:57:00.000Z", form: FULL_FORM };
+
+test("a new form saved for later clears the autosave in the same request; a reopened one whose record went does not", async () => {
+  const fresh = fakeServer({ "POST /saved-for-later": (init) => ({ item: { ...ITEM, body: JSON.parse(init.body) } }) });
+  const saved = await saveForLaterRequest(fresh.request, FULL_FORM);
+  assert.equal(saved.body.clearAutosave, true, "the new task form is putting its own autosaved typing aside");
+  const gone = fakeServer({
+    "PUT /saved-for-later/saved-1": httpError(404),
+    "POST /saved-for-later": (init) => ({ item: { ...ITEM, body: JSON.parse(init.body) } })
+  });
+  const resaved = await saveForLaterRequest(gone.request, FULL_FORM, "saved-1");
+  assert.equal(resaved.body.clearAutosave, undefined, "a reopened form's typing is not the autosave, so it is left alone");
+});
+
+test("loading the autosave answers the server's copy, none, or that the server could not be reached", async () => {
+  assert.deepEqual(await loadAutosaveRequest(fakeServer({ "GET /autosave": { item: AUTOSAVE } }).request), { reached: true, item: AUTOSAVE });
+  assert.deepEqual(await loadAutosaveRequest(fakeServer({ "GET /autosave": { item: null } }).request), { reached: true, item: null });
+  assert.deepEqual(await loadAutosaveRequest(fakeServer({ "GET /autosave": new Error("offline") }).request), { reached: false, item: null });
+  assert.deepEqual(await loadAutosaveRequest(fakeServer({ "GET /autosave": httpError(500) }).request), { reached: false, item: null });
+});
+
+test("a server that never answers does not hold New Task shut: the load gives up and says it was not reached", async () => {
+  const hanging = async () => new Promise(() => {});
+  const started = Date.now();
+  assert.deepEqual(await loadAutosaveRequest(hanging, 20), { reached: false, item: null });
+  assert.ok(Date.now() - started < 1000, "it gave up on its timeout");
+});
+
+test("typing is autosaved to the server, and a write that did not land says so without throwing mid-sentence", async () => {
+  const ok = fakeServer({ "PUT /autosave": (init) => ({ item: { ...AUTOSAVE, form: JSON.parse(init.body).form } }) });
+  assert.equal(await keepAutosaveRequest(ok.request, { ...FULL_FORM, notes: "typed" }), true);
+  assert.deepEqual(ok.calls, ["PUT /autosave"]);
+  assert.equal(await keepAutosaveRequest(fakeServer({ "PUT /autosave": new Error("offline") }).request, FULL_FORM), false);
+  assert.equal(await keepAutosaveRequest(fakeServer({ "PUT /autosave": httpError(500) }).request, FULL_FORM), false);
+});
+
+test("forgetting the autosave takes it off the server, and a failure says so without throwing", async () => {
+  const ok = fakeServer({ "DELETE /autosave": undefined });
+  assert.equal(await forgetAutosaveRequest(ok.request), true);
+  assert.deepEqual(ok.calls, ["DELETE /autosave"]);
+  assert.equal(await forgetAutosaveRequest(fakeServer({ "DELETE /autosave": new Error("offline") }).request), false);
+  assert.equal(await forgetAutosaveRequest(fakeServer({ "DELETE /autosave": httpError(500) }).request), false);
+});
+
 /* ── The board lists no drafts (#363) ────────────────────── */
 
 const renderTaskListSource = () => {
@@ -728,7 +911,7 @@ test("the tab row is always drawn on the Tasks board, so Mine and an empty searc
     assert.ok(block.indexOf(empty) > panel, `${empty} is drawn inside the panel, under the tabs`);
   }
   const tabsProps = block.slice(tabs, block.indexOf("/>", tabs));
-  assert.match(tabsProps, /draftsCount=\{savedForLater\.length\}/, "counted from every draft the viewer has, not a filtered list");
+  assert.match(tabsProps, /draftsCount=\{taskDraftsCount\(savedForLater, autosave, now\)\}/, "counted from every draft the viewer has, not a filtered list");
   assert.match(tabsProps, /tasksCount=\{boardTasks\.length\}/, "the Tasks count is the board's own, as the heading's was");
   assert.equal((APP_SOURCE.match(/<BoardTabs\b/g) ?? []).length, 1, "admin All Tasks has no tab row");
 });
