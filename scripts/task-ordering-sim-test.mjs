@@ -20,7 +20,7 @@
  */
 import assert from "node:assert/strict";
 
-import { byAttentionClaim, handedOffAt } from "../packages/shared/dist/ordering.js";
+import { byAttentionClaim, byInFlightOrder, handedOffAt } from "../packages/shared/dist/ordering.js";
 
 const CHECKER = { id: "checker-1", displayName: "Casey Checker" };
 const CREATOR = { id: "creator-1", displayName: "Dana Requester" };
@@ -152,6 +152,52 @@ check("comparing a task with itself is zero, and the comparator is antisymmetric
     assert.equal(byAttentionClaim(a, a), 0);
     assert.equal(Math.sign(byAttentionClaim(a, b)), -Math.sign(byAttentionClaim(b, a)));
   }
+});
+
+// --- In flight: the viewer's own tasks first (2026-09-12) --------------------
+// In flight is the one court that mixes the viewer's own work with Observer
+// tasks. `byInFlightOrder` puts every task the viewer is a Party to (filed it or
+// holds it) above every Observer task, and keeps `byAttentionClaim` inside each
+// half.
+const VIEWER = { id: "viewer-1", displayName: "Val Viewer" };
+const inFlight = (list) => [...list].sort(byInFlightOrder(VIEWER)).map((t) => t.id);
+
+check("In flight lists the viewer's own tasks above Observer tasks, whatever the deadlines", () => {
+  const list = [
+    task("observer-overdue", { dueAt: iso(-3) }),
+    task("filed-unclaimed", { status: "OPEN", createdBy: { ...VIEWER }, assignee: undefined, dueAt: iso(9) }),
+    task("held-in-review", { status: "NEEDS_REVIEW", assignee: { ...VIEWER }, dueAt: iso(2) })
+  ];
+  assert.deepEqual(inFlight(list), ["held-in-review", "filed-unclaimed", "observer-overdue"]);
+});
+
+check("each half keeps the attention-claim order, paused tasks last within their half", () => {
+  const list = [
+    paused("observer-held", 10),
+    task("observer-live", { dueAt: iso(1) }),
+    paused("own-held", 4, { assignee: { ...VIEWER } }),
+    task("own-live", { createdBy: { ...VIEWER }, dueAt: iso(5) })
+  ];
+  assert.deepEqual(inFlight(list), ["own-live", "own-held", "observer-live", "observer-held"]);
+});
+
+check("the In flight order is the same whatever order the list arrives in", () => {
+  const list = [
+    task("observer-a", { dueAt: iso(1) }),
+    task("own-a", { createdBy: { ...VIEWER }, dueAt: iso(3) }),
+    task("observer-b", { dueAt: iso(2) }),
+    task("own-b", { assignee: { ...VIEWER }, dueAt: iso(4) })
+  ];
+  const expected = ["own-a", "own-b", "observer-a", "observer-b"];
+  assert.deepEqual(inFlight(list), expected);
+  assert.deepEqual(inFlight([...list].reverse()), expected);
+});
+
+check("a list that is all one kind sorts exactly as byAttentionClaim", () => {
+  const observers = [task("o1", { dueAt: iso(4) }), paused("o2", 3), task("o3", { dueAt: iso(-1) })];
+  assert.deepEqual(inFlight(observers), order(observers));
+  const own = observers.map((t) => ({ ...t, id: `own-${t.id}`, createdBy: { ...VIEWER } }));
+  assert.deepEqual(inFlight(own), order(own));
 });
 
 console.log(`\nAll ${passed} task-ordering checks passed.`);

@@ -226,8 +226,9 @@ it.)
 **In flight** (`them`):
 Everything not in your court and not closed: tasks whose current section another
 party owns, your own `OPEN` tasks awaiting a claim, and _Observer_ tasks. Ordered
-so the viewer's own tasks sit first and prominent, then Observer tasks,
-de-emphasised, below.
+so the viewer's own tasks (every task they are a _Party_ to) sit first, then
+Observer tasks, de-emphasised, below. Each half runs soonest deadline first, with
+any _Paused hold_ at the bottom of its own half.
 _Avoid_: "waiting on others" (only some of the bucket is something you wait on)
 
 **Done** (`done`):
@@ -244,7 +245,9 @@ stopped meaning anything, because the clock belongs to the requester's original
 ask and nothing is measuring it. Never overdue, never reminded on
 ([fraud-workflow.md](docs/product/fraud-workflow.md#reminder-rules)), and ranked
 below every task carrying a live deadline in all three active courts
-([ADR-0004](docs/adr/0004-ordering-by-attention-claim.md)). It sits in `you` for
+([ADR-0004](docs/adr/0004-ordering-by-attention-claim.md)). In `them` that
+ranking applies within each half, so the viewer's own held checks still sit
+above Observer tasks. It sits in `you` for
 the requester and `them` for everyone else; `courtOf` never routes it to `pool`.
 _Avoid_: "stalled", "blocked" (nothing is stuck — the ball is with the
 requester)
@@ -290,7 +293,7 @@ The task list split into the four court buckets. The default; the choice is
 persisted per browser.
 
 **Flat view**:
-The single unified list, sorted by status then due, with no sections — the
+The single unified list, sorted by status then newest filed, with no sections — the
 Assigner / Assignee columns carry whose-court on every row. The user-selectable
 counterpart to Grouped view.
 _Avoid_: sections (the flat list intentionally has none)

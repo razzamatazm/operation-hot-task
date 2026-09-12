@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -4900,7 +4900,8 @@ export const App = () => {
      into the grouped view's courts. A completion the viewer created pins to a
      "Just finished" section at the very top (kept until they archive it) and
      is held out of Done so it isn't listed twice; everyone else's completions
-     fall into Done. Active courts sort soonest-due first, Done newest-first. */
+     fall into Done. Active courts sort soonest-due first (In flight with the
+     viewer's own tasks ahead of Observer tasks), Done newest-first. */
   type CourtSection = { key: string; title: string; tasks: LoanTask[] };
   const buildCourtSections = (list: LoanTask[]): CourtSection[] => {
     const celebrating: LoanTask[] = [];
@@ -4946,7 +4947,9 @@ export const App = () => {
     // task, whose dueAt is a dead clock that would otherwise float it to the top.
     you.sort(byAttentionClaim);
     pool.sort(byAttentionClaim);
-    them.sort(byAttentionClaim);
+    // In flight is the one court mixing the viewer's own work with Observer
+    // tasks: theirs comes first, each half in the same two-tier order.
+    them.sort(byInFlightOrder(user));
     done.sort(byRecent);
     celebrating.sort(byRecent);
     const sections: CourtSection[] = [];

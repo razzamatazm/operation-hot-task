@@ -44,7 +44,9 @@ persisted per browser:
 - **Grouped ("courts") view — the default.** Sectioned into the four courts
   (`Finished` when applicable → `Needs you` → `Up for grabs` → `In flight` →
   `Done`) by `buildCourtSections`. Court definitions and the message-pull rule
-  live in [CONTEXT.md](../../CONTEXT.md#the-four-courts).
+  live in [CONTEXT.md](../../CONTEXT.md#the-four-courts). The active courts run
+  soonest deadline first; `In flight` first puts the viewer's own tasks above
+  Observer tasks (2026-09-12).
 
 - **Flat view.** One list, no sections, sorted into 4 buckets newest-first
   within each: Celebrating (just completed by the viewer) → `OPEN` →

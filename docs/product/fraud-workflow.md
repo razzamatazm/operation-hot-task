@@ -230,7 +230,10 @@ had anything to add beyond the list.
   `awaitingItemsSince` anchor; ties resolve by creation time then id.
   The accepted consequence is that a fraud check the requester is holding sinks
   below anything with a live deadline in their own `Needs you` — no deadline
-  loses to a deadline. (`byAttentionClaim`, `packages/shared/src/ordering.ts`;
+  loses to a deadline. `In flight` splits first: the viewer's own tasks sit above
+  Observer tasks and the two tiers apply inside each half, so a held check the
+  viewer is part of stays above somebody else's live deadline there.
+  (`byAttentionClaim` and `byInFlightOrder`, `packages/shared/src/ordering.ts`;
   the decision and its rejected alternatives are
   [ADR-0004](../adr/0004-ordering-by-attention-claim.md).)
 - Entering `Pending Approval` sets a **fresh end-of-day (`Yellow`) clock**
