@@ -197,14 +197,13 @@ export const ExpandAvatar = ({ name }: { name?: string }) => (
   <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
 );
 
-/* What heads the conversation. On a Fraud Check, whose field is still the
-   thread's first message, that is the field's own label — because the label is
-   describing the thing below it. On the five box types the field has moved into
-   its own section above and taken its label with it, so the remaining rows are
-   a conversation and nothing else, and saying "Loan Terms and Contacts" or
-   "Concerns" over them would name the box next door. */
-export const threadHeadLabel = (task: Pick<LoanTask, "taskType" | "notes">): string =>
-  standingInstructionsFor(task) === undefined ? getNotesFieldLabel(task.taskType) : "Conversation";
+/* What heads the conversation, on every type (#387). A Fraud Check's thread
+   used to take its field's label, `Notes`, because its request is still the
+   thread's first message. One section wearing two names depending on the type
+   read as two different things, so every card says Conversation. The field
+   itself keeps its label wherever the field is the thing being named — the
+   task form, and the Instructions box on the other five types. */
+export const THREAD_HEAD_LABEL = "Conversation";
 
 /* The task's standing instructions (ADR-0010 rule 1, widening ADR-0008 rule 1),
    or nothing on a Fraud Check, whose ask is its outstanding-items list. A

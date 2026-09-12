@@ -2620,9 +2620,15 @@ button.btn-good:hover {
    A Fraud Check's outstanding items (`.checklist`) are drawn on the same page
    (#367): its standing ask is that list rather than a box, and one card body
    with two section styles depending on the type read as two designs. Every
-   rule of the shape names both, so neither can move without the other. */
+   rule of the shape names both, so neither can move without the other.
+
+   The conversation (`.thread`) joined them in #387, for the same reason: the
+   last section on the card was the only one still heading itself with a bar
+   across the top. Its own rules further down only undo the closing hairline,
+   since nothing follows it, and let its label span the list and the composer. */
 .loi-terms,
-.checklist {
+.checklist,
+.thread {
   display: grid;
   grid-template-columns: 116px minmax(0, 1fr);
   column-gap: 16px;
@@ -2641,17 +2647,20 @@ button.btn-good:hover {
    structure and separator in one stroke, which is why the block needs no box
    drawn around it. */
 .loi-terms-head,
-.checklist-head {
+.checklist-head,
+.thread-head {
   display: block;
   padding: 1px 14px 0 0;
   border-right: 1px solid var(--line-soft);
   text-align: right;
 }
-/* Same mono section label as .thread-head — the two headings are peers. Set a
-   step smaller and tracked a step wider than it was, because in the margin it
-   is an annotation rather than a bar across the top of a panel. */
+/* The mono section label, set small and tracked wide, because in the margin it
+   is an annotation rather than a bar across the top of a panel. The
+   conversation's heading is the same element as its margin cell, so it takes
+   both this rule and the one above. */
 .loi-terms-title,
-.checklist-title {
+.checklist-title,
+.thread-head {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.62rem;
   text-transform: uppercase;
@@ -2764,12 +2773,14 @@ button.btn-good:hover {
   .task-card-collapsed-stage-join { display: none; }
 
   .loi-terms,
-  .checklist {
+  .checklist,
+  .thread {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 7px;
   }
   .loi-terms-head,
-  .checklist-head {
+  .checklist-head,
+  .thread-head {
     padding: 0;
     border-right: none;
     text-align: left;
@@ -2874,22 +2885,22 @@ button.btn-good:hover {
   border-radius: 8px;
   background: var(--panel);
 }
+/* Laid out by the ruled-page rules with `.loi-terms` and `.checklist` (#387).
+   It is the last section on the card, so there is nothing below it for a
+   closing hairline to separate it from. */
 .thread {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
   min-width: 0;
+  border-bottom: none;
+  padding-bottom: 4px;
 }
-/* Section label — muted under quiet-card (the design's gold accent is
-   spent elsewhere). */
-.thread-head {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  font-weight: 600;
-  margin-bottom: 8px;
+/* The label spans the message list and the composer, so the margin's hairline
+   runs the whole height of the section rather than stopping at the list. Wide
+   screens only: on a phone the page is one column, the label sits on its own
+   line, and a span there would open an empty row under it. */
+@media (min-width: 561px) {
+  .thread-head {
+    grid-row: span 2;
+  }
 }
 
 /* Reply stream. On the five types that still carry their field in the thread,
@@ -4587,10 +4598,10 @@ button.btn-good:hover {
   }
 
   /* 12px floor: the things that are read rather than glanced at. The type
-     label and its stage suffix name what the task IS, and the thread heading
-     introduces a list somebody is about to work down. `Outstanding items` left
-     this list when it moved into the margin (#367): it is the instructions
-     label's peer now and takes that label's size, floor or no floor.
+     label and its stage suffix name what the task IS. `Outstanding items` left
+     this list when it moved into the margin (#367), and the conversation's
+     heading followed it there (#387): both are the instructions label's peers
+     now and take that label's size, floor or no floor.
 
      The floor sits on the type CELL as well as on the two boxes inside it,
      which the children would inherit anyway. It is there so the cell's own
@@ -4601,7 +4612,6 @@ button.btn-good:hover {
   .task-card-collapsed-type,
   .task-card-collapsed-type-text,
   .task-card-collapsed-stage,
-  .thread-head,
   .saved-row-type {
     font-size: 12px;
   }

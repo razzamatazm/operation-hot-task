@@ -76,7 +76,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { InstructionsSection, ThreadMessages, threadHeadLabel } = await import(pathToFileURL(threadModule).href);
+const { InstructionsSection, ThreadMessages, THREAD_HEAD_LABEL } = await import(pathToFileURL(threadModule).href);
 
 const CREATOR = { id: "creator-1", displayName: "Dana Requester" };
 const ASSIGNEE = { id: "assignee-1", displayName: "Casey Checker" };
@@ -184,12 +184,10 @@ test("each box is headed by its own wording, and no two boxes read alike", () =>
   assert.equal(new Set(headings).size, headings.length, "five boxes, five different headings");
 });
 
-test("a Fraud Check reads Notes, and reads it from the same table", () => {
-  /* The one type whose field stays in the conversation keeps the word it had.
-     It is a thread heading, not a box heading — so the assertion is on the
-     thread, and its source is the table every other surface reads. */
+test("a Fraud Check's field is still labelled Notes in the table", () => {
+  /* The form reads this label for the field. The card's thread no longer does
+     (#387) — see the heading test below. */
   assert.equal(getNotesFieldLabel("FRAUD"), "Notes");
-  assert.equal(threadHeadLabel(task({ taskType: "FRAUD" })), "Notes");
 });
 
 /* The bot's review menu used to be asserted here: it printed `Coverage Notes:
@@ -279,15 +277,12 @@ test("a box type's conversation is its replies and only its replies", () => {
   }
 });
 
-test("the conversation heading stops naming the box next door", () => {
-  for (const taskType of BOX_TYPES) {
-    assert.equal(threadHeadLabel(task({ taskType })), "Conversation");
-  }
-  assert.equal(
-    threadHeadLabel(task({ taskType: "FRAUD" })),
-    getNotesFieldLabel("FRAUD"),
-    "a Fraud Check's thread still heads with its own field label"
-  );
+test("every conversation is headed Conversation, a Fraud Check's included (#387)", () => {
+  /* One label, not one per type: the heading names the section, and the
+     section is the same thing on all six. */
+  assert.equal(THREAD_HEAD_LABEL, "Conversation");
+  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  assert.match(app, /className="thread-head">\{THREAD_HEAD_LABEL\}</, "the card draws that label and no other");
 });
 
 /* ── A Fraud Check is untouched ───────────────────────────── */
@@ -480,6 +475,33 @@ test("the outstanding items and the instructions box are laid out by the same ru
     ),
     "the block's own closing hairline replaces the body's sibling hairline after either"
   );
+});
+
+test("the conversation is drawn on the same ruled page (#387)", () => {
+  assert.ok(
+    sharedRules(".loi-terms", ".thread").some((r) => /grid-template-columns:\s*116px/.test(r.body)),
+    "one rule sets the margin column for the conversation and the box above it"
+  );
+  assert.ok(
+    sharedRules(".loi-terms", ".thread").some((r) => /grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(r.body)),
+    "and one rule collapses both on a phone"
+  );
+  assert.ok(
+    sharedRules(".loi-terms-head", ".thread-head").some((r) => /border-right:/.test(r.body)),
+    "one rule draws the margin's hairline for both"
+  );
+  assert.ok(
+    sharedRules(".loi-terms-head", ".thread-head").some((r) => /border-right:\s*none/.test(r.body) && /text-align:\s*left/.test(r.body)),
+    "and one rule stacks both labels on a phone"
+  );
+  assert.ok(
+    sharedRules(".loi-terms-title", ".thread-head").some((r) => /font-size:/.test(r.body) && /letter-spacing:/.test(r.body)),
+    "one rule sets the label's face for both"
+  );
+  const ownFace = CSS_RULES.filter(
+    (r) => r.selectors.length === 1 && r.selectors[0] === ".thread-head" && /font-size|letter-spacing|color:/.test(r.body)
+  );
+  assert.deepEqual(ownFace, [], "the conversation's heading carries no face of its own that could drift from its peers");
 });
 
 test("no rule styles the old outstanding-items heading on its own", () => {
