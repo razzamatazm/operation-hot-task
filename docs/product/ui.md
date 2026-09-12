@@ -70,7 +70,9 @@ space below the header, so the header never covers it.
 
 **On a phone the tabs read `All`, `Mine` and `Drafts`** (under 480px wide). The
 full names and their counts do not fit on one line of a 360px phone. Screen
-readers still announce the full names.
+readers still announce the full names. Confirmed 2026-09-12 for every phone
+width, including 390px where the full names would just fit, so all phones read
+the same.
 
 - **All Tasks** is the board described above, everybody's work. While a loan is
   searched its label is the loan's name (cut short if long, the full name on
@@ -99,7 +101,8 @@ readers still announce the full names.
   remembers the tab that was open; `Clear search` sits beside the tabs while All
   Tasks is open, and clearing goes back to the remembered tab. My Tasks and Task
   Drafts are never narrowed by it, and a search never shows a draft. Opening a
-  card from the searched All Tasks ends the search, as before.
+  card while a search is on ends the search, whichever tab it was opened from,
+  as before the tabs existed (confirmed 2026-09-12).
 - **All Tasks or My Tasks is remembered; Task Drafts is not.** A reload opens on
   whichever of All Tasks and My Tasks was last open, including after Task Drafts
   was the tab left open. A loan pick does not change what is remembered.

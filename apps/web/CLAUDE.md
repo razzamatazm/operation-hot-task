@@ -192,9 +192,9 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   Everyone, because it answers "where are we on this file", which is the whole
   file, not the viewer's slice of it. Picking a loan opens All Tasks without
   storing it and remembers the open tab; clearing returns there. Opening a card
-  on the searched All Tasks ends the search through the deep-link focus path,
-  which is also why a link arriving mid-search clears it; a card opened on My
-  Tasks mid-search leaves the search alone. The focus path starts from the tab
+  while a search is on ends the search through the deep-link focus path, from
+  any tab (the user's call on #390, keeping the behaviour from before the tabs),
+  which is also why a link arriving mid-search clears it. The focus path starts from the tab
   `Clear search` would return to (the open tab when nothing is searched, the
   stored one from Task Drafts), so both ways out of a search land in the same
   place, and opens All Tasks when that tab is My Tasks and would hide the

@@ -3675,11 +3675,8 @@ export const App = () => {
      the one thing that sets the tab without storing it: it opens All Tasks for
      the search and remembers the tab it came from (`searchReturnTab`), which
      clearing goes back to. Opening or leaving the create form changes nothing,
-     so a form closes back onto whichever tab it was opened from. The ref
-     mirrors the tab for `setExpandOverride`, as `searchLoanIdRef` does. */
+     so a form closes back onto whichever tab it was opened from. */
   const [boardTab, setBoardTab] = useState<BoardTab>(() => tabForShow(boardShow));
-  const boardTabRef = useRef<BoardTab>(boardTab);
-  boardTabRef.current = boardTab;
   const selectBoardTab = useCallback((tab: BoardTab): void => {
     setBoardTab(tab);
     const show = showForTab(tab);
@@ -3801,10 +3798,10 @@ export const App = () => {
        opens All Tasks if My Tasks would hide the task, and scrolls the card into
        view once the full board is back. The hold was taken just above with the
        card's own `pulled`, read at the press, so the row does not jump sections
-       when the board fills in around it. Only from All Tasks (#390): the search
-       narrows that tab alone, so a card opened on My Tasks mid-search is already
-       on an unnarrowed board and the search is left standing. */
-    if (open && searchLoanIdRef.current && boardTabRef.current === "all") setFocusTaskId(taskId);
+       when the board fills in around it. From any tab, My Tasks included, though
+       the search narrows All Tasks alone: opening a card is where a search ends,
+       as it was before the tabs (the user's call on #390). */
+    if (open && searchLoanIdRef.current) setFocusTaskId(taskId);
   }, []);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,

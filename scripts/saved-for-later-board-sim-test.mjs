@@ -1069,8 +1069,9 @@ test("clearing the search goes back to the remembered tab", () => {
   assert.match(block, /const clearSearch = \(\): void => \{\s*setSearchLoanId\(null\);\s*selectBoardTab\(searchReturnTab\);\s*\};/);
 });
 
-test("opening a card ends the search only from All Tasks, the one list the search narrows", () => {
-  assert.match(APP_SOURCE, /if \(open && searchLoanIdRef\.current && boardTabRef\.current === "all"\) setFocusTaskId\(taskId\);/);
+test("opening a card ends the search from any tab, as it always has (the user's call on #390)", () => {
+  assert.match(APP_SOURCE, /if \(open && searchLoanIdRef\.current\) setFocusTaskId\(taskId\);/);
+  assert.doesNotMatch(APP_SOURCE, /boardTabRef/, "no tab condition on it");
 });
 
 test("a link to a task opens a task tab, All Tasks when My Tasks would hide it", () => {
