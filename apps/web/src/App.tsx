@@ -4141,7 +4141,7 @@ export const App = () => {
           setSavedForLater((current) => current.filter((item) => item.id !== savedId));
         }
       } else {
-        showToast("Task created, but it couldn't be taken out of Saved for Later.", { variant: "warn" });
+        showToast("Task created, but its Task Draft couldn't be removed.", { variant: "warn" });
       }
     }
     // Born assigned (ADR-0002): the handoff already happened inside the create
@@ -4215,7 +4215,7 @@ export const App = () => {
     if (user.id !== savedForLaterOwner.current) return;
     if (!latest) {
       setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
-      showToast("That Saved for Later task is gone. It was created or removed somewhere else.", { variant: "warn" });
+      showToast("That Task Draft is gone. It was created or removed somewhere else.", { variant: "warn" });
       return;
     }
     setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
@@ -4236,7 +4236,7 @@ export const App = () => {
     const removed = await removeSavedForLaterRequest(savedForLaterRequestFor(user), item.id);
     if (user.id !== savedForLaterOwner.current) return false;
     if (!removed) {
-      showToast("Couldn't delete that Saved for Later task. Try again.", { variant: "error" });
+      showToast("Couldn't delete that Task Draft. Try again.", { variant: "error" });
       return false;
     }
     setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
