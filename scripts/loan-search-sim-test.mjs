@@ -200,7 +200,7 @@ test("a picked loan with nothing on the board says so plainly", () => {
 
 /* ── Where it sits, and how App wires it ────────────────── */
 
-const tasksHeader = APP_SOURCE.slice(APP_SOURCE.indexOf("── Unified task grid"), APP_SOURCE.indexOf("── All Tasks (admin)"));
+const tasksHeader = APP_SOURCE.slice(APP_SOURCE.indexOf("── Unified task grid"), APP_SOURCE.indexOf("── Metrics tab content"));
 
 test("the Tasks header puts the search left of the app menu, and New Task stays last", () => {
   const search = tasksHeader.indexOf("<LoanSearch");
@@ -210,9 +210,10 @@ test("the Tasks header puts the search left of the app menu, and New Task stays 
   assert.ok(search < menu && menu < newTask, "search, then the menu, then New Task");
 });
 
-test("the admin All Tasks header carries no search", () => {
-  const admin = APP_SOURCE.slice(APP_SOURCE.indexOf("── All Tasks (admin)"), APP_SOURCE.indexOf("── Metrics tab content"));
-  assert.doesNotMatch(admin, /<LoanSearch/);
+test("the Tasks board is the only list header, so the search has one home (#391 removed admin All Tasks)", () => {
+  assert.equal((APP_SOURCE.match(/<LoanSearch\b/g) ?? []).length, 1);
+  assert.equal((APP_SOURCE.match(/<AppMenu\b/g) ?? []).length, 1);
+  assert.doesNotMatch(APP_SOURCE, /── All Tasks \(admin\)|allTasksAdmin/);
 });
 
 test("the board list is narrowed by the picked loan in the one derivation", () => {

@@ -232,8 +232,10 @@ _Avoid_: "waiting on others" (only some of the bucket is something you wait on)
 
 **Done** (`done`):
 Closed tasks (`COMPLETED` / `ARCHIVED` / `CANCELLED`). All three ride the same
-`CLOSED_TTL_DAYS` retention window and drop off the bottom once they age past
-it; admin Metrics counts every status regardless of that filter. See
+window, the app menu's **History** setting (`Last 7 days`, `Last 14 days` by
+default, `Last 30 days`, or `All`), and drop off the bottom once they age past
+it; a loan search and a link to a task see past it. Admin Metrics counts every
+status regardless of that filter. See
 [status-model.md](docs/product/status-model.md#done-view-retention-ui).
 
 **Paused hold** (`paused`):

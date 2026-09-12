@@ -118,7 +118,7 @@ Type definitions live in `packages/shared/src/types.ts`.
 | Unclaim                           | If assignee         | If assignee  | If assignee |
 | Re-open closed task               | If creator          | If creator   | If creator  |
 | Manage users, roles and config    | No                  | No           | Yes   |
-| See every task (All Tasks, Metrics) | No                | No           | Yes   |
+| See Metrics                         | No                | No           | Yes   |
 | Override any of the above         | No                  | No           | No    |
 
 A task's **creator is never its assignee**, at every door an assignee comes

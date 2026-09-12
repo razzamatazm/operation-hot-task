@@ -9,7 +9,7 @@ import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
-import { BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardShow, boardBody, isOnMineBoard, parseBoardShow, visibleBoardTasks } from "./board-filter";
+import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_CHOICES, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, visibleBoardTasks } from "./board-filter";
 import { BOARD_PANEL_ID, BoardTab, BoardTabs, boardTabId } from "./board-tabs";
 import { LoanSearch, LoanSearchEmpty, LoanSearchStatus } from "./loan-search";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
@@ -2895,6 +2895,8 @@ const AppMenu = ({
   onGroupedChange,
   show,
   onShowChange,
+  history,
+  onHistoryChange,
   expandedIds,
   onCollapseAll,
   themeChoice,
@@ -2902,11 +2904,11 @@ const AppMenu = ({
 }: {
   grouped: boolean;
   onGroupedChange: (next: boolean) => void;
-  /* The Show row (#334). Only the Tasks board passes it: the admin All Tasks
-     list always shows everything, so a Show row there would be a control that
-     does nothing. */
-  show?: BoardShow;
-  onShowChange?: (next: BoardShow) => void;
+  show: BoardShow;
+  onShowChange: (next: BoardShow) => void;
+  /* How far back finished tasks go (#391). */
+  history: BoardHistory;
+  onHistoryChange: (next: BoardHistory) => void;
   expandedIds: string[];
   onCollapseAll: (taskIds: string[]) => void;
   themeChoice: ThemeChoice;
@@ -2970,25 +2972,41 @@ const AppMenu = ({
             </div>
           </div>
 
-          {show !== undefined && onShowChange && (
-            <div className="app-menu-group" role="group" aria-label="Which tasks to show">
-              <span className="app-menu-label">Show</span>
-              <div className="app-menu-choices">
-                {BOARD_SHOW_CHOICES.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={show === opt.value}
-                    className={`app-menu-choice${show === opt.value ? " app-menu-choice-on" : ""}`}
-                    onClick={() => onShowChange(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+          <div className="app-menu-group" role="group" aria-label="Which tasks to show">
+            <span className="app-menu-label">Show</span>
+            <div className="app-menu-choices">
+              {BOARD_SHOW_CHOICES.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={show === opt.value}
+                  className={`app-menu-choice${show === opt.value ? " app-menu-choice-on" : ""}`}
+                  onClick={() => onShowChange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+
+          <div className="app-menu-group" role="group" aria-label="How far back finished tasks go">
+            <span className="app-menu-label">History</span>
+            <div className="app-menu-choices app-menu-choices-wrap">
+              {BOARD_HISTORY_CHOICES.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={history === opt.value}
+                  className={`app-menu-choice${history === opt.value ? " app-menu-choice-on" : ""}`}
+                  onClick={() => onHistoryChange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="app-menu-group" role="group" aria-label="Appearance">
             <span className="app-menu-label">Appearance</span>
@@ -3580,7 +3598,7 @@ export const App = () => {
      task itself: the list refreshes underneath, and holding the object would
      pin the form to a snapshot taken when the menu was clicked. */
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"active" | "all" | "metrics" | "admin">("active");
+  const [activeTab, setActiveTab] = useState<"active" | "metrics" | "admin">("active");
 
   /* Grouped ("courts") view toggle — buckets tasks by whose court the ball is
      in instead of one flat list. App-wide viewing preference, persisted so it
@@ -3635,6 +3653,29 @@ export const App = () => {
       /* storage unavailable — degrade silently */
     }
   }, [boardShow]);
+
+  /* History: how far back finished tasks go (#391). Same arrangement as Show —
+     per browser, survives a reload, and storage that refuses is the default.
+     The cutoff itself is `board-filter.ts`. */
+  const [boardHistory, setBoardHistory] = useState<BoardHistory>(() => {
+    try {
+      return parseBoardHistory(window.localStorage.getItem(BOARD_HISTORY_KEY));
+    } catch {
+      return BOARD_HISTORY_DEFAULT;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(BOARD_HISTORY_KEY, String(boardHistory));
+    } catch {
+      /* storage unavailable — degrade silently */
+    }
+  }, [boardHistory]);
+
+  /* Closed tasks a link opened from outside the History window (#391). They stay
+     on the board for the session so the link lands on a card, and are never
+     stored: a reload drops them, and the History setting is left alone. */
+  const [keptTaskIds, setKeptTaskIds] = useState<ReadonlySet<string>>(() => new Set());
 
   /* The loan the Tasks board is narrowed to (#333). Session state and never
      stored, so a reload is the full board. The ref mirrors it for
@@ -3805,6 +3846,12 @@ export const App = () => {
        Everyone, which the heading and the missing `Show everyone` link then say
        out loud (#334). */
     if (linked && !isOnMineBoard(linked, user)) setBoardShow("everyone");
+    /* The same request past the History window (#391): a closed task older than
+       the setting would open off the board and scroll to nothing. Unlike Mine,
+       the setting is left alone; the task alone is kept, for the session. */
+    if (linked && !isWithinHistory(linked, boardHistory, Date.now())) {
+      setKeptTaskIds((prev) => (prev.has(target) ? prev : new Set(prev).add(target)));
+    }
     setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
     setScrollTaskId(target);
     setFocusTaskId(null);
@@ -3880,7 +3927,7 @@ export const App = () => {
   const isAdmin = user.roles.includes("ADMIN");
 
   useEffect(() => {
-    if (!isAdmin && (activeTab === "metrics" || activeTab === "all" || activeTab === "admin")) {
+    if (!isAdmin && (activeTab === "metrics" || activeTab === "admin")) {
       setActiveTab("active");
     }
   }, [isAdmin, activeTab]);
@@ -4711,9 +4758,8 @@ export const App = () => {
   }, [amendApi, saveLoanFields, showToast, refresh]);
 
   /* The task the edit form is open on, resolved fresh out of the list every
-     render. `tasks` is the whole store — both the active view and the admin
-     "All Tasks" view are filtered from it — so an id that came off any row
-     resolves here. */
+     render. `tasks` is the whole store — the board is filtered from it — so an
+     id that came off any row resolves here. */
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : undefined;
 
   /* Whether this viewer may correct the loan behind the task they have open, and
@@ -4756,58 +4802,42 @@ export const App = () => {
     await refresh();
   }, [user, refresh]);
 
-  /* Unified visible-task list. Closed tasks (COMPLETED / CANCELLED /
-     ARCHIVED) older than CLOSED_TTL_DAYS drop off the bottom — admins can
-     see everything ever via the All Tasks tab. CANCELLED rides the same
-     retention window as the other closed statuses (it used to vanish
-     immediately) so a just-cancelled task stays visible in Done before being
-     pruned. Fraud Check claims are gated to FILE_CHECKERs in the workflow;
-     the UI just hides the Claim button for viewers who can't act. Sort:
-     celebrating (creator-only completion milestone) pinned to the very top →
-     OPEN → in-flight → closed mini rows, newest-first within each bucket. */
-  const CLOSED_TTL_DAYS = 14;
-  const buildSorted = (includeOldClosed: boolean): LoanTask[] => {
-    const cutoff = Date.now() - CLOSED_TTL_DAYS * 24 * 60 * 60 * 1000;
+  /* Every task the client holds, sorted, with nothing cut: the History window is
+     applied in `visibleBoardTasks`, so the loan search can see past it (#391).
+     Fraud Check claims are gated to FILE_CHECKERs in the workflow; the UI just
+     hides the Claim button for viewers who can't act. Sort: celebrating
+     (creator-only completion milestone) pinned to the very top → OPEN →
+     in-flight → closed mini rows, newest-first within each bucket. */
+  const unifiedTasks = useMemo(() => {
     const bucket = (t: LoanTask): number => {
       if (t.createdBy.id === user.id && isCelebratingStatus(t)) return 0;
       if (t.status === "OPEN") return 1;
       if (CLOSED_STATUSES.includes(t.status)) return 3;
       return 2;
     };
-    return tasks
-      .filter((t) => {
-        if (includeOldClosed) return true;
-        if (!CLOSED_STATUSES.includes(t.status)) return true;
-        const stamp = t.completedAt ?? t.cancelledAt ?? t.archivedAt ?? t.updatedAt;
-        return new Date(stamp).getTime() >= cutoff;
-      })
-      .sort((a, b) => {
-        const diff = bucket(a) - bucket(b);
-        if (diff !== 0) return diff;
-        return b.createdAt.localeCompare(a.createdAt);
-      });
-  };
-  const unifiedTasks = useMemo(() => buildSorted(false),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, user.id]);
-  const allTasksAdmin = useMemo(() => buildSorted(true),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, user.id]);
+    return [...tasks].sort((a, b) => {
+      const diff = bucket(a) - bucket(b);
+      if (diff !== 0) return diff;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [tasks, user.id]);
 
-  /* What the Tasks board actually renders: `unifiedTasks` narrowed by the Show
-     setting. The heading, its count, the sections, Done, the empty state and
-     Collapse all all read this one list, so they cannot describe different
-     sets. Any further narrowing of the board goes through `visibleBoardTasks`,
-     not beside it. */
+  /* What the Tasks board actually renders: `unifiedTasks` cut to the History
+     window (less any task a link kept) and narrowed by Show, or by a picked
+     loan, which ignores both. The heading, its count, the sections, Done, the
+     empty state and Collapse all all read this one list, so they cannot
+     describe different sets. Any further narrowing of the board goes through
+     `visibleBoardTasks`, not beside it. The cutoff is measured when the list
+     changes, the same as the fixed window it replaced. */
   /* A search whose loan has gone (merged into another since it was picked)
      resolves to nothing, and the board is simply full again. */
   const searchLoan = useMemo(
     () => (searchLoanId ? loans.find((l) => l.id === searchLoanId) ?? null : null),
     [searchLoanId, loans]
   );
-  const boardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: boardShow, viewer: user, loanId: searchLoan?.id ?? null }),
+  const boardTasks = useMemo(() => visibleBoardTasks(unifiedTasks, { show: boardShow, viewer: user, loanId: searchLoan?.id ?? null, history: boardHistory, now: Date.now(), keep: keptTaskIds }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [unifiedTasks, boardShow, user.id, searchLoan]);
+    [unifiedTasks, boardShow, user.id, searchLoan, boardHistory, keptTaskIds]);
   /* The search's empty-box shortlist, the same "mine" the create form derives. */
   const searchMyLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
 
@@ -4815,7 +4845,7 @@ export const App = () => {
      tab names the list, and Mine is a view over it. */
   const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
 
-  /* Re-bucket an already-filtered task list (closed-task TTL applied)
+  /* Re-bucket an already-filtered task list (History window applied)
      into the grouped view's courts. A completion the viewer created pins to a
      "Just finished" section at the very top (kept until they archive it) and
      is held out of Done so it isn't listed twice; everyone else's completions
@@ -5001,14 +5031,6 @@ export const App = () => {
             </button>
             <button
               type="button"
-              className={`tab-btn${activeTab === "all" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("all")}
-            >
-              All Tasks
-              <span className="section-count">{allTasksAdmin.length}</span>
-            </button>
-            <button
-              type="button"
               className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
               onClick={() => setActiveTab("metrics")}
             >
@@ -5153,6 +5175,8 @@ export const App = () => {
                   onGroupedChange={setGrouped}
                   show={boardShow}
                   onShowChange={setBoardShow}
+                  history={boardHistory}
+                  onHistoryChange={setBoardHistory}
                   expandedIds={expandedIdsIn(boardTasks)}
                   onCollapseAll={collapseAllTasks}
                   themeChoice={themeChoice}
@@ -5177,28 +5201,6 @@ export const App = () => {
           </>
         );
       })()}
-
-      {/* ── All Tasks (admin) ────────────────────────── */}
-      {activeTab === "all" && isAdmin && (
-        <>
-          <div className="section-head task-grid-head">
-            <h2>All Tasks (admin)</h2>
-            <span className="section-count">{allTasksAdmin.length} total · no age cutoff</span>
-            <div className="task-grid-head-actions">
-              <AppMenu
-                grouped={grouped}
-                onGroupedChange={setGrouped}
-                expandedIds={expandedIdsIn(allTasksAdmin)}
-                onCollapseAll={collapseAllTasks}
-                themeChoice={themeChoice}
-                onThemeChange={setThemeChoice}
-              />
-              <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); } }} />
-            </div>
-          </div>
-          {renderTaskList(allTasksAdmin, "No tasks yet.")}
-        </>
-      )}
 
       {/* ── Metrics tab content ─────────────────────── */}
       {activeTab === "metrics" && isAdmin && (

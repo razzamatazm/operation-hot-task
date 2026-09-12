@@ -19,7 +19,7 @@
  *     say "only the task creator" while quietly permitting admins).
  *   - What survives: handoff is open to EVERY authenticated user, so an admin
  *     bystander can still move a stuck task the only way anyone can. (The
- *     back-end powers admin keeps — user CRUD, config, All Tasks, Metrics —
+ *     back-end powers admin keeps — user CRUD, config, Metrics —
  *     are route-level gates and belong to scripts/smoke-test.mjs, not here.)
  *   - Removing the admin branches doesn't remove the SYSTEM ones: OOO
  *     auto-completion by the scheduler lives in scripts/scheduler-sim-test.mjs

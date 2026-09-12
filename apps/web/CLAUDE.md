@@ -143,14 +143,13 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   link change it, which is why leaving the create form lands back on the tab it
   was opened from. What sits under the row is `boardBody` in
   [src/board-filter.ts](src/board-filter.ts), and it asks the search and Mine
-  only on the Tasks tab. Admin All Tasks has no tab row. The pair is built to land on the action column of
+  only on the Tasks tab. The pair is built to land on the action column of
   the rows below — same 32px trigger, same 6px gap, same `--quick-action-w`
   button, and the header carries the row's own right inset (its padding plus
   the card's 1px border). Read down the right edge and the menu sits over every
   hamburger, `New Task` over every quick action.
 - Loan search (`.loan-search`, [src/loan-search.tsx](src/loan-search.tsx),
-  #333): a magnifier left of the app menu, on the Tasks header only and not on
-  admin All Tasks. It wears `.app-menu-trigger`, so it is the same 32px box with
+  #333): a magnifier left of the app menu, on the Tasks header. It wears `.app-menu-trigger`, so it is the same 32px box with
   the same touch overlay, and because the actions group is pushed right by
   `margin-left: auto` it grows the group leftwards. The menu and `New Task` do
   not move. The 8px between the two triggers is what keeps their 40px overlays
@@ -192,12 +191,18 @@ When adding a new themeable color, add it to **all three** `:root` blocks.
   tab row (#363) is the same `.tab-btn` with a `.board-tab` modifier that only
   sets the heading's type and spacing; don't give it its own colour, underline
   or hover rules.
-- App menu (`.app-menu`): the preferences that are not decisions about a task —
-  Grouped/Flat, Show (Everyone/Mine, Tasks board only), appearance, and
-  Collapse all. Show is its own row rather than a third View choice because it
-  combines with both, and the list it narrows comes from `visibleBoardTasks` in
-  [src/board-filter.ts](src/board-filter.ts), which every consumer of the board
-  list reads. Anchored to its own trigger
+- App menu (`.app-menu`): the preferences that are not decisions about a task,
+  in this order — View (Grouped/Flat), Show (Everyone/Mine), History (`Last 7
+  days` / `Last 14 days` / `Last 30 days` / `All`, #391), Appearance, and
+  Collapse all. The Tasks board is the only list with a header, so it is the
+  only menu. Show and History are rows of their own rather than more View
+  choices because they combine with both, and the list they narrow comes from
+  `visibleBoardTasks` in [src/board-filter.ts](src/board-filter.ts), which every
+  consumer of the board list reads. History's four choices take the
+  `.app-menu-choices-wrap` modifier Appearance uses, so they wrap rather than
+  overflow the panel on a 360px phone. Both are stored per browser beside
+  Grouped (`BOARD_SHOW_KEY`, `BOARD_HISTORY_KEY`), parsed so anything
+  unrecognised is the default. Anchored to its own trigger
   rather than portalled; the app bar is not clipped, so there is nothing to
   escape and no placement to compute. Closes on outside press and Escape, the
   same two exits every transient surface here answers to.
@@ -971,10 +976,13 @@ assignee), not assignee-gated like Complete.
 2. `OPEN` — always undimmed (anyone may claim).
 3. In-flight (`CLAIMED` / `NEEDS_REVIEW` / `MERGE_DONE` / `MERGE_APPROVED`).
 4. Closed (`COMPLETED` / `CANCELLED` / `ARCHIVED`) — render as mini rows.
-   All three share the `CLOSED_TTL_DAYS` retention window in `buildSorted`
-   (`App.tsx`): a just-closed task stays visible in Done, then drops off the
-   bottom once it ages past the cutoff. (Admin Metrics counts every status
-   from the raw task list, independent of this view filter.)
+   All three share one window, the app menu's History setting (#391), applied
+   by `visibleBoardTasks` rather than by the sort: a just-closed task stays
+   visible in Done, then drops off the bottom once it ages past the cutoff.
+   `unifiedTasks` is the sorted list with nothing cut, so a loan search can see
+   past the window, and a deep link to an older closed task keeps just that
+   task for the session (`keptTaskIds`, never stored). (Admin Metrics counts
+   every status from the raw task list, independent of this view filter.)
 
 Rows are collapsed, full stop. There are no exceptions and no `defaultOpen`:
 `expanded` is the persisted per-user override (`expandOverride`) or `false` —
@@ -993,12 +1001,12 @@ action and the hamburger, and the red dot marks what needs reading without
 taking the decision off the viewer.
 
 **Collapse all** (#177) closes every card open *in the list you're looking
-at*. It lives in the app menu (`AppMenu`) on each list header — the standard
-Tasks list and the admin All Tasks list; the loan-filtered list and its header
-are gone, along with the `CollapseAllButton` and `GroupSeg` components that used
-to sit out on the header. Each menu is handed the ids its own `renderTaskList`
-renders, so the tab / grouping scoping is already done and cards in other lists
-keep whatever state they had.
+at*. It lives in the app menu (`AppMenu`) on the Tasks board's header, the one
+list header left since #391 removed admin All Tasks; the loan-filtered list and
+its header are gone too, along with the `CollapseAllButton` and `GroupSeg`
+components that used to sit out on the header. The menu is handed the ids
+`renderTaskList` renders from `boardTasks`, so the History, Show and search
+scoping is already done and cards off the board keep whatever state they had.
 `expandedTaskIds` reads the override map for that list and `collapseTasks`
 writes the whole set back in one merged update, returning the previous map
 untouched when nothing would change. Both live in `expand-state.ts` alongside
@@ -1013,7 +1021,7 @@ is the list rearranging itself under the viewer, which is the thing #161
 removed. The button is `aria-disabled` rather than `disabled` when nothing
 below it is open, so it holds its place in the tab order and a screen reader
 user can hear that there is nothing to collapse; its accessible name says
-which list it acts on, because three headers render the same two words.
+which list it acts on.
 
 ### There is no status stripe (deleted 2026-09-06)
 
