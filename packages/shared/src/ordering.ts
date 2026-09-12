@@ -1,4 +1,5 @@
-import { LoanTask } from "./types.js";
+import { isTaskParty } from "./parties.js";
+import { LoanTask, UserIdentity } from "./types.js";
 
 /* When the checker last handed this task to the requester. `awaitingItemsSince`
    is stamped on every entry into AWAITING_ITEMS; tasks already in that status
@@ -57,3 +58,19 @@ export const byAttentionClaim = (a: LoanTask, b: LoanTask): number => {
   }
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 };
+
+/* The In flight court's order (CONTEXT.md, 2026-09-12). In flight is the one
+   court that mixes the viewer's own work with Observer tasks, so it splits on
+   that first: every task the viewer is a Party to (filed it or holds it) above
+   every Observer task, and `byAttentionClaim` inside each half. Being a Party
+   outranks the paused tier, so a held fraud check the viewer is part of still
+   sits above somebody else's live deadline. */
+export const byInFlightOrder =
+  (viewer: Pick<UserIdentity, "id">) =>
+  (a: LoanTask, b: LoanTask): number => {
+    const aOwn = isTaskParty(a, viewer);
+    if (aOwn !== isTaskParty(b, viewer)) {
+      return aOwn ? -1 : 1;
+    }
+    return byAttentionClaim(a, b);
+  };
