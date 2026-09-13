@@ -186,6 +186,12 @@
   [ADR-0002](../adr/0002-task-handoff.md)): **DMs only — no channel post and no
   activity-feed alert.** A handoff is a conversation between two people, and the
   channel already saw the task when it was created.
+  - The **channel card** already posted is edited in place (`CHANNEL_ASSIGNED`),
+    the same silent edit a claim makes: the Claim button comes off and the
+    headline reads `Suzie was assigned Tyler's LOI Check`. A reassign of an
+    in-flight task gets the same edit, so the card never names the old holder.
+    The thread record remembers who was handed it, as it does for a task
+    created already assigned, so a later Teams refresh keeps the wording.
   - The new assignee gets a `DM_ASSIGN` card: a full-details `detailCard` with
     the same facts the conversation card shows, the contextual
     advance/complete button and the **Open in Hot Task** deep link — and it is

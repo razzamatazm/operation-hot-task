@@ -32,12 +32,14 @@ interface StoredThread {
   /* The claimable-card content, kept so the user-specific refresh can rebuild
      the creator's Cancel view (and the OPEN base card) without re-deriving it.
 
-     `bornAssignedTo` is the id of the assignee a task was created already
-     handed to (ADR-0002). Nothing on the task itself records that it was never
-     claimed — `assignee` looks the same either way — so the refresh path would
-     otherwise rewrite an "assigned to X" card as "X grabbed Y" the first time
-     Teams asked for it (#193). It stops applying the moment the task changes
-     hands, which is the point at which somebody really did claim it. */
+     `bornAssignedTo` is the id of the assignee a task was handed to (ADR-0002):
+     at creation, or by a later handoff, which rewrites it. The name predates
+     the second case and stays so records already on disk keep reading. Nothing
+     on the task itself records that it was never claimed — `assignee` looks
+     the same either way — so the refresh path would otherwise rewrite an
+     "assigned to X" card as "X grabbed Y" the first time Teams asked for it
+     (#193). It stops applying the moment the task changes hands some other
+     way, which is the point at which somebody really did claim it. */
   /* `folderName` / `humperdinkLink` are the loan values this card was rendered
      with. They are what a later correction swaps out when the loan is renamed
      or its link fixed (#280) — the rendered title is the only place the name
@@ -1735,6 +1737,29 @@ export class TeamsBotClient {
   async markTaskClaimed(taskId: string, message: string, context: ChannelCardContext): Promise<void> {
     const thread = await this.threads.get(taskId);
     await this.updateTaskCard(taskId, claimedCard({ message, context, ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {}) }));
+  }
+
+  /* Update a task's channel card(s) after a handoff (ADR-0002). The Claim
+     button comes off an OPEN task's card, and an in-flight task's card stops
+     naming the old holder. The headline says they were assigned it, since
+     nobody grabbed it. A silent in-place edit, like a claim's, so the channel
+     still gets no post about a handoff.
+
+     The holder is written onto the thread record the way a task born assigned
+     records it, or the next Teams refresh would reword the card as a claim. */
+  async markTaskAssigned(taskId: string, assigneeId: string, context: ChannelCardContext): Promise<void> {
+    const thread = await this.threads.get(taskId);
+    if (thread?.card) {
+      await this.threads.save({ ...thread, card: { ...thread.card, bornAssignedTo: assigneeId } });
+    }
+    await this.updateTaskCard(
+      taskId,
+      claimedCard({
+        message: formatBornAssignedHeadline(context.assignee, context.createdBy, context.taskType),
+        context,
+        ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {})
+      })
+    );
   }
 
   /* Silently edit the channel card(s) to the terminal "completed" state. The

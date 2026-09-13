@@ -23,6 +23,8 @@
  *      doesn't change wording the first time Teams refreshes it.
  *   5. A card-tap claim and a web claim produce the same card body.
  *   6. A task born assigned says so, rather than reading as a claim.
+ *   7. A handoff edits the posted card the same way: no Claim button, and a
+ *      headline saying the holder was assigned it.
  *
  * Sibling of channel-card-terminal-sim-test.mjs, built the same way and
  * running against the compiled dist.
@@ -302,6 +304,35 @@ await check("a refresh does not turn a task born assigned into a claim", async (
   const reclaimed = await client.handleRefreshCard("task-1", "aad-viewer");
   assert.equal(headline(reclaimed), "Robin grabbed Dana's LOI Check");
   assert.equal(nameLine(reclaimed), "Smith-1042 - LOI Check");
+});
+
+await check("handing off a posted task takes the Claim button off its card", async () => {
+  const { client, posted, updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  assert.ok(actionTitles(cardOf(posted.at(-1))).some((title) => /Claim/.test(title)), "the posted card offers Claim");
+
+  // A handoff is a silent edit of the card already there, never a new post.
+  await notify("CHANNEL_ASSIGNED", liveTask("CLAIMED"), CREATOR);
+  assert.equal(posted.length, 1, "nothing new in the channel");
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "Casey was assigned Dana's LOI Check", "nobody grabbed it, and the card doesn't say they did");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
+  assert.ok(!actionTitles(card).some((title) => /Claim/.test(title)), "and nobody can claim it from the card any more");
+
+  // A later Teams refresh keeps saying so, rather than reverting to "grabbed".
+  client.setTaskLookup(async () => taskAt("CLAIMED"));
+  const refreshed = await client.handleRefreshCard("task-1", "aad-viewer");
+  assert.deepEqual(refreshed.body, card.body, "the refresh renders what the edit rendered");
+});
+
+await check("reassigning an in-flight task names the new holder on the card", async () => {
+  const { updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  await notify("CHANNEL_CLAIMED", liveTask("CLAIMED"), CHECKER);
+
+  const robin = { id: "aad-robin", displayName: "Robin Checker" };
+  await notify("CHANNEL_ASSIGNED", liveTask("CLAIMED", { assignee: robin }), CREATOR);
+  assert.equal(headline(cardOf(updated.at(-1))), "Robin was assigned Dana's LOI Check");
 });
 
 console.log(`\n${passed} checks passed`);

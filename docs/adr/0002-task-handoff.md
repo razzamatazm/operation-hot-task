@@ -48,7 +48,11 @@ someone other than the actor.
   assignee in place with its status untouched. Closed tasks cannot be handed
   off.
 - **DMs only.** The recipient gets a full detail card; a displaced assignee gets
-  a one-line DM. No channel post, no activity-feed alert.
+  a one-line DM. No channel post, no activity-feed alert. The card the channel
+  already has is edited in place, silently, to say the new holder was assigned
+  the task, with its Claim button removed. Without that edit an `OPEN` task's
+  card went on offering Claim to the whole channel after it had been handed to
+  someone (amended 2026-09-12).
 - Creating a task with an assignee is a single atomic operation
   (`assigneeUserId` on the create payload), not create-then-assign.
 

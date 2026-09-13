@@ -302,6 +302,15 @@ export class TeamsNotificationProvider implements NotificationProvider {
       return;
     }
 
+    if (event.target === "CHANNEL_ASSIGNED") {
+      // A handoff (ADR-0002) still posts nothing, but the root card is silently
+      // edited to name the new holder, with no Claim button left on it.
+      if (event.task.assignee) {
+        await this.botClient.markTaskAssigned(event.task.id, event.task.assignee.id, channelCardContext(event.task));
+      }
+      return;
+    }
+
     if (event.target === "CHANNEL_COMPLETED") {
       // Silently edit the root card to the terminal completed state.
       await this.botClient.markTaskCompleted(event.task.id, channelCardContext(event.task));
