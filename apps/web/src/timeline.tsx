@@ -1,5 +1,8 @@
 import { CLOSED_STATUSES, LoanTask, TaskStatus, TaskType, statusDisplayName } from "@loan-tasks/shared";
 
+/* PROTOTYPE (throwaway) — see `status-tracker-desktop-prototype.tsx`. */
+import { DesktopTracker, desktopVariant } from "./status-tracker-desktop-prototype";
+
 /* ── Status timeline (expanded body) ──────────────────────── */
 /* The one component lifted out of App.tsx, because it is the web surface that
    puts a status into words for a person. #247 renders it to markup and reads
@@ -67,6 +70,28 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
       ? timelineLabel(step, task.taskType)
       : timelineLabel(task.status, task.taskType);
   const following = step !== undefined && !CLOSED_STATUSES.includes(task.status) ? flow[idx + 1] : undefined;
+  /* PROTOTYPE (throwaway). With `?variant=A|B|C` a desktop layout renders from
+     720px up and this shipped tracker below it. Delete with
+     `status-tracker-desktop-prototype.tsx`. */
+  const protoVariant = desktopVariant();
+  if (protoVariant !== null) {
+    return (
+      <DesktopTracker
+        variant={protoVariant}
+        model={{
+          labels: flow.map((s) => timelineLabel(s, task.taskType)),
+          idx,
+          tone,
+          now,
+          next: following ? timelineLabel(following, task.taskType) : undefined
+        }}
+      >
+        {shippedTracker()}
+      </DesktopTracker>
+    );
+  }
+  return shippedTracker();
+  function shippedTracker() {
   return (
     <div className={`timeline timeline-${tone}`}>
       <div className="timeline-head">
@@ -97,4 +122,5 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
       </div>
     </div>
   );
+  }
 };

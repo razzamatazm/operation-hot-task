@@ -23,6 +23,8 @@ import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraft
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
 import type { AutosaveMove } from "./humperdink-arrival";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
+/* PROTOTYPE (throwaway) — see `status-tracker-desktop-prototype.tsx`. */
+import { DesktopTrackerStyles, DesktopTrackerSwitcher } from "./status-tracker-desktop-prototype";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
 
@@ -5132,6 +5134,10 @@ export const App = () => {
 
   return (
     <main className="app-shell">
+      {/* PROTOTYPE (throwaway) — desktop status tracker variants,
+          `?variant=A|B|C`. Delete with `status-tracker-desktop-prototype.tsx`. */}
+      <DesktopTrackerStyles />
+      <DesktopTrackerSwitcher />
       {/* ── Header ──────────────────────────────────── */}
       {/* Teams already shows "Hot Task" in its own tab, so no brand lockup
           here — that would be pure duplication. New Task lives on the list's
