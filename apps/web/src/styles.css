@@ -2848,7 +2848,6 @@ button.btn-good:hover {
   }
   .task-card-collapsed-stage-join { display: none; }
 }
-.loi-terms-head > :not(.loi-terms-title) { margin-left: auto; }
 /* Free text exactly as typed. `pre-wrap` is the whole formatting story: a
    typed list of figures has to read as a list, and the app does no parsing.
    Body font at the thread's size, with leading pulled in below the thread's
@@ -3231,60 +3230,6 @@ button.btn-good:hover {
   background: var(--panel);
   border: 1px dashed var(--line);
   border-radius: 10px;
-}
-
-/* ── Tags ─────────────────────────────────────────────────── */
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 4px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.73rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-.tag-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.tag-green { background: var(--good-bg); color: var(--good); }
-.tag-green .tag-dot { background: var(--good); }
-.tag-yellow { background: var(--warn-bg); color: var(--warn); }
-.tag-yellow .tag-dot { background: var(--warn); }
-.tag-orange { background: var(--hot-bg); color: var(--hot); }
-.tag-orange .tag-dot { background: var(--hot); }
-.tag-red { background: var(--bad-bg); color: var(--bad); }
-.tag-red .tag-dot { background: var(--bad); }
-.tag-brand { background: var(--brand-soft); color: var(--brand); }
-.tag-warn { background: var(--warn-bg); color: var(--warn); }
-
-.tag-type {
-  background: var(--bg-soft);
-  color: var(--ink-secondary);
-  border: 1px solid var(--line-soft);
-}
-
-.tag-status {
-  background: var(--brand-soft);
-  color: var(--brand);
-}
-
-.tag-overdue {
-  background: var(--bad-bg);
-  color: var(--bad);
-  animation: pulse-overdue 2s ease-in-out infinite;
-}
-
-@keyframes pulse-overdue {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.65; }
 }
 
 /* Unread-note dot — sits at the end of the collapsed row's type label,

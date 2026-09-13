@@ -1574,13 +1574,15 @@ not live in `expandOverrides` next door even though the two are taken and
 released by the same gesture. Framework-free and plain-values-in, so
 `scripts/court-latch-sim-test.mjs` runs it under node.
 
-## Tags / Pills
+## Tags (deleted 2026-09-13)
 
-Defined under `/* Tags */` in [apps/web/src/styles.css](src/styles.css).
-Mono, ALL CAPS-ish letterspacing, with a 6px `.tag-dot` when status-like.
-Variants: `.tag-green/yellow/orange/hot/red/type/status/overdue`.
-`.tag-overdue` pulses (`pulse-overdue` keyframes); use sparingly — the
-collapsed row already encodes overdue via red date text.
+There is no tag chip. The status timeline's `NOW` and `NEEDS CORRECTIONS`
+chips were the last thing emitting `.tag`, and they went when the timeline
+became one line over a step bar; the `.tag-*` colour variants, `.tag-dot` and
+the `pulse-overdue` animation had no emitter before that. All of it was
+deleted rather than left unemitted, for the reason the status stripes were.
+A label that needs to stand out takes a signal colour in its own words, the
+way the timeline's `Needs corrections` and the red due stamp do.
 
 ## Buttons
 
@@ -1647,7 +1649,6 @@ action, it is a confirm on the ones with no way back from the row.
 Restrained. Used only at:
 - Form panel slide-in (`@keyframes slideDown`, 150ms)
 - Form-overlay backdrop + in-card cancel flash fade (`@keyframes fadeIn`)
-- Overdue tag pulse (`@keyframes pulse-overdue`, 2s)
 - Unread-note dot pulse (`@keyframes pulse-unread`, 1.6s halo, colour mixed
   from `--bad`)
 - Celebrating-card halo pulse (`@keyframes pulse-celebrate`, 1.4s, runs twice
