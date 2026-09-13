@@ -13,7 +13,8 @@ onto the server beside them, under the same rules, and is listed on that tab
 (rule 5). Amended by #388: Discard on a reopened one deletes the record rather
 than clearing only its unsaved typing, so there is no longer a way back to its
 last save. Since #399 the Cancel prompt, which already says Discard deletes it,
-is the only confirmation.
+is the only confirmation. Amended by #413: a Humperdink arrival moves an
+existing autosave to Task Drafts before its LOI Check opens (rule 5).
 
 ## Context
 
@@ -80,6 +81,23 @@ the way the form always did, loses nothing, and says nothing on every keystroke.
 That copy is a fallback, not a second autosave: it exists only while the server
 is behind.
 
+**A Humperdink arrival moves the autosave aside (#413).** A Humperdink arrival
+link opens a new LOI Check about the loan on the clipboard, and typing into it
+would write over the autosave, which is about some other task. So when one
+arrives and the person has an autosave worth keeping (changed from a blank form,
+the autosave's own yardstick), it becomes a Saved for Later task first, through
+the same write as pressing Save for later on it, which clears the slot. Of the
+server's copy and this browser's offline copy, the one written last is moved,
+and both are gone after. The LOI Check never opens on it. With nothing worth
+keeping, nothing is made.
+
+If the move fails, or the server can't be asked, the old autosave is left
+exactly where it was and the LOI Check opens with no seat on it: nothing typed,
+saved for later, created or discarded on that form writes or clears either copy.
+That form's own typing isn't kept against a reload, which costs little, since
+the loan it is about is still on the clipboard. Losing the old task is the one
+outcome that isn't allowed. Nothing is toasted either way.
+
 **6. It goes when its owner goes.** Removing a person from the app removes their
 Saved for Later tasks.
 
@@ -95,7 +113,9 @@ Rejected: someone pulled away without pressing a button would lose their
 typing.
 
 **Turning every abandoned form into a Saved for Later task automatically.**
-Rejected: the section would fill with every half-opened form.
+Rejected: the section would fill with every half-opened form. This still stands
+after #413, which moves only an autosave that already exists, and only when a
+Humperdink arrival would replace it.
 
 **Letting admins see them**, in keeping with back-end access seeing every task.
 Rejected in rule 2. It is someone's scratch work, not work anyone has asked for.

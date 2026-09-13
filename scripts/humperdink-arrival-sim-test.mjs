@@ -231,18 +231,24 @@ test("the Teams init reads one arrival, and only a task arrival reaches focus an
   assert.equal(teamsInit.match(/setClaimOnArrivalId\(/g)?.length, 1);
 });
 
+/* Since #413 the init only marks the arrival; an effect keyed on the person
+   moves any autosave aside and then opens the form. What the move does is
+   `humperdink-arrival-autosave-sim-test.mjs`. */
 test("a Humperdink arrival opens the create form as that arrival, once the person is known, and creates nothing", () => {
-  const branch = teamsInit.match(/arrival\.kind === "humperdink"\)\s*\{([\s\S]*?)\n        \}/)?.[1];
+  const branch = teamsInit.match(/arrival\.kind === "humperdink"\)\s*(\{[\s\S]*?\}|[^\n]*;)/)?.[1];
   assert.ok(branch, "a humperdink branch");
-  assert.match(branch, /setHumperdinkArrival\(true\)/);
-  assert.match(branch, /setFormOpen\(true\)/);
+  assert.match(branch, /setArrivalPending\(true\)/);
+  assert.doesNotMatch(branch, /onCreate|apiRequest|saveForLater|setFocusTaskId|setClaimOnArrivalId/);
+  assert.ok(teamsInit.indexOf("setArrivalPending(true)") < teamsInit.indexOf("setUser(me)"), "set with /me, so the form's seat is the real person's");
+  const effect = APP_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!arrivalPending \|\| !user\.id\) return;([\s\S]*?)\n  \}, \[arrivalPending, user\.id\]\);/)?.[1];
+  assert.ok(effect, "an effect that waits for the person");
+  assert.match(effect, /setHumperdinkArrival\(true\)/);
+  assert.match(effect, /setFormOpen\(true\)/);
   assert.ok(
-    branch.indexOf("if (formOpenNow.current) return;") >= 0 &&
-      branch.indexOf("if (formOpenNow.current) return;") < branch.indexOf("setReopened(null)"),
+    effect.indexOf("formOpenNow.current") >= 0 && effect.indexOf("formOpenNow.current") < effect.indexOf("setReopened(null)"),
     "a form already open (opened during a slow sign-in) is left alone"
   );
-  assert.doesNotMatch(branch, /onCreate|apiRequest|saveForLater|setFocusTaskId|setClaimOnArrivalId/);
-  assert.ok(teamsInit.indexOf("setUser(me)") < teamsInit.indexOf('arrival.kind === "humperdink"'), "after /me, so the form's seat is the real person's");
+  assert.doesNotMatch(effect, /onCreate|apiRequest|setFocusTaskId|setClaimOnArrivalId/);
 });
 
 test("App hands the create form the arrival, and every other way in clears it", () => {

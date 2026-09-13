@@ -37,8 +37,10 @@
   Humperdink arrival link (#412): a Teams deep link whose `subEntityId` is the
   fixed sentinel `new:humperdink`, in the `msteams:` form, carrying no loan
   data. On it the tab opens a new LOI Check with the paste box focused, never
-  focuses or claims a task, and files nothing until Create. The userscript does
-  not send that link yet.
+  focuses or claims a task, and files nothing until Create. An unfinished new
+  task in the person's autosave is moved to Task Drafts before that form opens
+  (#413), and if the move fails the form leaves the autosave untouched, so an
+  arrival never overwrites it. The userscript does not send that link yet.
 
   This is not an API integration and deliberately isn't one. There is no
   credential in the userscript, no write endpoint exposed to the browser, and

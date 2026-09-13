@@ -1980,8 +1980,16 @@ change with it.
 `subEntityId` is the shared sentinel `new:humperdink` opens the create form as
 a new LOI Check with this box focused (`humperdinkArrival` on `TaskForm`), so
 ⌘V imports straight away. App reads the link through shared `readTeamsArrival`,
-so the sentinel never becomes a task to focus or claim. Like any prefilled form
-it does not open on the autosave. The userscript doesn't send the link yet.
+so the sentinel never becomes a task to focus or claim. It never opens on the
+autosave, and never overwrites it (#413, ADR-0011 rule 5). Before the form
+opens, App moves an autosave worth keeping to Task Drafts through Save for
+later's own write (`moveAutosaveAside` in
+[src/humperdink-arrival.ts](src/humperdink-arrival.ts)), and loads the drafts
+only after the move, so no earlier load can land on top of it. If the move
+doesn't land, the form opens with `leaveAutosaveAlone`: no seat on either copy
+of the autosave, the way a reopened form has none, and its Save for later
+doesn't clear the slot. Silent both ways. The userscript doesn't send the link
+yet.
 
 **The locked type's popover** (`.task-form-type-note`) is revealed by hover,
 `:focus-visible` and a click, and three things keep it honest:

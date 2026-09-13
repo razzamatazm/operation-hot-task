@@ -173,8 +173,9 @@ test("pressing it saves the form, then clears the autosave, then closes — and 
 
 test("the form opened from Humperdink is the same create form, so it has the button", () => {
   // A Humperdink arrival link (#412) opens App's one create-mode form: the
-  // mount that also closes on setFormOpen(false).
-  assert.match(APP_SOURCE, /arrival\.kind === "humperdink"\)\s*\{[^}]*setFormOpen\(true\)/, "the arrival opens formOpen");
+  // mount that also closes on setFormOpen(false). Since #413 the arrival
+  // effect opens it, once any autosave has been moved aside.
+  assert.match(APP_SOURCE, /if \(!arrivalPending \|\| !user\.id\) return;[\s\S]*?setFormOpen\(true\)/, "the arrival opens formOpen");
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.ok(createMount, "App mounts the create form while formOpen");
   assert.match(createMount, /onSaveForLater=\{onSaveForLater\}/, "and hands it Save for later");
@@ -504,7 +505,7 @@ test("deleting the Autosaved row forgets it on the server and in this browser; a
 
 test("saving a new form for later leaves one draft and no Autosaved row", () => {
   const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(handler, /if \(!savedId\) setAutosave\(null\);/, "the row goes the moment the draft appears; the server cleared it in the same write");
+  assert.match(handler, /if \(!savedId && clearAutosave\) setAutosave\(null\);/, "the row goes the moment the draft appears; the server cleared it in the same write");
 });
 
 /* ── Reopening one (#344) ────────────────────────────────── */
@@ -585,11 +586,11 @@ test("a reopened form keeps the Save for later button, pressable straight away, 
 test("a reopened form never reads or writes the autosave, and knows which record it came from", () => {
   assert.match(
     FORM_SOURCE,
-    /storage: edit \|\| reopened \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
     "no storage seat, the way edit mode has none, so no ending can clear or overwrite an unrelated autosave"
   );
   const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
-  assert.match(body, /await onSaveForLater\(values, reopened\?\.id\)/, "Save for later names the record, so App updates it");
+  assert.match(body, /await onSaveForLater\(values, reopened\?\.id, autosaveSeat\)/, "Save for later names the record, so App updates it");
   const submit = FORM_SOURCE.match(/const handleSubmit = async \([\s\S]*?\n  \};/)?.[0];
   assert.match(submit, /reopened\?\.id\s*\)/, "Create names the record, so App can clear it once the task exists");
   assert.equal(
@@ -644,7 +645,7 @@ test("typing on a reopened form is sent to that record as it is typed, never to 
   assert.doesNotMatch(body, /writeDraft|clearDraft|draftSeat/, "the browser autosave is not touched");
   assert.match(
     FORM_SOURCE,
-    /storage: edit \|\| reopened \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
     "and still has no seat, so the next New Task can never be offered this typing"
   );
 });
