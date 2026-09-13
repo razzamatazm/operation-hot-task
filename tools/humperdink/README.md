@@ -4,14 +4,19 @@
 button to a Humperdink loan details page, in the Loan Terms header right after
 the LOI button. Pressing it copies the loan — its name, the page's URL, its loan
 terms, its brokers, borrowers and silent borrowers, and any property it is
-acquiring — to your clipboard as JSON. That is all it does. In Hot Task, start a
-new LOI Check and paste into the paste box at the bottom of the form. The paste
-is the import: Folder Name, the Humperdink Link and the notes fill in straight
-away, with nothing else to press.
+acquiring — to your clipboard as JSON. Then it opens Hot Task in Teams desktop
+on a new LOI Check, with the paste box at the bottom of the form ready for you.
+Paste (⌘V) and that is the import: Folder Name, the Humperdink Link and the
+notes fill in straight away, with nothing else to press.
 
-It does not open Hot Task for you. It used to (#198), by opening a Teams link
-in a new tab; that was dropped in favour of copy-only, so the button never
-leaves the loan page and there is no Teams app id to keep correct.
+The first time you press it, Chrome asks whether to open Microsoft Teams. Tick
+**Always allow** and press Open, and every press after that goes straight to
+Teams with no prompt. It opens Teams desktop, not Teams in the browser (#414).
+
+The link that opens Hot Task carries no loan data, only "somebody sent a loan
+from Humperdink". Teams writes every link it receives into its local log, so the
+loan itself travels on your clipboard and nowhere else. If the copy fails, the
+button says so and doesn't open anything.
 
 Humperdink has no API, so the clipboard is the whole integration. Hot Task never
 reads your clipboard on its own: you press paste. Clipboard-read permission
@@ -39,24 +44,32 @@ reverse) tell you so instead of importing something half-right.
 
 ## Configuration
 
-One setting, and it normally needs no change: `@match` is pinned to
-`https://humperdink.loneoakfund.com/Loans/Details/*`. If your Humperdink lives
-somewhere else, change that line.
+Nothing normally needs changing. Two values are pinned in the script:
+
+- `@match` is `https://humperdink.loneoakfund.com/Loans/Details/*`. If your
+  Humperdink lives somewhere else, change that line.
+- `HOT_TASK_APP_ID` is the Teams app id of the one Hot Task install, the `id`
+  in `teams-app/operation-hot-task-teams/manifest.json`. It only changes if Hot
+  Task is reinstalled as a new Teams app, and a test goes red if the two
+  disagree.
 
 ## Use it
 
 1. On the loan page, press **Export to HT** in the Loan Terms header. A note
-   pinned under it confirms with `Copied. Paste it into a new LOI Check.` If
-   the button is dimmed, the contacts and properties haven't come back from
-   Humperdink yet — they load after the page does, and hovering says so. Give
-   it a second.
-2. In Hot Task, press New Task and pick LOI Check. Click into the paste box at
-   the bottom of the form (it reads `In Humperdink, press Export to HT, then
-   paste here`) and paste. That is the import: Folder Name, the Humperdink Link
-   and the terms fill in, the box empties, and it reads `Imported. Paste again
-   to replace it.` Anything you had already typed into Notes stays where it is —
-   the terms go in below it — and pasting again replaces the block the last
-   import wrote rather than stacking a second copy.
+   pinned under it confirms with `Copied. Opening Hot Task in Teams…`, and
+   Teams desktop comes forward on Hot Task. (First time only: Chrome asks
+   whether to open Teams. Tick Always allow.) If the button is dimmed, the
+   contacts and properties haven't come back from Humperdink yet — they load
+   after the page does, and hovering says so. Give it a second.
+2. Hot Task opens a new LOI Check with the paste box at the bottom of the form
+   focused (it reads `In Humperdink, press Export to HT, then paste here`).
+   Paste. That is the import: Folder Name, the Humperdink Link and the terms
+   fill in, the box empties, and it reads `Imported. Paste again to replace
+   it.` Anything you had already typed into Notes stays where it is — the terms
+   go in below it — and pasting again replaces the block the last import wrote
+   rather than stacking a second copy. If you had an unfinished new task open
+   in Hot Task, it is kept on the Task Drafts tab. You can also get here by
+   hand: New Task, LOI Check, click the paste box, paste.
 3. Fill in the rest as usual and press Create. The task links itself to the
    existing loan for that URL — the link is the canonical key for a loan
    ([ADR-0001](../../docs/adr/0001-loan-entity.md)) — so importing the same loan
