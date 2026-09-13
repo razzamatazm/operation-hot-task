@@ -490,8 +490,9 @@ is gone seven days after it was last written.
 - OOO UI wording:
   - Folder Name label becomes `Vacation Description`
 - **Where the field is drawn.** On every type but a Fraud Check it renders as
-  its own bordered Instructions box in the expanded card, above the
-  conversation, and is **not** echoed as the thread's first message — so a
+  its own Instructions section in the expanded card, above the conversation,
+  with its heading (below) above the text at every width, and is **not**
+  echoed as the thread's first message — so a
   brand-new task opens on an empty conversation that says so. Free text, line
   breaks as typed, capped height with internal scroll. It is the same field
   with the same payload — no new column, nothing to migrate — drawn somewhere

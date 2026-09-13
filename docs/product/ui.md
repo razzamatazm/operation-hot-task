@@ -162,6 +162,20 @@ Both views share one card component:
   open or close themselves — no status change, new note, or refresh moves a
   row either way (#161). The collapsed row carries the primary action and the
   menu, so nothing actionable is behind the fold.
+- **An open card leads with where the task is in its flow** (PR #421,
+  confirmed 2026-09-13): the step it is on, `Next` and the step after it, and
+  a bar with one segment per step filled up to the current one. It is one line
+  over the bar on every task type, on a phone as on a desktop; it replaced a
+  rail naming every step, which ran to two or three lines on a phone. An LOI
+  sent back reads `Needs corrections` in place of the step name. Finished
+  tasks, archived ones included, show green; a cancelled task says
+  `Cancelled` over an empty bar.
+- **Each section of an open card has its heading above it, at every width**
+  (PR #421, confirmed 2026-09-13): `Outstanding items` on a Fraud Check, the
+  Instructions heading on every other type (see
+  [task-fields.md](task-fields.md#create-task-fields)), and `Conversation`.
+  Wider screens used to put these headings in a column to the left of the
+  section; a phone always stacked them, and that is now the only layout.
 - **Collapse all**, in the app menu, shuts every card you have open in the list
   you're looking at, in one press, and carries a count of how many are open so
   you can see whether it is worth pressing. Cards behind another tab are
