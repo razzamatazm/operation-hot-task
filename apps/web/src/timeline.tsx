@@ -7,25 +7,28 @@ import { CLOSED_STATUSES, LoanTask, TaskStatus, TaskType, statusDisplayName } fr
    nothing can check is a rule that drifts. Everything else the rail needs
    comes from the shared package, so it renders on its own.
 
-   Rail of the task's lifecycle. NEEDS_REVIEW sits on the CLAIMED step (and
-   tags it); ARCHIVED reads as COMPLETED. The current in-flight step carries a
-   "NOW" (or "NEEDS CORRECTIONS") chip. Removed in #106 alongside the two-column
-   expanded body, restored here — the expanded body is a single stacked column
-   now, so it renders as a compact horizontal rail at every width rather than
-   the old tall vertical dot-list.
+   Where the task is in its flow, as one line over a segmented bar (2026-09-13):
+   the step it is on, the step after it, and one segment per step filled up to
+   the one it is on. It used to draw every step with a dot, a name and a `NOW`
+   chip on the current one, and a five-step flow could not fit that on a phone,
+   so a Fraud Check or Loan Docs card opened on a rail two or three lines deep.
+   Chosen over two other variants driven on the real card, branch
+   `prototype/status-tracker`. NEEDS_REVIEW sits on the CLAIMED step, ARCHIVED
+   reads as COMPLETED, and a status in no flow (CANCELLED) names itself over an
+   empty bar.
 
    Step names are the rail's own ("Opened", not "Open") except where the shared
    `statusDisplayName` has a say (#237): the claimed step on an LOI reads
-   "In review", and the chip on the corrections state reads "Needs corrections"
-   — never a literal here, so the bot and the web cannot drift apart on it.
+   "In review", and the corrections state reads "Needs corrections". Never a
+   literal here, so the bot and the web cannot drift apart on it.
 
    The one place those two rules would collide: an LOI sitting in corrections
-   is drawn on the claimed step, so asking for the claimed name would put
-   "In review" beside a "NEEDS CORRECTIONS" chip — the exact pairing ADR-0007
-   rule 4 exists to stop, since by then the review has happened and the checker
-   has found something. While the task is in corrections the step falls back to
-   the rail's own "Claimed", which is still true of it, and the chip carries
-   the news. */
+   is drawn on the claimed step, and naming that step would say "In review",
+   the reading ADR-0007 rule 4 exists to stop, since by then the review has
+   happened and the checker has found something. So in corrections the line
+   names the state instead of the step, in the step name's place rather than
+   beside it. Beside it was a chip, and the chip is what wrapped an LOI's three
+   steps onto a second line. */
 const TIMELINE_LABELS: Record<string, string> = {
   OPEN: "Opened",
   CLAIMED: "Claimed",
@@ -35,7 +38,8 @@ const TIMELINE_LABELS: Record<string, string> = {
   // requester submits them back for the checker's final approval.
   AWAITING_ITEMS: "Outstanding items",
   PENDING_APPROVAL: "Final approval",
-  COMPLETED: "Completed"
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled"
 };
 const timelineLabel = (status: TaskStatus, taskType: TaskType): string =>
   statusDisplayName(status, taskType) ?? TIMELINE_LABELS[status] ?? status;
@@ -49,33 +53,48 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
   const effective: TaskStatus =
     task.status === "NEEDS_REVIEW" ? "CLAIMED" : task.status === "ARCHIVED" ? "COMPLETED" : task.status;
   const idx = flow.indexOf(effective);
+  const step = flow[idx];
+  const tone =
+    step === undefined
+      ? "off"
+      : effective === "COMPLETED"
+        ? "finished"
+        : task.status === "NEEDS_REVIEW"
+          ? "corrections"
+          : "live";
+  const now =
+    step !== undefined && tone !== "corrections"
+      ? timelineLabel(step, task.taskType)
+      : timelineLabel(task.status, task.taskType);
+  const following = step !== undefined && !CLOSED_STATUSES.includes(task.status) ? flow[idx + 1] : undefined;
   return (
-    <div className="timeline">
-      {flow.map((s, i) => {
-        const done = i <= idx;
-        const current = i === idx && !CLOSED_STATUSES.includes(task.status);
-        const dotColor = done
-          ? s === "COMPLETED" && task.status === "COMPLETED"
-            ? "var(--good)"
-            : "var(--brand)"
-          : "var(--line)";
-        return (
-          <div key={s} className="tl-item">
-            <span className="tl-dot" style={{ background: dotColor }} />
-            <div className="tl-body">
-              <b style={{ color: done ? "var(--ink)" : "var(--muted)" }}>
-                {s === "CLAIMED" && task.status === "NEEDS_REVIEW"
-                  ? TIMELINE_LABELS.CLAIMED
-                  : timelineLabel(s, task.taskType)}
-              </b>
-              {current && task.status === "NEEDS_REVIEW" && (
-                <span className="tag tag-warn">{timelineLabel(task.status, task.taskType).toUpperCase()}</span>
-              )}
-              {current && task.status !== "NEEDS_REVIEW" && <span className="tag tag-brand">NOW</span>}
-            </div>
-          </div>
-        );
-      })}
+    <div className={`timeline timeline-${tone}`}>
+      <div className="timeline-head">
+        <span className="timeline-now">{now}</span>
+        {following && (
+          <span className="timeline-next">
+            <span className="timeline-next-label">Next</span>
+            <span className="timeline-next-name">{timelineLabel(following, task.taskType)}</span>
+          </span>
+        )}
+      </div>
+      {/* The segments are the only place the count lives, so the bar says it
+          in words to a screen reader. */}
+      <div
+        className="timeline-bar"
+        role={step === undefined ? undefined : "img"}
+        aria-label={step === undefined ? undefined : `Step ${idx + 1} of ${flow.length}`}
+        aria-hidden={step === undefined ? true : undefined}
+      >
+        {flow.map((s, i) => (
+          <span
+            key={s}
+            className={`timeline-seg${i < idx || (i === idx && tone !== "corrections") ? " timeline-seg-on" : ""}${
+              i === idx && tone === "corrections" ? " timeline-seg-flag" : ""
+            }`}
+          />
+        ))}
+      </div>
     </div>
   );
 };

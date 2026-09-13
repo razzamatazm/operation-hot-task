@@ -1106,25 +1106,42 @@ drove the stripe either.
 One stacked column (#106), sections separated by a hairline rather than
 nested card chrome, in this order:
 
-1. **Status timeline** (`.timeline`) — horizontal rail of the task's
-   lifecycle, one dot + label per step, with a `NOW` (or `NEEDS CORRECTIONS`)
-   tag on the current in-flight step. It was the first card component lifted
-   out of `App.tsx`, into [src/timeline.tsx](src/timeline.tsx), because it is
-   the web surface that puts a status into words: #247 renders it and reads the
-   words back, and `App.tsx` cannot be imported into a node script to allow
-   that. (`src/thread.tsx` was lifted out for the same reason in #258 — see
-   below.) Flow comes from the task type:
-   LOAN_DOCS gets the merge steps, FRAUD gets the two-phase checklist
-   steps, everything else is Opened → Claimed → Completed. `NEEDS_REVIEW`
-   renders on the `CLAIMED` step; `ARCHIVED` reads as `COMPLETED`. Step
-   names are the rail's own except the two the shared `statusDisplayName`
-   fixes (#237): an LOI's claimed step reads `In review`, and the
-   corrections chip reads `Needs corrections` — never a literal here, so the
-   bot's wording cannot drift from the web's, and
-   `scripts/status-display-surface-sim-test.mjs` fails if one appears.
-   Horizontal at every width — the old vertical dot-list pushed the notes
-   thread far down the card (#92) — and wraps to a second line rather than
-   scrolling. It's the first child so the sibling-hairline rule skips it.
+1. **Status timeline** (`.timeline`): where the task is in its flow, as one
+   line over a segmented bar (2026-09-13, the user's pick). The step it is on
+   sits at the left, `Next` and the step after it at the right, and under them
+   one segment per step, filled up to the one it is on. Two short lines on
+   every task type at every width, capped at 440px so a desktop card does not
+   stretch the bar across the page. The next step's name is what ellipsizes,
+   never the current one.
+   It replaced a rail that drew every step with a dot, a name and a `NOW` chip
+   on the current one. A five-step flow could not fit that on a phone, so a
+   Fraud Check or Loan Docs card opened on a rail two or three lines deep, and
+   an LOI in corrections wrapped behind its chip. Three variants were driven on
+   the real card at 360px and 390px, branch `prototype/status-tracker`; this is
+   variant A, and the other two (dots plus names on one line, and a
+   previous/current/next window) are kept there.
+   It was the first card component lifted out of `App.tsx`, into
+   [src/timeline.tsx](src/timeline.tsx), because it is the web surface that
+   puts a status into words: #247 renders it and reads the words back, and
+   `App.tsx` cannot be imported into a node script to allow that.
+   (`src/thread.tsx` was lifted out for the same reason in #258, see below.)
+   Flow comes from the task type: LOAN_DOCS gets the merge steps, FRAUD gets
+   the two-phase checklist steps, everything else is Opened → Claimed →
+   Completed. `NEEDS_REVIEW` renders on the `CLAIMED` step. `ARCHIVED` reads as
+   `COMPLETED` and goes green with it (the old rail only greened `COMPLETED`).
+   `CANCELLED` is in no flow, so it names itself in muted ink over an empty bar.
+   Step names are the rail's own except the two the shared `statusDisplayName`
+   fixes (#237): an LOI's claimed step reads `In review`, and the corrections
+   state reads `Needs corrections`. Never a literal here, so the bot's wording
+   cannot drift from the web's, and `scripts/status-display-surface-sim-test.mjs`
+   fails if one appears.
+   **In corrections the line names the state, not the step.** `Needs
+   corrections` takes the step name's place in `--warn`, and the segment the
+   task is standing on goes `--warn` with it. Naming the step there would read
+   `In review`, the pairing ADR-0007 rule 4 exists to stop.
+   The bar is `role="img"` labelled `Step N of M`, because the segments are the
+   only place the count lives. It's the first child so the sibling-hairline
+   rule skips it.
 2. **Nothing.** The body carries no fraud buttons and no fraud composer. The
    phase's forward move rides the collapsed row (`fraudQuick`) and the
    alternatives (`Send Back`, `Release`) sit in the hamburger with the rest of
@@ -1142,12 +1159,12 @@ nested card chrome, in this order:
    Now the items go in the list and the words go in the thread, and there is no
    third answer. See *A hand-back needs items* under Empty action slot.
 3. **Checklist** (FRAUD outstanding items), when there is one. **Drawn on the
-   Instructions box's ruled page** (#367): `Outstanding items` sits in the
-   116px left margin column, the rows and the `Add an item` composer sit right
-   of the vertical hairline in `.checklist-body`, the closing hairline separates
-   it from the conversation, and under 560px it stacks the same way. It used to
-   be a heading over a full-width list, so one card body had two section styles
-   depending on the type. The block, head and title have no rules of their own —
+   Instructions box's ruled page** (#367): the `Outstanding items` label sits
+   above the rows and the `Add an item` composer in `.checklist-body`, and the
+   closing hairline separates it from the conversation. (Until 2026-09-13 the
+   label sat in a 116px left margin above 560px; see *Instructions* below.)
+   Before #367 it was a heading bar over a full-width list, so one card body had
+   two section styles depending on the type. The block, head and title have no rules of their own —
    they ride the `.loi-terms` rules as selector lists, so a change to one is a
    change to both. On an empty list the composer takes `.checklist-add-flush`,
    the seeder's modifier, so no dashed rule floats at the top of the cell. Each row is
@@ -1173,14 +1190,15 @@ nested card chrome, in this order:
    was a bordered, shadowed box with a 3px brand left edge sitting inside the
    bordered, shadowed task card — two containers deep for one passage of text,
    with the most borrowed shape in the app stuck on its margin. It is now a
-   ruled page: the field's name sits in a 116px left margin column, one
-   vertical hairline divides the margin from the text, and one horizontal
-   hairline closes the block off from the conversation below. Two rules, no
-   container. Under 560px the columns collapse to one, the label sits back
-   above its text left-aligned, and the closing hairline still carries the
-   separation. The split from the thread is still carried by shape rather than
-   by shouting in the headings — the shape is just a margin now instead of a
-   box. Free text
+   ruled page: the field's name sits above its text as a small mono label,
+   left-aligned, and one horizontal hairline closes the block off from the
+   conversation below. One rule, no container.
+   **The label is above its text at every width** (2026-09-13, the user's
+   call). Above 560px it used to sit in a 116px left margin column behind a
+   vertical hairline, and only a phone stacked it; the phone arrangement is the
+   only one now, for all three sections on the page, so none of them has a
+   breakpoint. `instructions-box-sim-test.mjs` fails if a fixed-width column,
+   a vertical rule, a right alignment or a row span comes back on any of them. Free text
    rendered as typed (`white-space: pre-wrap`, body font, 1.4 leading — tighter than the thread’s 1.45) so a
    list of figures reads as a list; no parsing, no label columns, no structured
    fields until the direct import exists. Capped at 260px with internal scroll,
@@ -1204,12 +1222,12 @@ nested card chrome, in this order:
    with internal scroll and auto-scroll-to-newest on new entries / re-open.
    **Drawn on the same ruled page as the two sections above** (#387, chosen
    over three variants on the real card, branch
-   `prototype/conversation-styling`): `Conversation` sits in the 116px left
-   margin and spans the list and the composer, so the margin's hairline runs
-   the whole section; the bubbles and composer sit right of it; there is no
-   closing hairline, since nothing follows. It rides the `.loi-terms` selector
-   lists like `.checklist` does, and `.thread-head` has no face of its own.
-   Under 560px it stacks like the other two. The head reads `Conversation` on
+   `prototype/conversation-styling`): the `Conversation` label sits above the
+   bubbles and the composer, and there is no closing hairline, since nothing
+   follows. It rides the `.loi-terms` selector lists like `.checklist` does,
+   and `.thread-head` has no face of its own. It used to sit in the 116px left
+   margin above 560px and span the list and the composer, so the margin's
+   hairline ran the whole section; that went with the margin on 2026-09-13. The head reads `Conversation` on
    **every** type (`THREAD_HEAD_LABEL`), a FRAUD task included: it used to take
    the field's label there, `Notes`, and one section with two names depending
    on the type read as two things. On a FRAUD task, which still carries its

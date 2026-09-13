@@ -435,35 +435,50 @@ test("App.tsx draws these components and paints no notes row of its own", () => 
   );
 });
 
-/* ── A Fraud Check's outstanding items share the margin (#367) ─
-   A Fraud Check has no instructions box, but its standing ask — the
-   outstanding-items list — is drawn on the same ruled page: label in the left
-   margin, one vertical hairline, the list on the right, one closing hairline.
-   The rules are shared selector lists rather than a copy, so the two cannot
-   drift. Comments are stripped before parsing so a brace in prose can't split
-   a rule. */
+/* ── The ruled page: outstanding items, instructions, conversation ─
+   A Fraud Check has no instructions box, but its standing ask, the
+   outstanding-items list, is drawn on the same ruled page (#367), and the
+   conversation joined them (#387): a small mono label above the section and
+   one closing hairline. Since 2026-09-13 the label sits above its section at
+   every width; above 560px it used to sit in a 116px left margin behind a
+   vertical hairline. The rules are shared selector lists rather than a copy,
+   so the three cannot drift. Comments are stripped before parsing so a brace
+   in prose can't split a rule, and a rule inside a media query parses as a
+   plain rule here, which is what lets a breakpoint-only margin be caught too. */
 
 const CSS_RULES = [...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
   ([, selectors, body]) => ({ selectors: selectors.split(",").map((s) => s.trim()), body })
 );
 const sharedRules = (a, b) => CSS_RULES.filter((r) => r.selectors.includes(a) && r.selectors.includes(b));
+const rulesOn = (names) => CSS_RULES.filter((r) => r.selectors.some((s) => names.includes(s)));
+const PAGES = [".loi-terms", ".checklist", ".thread"];
+const HEADS = [".loi-terms-head", ".checklist-head", ".thread-head"];
+
+test("no section label on the ruled page sits in a margin, at any width", () => {
+  assert.deepEqual(
+    rulesOn(PAGES)
+      .filter((r) => /grid-template-columns:\s*\d+px/.test(r.body))
+      .map((r) => r.selectors.join(", ")),
+    [],
+    "a fixed-width column on a ruled page is the margin coming back"
+  );
+  assert.deepEqual(
+    rulesOn(HEADS)
+      .filter((r) => /border-right:\s*(?!none)/.test(r.body) || /text-align:\s*right/.test(r.body) || /grid-row:/.test(r.body))
+      .map((r) => r.selectors.join(", ")),
+    [],
+    "a label cell with a vertical rule, a right alignment or a row span belongs to the margin layout"
+  );
+});
 
 test("the outstanding items and the instructions box are laid out by the same rules", () => {
   assert.ok(
-    sharedRules(".loi-terms", ".checklist").some((r) => /grid-template-columns:\s*116px/.test(r.body)),
-    "one rule sets the margin column for both"
-  );
-  assert.ok(
     sharedRules(".loi-terms", ".checklist").some((r) => /grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(r.body)),
-    "and one rule collapses both to a single column on a phone"
+    "one rule sets both to a single column"
   );
   assert.ok(
-    sharedRules(".loi-terms-head", ".checklist-head").some((r) => /border-right:/.test(r.body)),
-    "one rule draws the vertical hairline for both"
-  );
-  assert.ok(
-    sharedRules(".loi-terms-head", ".checklist-head").some((r) => /border-right:\s*none/.test(r.body) && /text-align:\s*left/.test(r.body)),
-    "and one rule stacks both labels, left-aligned, on a phone"
+    sharedRules(".loi-terms-head", ".checklist-head").some((r) => /text-align:\s*left/.test(r.body)),
+    "one rule puts both labels above their text, left-aligned"
   );
   assert.ok(
     sharedRules(".loi-terms-title", ".checklist-title").some((r) => /font-size:/.test(r.body) && /letter-spacing:/.test(r.body)),
@@ -479,20 +494,12 @@ test("the outstanding items and the instructions box are laid out by the same ru
 
 test("the conversation is drawn on the same ruled page (#387)", () => {
   assert.ok(
-    sharedRules(".loi-terms", ".thread").some((r) => /grid-template-columns:\s*116px/.test(r.body)),
-    "one rule sets the margin column for the conversation and the box above it"
-  );
-  assert.ok(
     sharedRules(".loi-terms", ".thread").some((r) => /grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(r.body)),
-    "and one rule collapses both on a phone"
+    "one rule sets the conversation and the box above it to a single column"
   );
   assert.ok(
-    sharedRules(".loi-terms-head", ".thread-head").some((r) => /border-right:/.test(r.body)),
-    "one rule draws the margin's hairline for both"
-  );
-  assert.ok(
-    sharedRules(".loi-terms-head", ".thread-head").some((r) => /border-right:\s*none/.test(r.body) && /text-align:\s*left/.test(r.body)),
-    "and one rule stacks both labels on a phone"
+    sharedRules(".loi-terms-head", ".thread-head").some((r) => /text-align:\s*left/.test(r.body)),
+    "one rule puts both labels above their sections, left-aligned"
   );
   assert.ok(
     sharedRules(".loi-terms-title", ".thread-head").some((r) => /font-size:/.test(r.body) && /letter-spacing:/.test(r.body)),
@@ -511,7 +518,7 @@ test("no rule styles the old outstanding-items heading on its own", () => {
   }
 });
 
-test("the checklist puts its label in the margin cell and everything else in the body cell", () => {
+test("the checklist puts its label in the label cell and everything else in the body cell", () => {
   const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
   const checklist = app.split("const FraudChecklist")[1].split("/* ── Task Card")[0];
   const head = checklist.indexOf('className="checklist-head"');

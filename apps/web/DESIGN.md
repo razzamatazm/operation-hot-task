@@ -356,7 +356,7 @@ Everything below the list is drift.
   group label. It runs down to 0.55rem at the smallest, and it is the tier the
   touch floor exists to raise.
 
-**Not the system, recorded as drift.** `0.72rem` (timeline body, metrics section
+**Not the system, recorded as drift.** `0.72rem` (metrics section
 titles, the section count) and `0.73rem` (the tag) sit between Control and Label
 without a job of their own; fold them into one of those two when they are next
 touched. `0.8rem`, `0.9rem`, `0.92rem` and `0.66rem` are one-offs on the form,
@@ -494,7 +494,8 @@ the thing floats:
 - **14px** — the message bubble, squared off at the corner nearest the avatar to
   make a tail without drawing one. The single conversational shape in the app.
 - **999px / 50%** — fully round, and only where the shape is the meaning: the
-  person chip, the small dot inside a status pill, the timeline dot.
+  person chip, the small dot inside a status pill, the ends of a timeline
+  segment.
 
 Three values are drift, not steps: **7px** on the admin add-row inputs (should
 be 6px, the input radius), **20px** on the admin role pill (should be the pill
