@@ -142,12 +142,6 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.xl}"
     padding: "18px 20px"
-  tag:
-    backgroundColor: "{colors.bg-soft}"
-    textColor: "{colors.ink-secondary}"
-    rounded: "{rounded.sm}"
-    padding: "3px 9px"
-    typography: "{typography.label}"
   input:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
@@ -356,9 +350,9 @@ Everything below the list is drift.
   group label. It runs down to 0.55rem at the smallest, and it is the tier the
   touch floor exists to raise.
 
-**Not the system, recorded as drift.** `0.72rem` (timeline body, metrics section
-titles, the section count) and `0.73rem` (the tag) sit between Control and Label
-without a job of their own; fold them into one of those two when they are next
+**Not the system, recorded as drift.** `0.72rem` (metrics section
+titles, the section count) sits between Control and Label
+without a job of its own; fold it into one of those two when it is next
 touched. `0.8rem`, `0.9rem`, `0.92rem` and `0.66rem` are one-offs on the form,
 the terms block and the checklist title. `1.2rem` and `1.4rem` appear once each
 on the metrics ratio and belong with Display. The whole admin surface is written
@@ -483,7 +477,7 @@ Softly squared, never round. Eight steps ship, and they are tiered by how much
 the thing floats:
 
 - **3px** — the smallest marks: section counts, metric bars, the poop track.
-- **4px** — tags and the ratio track.
+- **4px** — the ratio track.
 - **5px** — every button. The base `button` rule and `.btn-sm` both, plus the
   small selects and menu choices that sit beside them.
 - **6px** — inputs, textareas, inline confirm panels, popover rows.
@@ -494,7 +488,8 @@ the thing floats:
 - **14px** — the message bubble, squared off at the corner nearest the avatar to
   make a tail without drawing one. The single conversational shape in the app.
 - **999px / 50%** — fully round, and only where the shape is the meaning: the
-  person chip, the small dot inside a status pill, the timeline dot.
+  person chip, the small dot inside a status pill, the ends of a timeline
+  segment.
 
 Three values are drift, not steps: **7px** on the admin add-row inputs (should
 be 6px, the input radius), **20px** on the admin role pill (should be the pill

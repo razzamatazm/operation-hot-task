@@ -1278,9 +1278,9 @@ const FraudChecklist = ({ task, user, api }: { task: LoanTask; user: UserIdentit
     await api.addItem(task.id, value);
   };
 
-  /* The same ruled page as the instructions box (#367): the label in the left
-     margin cell, everything else in the body cell right of the hairline. Two
-     cells, so the grid `.loi-terms` shares with `.checklist` lays both out. */
+  /* The same ruled page as the instructions box (#367): the label in its own
+     cell above, everything else in the body cell under it. Two cells, so the
+     grid `.loi-terms` shares with `.checklist` lays both out. */
   return (
     <div className="checklist">
       <div className="checklist-head">
@@ -2490,7 +2490,7 @@ const TaskCard = memo(({
 
   /* Expanded body: always a single stacked column, sections separated by a
      hairline rather than nested card chrome. Leads with the status timeline
-     (compact horizontal rail) so opening a card says where it sits in its
+     (one line over a step bar) so opening a card says where it sits in its
      flow, then FRAUD forward moves → checklist → terms → notes, ending on the
      thread.
      No due-pill — the collapsed row's own OVERDUE/due chip already shows that.

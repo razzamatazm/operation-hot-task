@@ -99,19 +99,16 @@ const RAIL = {
   render: (task) => renderToStaticMarkup(createElement(Timeline, { task }))
 };
 
-/* The rail says two different things about a status and #247 asks after both:
-   the step's own name, and the chip on the step the task is standing on. Split
-   out of the markup so one cannot cover for the other — a chip carrying the
-   right name over a step label carrying nothing would pass a whole-markup
-   substring check. */
+/* The rail names two things and #247 asks after both: what the task is
+   standing on, and the step after it. Split out of the markup so one cannot
+   cover for the other: the right name in the next-step slot over a current
+   slot carrying the wrong one would pass a whole-markup substring check. */
 const railParts = (task) => {
   const markup = RAIL.render(task);
   const collect = (pattern) => [...markup.matchAll(pattern)].map((match) => match[1]);
-  return {
-    markup,
-    stepLabels: collect(/<b[^>]*>(.*?)<\/b>/g),
-    chips: collect(/<span class="tag[^"]*"[^>]*>(.*?)<\/span>/g)
-  };
+  const [now = ""] = collect(/<span class="timeline-now">(.*?)<\/span>/g);
+  const next = collect(/<span class="timeline-next-name">(.*?)<\/span>/g);
+  return { markup, now, stepLabels: [now, ...next] };
 };
 
 const CONFIRM_LINE = {
@@ -146,9 +143,9 @@ for (const surface of SURFACES) {
   });
 }
 
-/* The rail draws every step of the flow, so a completed LOI legitimately still
-   shows the claimed step under its shared name, and the rule above — judge the
-   states the shared module names — is as far as it goes. The confirm line is
+/* The rail names the step after the current one, so an open LOI legitimately
+   shows the claimed step under its shared name as what comes next, and the
+   rule above (judge the states the shared module names) is as far as it goes. The confirm line is
    one sentence about the state the task is in now, so it takes the stronger
    form of the same rule: no shared name at all where there is none to show. */
 
@@ -173,13 +170,14 @@ test("the rail's step label takes the shared name where the shared module has on
   );
 });
 
-test("the rail's chip carries the shared name for the state the task is standing in", () => {
+test("the rail names the state the task is standing in with the shared name", () => {
   for (const taskType of TASK_TYPES) {
     const corrections = statusDisplayName("NEEDS_REVIEW", taskType);
-    const { chips } = railParts(taskFor("NEEDS_REVIEW", taskType));
-    assert.ok(
-      chips.some((chip) => chip.toLowerCase() === corrections.toLowerCase()),
-      `${taskType}: a chip should read "${corrections}": ${chips.join(" | ")}`
+    const { now } = railParts(taskFor("NEEDS_REVIEW", taskType));
+    assert.equal(
+      now.toLowerCase(),
+      corrections.toLowerCase(),
+      `${taskType}: the current step should read "${corrections}", not "${now}"`
     );
   }
 });
@@ -196,8 +194,8 @@ test("a task in corrections is named as such and nowhere reads as under review",
   for (const taskType of TASK_TYPES) {
     const corrections = statusDisplayName("NEEDS_REVIEW", taskType);
     assert.notEqual(corrections, undefined, "the corrections state is named by the shared module");
-    const { stepLabels, chips, markup } = railParts(taskFor("NEEDS_REVIEW", taskType));
-    for (const shown of [...stepLabels, ...chips]) {
+    const { stepLabels, markup } = railParts(taskFor("NEEDS_REVIEW", taskType));
+    for (const shown of stepLabels) {
       assert.ok(!shows(shown, underReview), `${taskType}: the rail shows "${shown}" — ${markup}`);
     }
     const line = CONFIRM_LINE.render(taskFor("NEEDS_REVIEW", taskType));
