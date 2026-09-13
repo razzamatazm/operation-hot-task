@@ -288,7 +288,7 @@ await check("a task born assigned says it was assigned, not grabbed", async () =
 });
 
 await check("a refresh does not turn a task born assigned into a claim", async () => {
-  const { client } = await botSetup();
+  const { client, posted } = await botSetup();
   await postBornAssigned(client);
 
   // Nothing on the task says it was never claimed — the assignee looks the
@@ -297,6 +297,7 @@ await check("a refresh does not turn a task born assigned into a claim", async (
   const card = await client.handleRefreshCard("task-1", "aad-viewer");
   assert.equal(headline(card), "Casey was assigned Dana's LOI Check");
   assert.equal(nameLine(card), "Smith-1042 - LOI Check");
+  assert.deepEqual(card.body, cardOf(posted[0]).body, "the refresh renders what the post rendered");
 
   // Once it changes hands somebody really did claim it, and the card says so.
   const other = { id: "aad-other", displayName: "Robin Checker" };
