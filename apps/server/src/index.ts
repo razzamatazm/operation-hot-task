@@ -16,7 +16,7 @@ import { SettingsStore } from "./settings-store.js";
 import { SavedForLaterStore } from "./saved-for-later-store.js";
 import { TaskService } from "./task-service.js";
 import { startScheduler } from "./scheduler.js";
-import { AppConfig } from "@loan-tasks/shared";
+import { AppConfig, currentAssigneeWasHanded } from "@loan-tasks/shared";
 import { TeamsBotClient } from "./bot.js";
 
 process.on("unhandledRejection", (reason) => {
@@ -129,6 +129,18 @@ const bootstrap = async (): Promise<void> => {
   botClient.setTaskLookup(async (taskId) => service.getTask(taskId));
   // Lets a rejected card tap repair the stale card that offered the button.
   botClient.setCardResync(async (taskId) => service.resyncTaskCards(taskId));
+  /* Idempotent (ADR-0002): channel cards posted before a handoff edited them
+     still offer Claim on a task somebody was handed. A repaired card records
+     its holder and is skipped on every later boot. In the background, so a slow
+     Teams call never holds up start-up. */
+  botClient
+    .repairHandedOffCards(async (task) => currentAssigneeWasHanded(await service.getHistory(task.id)))
+    .then(({ repaired }) => {
+      if (repaired > 0) {
+        console.log(`handoff_card_repair repaired=${repaired}`);
+      }
+    })
+    .catch((error) => console.error("handoff_card_repair_failed", error));
 
   app.use(cors());
   app.use(express.json());

@@ -335,4 +335,45 @@ await check("reassigning an in-flight task names the new holder on the card", as
   assert.equal(headline(cardOf(updated.at(-1))), "Robin was assigned Dana's LOI Check");
 });
 
+await check("the startup repair fixes a card a handoff left offering Claim, once", async () => {
+  const { client, updated, notify } = await botSetup();
+  // Posted as claimable, then handed off before the handoff edited the card.
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  client.setTaskLookup(async () => liveTask("CLAIMED"));
+
+  const first = await client.repairHandedOffCards(async () => true);
+  assert.equal(first.repaired, 1);
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "Casey was assigned Dana's LOI Check");
+  assert.ok(!actionTitles(card).some((title) => /Claim/.test(title)), "the Claim button is gone");
+
+  // Every boot runs it; a card already repaired is left alone.
+  const edits = updated.length;
+  const second = await client.repairHandedOffCards(async () => true);
+  assert.equal(second.repaired, 0, "nothing left to repair");
+  assert.equal(updated.length, edits, "and nothing is edited again");
+});
+
+await check("the startup repair leaves claimed, open and closed tasks alone", async () => {
+  const { client, updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+
+  // Somebody grabbed it: the claim already edited the card.
+  client.setTaskLookup(async () => liveTask("CLAIMED"));
+  assert.equal((await client.repairHandedOffCards(async () => false)).repaired, 0);
+
+  // Still in the pool, or finished: history is never even asked.
+  const asked = [];
+  for (const task of [liveTask("OPEN", { assignee: undefined }), liveTask("COMPLETED"), liveTask("CANCELLED")]) {
+    client.setTaskLookup(async () => task);
+    const result = await client.repairHandedOffCards(async (t) => {
+      asked.push(t.status);
+      return true;
+    });
+    assert.equal(result.repaired, 0, `${task.status} is not repaired`);
+  }
+  assert.deepEqual(asked, [], "only a task somebody holds is looked into");
+  assert.equal(updated.length, 0, "no card was touched");
+});
+
 console.log(`\n${passed} checks passed`);

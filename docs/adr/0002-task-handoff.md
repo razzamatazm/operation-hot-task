@@ -1,6 +1,7 @@
 # 0002. Tasks can be handed off to another user
 
-Status: Accepted, with the self-handoff rule below narrowed twice since.
+Status: Accepted, with the self-handoff rule below narrowed twice since, and
+amended 2026-09-12 so a handoff edits the channel card already posted.
 
 [ADR-0003](0003-creator-is-never-assignee.md) — a task's creator can never
 become its assignee, by any route, including handing it to themselves or being
@@ -47,8 +48,8 @@ someone other than the actor.
   `NEEDS_REVIEW`, FRAUD's `AWAITING_ITEMS` / `PENDING_APPROVAL` — swaps
   assignee in place with its status untouched. Closed tasks cannot be handed
   off.
-- **DMs only.** The recipient gets a full detail card; a displaced assignee gets
-  a one-line DM. No channel post, no activity-feed alert. The card the channel
+- **No channel post.** The recipient gets a full detail card; a displaced assignee gets
+  a one-line DM. No activity-feed alert. The card the channel
   already has is edited in place, silently, to say the new holder was assigned
   the task, with its Claim button removed. Without that edit an `OPEN` task's
   card went on offering Claim to the whole channel after it had been handed to

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -1760,6 +1760,38 @@ export class TeamsBotClient {
         ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {})
       })
     );
+  }
+
+  /* Startup repair for cards posted before a handoff edited the channel card.
+     Those tasks are held by somebody, but their card still offers Claim, and
+     nothing in a held task's life edits it again until it closes.
+
+     Only a task somebody holds, whose card doesn't already record that holder,
+     and whose holder `wasHanded` says arrived by a handoff: a claim already
+     edited its own card. The repair records the holder, so every later boot
+     skips the card and running this on each start is safe. Without a Teams
+     connection there is nothing to edit, and recording the holder anyway would
+     mark a card fixed that never was. */
+  async repairHandedOffCards(wasHanded: (task: LoanTask) => Promise<boolean>): Promise<{ repaired: number }> {
+    if (!this.adapter || !this.taskLookup) {
+      return { repaired: 0 };
+    }
+    let repaired = 0;
+    for (const thread of await this.threads.read()) {
+      if (!thread.card || thread.posts.length === 0) {
+        continue;
+      }
+      const task = await this.taskLookup(thread.taskId);
+      if (!task?.assignee || task.status === "OPEN" || CLOSED_STATUSES.includes(task.status)) {
+        continue;
+      }
+      if (thread.card.bornAssignedTo === task.assignee.id || !(await wasHanded(task))) {
+        continue;
+      }
+      await this.markTaskAssigned(task.id, task.assignee.id, channelCardContext(task));
+      repaired += 1;
+    }
+    return { repaired };
   }
 
   /* Silently edit the channel card(s) to the terminal "completed" state. The

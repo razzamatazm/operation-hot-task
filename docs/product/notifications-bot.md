@@ -192,6 +192,10 @@
     in-flight task gets the same edit, so the card never names the old holder.
     The thread record remembers who was handed it, as it does for a task
     created already assigned, so a later Teams refresh keeps the wording.
+    Cards posted before this edit existed are repaired when the server starts:
+    a held task whose holder was handed it, and whose card doesn't record
+    that, gets the same edit. A repaired card records its holder, so later
+    starts leave it alone.
   - The new assignee gets a `DM_ASSIGN` card: a full-details `detailCard` with
     the same facts the conversation card shows, the contextual
     advance/complete button and the **Open in Hot Task** deep link — and it is
