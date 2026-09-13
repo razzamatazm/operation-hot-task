@@ -1,5 +1,8 @@
 import { CLOSED_STATUSES, LoanTask, TaskStatus, TaskType, statusDisplayName } from "@loan-tasks/shared";
 
+/* PROTOTYPE (throwaway) — see `status-tracker-prototype.tsx`. */
+import { PrototypeTracker, trackerVariant } from "./status-tracker-prototype";
+
 /* ── Status timeline (expanded body) ──────────────────────── */
 /* The one component lifted out of App.tsx, because it is the web surface that
    puts a status into words for a person. #247 renders it to markup and reads
@@ -49,6 +52,26 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
   const effective: TaskStatus =
     task.status === "NEEDS_REVIEW" ? "CLAIMED" : task.status === "ARCHIVED" ? "COMPLETED" : task.status;
   const idx = flow.indexOf(effective);
+  /* PROTOTYPE (throwaway). With `?variant=A|B|C` in the URL a tracker variant
+     renders instead of the rail, fed the rail's own words. Delete with
+     `status-tracker-prototype.tsx`. */
+  const protoVariant = trackerVariant();
+  if (protoVariant !== null) {
+    return (
+      <PrototypeTracker
+        variant={protoVariant}
+        model={{
+          labels: flow.map((s) =>
+            s === "CLAIMED" && task.status === "NEEDS_REVIEW" ? (TIMELINE_LABELS.CLAIMED ?? s) : timelineLabel(s, task.taskType)
+          ),
+          idx,
+          corrections: task.status === "NEEDS_REVIEW" ? timelineLabel(task.status, task.taskType) : null,
+          finished: task.status === "COMPLETED" || task.status === "ARCHIVED",
+          cancelled: task.status === "CANCELLED"
+        }}
+      />
+    );
+  }
   return (
     <div className="timeline">
       {flow.map((s, i) => {
