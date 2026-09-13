@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readClaimIntent, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, readCreateFormIntent, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -3576,6 +3576,10 @@ export const App = () => {
      lives in <CreateTaskForm> (issue #72) and App no longer re-renders (and
      re-renders the task list) as the user types. */
   const [formOpen, setFormOpen] = useState(false);
+  /* The create form was opened by a Humperdink arrival link (#412), so it opens
+     as a new LOI Check with its paste box focused. Set only with `formOpen`, and
+     cleared by closing the form and by every other way into it. */
+  const [humperdinkArrival, setHumperdinkArrival] = useState(false);
   /* Which task the edit form is open on (#260), or null. An id rather than the
      task itself: the list refreshes underneath, and holding the object would
      pin the form to a snapshot taken when the menu was clicked. */
@@ -4055,38 +4059,25 @@ export const App = () => {
         setHostTheme(normalizeTheme(context.app?.theme ?? context.theme));
         teamsApp.registerOnThemeChangeHandler?.((theme) => setHostTheme(normalizeTheme(theme)));
 
-        /* Deep link from a bot card → focus that task once it loads.
-           teams-js v2 surfaces the link's subEntityId as page.subPageId. */
-        const deepLinkTaskId = context.page?.subPageId ?? context.subEntityId;
-        if (deepLinkTaskId) {
-          setFocusTaskId(deepLinkTaskId);
-          /* "Claim & Open" adds an explicit opt-in field beside subEntityId in
-             the link's context; every other link this app builds or the bot
-             sends carries no such field and stays view-only, so a link pasted
-             into a chat never claims a task for whoever opens it (#180). */
-          if (readClaimIntent(context)) {
-            setClaimOnArrivalId(deepLinkTaskId);
-          }
-        }
-
-        /* Deep link from the Humperdink userscript → open the create form, so
-           the loan it just put on the clipboard has somewhere to be pasted
-           (#198). An opt-in field of its own beside subEntityId: every other
-           link this app builds or the bot sends carries no such field and lands
-           on the normal board.
+        /* Which deep link, if any, opened the tab. One shared reader answers
+           it, so the Humperdink sentinel is told apart before anything treats
+           `subEntityId` as a task id (#412).
 
            Cold tab and warm tab are the same path on purpose. Hot Task doesn't
            opt into Teams tab caching — no `supportsCaching` in the manifest, no
            `app.notifySuccess` — so Teams loads the tab's content frame fresh
            for every deep link tap, and the context arrives here whether or not
-           the tab was already open. That is the same assumption the task-focus
-           link above has always run on.
+           the tab was already open. */
+        const arrival = readTeamsArrival(context);
 
-           No `initialValues`: the link deliberately carries no data. The
-           payload is on the clipboard and the filer presses paste — Hot Task
-           never reads the clipboard itself (#194). */
-        if (readCreateFormIntent(context)) {
-          setFormOpen(true);
+        /* Deep link from a bot card → focus that task once it loads.
+           "Claim & Open" adds an explicit opt-in field beside subEntityId in
+           the link's context; every other link this app builds or the bot
+           sends carries no such field and stays view-only, so a link pasted
+           into a chat never claims a task for whoever opens it (#180). */
+        if (arrival.kind === "task") {
+          setFocusTaskId(arrival.taskId);
+          if (arrival.claim) setClaimOnArrivalId(arrival.taskId);
         }
 
         /* Teams host present → resolve the real identity via SSO. */
@@ -4094,6 +4085,21 @@ export const App = () => {
         tokenCache.seed(token);
         const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
         setUser(me);
+
+        /* Humperdink arrival link → a new LOI Check, paste box focused, so the
+           loan Send to Hot Task just put on the clipboard is one paste away.
+           Never a task to focus and never a claim, whatever rides beside it.
+           Opened only once the person is known, because the form pins whose
+           autosave seat it has at open. The link carries no data, and nothing
+           is filed until Create. */
+        if (arrival.kind === "humperdink") {
+          /* A form opened while sign-in was out is left alone, as every other
+             way into the form leaves it. */
+          if (formOpenNow.current) return;
+          setReopened(null);
+          setHumperdinkArrival(true);
+          setFormOpen(true);
+        }
       })
       .catch(() => {
         /* Plain browser (no Teams host) or SSO failure. In dev, keep the
@@ -4278,6 +4284,7 @@ export const App = () => {
     }
     setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
     if (formOpenNow.current) return;
+    setHumperdinkArrival(false);
     setReopened(latest);
     setFormOpen(true);
   }, [user, showToast]);
@@ -4341,6 +4348,7 @@ export const App = () => {
     setReopened(null);
     await loadAutosave();
     if (formOpenNow.current) return;
+    setHumperdinkArrival(false);
     setFormOpen(true);
   }, [loadAutosave]);
 
@@ -5148,9 +5156,11 @@ export const App = () => {
           directory={directory}
           user={user}
           tasks={tasks}
+          humperdinkArrival={humperdinkArrival}
           onClose={() => {
             setFormOpen(false);
             setReopened(null);
+            setHumperdinkArrival(false);
           }}
           onCreate={onCreate}
           onSaveForLater={onSaveForLater}

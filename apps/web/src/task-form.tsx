@@ -161,11 +161,20 @@ interface TaskFormProps {
      why only this subset is openable. Ignored in edit mode, which takes its
      values from the task. */
   initialValues?: CreateFormInitialValues;
+  /* This create form is a Humperdink arrival (#412): somebody pressed Send to
+     Hot Task and Teams opened the tab on its link. The form opens as a new LOI
+     Check, the one type the Humperdink import fills, with the paste box focused
+     so ⌘V imports straight away through the box's own paste import. Like any
+     prefilled form it does not open on the autosave: the arrival is about the
+     loan on the clipboard, not last Tuesday's unfinished task. What happens to
+     that autosave is #413's. Ignored in edit mode and on a reopened form, which
+     App never opens this way. */
+  humperdinkArrival?: boolean;
   /* Present → edit mode (#260). Absent → the create form, unchanged. */
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -176,6 +185,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      away the button that was clicked. */
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const folderNameRef = useRef<HTMLInputElement>(null);
+  /* The Humperdink paste box, focused when a Humperdink arrival opens the form
+     (#412) so ⌘V lands in it and imports. */
+  const importInputRef = useRef<HTMLInputElement>(null);
+  /* Once, at open, and only on an arrival. After mount, so it wins over
+     anything else in the form that takes focus as it paints. The box is drawn
+     because an arrival opens as an LOI Check. */
+  useEffect(() => {
+    if (!humperdinkArrival) return;
+    importInputRef.current?.focus();
+  }, []);
   /* Where this form's saved draft lives (#284), decided once at open and never
      re-read. Two things are pinned here rather than looked up as needed:
 
@@ -241,10 +260,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       const values = { ...source, initialItems: [...source.initialItems] };
       return { values, fresh: initialCreateForm(), fromDraft: false };
     }
-    const fresh = initialCreateForm(initialValues);
+    /* A Humperdink arrival (#412) is an LOI Check whatever else was passed. */
+    const opensWith = humperdinkArrival ? { ...initialValues, taskType: "LOI" as const } : initialValues;
+    const fresh = initialCreateForm(opensWith);
     /* The server's autosave, or this browser's offline copy of typing the
        server never got, whichever was written last (#371). */
-    const restored = initialValues
+    const restored = opensWith
       ? null
       : newerAutosave(autosaveCopy(autosave, Date.now()), readDraftCopy(draftSeat.storage, draftSeat.userId));
     return { values: restored?.values ?? fresh, fresh, fromDraft: restored !== null };
@@ -1503,6 +1524,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                 <label className="task-form-import-field">
                   <span className="sr-only">Paste from Humperdink</span>
                   <input
+                    ref={importInputRef}
                     type="text"
                     autoComplete="off"
                     placeholder={imported ? IMPORTED_PLACEHOLDER : IMPORT_PLACEHOLDER}
