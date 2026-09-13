@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.8.0
-// @description  Copy a Humperdink loan to the clipboard, for pasting into a new LOI Check in Hot Task.
+// @version      1.9.0
+// @description  Copy a Humperdink loan to the clipboard, then open Hot Task in Teams desktop on a new LOI Check.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
 // @run-at       document-idle
@@ -491,12 +491,38 @@
     });
   }
 
-  /* The clipboard is the whole handoff. This control used to open Hot Task's
-     create form in a new tab as well (#198); that was dropped, so it never
-     leaves the loan page and never needs to know where Hot Task lives. Pasting
-     into an LOI Check's paste box is the import (#409): there is no second
-     button to press over there, so the message names only where to paste. */
-  var COPIED_MESSAGE = "Copied. Paste it into a new LOI Check.";
+  /* ── Opening Hot Task (#414) ────────────────────────────────
+
+     The loan travels on the clipboard, and only there. Once the copy lands, the
+     control opens Hot Task in Teams desktop on a new LOI Check, whose paste box
+     is the import (#409). The link that does it carries no loan data at all:
+     Teams writes every deep link it receives into its local log.
+
+     So this script does need to know where Hot Task lives, which is one Teams
+     app. There is exactly one Hot Task install, and HOT_TASK_APP_ID is the `id`
+     in its manifest (teams-app/operation-hot-task-teams/manifest.json). A new
+     install means a new id here. The sentinel and entity id are copies of
+     HUMPERDINK_ARRIVAL_ID and HOT_TASK_ENTITY_ID in
+     packages/shared/src/deep-link.ts, and the link is `humperdinkArrivalLink`
+     there, written out by hand because a userscript can't import it.
+     `scripts/humperdink-import-sim-test.mjs` goes red if any of the three drift.
+
+     `msteams:`, never Teams' https web link: that form detours through
+     Microsoft's "Join conversation" launcher page, and the team uses
+     Teams desktop only. It's a navigation rather than a new tab, since Chrome
+     hands the protocol to Teams and the loan page stays where it is. */
+  var HOT_TASK_APP_ID = "bca6db0b-b2b7-423f-8c22-f4348f3a0340";
+  var HOT_TASK_ENTITY_ID = "loan-tasks-home";
+  var HUMPERDINK_ARRIVAL_ID = "new:humperdink";
+  var ARRIVAL_LINK =
+    "msteams:/l/entity/" +
+    HOT_TASK_APP_ID +
+    "/" +
+    HOT_TASK_ENTITY_ID +
+    "?context=" +
+    encodeURIComponent(JSON.stringify({ subEntityId: HUMPERDINK_ARRIVAL_ID }));
+
+  var COPIED_MESSAGE = "Copied. Opening Hot Task in Teams…";
 
   /* ── The control ────────────────────────────────────────────
 
@@ -620,7 +646,7 @@
       setLabel(idleLabel());
       control.title = loading
         ? "Still loading this loan's contacts and properties"
-        : "Copy this loan for a new LOI Check in Hot Task";
+        : "Copy this loan and open a new LOI Check in Hot Task";
       if (inline) control.style.opacity = loading ? "0.65" : "";
     }
 
@@ -652,9 +678,16 @@
         return;
       }
       var text = JSON.stringify(result.payload);
+      /* Open Hot Task only once the copy has landed, so the LOI Check never
+         opens onto a clipboard without the loan on it. Chrome launches an
+         external protocol only on a user gesture, and a clipboard write resolves
+         well inside the press's activation window, so this still counts as the
+         press. The first time, Chrome asks whether to open Teams; ticking Always
+         allow makes every later press go straight there. */
       copyText(text).then(
         function () {
           say(COPIED_MESSAGE, true);
+          window.location.assign(ARRIVAL_LINK);
         },
         function () {
           say("Couldn't reach the clipboard. Copy this page's URL by hand.", false);

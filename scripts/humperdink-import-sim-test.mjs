@@ -30,14 +30,23 @@ import {
   loanNameFromPageTitle,
   parseHumperdinkPayload
 } from "../packages/shared/src/humperdink.ts";
+import { HUMPERDINK_ARRIVAL_ID, humperdinkArrivalLink } from "../packages/shared/src/deep-link.ts";
 
 const USERSCRIPT = readFileSync(new URL("../tools/humperdink/send-to-hot-task.user.js", import.meta.url), "utf8");
 
 const LOAN_URL = "https://humperdink.loneoakfund.com/Loans/Details/335203";
 
-/* What the control says once the loan is on the clipboard. Pasting is the
-   import on the Hot Task side (#409), so it names only where to paste. */
-const COPIED = "Copied. Paste it into a new LOI Check.";
+/* What the control says once the loan is on the clipboard. It then opens Hot
+   Task in Teams desktop on a new LOI Check (#414), so it says that, not where to
+   paste. */
+const COPIED = "Copied. Opening Hot Task in Teams…";
+
+/* The one live Teams install's manifest (teams-app/manifest.json beside it is a
+   template with a placeholder id). The userscript hard-codes this app id, and
+   the drift test below holds the two together. */
+const LIVE_MANIFEST = JSON.parse(
+  readFileSync(new URL("../teams-app/operation-hot-task-teams/manifest.json", import.meta.url), "utf8")
+);
 
 /* ── The loan terms panel, as Humperdink renders it ──────
 
@@ -331,18 +340,36 @@ const runUserscript = ({
     disconnect() {}
   }
 
-  /* Every tab the control asks the browser to open. The control only copies,
-     so the tests below expect this to stay empty. */
+  /* Every tab the control asks the browser to open. It never opens a tab: Hot
+     Task is reached by navigating to an `msteams:` link (#414), which Chrome
+     hands to Teams desktop without leaving the loan page. So this stays empty. */
   const opened = [];
   const open = (href, target, features) => {
     opened.push({ href, target, features });
     return { href, opener: null };
   };
 
+  /* Every navigation the control makes, whichever way it asks for one, with how
+     many copies had landed at that moment, so a test can tell "copied, then
+     opened" from "opened, then copied". The page's own address stays readable,
+     because the scrape reads the loan link off it. */
+  const navigated = [];
+  const navigate = (href) => navigated.push({ href: String(href), copiesBefore: copied.length });
+  const location = {
+    get href() {
+      return url.href;
+    },
+    set href(next) {
+      navigate(next);
+    },
+    assign: navigate,
+    replace: navigate
+  };
+
   const source = USERSCRIPT;
   const sandbox = {
     document,
-    location: url,
+    location,
     navigator,
     open,
     setTimeout: unrefed,
@@ -361,6 +388,7 @@ const runUserscript = ({
   return {
     copied,
     opened,
+    navigated,
     /* The control on the page: inline beside the LOI button, or the floating
        fallback once the script gives up on the header. A getter, because the
        fallback arrives after the script has returned. */
@@ -418,7 +446,7 @@ test("the script mounts its Export to HT control beside the LOI button in the Lo
   assert.equal(page.button.attributes.role, "button");
   assert.match(page.button.className, /jqx-button/, "wearing the LOI button's classes");
   assert.equal(page.button.textContent, "Export to HT");
-  assert.equal(page.button.title, "Copy this loan for a new LOI Check in Hot Task");
+  assert.equal(page.button.title, "Copy this loan and open a new LOI Check in Hot Task");
 });
 
 /* A Humperdink release that moves the LOI button must not leave the loan page
@@ -1407,35 +1435,84 @@ test("a grid that stays empty is refused, not imported as a loan with nobody on 
   assert.match(page.said, /contacts \(they hadn't finished loading\)/);
 });
 
-/* ── The clipboard is the whole handoff ──────────────────
+/* ── Copy, then open Hot Task in Teams desktop (#414) ─────
 
-   The control used to open Hot Task's create form in a new tab after copying
-   (#198). That was dropped: the filer opens an LOI Check in Hot Task and pastes
-   into its paste box, which is the import (#409). These hold the control to
-   copy-only. */
+   The loan travels on the clipboard. Once the copy has landed, still inside the
+   same press (Chrome launches an external protocol only on a user gesture), the
+   control navigates to the Humperdink arrival link, which opens a new LOI Check
+   in Teams desktop. The link carries no loan data. It replaced #198's new-tab
+   https link, which detoured through Microsoft's launcher page, so these hold
+   it to the `msteams:` form and to nothing opening when nothing was copied. */
 
 const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
 
-test("one press copies the loan and opens nothing", async () => {
+test("one press copies the loan once, then opens Hot Task in Teams desktop", async () => {
   const page = goodPage();
   await page.press();
   assert.equal(page.copied.length, 1);
   assert.equal(JSON.parse(page.copied[0]).loanName, "Adams - Harbor");
-  assert.deepEqual(page.opened, []);
+  assert.equal(page.navigated.length, 1, "one navigation");
+  assert.equal(page.navigated[0].copiesBefore, 1, "after the copy landed, not before");
+  assert.match(page.navigated[0].href, /^msteams:\/l\/entity\//);
+  assert.deepEqual(page.opened, [], "no new tab");
   assert.equal(page.said, COPIED);
 });
 
-test("the script carries no Teams link and no app id", () => {
-  assert.doesNotMatch(USERSCRIPT, /teams\.microsoft\.com/);
-  assert.doesNotMatch(USERSCRIPT, /HOT_TASK_APP_ID/);
-  assert.doesNotMatch(USERSCRIPT, /window\.open/);
+test("the link it opens is the shared arrival link for the live install", async () => {
+  // A drift in the sentinel, the entity id or the app id turns this red. The
+  // manifest id is checked for being a real one, so a placeholder on both sides
+  // can't pass it.
+  assert.match(LIVE_MANIFEST.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  const page = goodPage();
+  await page.press();
+  assert.equal(page.navigated[0].href, humperdinkArrivalLink(LIVE_MANIFEST.id));
+  assert.ok(page.navigated[0].href.includes(encodeURIComponent(HUMPERDINK_ARRIVAL_ID)));
 });
 
-test("a second press copies again", async () => {
+test("the link carries no loan data", async () => {
+  const page = goodPage();
+  await page.press();
+  const link = decodeURIComponent(page.navigated[0].href);
+  assert.doesNotMatch(link, /Adams|Harbor|335203|humperdink\.loneoakfund/);
+});
+
+test("a refused clipboard shows today's error and opens nothing", async () => {
+  const page = goodPage({ clipboard: "dead" });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /Couldn't reach the clipboard\. Copy this page's URL by hand\./);
+  assert.deepEqual(page.navigated, []);
+  assert.deepEqual(page.opened, []);
+});
+
+test("a page it can't read opens nothing either", async () => {
+  const page = goodPage({ title: "Loan Pipeline" });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.deepEqual(page.navigated, []);
+});
+
+test("the execCommand fallback copies, then opens Hot Task the same way", async () => {
+  const page = goodPage({ clipboard: "no-async-api" });
+  await page.press();
+  assert.equal(page.navigated.length, 1);
+  assert.equal(page.navigated[0].copiesBefore, 1);
+  assert.equal(page.navigated[0].href, humperdinkArrivalLink(LIVE_MANIFEST.id));
+});
+
+test("the script carries no teams.microsoft.com link and never opens a tab", () => {
+  assert.doesNotMatch(USERSCRIPT, /teams\.microsoft\.com/);
+  assert.doesNotMatch(USERSCRIPT, /window\.open/);
+  assert.match(USERSCRIPT, /msteams:/);
+  assert.ok(USERSCRIPT.includes(`"${LIVE_MANIFEST.id}"`), "the app id is written out as the live manifest's id");
+});
+
+test("a second press copies and opens again", async () => {
   const page = goodPage();
   await page.press();
   await page.press();
   assert.equal(page.copied.length, 2);
+  assert.equal(page.navigated.length, 2);
   assert.deepEqual(page.opened, []);
 });
 
@@ -1445,4 +1522,5 @@ test("a press while the grids are still loading copies nothing", async () => {
   await page.press();
   assert.deepEqual(page.copied, []);
   assert.match(page.said, /Still loading/);
+  assert.deepEqual(page.navigated, [], "and opens nothing");
 });

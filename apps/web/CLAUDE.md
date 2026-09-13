@@ -1988,8 +1988,9 @@ later's own write (`moveAutosaveAside` in
 only after the move, so no earlier load can land on top of it. If the move
 doesn't land, the form opens with `leaveAutosaveAlone`: no seat on either copy
 of the autosave, the way a reopened form has none, and its Save for later
-doesn't clear the slot. Silent both ways. The userscript doesn't send the link
-yet.
+doesn't clear the slot. Silent both ways. The userscript's Export to HT sends
+the link after its copy lands (#414), so this is the form a Humperdink press
+lands on.
 
 **The locked type's popover** (`.task-form-type-note`) is revealed by hover,
 `:focus-visible` and a click, and three things keep it honest:

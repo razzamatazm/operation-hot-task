@@ -30,17 +30,25 @@
   ([ADR-0001](../adr/0001-loan-entity.md)), the created task joins the loan
   that URL already names rather than minting a duplicate.
 
-  **The control only copies.** It used to also open Hot Task's create form in a
-  new tab through a Teams deep link (#198); that was dropped, and pressing it
-  now puts the payload on the clipboard and says so, nothing more. The filer
-  opens an LOI Check in Hot Task and pastes. The web app recognises a
-  Humperdink arrival link (#412): a Teams deep link whose `subEntityId` is the
-  fixed sentinel `new:humperdink`, in the `msteams:` form, carrying no loan
-  data. On it the tab opens a new LOI Check with the paste box focused, never
-  focuses or claims a task, and files nothing until Create. An unfinished new
-  task in the person's autosave is moved to Task Drafts before that form opens
-  (#413), and if the move fails the form leaves the autosave untouched, so an
-  arrival never overwrites it. The userscript does not send that link yet.
+  **The control copies, then opens Hot Task in Teams desktop** (#414). Once the
+  payload is on the clipboard, still inside the same press, the userscript
+  navigates to the Humperdink arrival link (#412): a Teams deep link whose
+  `subEntityId` is the fixed sentinel `new:humperdink`, in the `msteams:` form,
+  carrying no loan data, because Teams logs every deep link it receives. It is
+  never the `https://teams.microsoft.com/l/…` form, which detours through
+  Microsoft's launcher page; the team uses Teams desktop only. The Teams app id
+  is written into the userscript from the one live install's manifest, and a
+  test holds the two together. The first press asks in Chrome whether to open
+  Teams; ticking Always allow makes later presses go straight there. A failed
+  copy says so and opens nothing. #198 once opened the create form in a new
+  tab through an https link; that was dropped and this replaces it.
+
+  On the arrival link the tab opens a new LOI Check with the paste box
+  focused, never focuses or claims a task, and files nothing until Create. The
+  filer pastes, and the paste is the import. An unfinished new task in the
+  person's autosave is moved to Task Drafts before that form opens (#413), and
+  if the move fails the form leaves the autosave untouched, so an arrival never
+  overwrites it.
 
   This is not an API integration and deliberately isn't one. There is no
   credential in the userscript, no write endpoint exposed to the browser, and
