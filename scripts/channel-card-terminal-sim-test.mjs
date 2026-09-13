@@ -102,8 +102,8 @@ await check("a completed task's card keeps the deep link and drops Claim", async
   // The bug in one assertion: the terminal card is still clickable.
   assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Open in Hot Task"]);
   assert.equal(cardOf(updated.at(-1)).actions[0].url, OPEN_URL, "the same URL the card carried while open");
-  assert.equal(headline(cardOf(updated.at(-1))), "✅ Completed — Smith-1042");
-  assert.equal(cardOf(updated.at(-1)).body[1].text, "LOI Check · Smith-1042 · asked by Dana Requester · done by Casey Checker");
+  assert.equal(headline(cardOf(updated.at(-1))), "✅ Casey completed Dana's LOI Check");
+  assert.equal(cardOf(updated.at(-1)).body[1].text, "Smith-1042 - LOI Check");
 });
 
 await check("completion edits the posted message in place — no second post", async () => {
@@ -122,7 +122,7 @@ await check("a cancelled task's card keeps the link and drops Cancel Task", asyn
   await client.markTaskCancelled("task-1", CONTEXT);
 
   assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Open in Hot Task"]);
-  assert.equal(headline(cardOf(updated.at(-1))), "🚫 Cancelled — Smith-1042");
+  assert.equal(headline(cardOf(updated.at(-1))), "🚫 Dana cancelled their LOI Check");
 });
 
 await check("with no link recorded the terminal cards carry no actions key at all", async () => {
@@ -152,9 +152,9 @@ await check("the refresh path returns the same terminal cards as the direct edit
   await postOpenTask(client, OPEN_URL);
 
   for (const [status, banner] of [
-    ["COMPLETED", "✅ Completed — Smith-1042"],
-    ["ARCHIVED", "✅ Completed — Smith-1042"],
-    ["CANCELLED", "🚫 Cancelled — Smith-1042"]
+    ["COMPLETED", "✅ Casey completed Dana's LOI Check"],
+    ["ARCHIVED", "✅ Casey completed Dana's LOI Check"],
+    ["CANCELLED", "🚫 Dana cancelled their LOI Check"]
   ]) {
     client.setTaskLookup(async () => taskAt(status));
     const card = await client.handleRefreshCard("task-1", "aad-viewer");

@@ -116,12 +116,14 @@ await check("no detail card for an LOI quotes its terms", async () => {
 
 await check("the rest of the LOI card is untouched", async () => {
   const card = await cardFor(makeTask(), "DM_ASSIGN");
+  // The title names the task and its type, so there is no Type line, and no
+  // card links to Humperdink. The creator handed it over, so the title already
+  // says whose it is.
+  assert.equal(card.title, "Dana Requester assigned Smith-1042 - LOI Check to you");
   assert.deepEqual(card.detail.split("\n"), [
-    "Type: LOI Check",
     "How Bad: 💩💩",
     "Urgency: Within 24 Hours",
-    "Due: Aug 14, 2026",
-    "Humperdink: [link](https://humperdink.example/loan/1042)"
+    "Due: Aug 14, 2026"
   ]);
 });
 
@@ -129,8 +131,17 @@ await check("a personal share note still leads the body", async () => {
   // The terms go; what a human typed to the recipient stays.
   const { notifier, cards } = notifierSetup();
   await notifier.notify({ ...detailEvent(makeTask(), "DM_SHARE"), note: "second TD looks off" });
+  assert.equal(cards[0].title, "Dana Requester shared Smith-1042 - LOI Check with you");
   assert.equal(cards[0].detail.split("\n")[0], '"second TD looks off"');
   assert.equal(notesLine(cards[0]), undefined);
+});
+
+await check("a handoff by somebody other than the creator names who handed it over", async () => {
+  const { notifier, cards } = notifierSetup();
+  await notifier.notify({ ...detailEvent(makeTask(), "DM_ASSIGN"), actor: { id: "suzie-1", displayName: "Suzie Lim" } });
+  assert.equal(cards[0].title, "Suzie Lim assigned Smith-1042 - LOI Check to you");
+  // The creator isn't the one handing it over, so the card says whose it is.
+  assert.equal(cards[0].detail.split("\n")[0], "Created by Dana Requester");
 });
 
 // --- 2. An LOI card still links through to the task --------------------------
@@ -163,11 +174,9 @@ await check("an Out of Office card keeps its own body, which never had a Notes l
     makeTask({ taskType: "OOO", notes: "back Monday", startDate: "2026-08-17", returnDate: "2026-08-21" }),
     "DM_ASSIGN"
   );
-  assert.deepEqual(card.detail.split("\n"), [
-    "Type: Out of Office",
-    "Out: Aug 17, 2026 → Aug 21, 2026",
-    "Details: Smith-1042"
-  ]);
+  // The description is in the title now, so it isn't spelled out again below.
+  assert.equal(card.title, "Dana Requester assigned Smith-1042 - Out of Office to you");
+  assert.deepEqual(card.detail.split("\n"), ["Out: Aug 17, 2026 → Aug 21, 2026"]);
 });
 
 // --- 4. The claim's conversation card follows the same rule ------------------
@@ -204,8 +213,7 @@ await check("the conversation card a claim sends quotes no terms and keeps its l
   assert.deepEqual(details.facts, [
     "How Bad: 💩💩",
     "Urgency: Within 24 Hours",
-    "Due: Aug 14, 2026",
-    "Humperdink: [link](https://humperdink.example/loan/1042)"
+    "Due: Aug 14, 2026"
   ]);
   assert.ok(details.openUrl?.includes("task-259"), "the card links through to the task");
   // The preview says who took it, in each reader's own terms, and names the

@@ -110,13 +110,45 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
   `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
-/* Headline of the channel card once somebody takes the task. Composed here
-   because two surfaces build it — the in-place edit on claim, and the
-   user-specific refresh rebuilding the same card from the live task — and a
-   claimed card that reads two ways depending on which one rendered it is the
-   drift this card family already had once (#193). */
-export const formatClaimedHeadline = (assigneeName: string | undefined, folderName: string): string =>
-  `${assigneeName ?? "Someone"} grabbed ${folderName}`;
+/* The channel card's headlines after creation (reworded 2026-09-12). Each one
+   says who did what to whose task, by first name, and the file and its type go
+   on the line under it (`formatTaskNameLine`):
+
+     Casey grabbed Dana's LOI Check
+     Casey was assigned Dana's LOI Check
+     ✅ Casey completed Dana's LOI Check
+     🚫 Dana cancelled their LOI Check
+
+   Composed here because every stage has two builders, the in-place edit and
+   the user-specific refresh rebuilding the same card from the live task, and a
+   card that reads two ways depending on which one rendered it is the drift this
+   card family already had once (#193).
+
+   Cancelled names the creator because only the creator cancels
+   (`canCancelTask`). It says "their" because the card goes out for everybody's
+   tasks and the app holds nobody's pronouns. */
+const possessive = (displayName: string): string => `${firstName(displayName)}'s`;
+
+export const formatClaimedHeadline = (assigneeName: string | undefined, creatorName: string, taskType: TaskType): string =>
+  `${assigneeName ? firstName(assigneeName) : "Someone"} grabbed ${possessive(creatorName)} ${TASK_TYPE_LABELS[taskType]}`;
+
+/* A task born assigned (Handoff at creation, ADR-0002), which nobody grabbed. */
+export const formatBornAssignedHeadline = (assigneeName: string | undefined, creatorName: string, taskType: TaskType): string =>
+  `${assigneeName ? firstName(assigneeName) : "Someone"} was assigned ${possessive(creatorName)} ${TASK_TYPE_LABELS[taskType]}`;
+
+export const formatCompletedHeadline = (assigneeName: string | undefined, creatorName: string, taskType: TaskType): string =>
+  assigneeName
+    ? `✅ ${firstName(assigneeName)} completed ${possessive(creatorName)} ${TASK_TYPE_LABELS[taskType]}`
+    : `✅ ${possessive(creatorName)} ${TASK_TYPE_LABELS[taskType]} is complete`;
+
+export const formatCancelledHeadline = (creatorName: string, taskType: TaskType): string =>
+  `🚫 ${firstName(creatorName)} cancelled their ${TASK_TYPE_LABELS[taskType]}`;
+
+/* The task, named the way every Teams card names it: the file name (an OOO
+   task's description) and the type, `Smith-1042 - LOI Check`. The line under a
+   channel card's headline, and the title of a DM card. */
+export const formatTaskNameLine = (folderName: string, taskType: TaskType): string =>
+  `${folderName} - ${TASK_TYPE_LABELS[taskType]}`;
 
 /* A Fraud Check released back to the pool is NOT a new request — it's a
    half-finished one whose checker walked away, so the channel card says so
@@ -146,51 +178,20 @@ export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
   OOO: "Out of Office"
 };
 
-/* The one context line every post-creation channel card carries under its
-   headline (#193). The claimed / completed / cancelled cards used to be rebuilt
-   from the folder name alone, which dropped the two facts a reader scrolling
-   the channel actually wants — who asked for this, and what kind of work it was
-   — the moment the card left its created state.
-
-   Reads as `LOI Check · Smith-1042 · asked by Tyler · done by Suzie`: the
-   friendly type label (the same `TASK_TYPE_LABELS` wording every DM surface
-   uses, never a second phrasing), the file name, the assigner, the current
-   holder. A segment is omitted rather than rendered empty, so a cancelled task
-   nobody claimed simply ends after the assigner.
-
-   OOO carries no file name: an OOO task's Folder Name is a Vacation
-   Description and the task has no Loan behind it, so there is nothing to name.
-
-   `assigneeVerb` is how the holder got there — "claimed by" for a real claim,
-   "done by" on the completed card, "assigned to" for a task born assigned
-   (Handoff at creation, ADR-0002), which nobody claimed.
-
-   `omitType` is the DM conversation card's: its title already reads
-   `Smith-1042 - LOI Check`, so the line under it would say the type twice. */
+/* The facts a post-creation channel card is built from (#193): the type, the
+   file name, who asked, and who holds it now. The claimed / completed /
+   cancelled cards used to be rebuilt from the folder name alone, which dropped
+   who asked and what kind of work it was the moment the card left its created
+   state. The headlines above and the name line are composed from these. */
 export interface ChannelCardContext {
   taskType: TaskType;
-  /** The file name, or — on OOO — the Vacation Description, which never
-      reaches the line. */
+  /** The file name, or on OOO the Vacation Description. */
   folderName: string;
   /** Display name of whoever asked for the work. */
   createdBy: string;
   /** Display name of whoever holds it now, absent when nobody does. */
   assignee?: string;
 }
-
-export const formatChannelContextLine = (params: ChannelCardContext & { assigneeVerb?: string; omitType?: boolean }): string => {
-  const segments: string[] = params.omitType ? [] : [TASK_TYPE_LABELS[params.taskType]];
-  if (params.taskType !== "OOO" && params.folderName.trim()) {
-    segments.push(params.folderName.trim());
-  }
-  if (params.createdBy.trim()) {
-    segments.push(`asked by ${params.createdBy.trim()}`);
-  }
-  if (params.assignee?.trim()) {
-    segments.push(`${params.assigneeVerb ?? "claimed by"} ${params.assignee.trim()}`);
-  }
-  return segments.join(" · ");
-};
 
 /* What the requester's completion DM says, by task type (#232).
 

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -99,22 +99,34 @@ export const correctedDetailSnapshot = (
   const nextLine = next.humperdinkLink ? formatHumperdinkCardLine(next.humperdinkLink) : undefined;
   let detail = card.detail;
   if (previousLine && detail.includes(previousLine)) {
+    // Only a card sent before cards stopped carrying the link has this line.
     // Removing the link removes its line, not just its URL — "Humperdink:
     // [link]()" is a broken anchor sitting where a fact used to be.
     detail = nextLine
       ? detail.split(previousLine).join(nextLine)
       : detail.split(`\n${previousLine}`).join("").split(previousLine).join("");
-  } else if (nextLine) {
-    // A loan that never had a link and now does. The line goes where the send
-    // path puts it: last.
-    detail = detail.length > 0 ? `${detail}\n${nextLine}` : nextLine;
   }
+  // A card without the line never gains one: no Teams card links to
+  // Humperdink any more (2026-09-12).
   return {
     title,
     detail,
     folderName: next.folderName,
     ...(next.humperdinkLink ? { humperdinkLink: next.humperdinkLink } : {})
   };
+};
+
+/* The channel card's stored body with its first line, the file name and type,
+   set to the loan's current name. A card posted before the name moved under
+   the headline has no such line and gains one: its old title named the file,
+   and the correction replaces that title. */
+const withNameLine = (detail: string, folderName: string, taskType: TaskType): string => {
+  const nameLine = formatTaskNameLine(folderName, taskType);
+  const [first, ...rest] = detail.split("\n");
+  if (first?.endsWith(` - ${TASK_TYPE_LABELS[taskType]}`)) {
+    return [nameLine, ...rest].join("\n");
+  }
+  return detail ? `${nameLine}\n${detail}` : nameLine;
 };
 
 const normalizeText = (raw: string): string =>
@@ -266,8 +278,11 @@ interface NoteThreadEntry {
 interface NoteCardDetails {
   /* `Smith-1042 - LOI Check`: the task and its type. */
   title: string;
-  /* `asked by Tyler · assigned to Suzie`. No type: the title carries it. */
-  contextLine: string;
+  /* Who created it and who holds it, for the line under the title. People
+     rather than a finished sentence, because the line says "you" to whichever
+     of them is reading (`Created by you · claimed by Suzie Lim`). */
+  createdBy: NoteCardPerson;
+  holder?: NoteCardPerson;
   facts: string[];
   openUrl?: string;
   /* Set once the task reaches a terminal status: the card becomes a record
@@ -280,10 +295,17 @@ interface NoteCardDetails {
   closed?: ClosedCardState;
 }
 
+interface NoteCardPerson {
+  id: string;
+  displayName: string;
+}
+
 interface NoteCardData {
   taskId: string;
   folder: string;
   details: NoteCardDetails;
+  /* Whose chat the card sits in, so the people line can say "you". */
+  viewerId?: string;
   thread: NoteThreadEntry[];
   advance?: AdvanceAction;
   /* Fraud two-phase buttons. Its presence (even as []) marks the card as a fraud
@@ -379,11 +401,11 @@ export const recentNoteThread = (task: LoanTask): NoteThreadEntry[] =>
    card sync sim imports `advanceFor` from here to assert the card layer. */
 export const advanceFor = botAdvanceFor;
 
-/* The facts a DM card lists: How Bad, urgency, the due date, the request field
-   and the Humperdink link — or, on an OOO task, the dates it covers. No type
-   line: the details card writes its own, and the conversation card names the
-   type on its context line. One builder for both cards, so a rule about what a
-   card quotes can't land on one and miss the other.
+/* The facts a DM card lists: How Bad, urgency, the due date and the request
+   field, or, on an OOO task, the dates it covers. No type line, since both
+   cards name the type in their title, and no Humperdink link: no Teams card
+   carries one (decided 2026-09-12). One builder for both cards, so a rule about
+   what a card quotes can't land on one and miss the other.
 
    An LOI's request field is its terms — the whole block of loan figures, not a
    sentence (ADR-0008). Quoting it turns the card into a wall of numbers that
@@ -399,33 +421,24 @@ export const taskFactLines = (task: LoanTask, options: { withDue: boolean }): st
     `How Bad: ${task.points > 0 ? "💩".repeat(task.points) : "—"}`,
     `Urgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
     ...(options.withDue ? [`Due: ${formatWallDate(task.dueAt)}`] : []),
-    ...(task.taskType !== "LOI" && task.notes?.trim() ? [`Notes: ${task.notes.trim()}`] : []),
-    ...(task.humperdinkLink ? [formatHumperdinkCardLine(task.humperdinkLink)] : [])
+    ...(task.taskType !== "LOI" && task.notes?.trim() ? [`Notes: ${task.notes.trim()}`] : [])
   ];
 };
 
 /* The conversation card's details, from the live task. The title names the
    task and its type, `Smith-1042 - LOI Check`; an OOO task's folder name is its
-   description, so it reads `Beach week - Out of Office`. The context line is
-   the channel card's minus the two things the title already shows, the file
-   name and the type, and it names the holder as "assigned to" whichever way
-   they got there: this card is the same card for a claim and a handoff, and
-   "claimed by" would be wrong on the second. */
+   description, so it reads `Beach week - Out of Office`. Under it, who created
+   the task and who holds it. The holder reads "claimed by" even after a
+   handoff (decided 2026-09-12): nothing on the task records how they got it. */
 export const noteCardDetailsFromTask = (task: LoanTask): NoteCardDetails => {
   const openUrl = taskDeepLink(task.id, task.folderName);
-  const title = `${task.folderName} - ${TASK_TYPE_LABELS[task.taskType]}`;
+  const title = formatTaskNameLine(task.folderName, task.taskType);
   const closed = closedStateFor(task.status, title);
   return {
     title,
     ...(closed ? { closed } : {}),
-    contextLine: formatChannelContextLine({
-      taskType: task.taskType,
-      folderName: "",
-      createdBy: task.createdBy.displayName,
-      ...(task.assignee ? { assignee: task.assignee.displayName } : {}),
-      assigneeVerb: ASSIGNED_VERB,
-      omitType: true
-    }),
+    createdBy: { id: task.createdBy.id, displayName: task.createdBy.displayName },
+    ...(task.assignee ? { holder: { id: task.assignee.id, displayName: task.assignee.displayName } } : {}),
     facts: taskFactLines(task, { withDue: true }),
     ...(openUrl ? { openUrl } : {})
   };
@@ -446,6 +459,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
       taskId: task.id,
       folder: task.folderName,
       details,
+      ...(viewer ? { viewerId: viewer.id } : {}),
       thread: recentNoteThread(task),
       fraudActions: fraudCardActions(task, viewer)
     };
@@ -455,6 +469,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
     taskId: task.id,
     folder: task.folderName,
     details,
+    ...(viewer ? { viewerId: viewer.id } : {}),
     thread: recentNoteThread(task),
     ...(advance ? { advance } : {})
   };
@@ -511,6 +526,14 @@ const fraudActionButtons = (taskId: string, actions: FraudCardAction[]): Record<
     };
   });
 
+/* `Created by Tyler Hereford · claimed by Suzie Lim`, with "you" for whichever
+   of the two is reading the card. */
+const peopleLine = (data: NoteCardData): string => {
+  const named = (person: NoteCardPerson): string => (person.id === data.viewerId ? "you" : person.displayName);
+  const holder = data.details.holder;
+  return [`Created by ${named(data.details.createdBy)}`, ...(holder ? [`claimed by ${named(holder)}`] : [])].join(" · ");
+};
+
 /* The DM task card: the task's details, the recent thread (oldest → newest), an
    inline reply box that posts straight back as another note, a contextual
    advance/complete button, and the deep link. The reply box persists so users
@@ -531,7 +554,7 @@ export const noteCard = (data: NoteCardData): Record<string, unknown> => {
       // conversation stays below it, since the point of keeping the card is
       // keeping the history.
       { type: "TextBlock", text: closed ? closed.label : data.details.title, weight: "Bolder", wrap: true, size: "Medium" },
-      { type: "TextBlock", text: data.details.contextLine, wrap: true, spacing: "Small", isSubtle: true },
+      { type: "TextBlock", text: peopleLine(data), wrap: true, spacing: "Small", isSubtle: true },
       ...(data.details.facts.length > 0
         ? [{ type: "TextBlock", text: data.details.facts.join("\n"), wrap: true, spacing: "Small" }]
         : []),
@@ -696,18 +719,12 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
 const openUrlAction = (openUrl?: string): Record<string, unknown> =>
   openUrl ? { actions: [{ type: "Action.OpenUrl", title: "Open in Hot Task", url: openUrl }] } : {};
 
-/* How a task born assigned (Handoff at creation, ADR-0002) names its holder.
-   Two surfaces render that card — the announcement and the later refresh — and
-   the whole point is that it does NOT read as a claim, so the wording is one
-   constant rather than a string typed twice. */
-const ASSIGNED_VERB = "assigned to";
-
-/* The subtle second line under a post-creation card's headline. Every one of
-   the three builders below renders exactly this and nothing else, so the three
-   cards can't drift into three different shapes (#193). */
-const contextBlock = (context: ChannelCardContext, assigneeVerb?: string): Record<string, unknown> => ({
+/* The subtle second line under a post-creation card's headline: the file and
+   its type, `Smith-1042 - LOI Check`. Every one of the builders below renders
+   exactly this, so the cards can't drift into different shapes (#193). */
+const nameBlock = (context: ChannelCardContext): Record<string, unknown> => ({
   type: "TextBlock",
-  text: formatChannelContextLine({ ...context, ...(assigneeVerb ? { assigneeVerb } : {}) }),
+  text: formatTaskNameLine(context.folderName, context.taskType),
   wrap: true,
   spacing: "Small",
   isSubtle: true
@@ -715,22 +732,20 @@ const contextBlock = (context: ChannelCardContext, assigneeVerb?: string): Recor
 
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card, but
-   "Open in Hot Task" stays so the card is still useful after claiming.
-   `assigneeVerb` overrides the default "claimed by" attribution: a task born
-   assigned (Handoff at creation, ADR-0002) posts this same card, and nobody
-   claimed that one. */
+   "Open in Hot Task" stays so the card is still useful after claiming. A task
+   born assigned (Handoff at creation, ADR-0002) posts this same card with its
+   own headline, since nobody claimed that one. */
 const claimedCard = (params: {
   message: string;
   context: ChannelCardContext;
   openUrl?: string;
-  assigneeVerb?: string;
 }): Record<string, unknown> => ({
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
   type: "AdaptiveCard",
   version: "1.4",
   body: [
     { type: "TextBlock", text: params.message, weight: "Bolder", wrap: true, size: "Medium" },
-    contextBlock(params.context, params.assigneeVerb)
+    nameBlock(params.context)
   ],
   ...openUrlAction(params.openUrl)
 });
@@ -744,8 +759,8 @@ const completedCard = (context: ChannelCardContext, openUrl?: string): Record<st
   type: "AdaptiveCard",
   version: "1.4",
   body: [
-    { type: "TextBlock", text: `✅ Completed — ${context.folderName}`, weight: "Bolder", wrap: true, size: "Medium" },
-    contextBlock(context, "done by")
+    { type: "TextBlock", text: formatCompletedHeadline(context.assignee, context.createdBy, context.taskType), weight: "Bolder", wrap: true, size: "Medium" },
+    nameBlock(context)
   ],
   ...openUrlAction(openUrl)
 });
@@ -759,8 +774,8 @@ const cancelledCard = (context: ChannelCardContext, openUrl?: string): Record<st
   type: "AdaptiveCard",
   version: "1.4",
   body: [
-    { type: "TextBlock", text: `🚫 Cancelled — ${context.folderName}`, weight: "Bolder", wrap: true, size: "Medium" },
-    contextBlock(context)
+    { type: "TextBlock", text: formatCancelledHeadline(context.createdBy, context.taskType), weight: "Bolder", wrap: true, size: "Medium" },
+    nameBlock(context)
   ],
   ...openUrlAction(openUrl)
 });
@@ -1471,6 +1486,7 @@ export class TeamsBotClient {
           taskId: opts.taskId,
           folder: opts.folder,
           details: opts.details,
+          viewerId: recipient.userId,
           thread: opts.thread,
           // A fraud recipient always carries fraudActions (possibly empty) so the
           // card renders the role-aware button set, never the generic advance.
@@ -1695,7 +1711,7 @@ export class TeamsBotClient {
       const thread = await this.threads.get(taskId);
       const outcome: ClaimOutcome = {
         ok: true,
-        message: formatClaimedHeadline(user.displayName, task.folderName),
+        message: formatClaimedHeadline(user.displayName, task.createdBy.displayName, task.taskType),
         status: task.status,
         assignee: user.displayName,
         context: channelCardContext(task, user.displayName),
@@ -1803,9 +1819,12 @@ export class TeamsBotClient {
     const stillBornAssigned = Boolean(content.bornAssignedTo) && task.assignee?.id === content.bornAssignedTo;
     return withRefresh(
       claimedCard({
-        message: stillBornAssigned ? content.title : formatClaimedHeadline(task.assignee?.displayName, task.folderName),
+        message: (stillBornAssigned ? formatBornAssignedHeadline : formatClaimedHeadline)(
+          task.assignee?.displayName,
+          task.createdBy.displayName,
+          task.taskType
+        ),
         context,
-        ...(stillBornAssigned ? { assigneeVerb: ASSIGNED_VERB } : {}),
         ...(content.openUrl ? { openUrl: content.openUrl } : {})
       })
     );
@@ -1833,18 +1852,21 @@ export class TeamsBotClient {
      card was posted with, and it still opens the correct task — posted
      addresses keep pointing where they always pointed.
 
-     So is the recorded `detail`. The headline is the only part of a channel
-     card that quotes the loan, and rewriting the body as well would quietly
-     turn a rename into a general card resync, repainting How Bad and Urgency
-     from whatever they say today. A correction corrects; it doesn't catch the
-     card up on everything else that has happened to the task. */
-  async correctChannelCard(taskId: string, content: { title: string } & LoanCardValues): Promise<void> {
+     So is the rest of the recorded `detail`. Its first line, the file name and
+     type, is the only part of a channel card that quotes the loan, so that line
+     is the only one rewritten. Rewriting the whole body would quietly turn a
+     rename into a general card resync, repainting How Bad and Urgency from
+     whatever they say today. A correction corrects; it doesn't catch the card
+     up on everything else that has happened to the task. */
+  async correctChannelCard(taskId: string, content: { title: string; taskType: TaskType } & LoanCardValues): Promise<void> {
     const thread = await this.threads.get(taskId);
     if (!thread?.card) {
       return;
     }
+    const detail = withNameLine(thread.card.detail, content.folderName, content.taskType);
     const unchanged =
       thread.card.title === content.title &&
+      thread.card.detail === detail &&
       thread.card.folderName === content.folderName &&
       thread.card.humperdinkLink === content.humperdinkLink;
     if (unchanged) {
@@ -1853,6 +1875,7 @@ export class TeamsBotClient {
     const card: NonNullable<StoredThread["card"]> = {
       ...thread.card,
       title: content.title,
+      detail,
       folderName: content.folderName
     };
     if (content.humperdinkLink) {
@@ -2315,9 +2338,9 @@ export class TeamsBotClient {
     summary?: string,
     creatorAadObjectId?: string,
     /* Present only for a task born assigned (Handoff at creation, ADR-0002),
-       carrying that assignee and their id. The card reads "assigned to" rather
-       than "claimed by" — nobody claimed this one — on the same context line
-       every other post-creation card uses (#193). */
+       carrying that assignee and their id. The headline says they were
+       assigned it rather than that they grabbed it, since nobody claimed this
+       one. */
     assignedContext?: ChannelCardContext & { assigneeId?: string }
   ): Promise<void> {
     if (!this.adapter) {
@@ -2325,7 +2348,11 @@ export class TeamsBotClient {
     }
     const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
     const card = assignedContext
-      ? claimedCard({ message: title, context: assignedContext, assigneeVerb: ASSIGNED_VERB, ...(openUrl ? { openUrl } : {}) })
+      ? claimedCard({
+          message: formatBornAssignedHeadline(assignedContext.assignee, assignedContext.createdBy, assignedContext.taskType),
+          context: assignedContext,
+          ...(openUrl ? { openUrl } : {})
+        })
       : adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
     const posts = await this.broadcastCard(card, summary?.trim() || plainSummary(title), "create");
     if (posts.length > 0) {

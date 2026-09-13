@@ -379,7 +379,8 @@ await check("a handoff mid-merge doesn't hand the creator's Approve Merge to the
   assert.equal(sent[0].detail.advance, undefined, "the new assignee is not offered the creator's approval");
   // Still a useful card: it says what happened and carries the task's details.
   assert.equal(sent[0].detail.title.includes("assigned"), true, "the card still says what happened");
-  assert.match(sent[0].detail.detail, /Type: Loan Docs/, "and still carries the task's details");
+  assert.match(sent[0].detail.title, / - Loan Docs to you$/, "and names the task's type");
+  assert.match(sent[0].detail.detail, /How Bad: /, "and still carries the task's details");
 });
 
 await check("the sync at MERGE_DONE re-arms the creator's card and only the creator's", async () => {

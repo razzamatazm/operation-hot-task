@@ -21,24 +21,19 @@
   **Claim & Open** and **Open in Hot Task** — plus in-app event. The card's
   root message id is recorded per channel (`apps/server/data/bot-task-threads.json`)
   so follow-ups can thread.
-  - Title is `<creator> <type phrase>: <file name>`, e.g. `Tyler needs a set of
-    loan docs done: Smith-1042`, composed by `formatNewTaskHeadline`. Per-type
-    phrase comes from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked", VALUE
-    "needs a Value Check", OOO "needs OOO Coverage", etc.). The file name links
-    to the task's Humperdink link when one exists. Urgency is NOT in the title
-    (it moved to the detail block).
-  - **No plain type tag on this card, by decision.** Every other notification
-    surface names the type as its `TASK_TYPE_LABELS` noun ("LOI Check"), and
-    the raw `[LOI]`-style bracket tag this card once carried is gone. It is not
-    returning as a friendly-label tag either: four of the six needs-phrases
-    already contain the label verbatim, so a tag beside the phrase stutters
-    ("Tyler needs a Fraud Check - Fraud Check"), and the two that differ
-    (`LOAN_DOCS`, `OOO`) still name themselves plainly in the sentence. The
-    type was only ever ambiguous on the cards *after* creation, which is a
-    separate problem from this card's copy.
-  - Detail block is `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as
-    its time-frame label ("Within 1 Hour"), not the raw colour code. Folder is
-    omitted — the file name is already in the title.
+  - Title is `<creator's first name> <type phrase>`, e.g. `Tyler needs a set of
+    loan docs done`, composed by `formatNewTaskHeadline`. Per-type phrase comes
+    from `TASK_NEEDS_PHRASE` (LOI "needs an LOI checked", VALUE "needs a Value
+    Check", OOO "needs OOO Coverage", etc.). Urgency is NOT in the title.
+  - The first line of the body names the task the way every later card does,
+    `Smith-1042 - LOI Check` (decided 2026-09-12). That puts the type label
+    beside a title that often says it already ("Tyler needs a Fraud Check",
+    then "Smith-1042 - Fraud Check"): the owner chose one name line shared by
+    every stage over avoiding the repeat, reversing the earlier no-type-tag
+    call for this card. The file name is plain text, since no Teams card links
+    to Humperdink.
+  - Under it, `How Bad` (poop emojis, `—` when 0) / `Urgency` shown as its
+    time-frame label ("Within 1 Hour"), not the raw colour code.
   - **OOO** is special-cased: no type tag/file name. Title reads
     "Out Of Office - <creator> will be out of the office from <start> to
     <return> and needs coverage. Can you help?" (dates via `formatWallDate`),
@@ -115,31 +110,27 @@
   claimable → claimed → terminal — so a claim made from one card, by any route,
   retires the claim affordance everywhere it was posted. Never a new message: the edits are
   silent, so nobody is re-pinged as a task moves.
-  - **Every card after creation is one headline plus one context line**, and
-    nothing else — no detail block. The context line names the four facts the
-    creation headline carried and the later edits used to drop: the task type as
-    its `TASK_TYPE_LABELS` label, the file name, the assigner, and whoever holds
-    the task now. It reads
-    `LOI Check · Smith-1042 · asked by Tyler · done by Suzie`. Composed once, by
-    `formatChannelContextLine` (`packages/shared/src/types.ts`).
-    - Headlines by stage: `<claimer> grabbed <folder>` on claim,
-      `✅ Completed — <folder>` (also used for ARCHIVED),
-      `🚫 Cancelled — <folder>`.
-    - The holder segment says how they got there: `claimed by` on the claimed
-      and cancelled cards, `done by` on the completed one, `assigned to` for a
-      task born assigned (nobody claimed that one).
-    - A segment with nothing to say is **omitted, not blanked**. A task
-      cancelled before anyone took it ends at `asked by Tyler`.
-    - **OOO carries no file name.** An OOO task's Folder Name is a Vacation
-      Description and the task has no Loan behind it, so the line is
-      `Out of Office · asked by Tyler · done by Suzie`.
+  - **Every card after creation is one headline plus one name line**, and
+    nothing else, no detail block (reworded 2026-09-12). The headline says who
+    did what to whose task, by first name; the line under it names the file and
+    its type, `Smith-1042 - LOI Check`. Composed in
+    `packages/shared/src/types.ts` (`formatClaimedHeadline` and its siblings,
+    and `formatTaskNameLine`).
+    - Headlines by stage: `Suzie grabbed Tyler's LOI Check` on claim,
+      `✅ Suzie completed Tyler's LOI Check` (also used for ARCHIVED),
+      `🚫 Tyler cancelled their LOI Check`. Only the creator can cancel, so the
+      cancelled headline names them, and it says "their" because the app holds
+      nobody's pronouns.
+    - A task born assigned reads `Suzie was assigned Tyler's LOI Check`, since
+      nobody grabbed it.
+    - **OOO** uses its description in place of the file name:
+      `Beach week - Out of Office`.
     - The facts are threaded in from the task snapshot the notification layer
       already holds (`channelCardContext` in `apps/server/src/bot.ts`). The card
-      layer never reads the store and never re-derives a fact from the folder
-      name. The user-specific refresh path rebuilds from the live task and
-      passes the same facts, so a Teams refresh replays the card it was edited
-      to rather than reverting to a folder-only form. A card-tap claim and a web
-      claim go through the same builder and render the same body.
+      layer never reads the store. The user-specific refresh path rebuilds from
+      the live task and passes the same facts, so a Teams refresh replays the
+      card it was edited to. A card-tap claim and a web claim go through the
+      same builder and render the same body.
   - At a terminal status the card becomes a record, with every action button
     dropped except **Open in Hot Task**, which survives so the card that
     records the finished work is still a way into it. The URL is the one
@@ -148,9 +139,9 @@
     whenever `TEAMS_APP_ID` is unset — the card carries no actions at all.
   - Confirmed 2026-09-12: from the claim on, through completion and
     cancellation, the card keeps Open in Hot Task, the task (type and file
-    name), who asked, and who claimed or finished it. The Humperdink link on
-    the file name stays on the claimable card only; the card doesn't need it
-    once the task is claimed.
+    name), and who claimed or finished whose task. **No Teams card links to
+    Humperdink**, the claimable card included: the file name is plain text
+    everywhere, and the DM cards carry no Humperdink line.
   - The **re-open pointer card** is the exception: it is deliberately linkless,
     because the task it replaced now lives in a new thread.
 - **A claim sends each party one DM, and only one** (`DM_CHAT_SEED`, decided
@@ -159,12 +150,12 @@
   - a title naming the task and its type, `Smith-1042 - LOI Check` (decided
     2026-09-12). An OOO task's description stands in for the file name:
     `Beach week - Out of Office`,
-  - a context line, `asked by Tyler · assigned to Suzie`: the channel card's
-    line minus the file name and the type, which the title already shows,
-    saying "assigned to" however the holder got there, since this is the same
-    card after a handoff,
-  - the facts: How Bad, urgency time-frame, **due date**, notes, Humperdink link
-    (an OOO task shows its dates instead),
+  - a people line, `Created by Tyler Hereford · claimed by Suzie Lim`, which
+    says "you" to whichever of the two is reading (`Created by you · claimed by
+    Suzie Lim` in Tyler's chat). It says "claimed by" after a handoff too:
+    nothing on the task records how the holder got it,
+  - the facts: How Bad, urgency time-frame, **due date**, notes (an OOO task
+    shows its dates instead),
   - the conversation so far, or "No messages yet. Reply here to chat about it."
     when there is none, with the reply box,
   - **Reply**, the step button for whoever's move it is, and **Open in Hot
@@ -197,22 +188,23 @@
     **tracked** so [DM Card Sync](#dm-card-sync) can refresh its button as the
     task moves on. A handoff does not open the conversation card; that arrives
     with the first note, as it always has. Title reads
-    "&lt;actor&gt; assigned &lt;folder&gt; to you". An optional note (≤ 280
-    chars) rides quoted at the top of the card body, exactly as `DM_SHARE`'s
-    does. The note is **never** written as a review note — that would fire the
+    "&lt;actor&gt; assigned Smith-1042 - LOI Check to you", which is also the
+    chat preview, so the body carries no Type line. When the actor isn't the
+    creator, the body opens with `Created by <creator>`. An optional note (≤ 280
+    chars) rides quoted above the facts, exactly as `DM_SHARE`'s does. The note is **never** written as a review note — that would fire the
     separate `DM_NOTE` fan-out and DM everyone twice.
   - A **displaced assignee** gets a one-line DM: "&lt;actor&gt; passed
     &lt;folder&gt; to &lt;new assignee&gt;". Anyone may pull a task out from
     under anyone, so that is never silent.
 - **Task created already handed off** (`assigneeUserId` on the create payload):
   the channel post uses the **claimed-card** variant instead of the claimable
-  one — announced, with no Claim button to appear and then vanish. It keeps the
-  creation headline and reads `assigned to <assignee>` on its context line,
-  because nobody claimed it. Nothing on the task itself records that — an
-  assignee looks the same however it got there — so the thread record remembers
-  who the task was born in the hands of, and a later Teams refresh keeps saying
-  "assigned to" until the task changes hands, at which point somebody really did
-  claim it and the card says so. Deliberately
+  one — announced, with no Claim button to appear and then vanish. Its headline
+  reads `Suzie was assigned Tyler's LOI Check`, because nobody claimed it.
+  Nothing on the task itself records that — an assignee looks the same however
+  it got there — so the thread record remembers who the task was born in the
+  hands of, and a later Teams refresh keeps saying "was assigned" until the task
+  changes hands, at which point somebody really did grab it and the card says
+  so. Deliberately
   quiet: channel messages set no `channelData.notification.alert`, and the
   activity-signal pass only raises pickup alerts for *claimable* (`OPEN`) tasks,
   which this isn't. The recipient still gets the `DM_ASSIGN` card.

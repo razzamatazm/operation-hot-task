@@ -95,11 +95,20 @@ await check("the note card carries the task's details above the conversation", (
   const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CHECKER));
   const texts = (card.body ?? []).map((block) => block.text);
   assert.equal(texts[0], "Smith-1042 - LOI Check");
-  assert.equal(texts[1], "asked by Dana Requester · assigned to Casey Checker");
+  // Casey is the one reading, so Casey is "you".
+  assert.equal(texts[1], "Created by Dana Requester · claimed by you");
   // No Notes line on an LOI: its request field is the loan's terms (#259).
   assert.equal(texts[2], "How Bad: 💩💩\nUrgency: Within 24 Hours\nDue: Aug 14, 2026");
   assert.equal(texts[3], "Conversation");
   assert.equal(texts[4], "**Casey Checker:** started on it");
+});
+
+await check("the people line says \"you\" to whoever is reading it", () => {
+  const creatorView = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CREATOR));
+  assert.equal(creatorView.body[1].text, "Created by you · claimed by Casey Checker");
+  // A card nobody holds yet names only who created it.
+  const unheld = noteCard(noteCardDataFromTask(makeTask({ status: "OPEN", assignee: undefined }), CHECKER));
+  assert.equal(unheld.body[1].text, "Created by Dana Requester");
 });
 
 await check("a note card with no messages yet says so instead of sitting empty", () => {
@@ -126,7 +135,7 @@ await check("an Out of Office card is titled with its description and the type",
   const card = noteCard(noteCardDataFromTask(makeTask({ taskType: "OOO", folderName: "Beach week", status: "CLAIMED" }), CHECKER));
   const texts = (card.body ?? []).map((block) => block.text);
   assert.equal(texts[0], "Beach week - Out of Office");
-  assert.equal(texts[1], "asked by Dana Requester · assigned to Casey Checker");
+  assert.equal(texts[1], "Created by Dana Requester · claimed by you");
 });
 
 await check("CANCELLED / ARCHIVED note cards lose the reply box too", () => {
@@ -569,7 +578,7 @@ const cardOf = (entry) => entry.activity.attachments[0].content;
 
 /* Every conversation card carries the task's details; these tests are about the
    buttons, so any will do. */
-const DETAILS = { title: "Smith-1042 - LOI Check", contextLine: "asked by Dana Requester", facts: [] };
+const DETAILS = { title: "Smith-1042 - LOI Check", createdBy: { id: CREATOR.id, displayName: CREATOR.displayName }, facts: [] };
 
 await check("the claim card is recorded on send, then edited in place on completion", async () => {
   const { client, sent, updated } = await botSetup();
@@ -715,6 +724,7 @@ await check("a note on a completed task keeps the card's Completed banner", asyn
   const card = cardOf(sent[0]);
   assert.equal(headline(card), "✅ Completed — Smith-1042 - LOI Check");
   assert.deepEqual(actionTitles(card), ["Reply"], "and no step button comes back");
+  assert.equal(card.body[1].text, "Created by Dana Requester · claimed by you", "a sent card says \"you\" to its own recipient");
 });
 
 console.log(`\n${passed} checks passed`);

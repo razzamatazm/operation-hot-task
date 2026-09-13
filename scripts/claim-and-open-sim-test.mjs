@@ -262,7 +262,7 @@ await check("a claim still lands from the card, and says why when it can't", asy
   );
   const ok = await client.handleClaim("task-1", "aad-checker", "Casey Checker");
   assert.equal(ok.ok, true);
-  assert.equal(ok.message, "Casey Checker grabbed Smith-1042");
+  assert.equal(ok.message, "Casey grabbed Dana's LOI Check");
 
   /* The refusal is the sentence the rule gives, not a catch-all. `claimTask`
      throws `claimRefusalMessage`, so the creator hears why they of all people

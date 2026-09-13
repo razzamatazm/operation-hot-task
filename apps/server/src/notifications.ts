@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, taskCardRecipients } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatTaskNameLine, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, channelCardContext, loanCardValues, noteCardDetailsFromTask, recentNoteThread, taskFactLines } from "./bot.js";
@@ -64,7 +64,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
      re-open as it did at creation, regardless of who triggered the change. */
   private buildChannelCard(task: NotificationEvent["task"]): { title: string; detail: string; summary: string; openUrl?: string } {
     const openUrl = taskDeepLink(task.id, task.folderName);
-    const summary = formatNewTaskHeadline(task.createdBy.displayName, task.taskType);
+    const summary = formatNewTaskHeadline(firstName(task.createdBy.displayName), task.taskType);
     if (task.taskType === "OOO") {
       return {
         title: formatOooHeadline(task.createdBy.displayName, task.startDate ?? task.dueAt, task.returnDate ?? task.dueAt),
@@ -74,11 +74,13 @@ export class TeamsNotificationProvider implements NotificationProvider {
       };
     }
     const howBad = task.points > 0 ? "💩".repeat(task.points) : "—";
-    // The file name in the headline links to Humperdink when present.
-    const fileName = task.humperdinkLink ? `[${task.folderName}](${task.humperdinkLink})` : task.folderName;
+    /* `Tyler needs an LOI checked`, then `Smith-1042 - LOI Check` as the first
+       line of the body (2026-09-12). The file name carries no Humperdink link:
+       no Teams card does. The name line leads the stored body because a loan
+       rename rewrites exactly that line (`correctChannelCard`). */
     return {
-      title: `${summary}: ${fileName}`,
-      detail: `How Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
+      title: summary,
+      detail: `${formatTaskNameLine(task.folderName, task.taskType)}\nHow Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
       summary,
       ...(openUrl ? { openUrl } : {})
     };
@@ -106,18 +108,16 @@ export class TeamsNotificationProvider implements NotificationProvider {
     options: { title: string; withDue: boolean; withAdvance: boolean; fallbackText?: string }
   ): Promise<void> {
     const typeLabel = TASK_TYPE_LABELS[event.task.taskType];
+    /* The title (`Suzie Lim assigned Smith-1042 - LOI Check to you`) names the
+       task, its type and who sent it, so the body has no Type or Details line.
+       When the sender isn't the creator, the body says whose task it is. */
     const lines = [
-      `Type: ${typeLabel}`,
-      ...taskFactLines(event.task, { withDue: options.withDue }),
-      // The conversation card heads itself with the folder name; this card's
-      // title is a sentence, so an OOO task's description has to be spelled out.
-      ...(event.task.taskType === "OOO" ? [`Details: ${event.task.folderName}`] : [])
+      ...(event.actor.id !== event.task.createdBy.id ? [`Created by ${event.task.createdBy.displayName}`] : []),
+      // A personal note (share or handoff) sits above the task details, so the
+      // "hey, look at this" reads before the metadata.
+      ...(event.note?.trim() ? [`"${event.note.trim()}"`, ""] : []),
+      ...taskFactLines(event.task, { withDue: options.withDue })
     ];
-    // A personal note (share or handoff) leads the body, above the task
-    // details, so the "hey, look at this" reads before the metadata.
-    if (event.note?.trim()) {
-      lines.unshift(`"${event.note.trim()}"`, "");
-    }
     const openUrl = taskDeepLink(event.task.id, event.task.folderName);
     if (Array.isArray(event.recipientUserIds) && event.recipientUserIds.length > 0) {
       const card = {
@@ -276,9 +276,11 @@ export class TeamsNotificationProvider implements NotificationProvider {
          checker deciding whether to take it wants to know. */
       const card = this.buildChannelCard(event.task);
       const phase = FRAUD_RELEASE_PHASE[event.task.status];
+      // The name line stays first, where a loan rename looks for it.
+      const [nameLine, ...facts] = card.detail.split("\n");
       await this.botClient.repostReopenedTask(event.task.id, {
         title: formatReleasedHeadline(event.task.folderName),
-        detail: phase ? `Picks up at: ${phase}\n${card.detail}` : card.detail,
+        detail: phase ? [nameLine, `Picks up at: ${phase}`, ...facts].join("\n") : card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
         ...(card.openUrl ? { openUrl: card.openUrl } : {})
@@ -291,7 +293,11 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // removed) — a web claim disables the card too, with no channel re-ping.
       // The claimer is the actor, not whatever the snapshot's assignee happens
       // to say, so the card names the person who just tapped.
-      await this.botClient.markTaskClaimed(event.task.id, event.message, channelCardContext(event.task, event.actor.displayName));
+      await this.botClient.markTaskClaimed(
+        event.task.id,
+        formatClaimedHeadline(event.actor.displayName, event.task.createdBy.displayName, event.task.taskType),
+        channelCardContext(event.task, event.actor.displayName)
+      );
       return;
     }
 
@@ -351,7 +357,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
           });
         }
       };
-      await surface("channel", () => this.botClient.correctChannelCard(event.task.id, { title: card.title, ...values }));
+      await surface("channel", () => this.botClient.correctChannelCard(event.task.id, { title: card.title, taskType: event.task.taskType, ...values }));
       /* The claim-detail card is replayed from a snapshot taken when it was
          sent, so correcting the snapshot BEFORE the sync is what makes the sync
          repaint the new name instead of the old one. Order matters here. */
@@ -410,7 +416,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
          advance button: the target isn't necessarily going to work it, so the
          card informs rather than offering a move. */
       await this.sendTaskDetailDm(event, {
-        title: `${event.actor.displayName} shared ${event.task.folderName} with you`,
+        title: `${event.actor.displayName} shared ${formatTaskNameLine(event.task.folderName, event.task.taskType)} with you`,
         withDue: false,
         withAdvance: false,
         fallbackText: event.message
@@ -425,7 +431,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
          Only the title differs. The handoff note is never written as a review
          note — that would double-notify via DM_NOTE. */
       await this.sendTaskDetailDm(event, {
-        title: `${event.actor.displayName} assigned ${event.task.folderName} to you`,
+        title: `${event.actor.displayName} assigned ${formatTaskNameLine(event.task.folderName, event.task.taskType)} to you`,
         withDue: true,
         withAdvance: true
       });
