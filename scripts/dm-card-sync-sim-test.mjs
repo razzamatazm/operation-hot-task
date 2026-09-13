@@ -606,7 +606,8 @@ await check("the claim card is recorded on send, then edited in place on complet
   const edit = updated.find((entry) => entry.activityId === "activity-1");
   assert.ok(edit, "the recorded activity id is the one that gets updated");
   assert.deepEqual(actionTitles(cardOf(edit)), ["Open in Hot Task"]);
-  assert.equal(headline(cardOf(edit)), "✅ Completed — Smith-1042");
+  // A details card's banner names the type too, like the conversation card's.
+  assert.equal(headline(cardOf(edit)), "✅ Completed — Smith-1042 - LOI Check");
   assert.equal(cardOf(edit).body[1].text, "Type: LOI Check\nDue: Aug 14", "the stored detail block is replayed");
 });
 

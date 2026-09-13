@@ -153,7 +153,8 @@ export class TeamsNotificationProvider implements NotificationProvider {
       }
       return;
     }
-    await this.botClient.sendToDms(`${typeLabel} - ${options.fallbackText ?? options.title}`);
+    // The title already names the type; only a bare fallback sentence needs it.
+    await this.botClient.sendToDms(options.fallbackText ? `${typeLabel} - ${options.fallbackText}` : options.title);
   }
 
   /* Silently re-render the DM cards already sitting in participants' chats so

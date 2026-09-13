@@ -125,6 +125,10 @@
       nobody grabbed it.
     - **OOO** uses its description in place of the file name:
       `Beach week - Out of Office`.
+    - A loan rename rewrites only that name line on the posted card (the first
+      line of the new-task card's body), never How Bad or Urgency. A card posted
+      before the name moved under the headline gains the line on its first
+      rename.
     - The facts are threaded in from the task snapshot the notification layer
       already holds (`channelCardContext` in `apps/server/src/bot.ts`). The card
       layer never reads the store. The user-specific refresh path rebuilds from
@@ -191,7 +195,9 @@
     "&lt;actor&gt; assigned Smith-1042 - LOI Check to you", which is also the
     chat preview, so the body carries no Type line. When the actor isn't the
     creator, the body opens with `Created by <creator>`. An optional note (≤ 280
-    chars) rides quoted above the facts, exactly as `DM_SHARE`'s does. The note is **never** written as a review note — that would fire the
+    chars) rides quoted above the facts, exactly as `DM_SHARE`'s does. A share
+    card is built the same way: `Dana shared Smith-1042 - LOI Check with you`,
+    with `Created by <creator>` when the sharer isn't the creator. The note is **never** written as a review note — that would fire the
     separate `DM_NOTE` fan-out and DM everyone twice.
   - A **displaced assignee** gets a one-line DM: "&lt;actor&gt; passed
     &lt;folder&gt; to &lt;new assignee&gt;". Anyone may pull a task out from
@@ -329,12 +335,12 @@ place, so a card's buttons always show the step that is actually next.
   leaving `Merge Done` sitting there. Terminal cleanup is just the last step of
   the same rule, which is also why a **re-open re-arms the cards for free**.
 - At a terminal status the card becomes a record: a banner (`✅ Completed —
-  <folder>` / `🚫 Cancelled` / `📦 Archived`) replaces the headline and every
-  action button is dropped. `Open in Hot Task` survives on the detail card.
-  On the conversation card the banner keeps the type after the name
-  (`✅ Completed — Smith-1042 - LOI Check`), because its context line no
-  longer names it. The banner is worked out from the live task every time the
-  card is drawn, so a note added to a completed task keeps it too.
+  Smith-1042 - LOI Check` / `🚫 Cancelled — …` / `📦 Archived — …`) replaces
+  the title and every action button is dropped. `Open in Hot Task` survives on
+  the detail card. The banner names the task and its type on the conversation
+  card and the detail card alike, so a finished handoff card still says what
+  kind of task it was. It is worked out from the live task every time the card
+  is drawn, so a note added to a completed task keeps it too.
   **COMPLETED keeps the note card's reply box** — `addCompletedNote` (issue #45)
   still accepts notes on a completed task — while CANCELLED/ARCHIVED lose it.
   The card's Reply therefore routes through `TaskService.addNoteFromCard`, which

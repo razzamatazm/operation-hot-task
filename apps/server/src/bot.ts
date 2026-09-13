@@ -1634,10 +1634,10 @@ export class TeamsBotClient {
     advance?: AdvanceAction;
     recipients: TaskCardRecipient[];
   }): Promise<void> {
-    // The conversation card's banner rides in on its details, built from the
-    // same live task as `status`. A details card left over from an older claim
-    // keeps the folder-only banner it was always given.
-    const closed = closedStateFor(opts.status, opts.folder);
+    // The conversation card's banner rides in on its details. A details card
+    // (a handoff's, or one left over from an older claim) gets the same banner
+    // for the detail-card sync below, so it keeps naming the type once closed.
+    const closed = closedStateFor(opts.status, opts.details.title);
     await this.syncNoteCards({
       taskId: opts.taskId,
       folder: opts.folder,
