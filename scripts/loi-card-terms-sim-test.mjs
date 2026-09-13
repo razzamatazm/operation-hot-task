@@ -208,10 +208,11 @@ await check("the conversation card a claim sends quotes no terms and keeps its l
     "Humperdink: [link](https://humperdink.example/loan/1042)"
   ]);
   assert.ok(details.openUrl?.includes("task-259"), "the card links through to the task");
-  // The preview says who took it, in each reader's own terms.
+  // The preview says who took it, in each reader's own terms, and names the
+  // task the way the card's title does.
   const summaries = Object.fromEntries(recipients.map((r) => [r.userId, r.summary]));
-  assert.equal(summaries[CHECKER.id], "You claimed Smith-1042");
-  assert.equal(summaries[CREATOR.id], "Casey Checker claimed Smith-1042");
+  assert.equal(summaries[CHECKER.id], "You claimed Smith-1042 - LOI Check");
+  assert.equal(summaries[CREATOR.id], "Casey Checker claimed Smith-1042 - LOI Check");
 });
 
 console.log(`\n${passed} checks passed`);

@@ -165,8 +165,9 @@
   - **Reply**, the step button for whoever's move it is, and **Open in Hot
     Task**.
 
-  The chat preview says who took it: `You claimed Smith-1042` for the claimer,
-  `Suzie Lim claimed Smith-1042` for the creator. A claim used to send two
+  The chat preview says who took it and names the task the way the title does:
+  `You claimed Smith-1042 - LOI Check` for the claimer, `Suzie Lim claimed
+  Smith-1042 - LOI Check` for the creator (decided 2026-09-12). A claim used to send two
   messages to each person — a details card then the conversation card for the
   claimer, a `claimed` one-liner then the conversation card for the creator —
   and the second of each pair said nothing the first hadn't, so both pings
@@ -335,7 +336,8 @@ place, so a card's buttons always show the step that is actually next.
   action button is dropped. `Open in Hot Task` survives on the detail card.
   On the conversation card the banner keeps the type after the name
   (`✅ Completed — Smith-1042 - LOI Check`), because its context line no
-  longer names it.
+  longer names it. The banner is worked out from the live task every time the
+  card is drawn, so a note added to a completed task keeps it too.
   **COMPLETED keeps the note card's reply box** — `addCompletedNote` (issue #45)
   still accepts notes on a completed task — while CANCELLED/ARCHIVED lose it.
   The card's Reply therefore routes through `TaskService.addNoteFromCard`, which

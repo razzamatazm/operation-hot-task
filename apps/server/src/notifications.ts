@@ -377,24 +377,26 @@ export class TeamsNotificationProvider implements NotificationProvider {
          the task's details, its step button and the deep link, so there is no
          separate details card or "claimed" one-liner beside it. Reposts at the
          bottom (reposition) so a re-claim moves a stale card down, and a new
-         post is what pings — the preview says who took it. */
+         post is what pings. The preview says who took it and names the task
+         with the card's own title, so the two can't disagree. */
       if (!Array.isArray(event.recipientUserIds) || event.recipientUserIds.length === 0) {
         return;
       }
       const advance = botPrimaryAdvance(event.task);
+      const details = noteCardDetailsFromTask(event.task);
       const recipients = taskCardRecipients(event.task, await this.cardViewers(event.recipientUserIds)).map((recipient) => ({
         ...recipient,
         createIfMissing: true,
         reposition: true,
         summary:
           recipient.userId === event.actor.id
-            ? `You claimed ${event.task.folderName}`
-            : `${event.actor.displayName} claimed ${event.task.folderName}`
+            ? `You claimed ${details.title}`
+            : `${event.actor.displayName} claimed ${details.title}`
       }));
       await this.botClient.syncNoteCards({
         taskId: event.task.id,
         folder: event.task.folderName,
-        details: noteCardDetailsFromTask(event.task),
+        details,
         thread: recentNoteThread(event.task),
         ...(advance ? { advance } : {}),
         recipients

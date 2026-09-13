@@ -270,6 +270,14 @@ interface NoteCardDetails {
   contextLine: string;
   facts: string[];
   openUrl?: string;
+  /* Set once the task reaches a terminal status: the card becomes a record
+     rather than a control surface, so every advance/fraud button is dropped.
+     `allowReply` keeps the reply box for COMPLETED, where addCompletedNote
+     (issue #45) still accepts notes; CANCELLED/ARCHIVED lose it too.
+
+     Part of the details rather than something each caller passes, because a
+     caller forgot it: a note on a completed task redrew the card as live. */
+  closed?: ClosedCardState;
 }
 
 interface NoteCardData {
@@ -281,11 +289,6 @@ interface NoteCardData {
   /* Fraud two-phase buttons. Its presence (even as []) marks the card as a fraud
      card, so `noteCard` uses this button set instead of the generic advance. */
   fraudActions?: FraudCardAction[];
-  /* Set once the task reaches a terminal status: the card becomes a record
-     rather than a control surface, so every advance/fraud button is dropped.
-     `allowReply` keeps the reply box for COMPLETED, where addCompletedNote
-     (issue #45) still accepts notes; CANCELLED/ARCHIVED lose it too. */
-  closed?: ClosedCardState;
 }
 
 interface ClosedCardState {
@@ -410,8 +413,11 @@ export const taskFactLines = (task: LoanTask, options: { withDue: boolean }): st
    "claimed by" would be wrong on the second. */
 export const noteCardDetailsFromTask = (task: LoanTask): NoteCardDetails => {
   const openUrl = taskDeepLink(task.id, task.folderName);
+  const title = `${task.folderName} - ${TASK_TYPE_LABELS[task.taskType]}`;
+  const closed = closedStateFor(task.status, title);
   return {
-    title: `${task.folderName} - ${TASK_TYPE_LABELS[task.taskType]}`,
+    title,
+    ...(closed ? { closed } : {}),
     contextLine: formatChannelContextLine({
       taskType: task.taskType,
       folderName: "",
@@ -431,7 +437,6 @@ export const noteCardDetailsFromTask = (task: LoanTask): NoteCardDetails => {
    the reply-box refresh would re-add Complete for anyone. */
 export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
   const details = noteCardDetailsFromTask(task);
-  const closed = closedStateFor(task.status, details.title);
   // FRAUD cards carry the role-aware two-phase button set (keyed off the viewer)
   // instead of the generic single advance. The key is always present for a fraud
   // task (empty when this viewer has no action in this state) so `noteCard`
@@ -442,8 +447,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
       folder: task.folderName,
       details,
       thread: recentNoteThread(task),
-      fraudActions: fraudCardActions(task, viewer),
-      ...(closed ? { closed } : {})
+      fraudActions: fraudCardActions(task, viewer)
     };
   }
   const advance = advanceFor(task, viewer);
@@ -452,8 +456,7 @@ export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): Not
     folder: task.folderName,
     details,
     thread: recentNoteThread(task),
-    ...(advance ? { advance } : {}),
-    ...(closed ? { closed } : {})
+    ...(advance ? { advance } : {})
   };
 };
 
@@ -516,7 +519,8 @@ const fraudActionButtons = (taskId: string, actions: FraudCardAction[]): Record<
    It is also the one message a claim sends to each party, which is why it
    carries the details and the link rather than leaving them to a second card. */
 export const noteCard = (data: NoteCardData): Record<string, unknown> => {
-  const canReply = !data.closed || data.closed.allowReply;
+  const closed = data.details.closed;
+  const canReply = !closed || closed.allowReply;
   return {
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     type: "AdaptiveCard",
@@ -526,7 +530,7 @@ export const noteCard = (data: NoteCardData): Record<string, unknown> => {
       // from the title so it still names the task and its type. The
       // conversation stays below it, since the point of keeping the card is
       // keeping the history.
-      { type: "TextBlock", text: data.closed ? data.closed.label : data.details.title, weight: "Bolder", wrap: true, size: "Medium" },
+      { type: "TextBlock", text: closed ? closed.label : data.details.title, weight: "Bolder", wrap: true, size: "Medium" },
       { type: "TextBlock", text: data.details.contextLine, wrap: true, spacing: "Small", isSubtle: true },
       ...(data.details.facts.length > 0
         ? [{ type: "TextBlock", text: data.details.facts.join("\n"), wrap: true, spacing: "Small" }]
@@ -553,7 +557,7 @@ export const noteCard = (data: NoteCardData): Record<string, unknown> => {
       // A closed task has no forward step, so it carries no action buttons. A
       // fraud card (fraudActions present, even when empty) otherwise drives its
       // own role-aware set; every other card keeps the single advance button.
-      ...(data.closed
+      ...(closed
         ? []
         : data.fraudActions !== undefined
           ? fraudActionButtons(data.taskId, data.fraudActions)
@@ -1447,8 +1451,6 @@ export class TeamsBotClient {
     details: NoteCardDetails;
     thread: NoteThreadEntry[];
     advance?: AdvanceAction;
-    /* Terminal banner for a closed task — drops every action button. */
-    closed?: ClosedCardState;
     /* A silent status re-sync, which must not put a new message in anyone's
        chat: it edits what's already there or does nothing. Without this, a card
        whose stored id has gone stale would be reposted, turning a background
@@ -1476,8 +1478,7 @@ export class TeamsBotClient {
             ? { fraudActions: recipient.fraudActions }
             : recipient.showAdvance && opts.advance
               ? { advance: opts.advance }
-              : {}),
-          ...(opts.closed ? { closed: opts.closed } : {})
+              : {})
         })
       );
       const activity: Partial<Activity> = {
@@ -1617,10 +1618,9 @@ export class TeamsBotClient {
     advance?: AdvanceAction;
     recipients: TaskCardRecipient[];
   }): Promise<void> {
-    // The conversation card's banner carries its title, type included; a
-    // details card left over from an older claim keeps the folder-only banner
-    // it was always given.
-    const noteClosed = closedStateFor(opts.status, opts.details.title);
+    // The conversation card's banner rides in on its details, built from the
+    // same live task as `status`. A details card left over from an older claim
+    // keeps the folder-only banner it was always given.
     const closed = closedStateFor(opts.status, opts.folder);
     await this.syncNoteCards({
       taskId: opts.taskId,
@@ -1628,7 +1628,6 @@ export class TeamsBotClient {
       details: opts.details,
       thread: opts.thread,
       ...(opts.advance ? { advance: opts.advance } : {}),
-      ...(noteClosed ? { closed: noteClosed } : {}),
       silent: true,
       recipients: opts.recipients.map((recipient) => ({
         ...recipient,

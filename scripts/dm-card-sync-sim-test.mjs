@@ -685,4 +685,31 @@ await check("a rejected card tap asks for a re-sync and says so", async () => {
   assert.deepEqual(resynced, ["task-9"], "the stale card is scheduled for repair");
 });
 
+/* A note on a completed task redraws the card through the note path, not the
+   status sync. It has to keep the Completed banner, or the card reads as live
+   again until some later sync happens to put the banner back. */
+await check("a note on a completed task keeps the card's Completed banner", async () => {
+  const { client, sent } = await botSetup();
+  const directory = new Map([CHECKER, CREATOR].map((u) => [u.id, u]));
+  const notifier = new TeamsNotificationProvider(
+    client,
+    { isEnabled: () => false, sendToUsers: async () => {} },
+    { getNotificationChannelId: async () => "channel-1" },
+    async (userId) => directory.get(userId)
+  );
+  await notifier.notify({
+    type: "TASK_STATUS_CHANGED",
+    task: makeTask({ status: "COMPLETED" }),
+    actor: { id: CREATOR.id, displayName: CREATOR.displayName },
+    message: "thanks!",
+    target: "DM_NOTE",
+    recipientUserIds: [CREATOR.id, CHECKER.id],
+    createdAt: new Date().toISOString()
+  });
+  assert.equal(sent.length, 1, "the checker's card goes out");
+  const card = cardOf(sent[0]);
+  assert.equal(headline(card), "✅ Completed — Smith-1042 - LOI Check");
+  assert.deepEqual(actionTitles(card), ["Reply"], "and no step button comes back");
+});
+
 console.log(`\n${passed} checks passed`);
