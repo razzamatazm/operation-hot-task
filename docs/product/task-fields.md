@@ -443,16 +443,19 @@ is gone seven days after it was last written.
     Correcting a task is unaffected: an existing field still cannot be emptied
     on any type. A Fraud Check filed without a note opens on an empty
     conversation rather than a blank first message.
-- Non-OOO only, above Folder Name: **Import from Humperdink** and the paste
-  field beside it. Paste what the **Send to Hot Task** userscript copied off a
-  Humperdink loan page and press it; Folder Name, the Humperdink Link and the
-  loan's terms, broker, borrower and acquired properties fill in, the task type
-  becomes LOI, and the button reads `Imported`. A malformed or empty paste
-  reports the problem in a toast and leaves every field untouched — it never
-  half-fills. The terms land *below*
-  anything already typed in Notes rather than over it, and a second import
-  replaces the block the first one wrote instead of stacking another copy.
-  Nothing else on the form is touched. See
+- LOI Check only, create mode only, in the footer beside Cancel and Create Task:
+  the Humperdink paste box. Its placeholder reads `In Humperdink, press Export to
+  HT, then paste here`. Pasting what the **Send to Hot Task** userscript's
+  **Export to HT** button copied off a Humperdink loan page is the import, with
+  no button to press (#409): Folder Name, the Humperdink Link and the loan's
+  terms, brokers, borrowers, silent borrowers and acquired properties fill in,
+  the box empties and its placeholder reads `Imported. Paste again to replace
+  it.` Enter in the box imports whatever is typed there, and never files the
+  task. A malformed or empty paste reports the problem in a toast, stays in the
+  box, and leaves every field untouched — it never half-fills. The terms land
+  *below* anything already typed in Notes rather than over it, and a second
+  import replaces the block the first one wrote instead of stacking another
+  copy. Nothing else on the form is touched. See
   [integrations-hosting.md](integrations-hosting.md) and
   [tools/humperdink/](../../tools/humperdink/).
 - Optional fields:

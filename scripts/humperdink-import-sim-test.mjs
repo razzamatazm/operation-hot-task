@@ -35,8 +35,9 @@ const USERSCRIPT = readFileSync(new URL("../tools/humperdink/send-to-hot-task.us
 
 const LOAN_URL = "https://humperdink.loneoakfund.com/Loans/Details/335203";
 
-/* What the button says once the loan is on the clipboard. */
-const COPIED = "Copied — paste it into Import from Humperdink on an LOI Check";
+/* What the control says once the loan is on the clipboard. Pasting is the
+   import on the Hot Task side (#409), so it names only where to paste. */
+const COPIED = "Copied. Paste it into a new LOI Check.";
 
 /* ── The loan terms panel, as Humperdink renders it ──────
 
@@ -136,15 +137,22 @@ const withGrids = (over = {}) => ({
 /* ── A DOM small enough to read, big enough for the script ──
 
    The userscript touches exactly this much of the page: the title, the address
-   bar, one button it creates and appends, and the clipboard. Anything it starts
-   reaching for beyond this (a selector into Humperdink's markup, say) fails
-   here loudly, which is the point. */
+   bar, Humperdink's LOI button in the Loan Terms header (its control mounts
+   beside it), the note it pins under that control, and the clipboard. Anything
+   it starts reaching for beyond this fails here loudly, which is the point. */
+const CONTROL_ID = "hot-task-send-control";
+const NOTE_ID = "hot-task-send-message";
+
 const runUserscript = ({
   title,
   href,
   clipboard = "ok",
   fields = TERMS_FIELDS,
   grids = withGrids(),
+  /* Whether the page carries the LOI button the control mounts beside. The real
+     page does; `false` is a Humperdink release that moved it, where the control
+     gives up looking and takes the corner as a floating button. */
+  anchor = true,
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -152,9 +160,16 @@ const runUserscript = ({
   const url = new URL(href);
   const copied = [];
   const created = [];
+  const observers = [];
   let mountedButton = null;
   let buttonsMounted = 0;
   let page = grids;
+
+  const mountControl = (el) => {
+    el.mounted = true;
+    mountedButton = el;
+    buttonsMounted += 1;
+  };
 
   /* One grid cell. `textContent` strips the markup the way a browser would;
      `innerHTML` keeps the `<br/>` the address scrape splits on. */
@@ -199,44 +214,69 @@ const runUserscript = ({
       tagName: String(tag).toUpperCase(),
       id: "",
       type: "",
+      className: "",
+      title: "",
+      innerHTML: "",
       textContent: "",
       value: "",
       mounted: false,
       style: { cssText: "" },
       attributes: {},
       listeners: {},
+      classList: { add() {}, remove() {} },
       setAttribute(name, value) {
         this.attributes[name] = value;
       },
       addEventListener(event, fn) {
         (this.listeners[event] ??= []).push(fn);
       },
+      /* The inline control's label lives in a child a browser would find. This
+         DOM has no children, so the script writes the label onto the control
+         itself: the same words in the same control, as far as a test can tell. */
+      querySelector() {
+        return null;
+      },
+      getBoundingClientRect() {
+        return { top: 0, left: 600, bottom: 24, right: 700 };
+      },
+      remove() {
+        this.mounted = false;
+      },
       select() {},
       click() {
-        for (const fn of this.listeners.click ?? []) fn();
+        const event = { preventDefault() {} };
+        for (const fn of this.listeners.click ?? []) fn(event);
       }
     };
     created.push(el);
     return el;
   };
 
+  /* Humperdink's LOI button, inside the Loan Terms panel header. */
+  const loiButton = {
+    id: "btnLOIFile",
+    className: "jqx-rc-all jqx-button jqx-widget jqx-fill-state-normal",
+    closest: (selector) => (selector === ".loanpanelheader" ? {} : null),
+    insertAdjacentElement: (_position, el) => mountControl(el)
+  };
+
   const document = {
     title,
     createElement,
-    /* The script's own control first, then the page's terms fields and its two
-       grids. An id the page doesn't carry returns null, which is what a
-       Humperdink release that renamed something looks like from in here. */
+    documentElement: {},
+    /* The script's own control first, then the LOI button, then the page's
+       terms fields and its two grids. An id the page doesn't carry returns
+       null, which is what a Humperdink release that renamed something looks
+       like from in here. */
     getElementById: (id) =>
       created.find((el) => el.mounted && el.id === id) ??
+      (anchor && id === loiButton.id ? loiButton : null) ??
       (Object.prototype.hasOwnProperty.call(fields, id) ? { id, value: fields[id] } : null) ??
       (Object.prototype.hasOwnProperty.call(GRID_ELEMENTS, id) ? GRID_ELEMENTS[id]() : null),
     body: {
       appendChild(el) {
-        el.mounted = true;
-        if (el.tagName === "BUTTON") {
-          mountedButton = el;
-          buttonsMounted += 1;
-        }
+        if (el.tagName === "BUTTON") mountControl(el);
+        else el.mounted = true;
       },
       removeChild(el) {
         el.mounted = false;
@@ -272,6 +312,24 @@ const runUserscript = ({
     handle.unref?.();
     return handle;
   };
+  /* The control also polls for the Loan Terms header on an interval when the
+     header isn't there yet. Same scaling, same unref. */
+  const unrefedInterval = (fn, ms) => {
+    const handle = setInterval(fn, ms / clockScale);
+    handle.unref?.();
+    return handle;
+  };
+
+  /* The control watches the page so it can put itself back when Humperdink
+     repaints the header. `repaintHeader` below is that repaint. */
+  class MutationObserver {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe() {}
+    disconnect() {}
+  }
 
   /* Every tab the control asks the browser to open. The control only copies,
      so the tests below expect this to stay empty. */
@@ -282,7 +340,20 @@ const runUserscript = ({
   };
 
   const source = USERSCRIPT;
-  const sandbox = { document, location: url, navigator, open, setTimeout: unrefed, clearTimeout, console, URL };
+  const sandbox = {
+    document,
+    location: url,
+    navigator,
+    open,
+    setTimeout: unrefed,
+    clearTimeout,
+    setInterval: unrefedInterval,
+    clearInterval,
+    MutationObserver,
+    innerWidth: 1280,
+    console,
+    URL
+  };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox);
@@ -290,9 +361,35 @@ const runUserscript = ({
   return {
     copied,
     opened,
-    button: mountedButton,
+    /* The control on the page: inline beside the LOI button, or the floating
+       fallback once the script gives up on the header. A getter, because the
+       fallback arrives after the script has returned. */
+    get button() {
+      return mountedButton;
+    },
     get buttonsMounted() {
       return buttonsMounted;
+    },
+    /* How many controls are on the page right now, as opposed to ever. */
+    get controlsOnPage() {
+      return created.filter((el) => el.mounted && el.id === CONTROL_ID).length;
+    },
+    /* What the control is telling the filer. Inline, messages go in the note
+       pinned under the control; the floating button says them on its own label. */
+    get said() {
+      const note = created.find((el) => el.mounted && el.id === NOTE_ID);
+      if (note) return note.textContent;
+      return mountedButton?.tagName === "BUTTON" ? mountedButton.textContent : "";
+    },
+    /* Whether the control is saying it is still waiting for the grids. Inline it
+       cannot spend its label on that, so it dims and says so on hover. */
+    get loading() {
+      return /Still loading/.test(mountedButton?.title ?? "");
+    },
+    /* Humperdink repainting the Loan Terms header, which takes the control with it. */
+    repaintHeader() {
+      if (mountedButton) mountedButton.mounted = false;
+      for (const observer of observers) observer.callback([]);
     },
     /* Tampermonkey can run the script again on a soft navigation. */
     remount() {
@@ -314,10 +411,45 @@ const runUserscript = ({
 
 /* ── The control on the Humperdink page ─────────────────── */
 
-test("the script mounts a Send to Hot Task control on a loan details page", () => {
+test("the script mounts its Export to HT control beside the LOI button in the Loan Terms header", () => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
-  assert.ok(page.button, "a button was appended to the page");
+  assert.ok(page.button, "a control went into the header");
+  assert.equal(page.button.tagName, "DIV", "shaped like Humperdink's own header buttons");
+  assert.equal(page.button.attributes.role, "button");
+  assert.match(page.button.className, /jqx-button/, "wearing the LOI button's classes");
+  assert.equal(page.button.textContent, "Export to HT");
+  assert.equal(page.button.title, "Copy this loan for a new LOI Check in Hot Task");
+});
+
+/* A Humperdink release that moves the LOI button must not leave the loan page
+   with no control at all: the script keeps looking for the header, then takes
+   the corner. */
+test("with no Loan Terms header to sit in, the control takes the corner once it stops looking", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, anchor: false, clockScale: 200 });
+  assert.equal(page.button, null, "it looks for the header before settling for the corner");
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(page.button.tagName, "BUTTON");
   assert.equal(page.button.textContent, "Send to Hot Task");
+  assert.equal(page.controlsOnPage, 1);
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(page.said, COPIED, "the floating button says it on its own label");
+});
+
+test("Humperdink repainting the header puts the control back, once", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
+  page.repaintHeader();
+  assert.equal(page.controlsOnPage, 1, "one control on the page, not none and not two");
+  assert.equal(page.buttonsMounted, 2, "a fresh one went back in");
+  await page.press();
+  assert.equal(page.copied.length, 1, "and it works");
+});
+
+test("a message goes in a note under the inline control, not over its label", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
+  await page.press();
+  assert.equal(page.said, COPIED);
+  assert.equal(page.button.textContent, "Export to HT", "the header button never changes width");
 });
 
 test("running the script again leaves one control", () => {
@@ -337,7 +469,7 @@ test("pressing it copies a versioned payload with the loan name and the page URL
   assert.equal(payload.version, HUMPERDINK_PAYLOAD_VERSION);
   assert.equal(payload.loanName, "Adams - Harbor");
   assert.equal(payload.loanUrl, LOAN_URL);
-  assert.equal(page.button.textContent, COPIED);
+  assert.equal(page.said, COPIED);
 });
 
 test("the copied URL drops query and hash, so one loan is one key", async () => {
@@ -355,14 +487,14 @@ test("a page title it can't read reports the problem and copies nothing", async 
   const page = runUserscript({ title: "Loan Pipeline", href: LOAN_URL });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /Couldn't read the loan name/);
+  assert.match(page.said, /Couldn't read the loan name/);
 });
 
 test("an empty page title reports the problem and copies nothing", async () => {
   const page = runUserscript({ title: "", href: LOAN_URL });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /Couldn't read/);
+  assert.match(page.said, /Couldn't read/);
 });
 
 test("a page that isn't a loan details page reports the problem and copies nothing", async () => {
@@ -372,7 +504,7 @@ test("a page that isn't a loan details page reports the problem and copies nothi
   });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /loan details URL/);
+  assert.match(page.said, /loan details URL/);
 });
 
 test("a lookalike path on some other site is not a loan page either", async () => {
@@ -384,21 +516,21 @@ test("a lookalike path on some other site is not a loan page either", async () =
   });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /loan details URL/);
+  assert.match(page.said, /loan details URL/);
 });
 
 test("a browser with no async clipboard API falls back to execCommand", async () => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, clipboard: "no-async-api" });
   await page.press();
   assert.equal(parseHumperdinkPayload(page.copied[0]).ok, true);
-  assert.equal(page.button.textContent, COPIED);
+  assert.equal(page.said, COPIED);
 });
 
 test("a refused clipboard says so instead of claiming a copy", async () => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, clipboard: "dead" });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /Couldn't reach the clipboard/);
+  assert.match(page.said, /Couldn't reach the clipboard/);
 });
 
 /* ── The round trip: what the script writes, the app reads ── */
@@ -477,7 +609,7 @@ test("text that isn't a payload says where to get one", () => {
   for (const junk of ["hello", "{not json", "[1,2,3]", '"a string"', "42", "null"]) {
     const result = parseHumperdinkPayload(junk);
     assert.equal(result.ok, false, `${junk} should not parse`);
-    assert.match(result.error, /Send to Hot Task/);
+    assert.match(result.error, /Press Export to HT on the loan page/, "it names the button the filer actually sees");
   }
 });
 
@@ -543,7 +675,7 @@ test("a payload from a newer script than this app understands says to update", (
 });
 
 /* A payload carrying our `kind` is ours whatever else is wrong with it, so it
-   must never be answered with "press Send to Hot Task, then paste here" — the
+   must never be answered with "press Export to HT, then paste here" — the
    filer already did that, and doing it again fixes nothing. */
 test("a missing or nonsense version is rejected as a bad payload, not as a stray paste", () => {
   for (const version of [undefined, 0, -1, "1", null, Number.NaN]) {
@@ -589,7 +721,7 @@ test("unknown fields at a supported version are ignored, not fatal", () => {
 const scrapeTerms = async (fields) => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields });
   await page.press();
-  assert.equal(page.copied.length, 1, page.button.textContent);
+  assert.equal(page.copied.length, 1, page.said);
   const result = parseHumperdinkPayload(page.copied[0]);
   assert.equal(result.ok, true, result.error);
   return result.payload.terms ?? {};
@@ -803,9 +935,9 @@ test("a page missing a core terms element reports it and copies nothing", async 
   });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /loan terms/);
-  assert.match(page.button.textContent, /LoanTerm/);
-  assert.match(page.button.textContent, /txtEvaluation/);
+  assert.match(page.said, /loan terms/);
+  assert.match(page.said, /LoanTerm/);
+  assert.match(page.said, /txtEvaluation/);
 });
 
 test("a page missing the first interest rate row reports it too", async () => {
@@ -816,7 +948,7 @@ test("a page missing the first interest rate row reports it too", async () => {
   });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /InterestRate1/);
+  assert.match(page.said, /InterestRate1/);
 });
 
 test("a core field that is merely empty is not reported, it just doesn't travel", async () => {
@@ -945,7 +1077,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 const scrapePayload = async (over = {}) => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
   await page.press();
-  assert.equal(page.copied.length, 1, page.button.textContent);
+  assert.equal(page.copied.length, 1, page.said);
   const result = parseHumperdinkPayload(page.copied[0]);
   assert.equal(result.ok, true, result.error);
   return result.payload;
@@ -1003,6 +1135,58 @@ test("a loan with no broker just carries the borrower", async () => {
   const rows = CONTACT_ROWS.filter((row) => row[2] !== "Broker");
   const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
   assert.deepEqual(payload.contacts, [{ type: "Borrower", name: "Duda Adams" }]);
+});
+
+/* A silent borrower travels under its own name rather than being folded into
+   Borrower, so the note says which one somebody is. Grouped after the
+   borrowers whatever order the grid holds them in. */
+test("a silent borrower travels under its own name, after the borrowers", async () => {
+  const rows = [
+    ["", "", "Silent Borrower", "Pat Quiet", "", "", "", "", ""],
+    ...CONTACT_ROWS,
+    ["", "", "Borrower", "Marta Adams", "", "", "", "", ""]
+  ];
+  const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
+  assert.deepEqual(payload.contacts, [
+    { type: "Broker", name: "Dan LuVisi" },
+    { type: "Borrower", name: "Duda Adams" },
+    { type: "Borrower", name: "Marta Adams" },
+    { type: "Silent Borrower", name: "Pat Quiet" }
+  ]);
+  const contacts = humperdinkNoteSections(payload).find((section) => section.heading === "Contacts");
+  assert.deepEqual(contacts.lines, [
+    "Broker: Dan LuVisi",
+    "Borrower: Duda Adams",
+    "Borrower: Marta Adams",
+    "Silent Borrower: Pat Quiet"
+  ]);
+});
+
+test("a silent borrower matches on the whole type, not as a kind of borrower", async () => {
+  const rows = [["", "", "Silent Borrower", "Pat Quiet", "", "", "", "", ""]];
+  const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
+  assert.deepEqual(payload.contacts, [{ type: "Silent Borrower", name: "Pat Quiet" }], "not also carried as a Borrower");
+});
+
+/* The parser keeps contact type as text, so a payload carrying Silent Borrower
+   from a v1.7+ script is read whole by any Hot Task that knows #197. */
+test("the parser reads a silent borrower and the note prints it as sent", () => {
+  const result = parseHumperdinkPayload(
+    payloadText({
+      contacts: [
+        { type: "Broker", name: "Dan LuVisi" },
+        { type: "Borrower", name: "Duda Adams" },
+        { type: "Borrower", name: "Marta Adams" },
+        { type: "Silent Borrower", name: "Pat Quiet" }
+      ]
+    })
+  );
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.payload.contacts.length, 4);
+  assert.match(
+    humperdinkNoteText(result.payload),
+    /^Contacts\nBroker: Dan LuVisi\nBorrower: Duda Adams\nBorrower: Marta Adams\nSilent Borrower: Pat Quiet$/m
+  );
 });
 
 /* AC: "A loan with no acquisitions produces no property section." The saved
@@ -1100,12 +1284,12 @@ test("the control reads Loading until both grids have painted", async () => {
     href: LOAN_URL,
     grids: withGrids({ contactRows: [], propertyRows: [] })
   });
-  assert.equal(page.button.textContent, "Loading…");
+  assert.equal(page.loading, true);
 
   // Pressing while it waits copies nothing and says why.
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /Still loading/);
+  assert.match(page.said, /Still loading/);
 
   page.loadGrids({ contactRows: CONTACT_ROWS, propertyRows: PROPERTY_ROWS });
   await settle();
@@ -1122,12 +1306,14 @@ test("one grid arriving is not both", async () => {
   });
   page.loadGrids({ contactRows: CONTACT_ROWS });
   await settle();
-  assert.equal(page.button.textContent, "Loading…");
+  assert.equal(page.loading, true);
 });
 
 test("a page whose grids are already painted never says Loading", () => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
-  assert.equal(page.button.textContent, "Send to Hot Task");
+  assert.equal(page.loading, false);
+  assert.equal(page.button.style.opacity, "", "not dimmed");
+  assert.equal(page.button.textContent, "Export to HT");
 });
 
 /* AC: "Missing contacts or properties are reported, not silently omitted." */
@@ -1140,11 +1326,11 @@ test("a grid whose element is gone is reported and nothing is copied", async () 
     grids: withGrids({ contactRows: null }),
     clockScale: 200
   });
-  assert.equal(page.button.textContent, "Loading…");
+  assert.equal(page.loading, true);
   await settle();
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /contenttableContactsGrid/);
+  assert.match(page.said, /contenttableContactsGrid/);
 });
 
 test("a column the scrape needs going missing is reported by name", async () => {
@@ -1155,7 +1341,7 @@ test("a column the scrape needs going missing is reported by name", async () => 
   });
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /Purchase Price column/);
+  assert.match(page.said, /Purchase Price column/);
 });
 
 /* A grid that never loads is the timeout case: the button becomes pressable
@@ -1170,10 +1356,11 @@ test("grids that never arrive are reported once the control gives up waiting", a
     clockScale: 200
   });
   await settle();
-  assert.equal(page.button.textContent, "Send to Hot Task", "it stops claiming to be loading");
+  assert.equal(page.loading, false, "it stops claiming to be loading");
+  assert.equal(page.button.style.opacity, "", "and stops looking dimmed");
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /hadn't finished loading/);
+  assert.match(page.said, /hadn't finished loading/);
 });
 
 /* ── What the parser will accept as people and properties ── */
@@ -1217,14 +1404,15 @@ test("a grid that stays empty is refused, not imported as a loan with nobody on 
   await settle();
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /contacts \(they hadn't finished loading\)/);
+  assert.match(page.said, /contacts \(they hadn't finished loading\)/);
 });
 
 /* ── The clipboard is the whole handoff ──────────────────
 
    The control used to open Hot Task's create form in a new tab after copying
    (#198). That was dropped: the filer opens an LOI Check in Hot Task and pastes
-   into Import from Humperdink. These hold the control to copy-only. */
+   into its paste box, which is the import (#409). These hold the control to
+   copy-only. */
 
 const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
 
@@ -1234,7 +1422,7 @@ test("one press copies the loan and opens nothing", async () => {
   assert.equal(page.copied.length, 1);
   assert.equal(JSON.parse(page.copied[0]).loanName, "Adams - Harbor");
   assert.deepEqual(page.opened, []);
-  assert.equal(page.button.textContent, COPIED);
+  assert.equal(page.said, COPIED);
 });
 
 test("the script carries no Teams link and no app id", () => {
@@ -1253,8 +1441,8 @@ test("a second press copies again", async () => {
 
 test("a press while the grids are still loading copies nothing", async () => {
   const page = goodPage({ grids: withGrids({ contactRows: [], propertyRows: [] }) });
-  assert.equal(page.button.textContent, "Loading…");
+  assert.equal(page.loading, true);
   await page.press();
   assert.deepEqual(page.copied, []);
-  assert.match(page.button.textContent, /Still loading/);
+  assert.match(page.said, /Still loading/);
 });

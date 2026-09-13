@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.5.0
-// @description  Copy a Humperdink loan to the clipboard, for pasting into Hot Task's Import from Humperdink box.
+// @version      1.8.0
+// @description  Copy a Humperdink loan to the clipboard, for pasting into a new LOI Check in Hot Task.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
 // @run-at       document-idle
@@ -51,6 +51,22 @@
      (#197). */
   var POLL_MS = 250;
   var LOAD_CEILING_MS = 20000;
+
+  /* The control lives in the Loan Terms panel header, immediately after the LOI
+     button, whose jqx classes it clones so it is indistinguishable from
+     Humperdink's own controls. Anchoring to a page element does mean a
+     Humperdink reshuffle could take it away, and a missing button is a silent
+     failure, so the anchor is watched rather than assumed: if the header has
+     not appeared within ANCHOR_CEILING_MS the old floating button is mounted
+     instead, and if Humperdink repaints the header later the control is put
+     back. */
+  var ANCHOR_ID = "btnLOIFile";
+  var INLINE_LABEL = "Export to HT";
+  /* Font Awesome 4, the version Humperdink ships. Alternatives that read the
+     same way: fa-sign-out, fa-external-link, fa-upload, fa-clipboard. */
+  var ICON_CLASS = "fa-share-square-o";
+  var TOAST_ID = "hot-task-send-message";
+  var ANCHOR_CEILING_MS = 8000;
 
   /* Humperdink titles the page `<LoanName> - Details`. The name is written into
      the page by its own JavaScript after load and has no stable element of its
@@ -275,9 +291,21 @@
   };
 
   /* The contact types an LOI check needs, in the order they read in the note.
-     Matched whole, case-insensitively, against the Type cell's text — a loan's
-     other contacts (Escrow, Title) stay in Humperdink. */
-  var CONTACT_TYPES = ["Broker", "Borrower"];
+     Matched whole, case-insensitively, against the Type cell's text.
+     Humperdink's full list is Borrower, Broker, Referral Source, Lender, Title,
+     Escrow, Other, Silent Borrower and Assistant; everything not named here
+     stays in Humperdink.
+
+     A loan can carry more than one of any of these, and every match travels:
+     the loop below walks all rows once per type rather than stopping at the
+     first hit, because a two-borrower loan is ordinary and a note that names
+     one of them is worse than one that names neither.
+
+     `Silent Borrower` travels under its own name rather than being folded into
+     `Borrower`, so the note says which one somebody is. Hot Task's parser
+     takes a contact's type as text and prints it as written, so a type added
+     here needs no matching change there. */
+  var CONTACT_TYPES = ["Broker", "Borrower", "Silent Borrower"];
 
   /* Humperdink's transaction types read `Acquisition`, `Acquisition with Refi
      Cross`, `Refinance-Standard` and so on. Anything that calls itself an
@@ -465,20 +493,43 @@
 
   /* The clipboard is the whole handoff. This control used to open Hot Task's
      create form in a new tab as well (#198); that was dropped, so it never
-     leaves the loan page and never needs to know where Hot Task lives. */
-  var COPIED_MESSAGE = "Copied — paste it into Import from Humperdink on an LOI Check";
+     leaves the loan page and never needs to know where Hot Task lives. Pasting
+     into an LOI Check's paste box is the import (#409): there is no second
+     button to press over there, so the message names only where to paste. */
+  var COPIED_MESSAGE = "Copied. Paste it into a new LOI Check.";
 
-  function mount() {
-    if (document.getElementById(BUTTON_ID)) return;
+  /* ── The control ────────────────────────────────────────────
 
-    var button = document.createElement("button");
-    button.id = BUTTON_ID;
-    button.type = "button";
-    button.textContent = IDLE_LABEL;
-    /* Floating rather than injected into Humperdink's own chrome: anchoring to
-       a page element would make the control disappear the next time Humperdink
-       reshuffles its markup, and a missing button is a silent failure. */
-    button.style.cssText = [
+     Humperdink's panel-header buttons are divs carrying jqx classes rather than
+     <button>s, so this matches that shape. The classes are copied off the LOI
+     button at mount time instead of being hard-coded, so a Humperdink restyle
+     carries over on its own. */
+  function createInlineControl(anchor) {
+    var el = document.createElement("div");
+    el.id = BUTTON_ID;
+    el.setAttribute("role", "button");
+    el.className = anchor.className;
+    el.style.cssText = "padding-left:10px !important;padding-right:12px;height:24px;margin-left:6px;cursor:pointer;";
+    el.innerHTML =
+      '<span class="fa ' + ICON_CLASS + ' fa-lg loanSettings" style="font-size:13px;margin-right:5px;margin-top:2px;"></span>' +
+      '<div class="hot-task-label" style="margin-top:3px;white-space:nowrap;"></div>';
+    /* jqx paints hover through a class rather than through CSS, so drive it by
+       hand or the control is the one dead-looking thing in the bar. */
+    el.addEventListener("mouseenter", function () {
+      el.classList.add("jqx-fill-state-hover", "jqx-fill-state-hover-Lending");
+    });
+    el.addEventListener("mouseleave", function () {
+      el.classList.remove("jqx-fill-state-hover", "jqx-fill-state-hover-Lending");
+    });
+    return el;
+  }
+
+  /* The fallback, for when the panel header never turns up. */
+  function createFloatingControl() {
+    var el = document.createElement("button");
+    el.id = BUTTON_ID;
+    el.type = "button";
+    el.style.cssText = [
       "position:fixed",
       "right:16px",
       "bottom:16px",
@@ -494,28 +545,147 @@
       "cursor:pointer",
       "box-shadow:0 2px 8px rgba(0,0,0,0.25)"
     ].join(";");
+    return el;
+  }
 
+  /* ── Messages ───────────────────────────────────────────────
+
+     The floating button could grow to 320px and hold a whole sentence, and
+     those sentences are this control's entire error reporting. A panel header
+     button cannot, so rather than trimming them they move into a note pinned
+     under the button: same text, same MESSAGE_MS, green edge on success and red
+     on failure. */
+  function showToast(anchor, message, ok) {
+    var toast = document.getElementById(TOAST_ID);
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = TOAST_ID;
+      document.body.appendChild(toast);
+    }
+    var box = anchor.getBoundingClientRect();
+    toast.textContent = message;
+    toast.style.cssText = [
+      "position:fixed",
+      "top:" + Math.round(box.bottom + 8) + "px",
+      "left:" + Math.round(Math.max(8, Math.min(box.left, window.innerWidth - 340))) + "px",
+      "z-index:2147483647",
+      "max-width:320px",
+      "padding:9px 12px",
+      "border:1px solid " + (ok ? "#1f8a3b" : "#b3261e"),
+      "border-left-width:4px",
+      "border-radius:4px",
+      "background:#fff",
+      "color:#1f1f1f",
+      "font:600 12px/1.4 system-ui,sans-serif",
+      "box-shadow:0 2px 10px rgba(0,0,0,0.2)"
+    ].join(";");
+    return toast;
+  }
+
+  function hideToast() {
+    var toast = document.getElementById(TOAST_ID);
+    if (toast) toast.remove();
+  }
+
+  function mount() {
+    if (document.getElementById(BUTTON_ID)) return;
+
+    var control = null;
+    var inline = false;
     /* The contacts and properties arrive by background request after the page
        renders (#197), so the control has a waiting state. It watches rather
        than fetching on click for a practical reason as well as an honest one: a
        clipboard write has to happen inside the press that asked for it, and a
        press that first waited several seconds for a grid has lost that. */
     var loading = !gridsSettled(document);
+    var resetTimer = 0;
+
+    function setLabel(text) {
+      if (!control) return;
+      var label = control.querySelector(".hot-task-label");
+      if (label) label.textContent = text;
+      else control.textContent = text;
+    }
 
     function idleLabel() {
+      if (inline) return INLINE_LABEL;
       return loading ? LOADING_LABEL : IDLE_LABEL;
     }
 
-    button.textContent = idleLabel();
+    /* In the bar the label cannot be spent on `Loading…` without the button
+       changing width mid-toolbar, so it dims and says why on hover instead. The
+       floating fallback keeps the original wording. */
+    function refreshIdle() {
+      if (!control) return;
+      setLabel(idleLabel());
+      control.title = loading
+        ? "Still loading this loan's contacts and properties"
+        : "Copy this loan for a new LOI Check in Hot Task";
+      if (inline) control.style.opacity = loading ? "0.65" : "";
+    }
 
-    var resetTimer = 0;
-    function say(message) {
-      button.textContent = message;
+    function say(message, ok) {
       if (resetTimer) clearTimeout(resetTimer);
+      if (inline) {
+        showToast(control, message, !!ok);
+        resetTimer = setTimeout(function () {
+          hideToast();
+          resetTimer = 0;
+        }, MESSAGE_MS);
+        return;
+      }
+      setLabel(message);
       resetTimer = setTimeout(function () {
-        button.textContent = idleLabel();
+        refreshIdle();
         resetTimer = 0;
       }, MESSAGE_MS);
+    }
+
+    function onPress() {
+      if (loading) {
+        say("Still loading this loan's contacts and properties — try again in a moment.", false);
+        return;
+      }
+      var result = collect(document, location);
+      if (!result.ok) {
+        say(result.error, false);
+        return;
+      }
+      var text = JSON.stringify(result.payload);
+      copyText(text).then(
+        function () {
+          say(COPIED_MESSAGE, true);
+        },
+        function () {
+          say("Couldn't reach the clipboard. Copy this page's URL by hand.", false);
+        }
+      );
+    }
+
+    /* Put the control in the Loan Terms header, or report that it isn't there
+       yet. Never assumed: see the ANCHOR_ID note at the top. */
+    function place() {
+      if (document.getElementById(BUTTON_ID)) return true;
+      var anchor = document.getElementById(ANCHOR_ID);
+      if (!anchor || !anchor.closest(".loanpanelheader")) return false;
+      control = createInlineControl(anchor);
+      control.addEventListener("click", function (event) {
+        event.preventDefault();
+        onPress();
+      });
+      anchor.insertAdjacentElement("afterend", control);
+      inline = true;
+      refreshIdle();
+      return true;
+    }
+
+    function placeFloating() {
+      if (document.getElementById(BUTTON_ID)) return;
+      control = createFloatingControl();
+      control.addEventListener("click", onPress);
+      document.body.appendChild(control);
+      inline = false;
+      refreshIdle();
     }
 
     /* Poll until both grids have painted, then let the button offer the copy.
@@ -533,35 +703,37 @@
         if (gridsSettled(document) || waitedMs >= LOAD_CEILING_MS) {
           loading = false;
           // Don't stamp over a message the filer is mid-read of.
-          if (button.textContent === LOADING_LABEL) button.textContent = IDLE_LABEL;
+          if (!resetTimer) refreshIdle();
           return;
         }
         setTimeout(tick, POLL_MS);
       }, POLL_MS);
     }
 
-    button.addEventListener("click", function () {
-      if (loading) {
-        say("Still loading this loan's contacts and properties — try again in a moment.");
-        return;
-      }
-      var result = collect(document, location);
-      if (!result.ok) {
-        say(result.error);
-        return;
-      }
-      var text = JSON.stringify(result.payload);
-      copyText(text).then(
-        function () {
-          say(COPIED_MESSAGE);
-        },
-        function () {
-          say("Couldn't reach the clipboard. Copy this page's URL by hand.");
+    /* The header is painted with the rest of the page, so this usually lands
+       first time. When it doesn't, keep looking, and take the corner rather
+       than nothing if it never shows. */
+    if (!place()) {
+      var waitedForAnchor = 0;
+      var watcher = setInterval(function () {
+        waitedForAnchor += POLL_MS;
+        if (place()) {
+          clearInterval(watcher);
+          return;
         }
-      );
-    });
+        if (waitedForAnchor >= ANCHOR_CEILING_MS) {
+          clearInterval(watcher);
+          placeFloating();
+        }
+      }, POLL_MS);
+    }
 
-    document.body.appendChild(button);
+    /* Humperdink repaints the panel header on collapse and on loan reload, and
+       takes the control with it. Put it back. */
+    new MutationObserver(function () {
+      if (inline && !document.getElementById(BUTTON_ID)) place();
+    }).observe(document.documentElement, { childList: true, subtree: true });
+
     watchForGrids();
   }
 
