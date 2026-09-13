@@ -1824,7 +1824,7 @@ beside it. What keeps it honest:
   so an emptied one closes without asking regardless.) It
   also clears everything that is a field without being in the values object —
   the typeahead's three pieces of state, the FRAUD seeder's box, the Humperdink
-  paste box and its "Imported" button — and takes the line down: after `Start
+  paste box and its "Imported" placeholder — and takes the line down: after `Start
   fresh` nothing was restored, so there is nothing to say.
 - **Focus moves to the folder name box**, first thing and before those clears.
   The button unmounts itself, so focus would fall to the document body, outside
@@ -1961,8 +1961,20 @@ ring.
 
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request
-field is one — on the other five the paste box and its button took a paste
-nobody has. Not disabled and not left to fail on the parse: not drawn.
+field is one — on the other five the paste box took a paste nobody has. Not
+disabled and not left to fail on the parse: not drawn.
+
+**The paste is the import** (#409). The box has one purpose, so there is no
+button beside it: `onPaste` takes the text off the event's `clipboardData`
+(the human's paste, not a clipboard read), cancels the browser's own insert and
+imports. A good paste empties the box and swaps the placeholder from `In
+Humperdink, press Export to HT, then paste here` to `Imported. Paste again to
+replace it.`, and an sr-only `role="status"` line says it for a screen reader.
+A bad paste toasts the parser's reason, leaves the text in the box and touches
+no field. Enter still imports what is in the box and never files the form.
+`Export to HT` is the userscript control's label in Humperdink's Loan Terms
+header; if that label changes, this placeholder and the parser's messages
+change with it.
 
 **The locked type's popover** (`.task-form-type-note`) is revealed by hover,
 `:focus-visible` and a click, and three things keep it honest:

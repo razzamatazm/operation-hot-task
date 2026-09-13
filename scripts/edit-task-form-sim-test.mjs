@@ -963,13 +963,55 @@ test("the terms box goes tall on edit, and mono only on an LOI", () => {
    form rather than a field in it. Editing: the shared-record line, which is the
    only place that is genuinely under BOTH loan fields now that they no longer
    sit side by side. */
+const IMPORT_PLACEHOLDER = "In Humperdink, press Export to HT, then paste here";
+
 test("the footer holds the exits, and the import belongs to filing alone", () => {
   const create = render({});
   const foot = create.slice(create.indexOf('class="task-form-foot"'));
-  assert.ok(foot.includes("Paste what Send to Hot Task copied"), "the paste box is in the footer");
-  assert.ok(foot.includes("Import from Humperdink"), "and so is its button");
+  assert.ok(foot.includes(`placeholder="${IMPORT_PLACEHOLDER}"`), "the paste box is in the footer, saying what to do");
   assert.ok(foot.includes(">Cancel<") && foot.includes(">Create Task<"), "beside the two exits");
-  assert.ok(!editing().includes("Import from Humperdink"), "editing offers no import");
+  assert.ok(!editing().includes(IMPORT_PLACEHOLDER), "editing offers no import");
+});
+
+/* #409: the paste is the import, so the box stands alone. The only buttons in
+   the footer are its exits. */
+test("the paste box has no Import button beside it", () => {
+  const create = render({});
+  const importRow = create.slice(create.indexOf('class="task-form-import"'));
+  const row = importRow.slice(0, importRow.indexOf('class="task-form-foot-actions"'));
+  assert.doesNotMatch(row, /<button/, "nothing to press beside the box");
+  assert.ok(!create.includes("Import from Humperdink"), "and the old label is gone from the form");
+  assert.match(row, /<p class="sr-only" role="status"><\/p>/, "the import's live region is mounted, and silent until one lands");
+});
+
+/* The paste handler can't be fired from a static render, so its wiring is read
+   off the source, the way the Start fresh clears are. */
+test("pasting imports the pasted text, and Enter imports what is in the box", () => {
+  const box = formSource.slice(formSource.indexOf('className="task-form-import-field"'));
+  const input = box.slice(0, box.indexOf("</label>"));
+  assert.match(
+    input,
+    /onPaste=\{\(e\) => \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\);/,
+    "the paste event's own text goes straight to the import, and the browser's insert is cancelled"
+  );
+  assert.match(
+    input,
+    /if \(e\.key === "Enter"\) \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(importText\);/,
+    "Enter imports the box's text and never submits the form"
+  );
+  assert.doesNotMatch(formSource, /navigator\.clipboard/, "the app never reads the clipboard itself");
+
+  const handler = formSource.slice(formSource.indexOf("const importFromHumperdink"));
+  const body = handler.slice(0, handler.indexOf("\n  };"));
+  assert.match(body, /parseHumperdinkPayload\(text\)/, "it parses what it was handed");
+  const failure = body.slice(0, body.indexOf("return;"));
+  assert.match(failure, /setImportText\(text\)/, "a bad paste stays in the box");
+  assert.match(failure, /showToast\(result\.error/, "and says why");
+  assert.doesNotMatch(failure, /setForm/, "without touching a field");
+  const success = body.slice(body.indexOf("return;"));
+  assert.match(success, /setImportText\(""\)/, "a good paste empties the box");
+  assert.match(success, /applyImportedLoan\(/, "fills the form");
+  assert.match(success, /setImported\(true\)/, "and turns the placeholder into the confirmation");
 });
 
 /* `Send to Hot Task` in Humperdink copies a term sheet, and an LOI Check is the
@@ -977,11 +1019,11 @@ test("the footer holds the exits, and the import belongs to filing alone", () =>
    a paste nobody has, so it is not drawn — not disabled, not left to fail on the
    parse. The create form opens on LOI, which is why the test above sees it. */
 test("the import is offered on an LOI Check and on nothing else", () => {
-  assert.ok(render({}).includes("Import from Humperdink"), "an LOI Check gets it");
+  assert.ok(render({}).includes(IMPORT_PLACEHOLDER), "an LOI Check gets it");
   for (const taskType of ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
     const html = render({ initialValues: { taskType } });
-    assert.ok(!html.includes("Import from Humperdink"), `${taskType} does not`);
-    assert.ok(!html.includes("Paste what Send to Hot Task copied"), `${taskType} has no paste box either`);
+    assert.ok(!html.includes('class="task-form-import"'), `${taskType} has no paste box`);
+    assert.ok(!html.includes(IMPORT_PLACEHOLDER), `${taskType} has no import instruction either`);
   }
 });
 

@@ -9,12 +9,14 @@
 - Local dev runs the same code with JSON file persistence and no Teams
   credentials.
 - **Humperdink → create form, via the clipboard.** A self-installed userscript
-  ([tools/humperdink/](../../tools/humperdink/)) puts a **Send to Hot Task**
-  button on a loan details page; it copies the loan's name, page URL, loan
-  terms, its broker and borrower, and any property it is acquiring, as a
-  versioned JSON payload. The create form's **Import from
-  Humperdink** button takes that paste and fills Folder Name, the Humperdink
-  Link and the notes, and sets the task type to LOI. The terms are read by
+  ([tools/humperdink/](../../tools/humperdink/)) puts an **Export to HT**
+  button in a loan details page's Loan Terms header (or, if that header never
+  appears, a floating **Send to Hot Task** button in the corner); it copies the
+  loan's name, page URL, loan terms, its brokers, borrowers and silent
+  borrowers, and any property it is acquiring, as a versioned JSON payload.
+  Pasting that into an LOI Check's paste box is the import (#409): it fills
+  Folder Name, the Humperdink Link and the notes, and sets the task type to
+  LOI. The terms are read by
   element id off Humperdink's Loan Terms panel; a **core** field whose element
   has gone is reported and nothing is copied, while a field that is merely empty
   is simply left out, so an unremarkable loan doesn't produce a note full of

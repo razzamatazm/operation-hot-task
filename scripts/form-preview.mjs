@@ -86,7 +86,7 @@ const render = (props) =>
   );
 
 const panels = [
-  ["New Task — filing", "The four-across top row, terms, link, share row. The Humperdink paste box and its Import button are in the footer beside Cancel and Create Task.", render({})],
+  ["New Task — filing", "The four-across top row, terms, link, share row. The Humperdink paste box, which imports on paste, is in the footer beside Cancel and Create Task.", render({})],
   ["Edit Task — the filer", "Same row, type locked to a padlocked chip. Tall monospace terms box. Urgency and the poop tray are drawn because this viewer filed the task.", render({ edit: { task: loiTask(), onSave: async () => {} } })],
   ["Edit Task — a checker correcting the terms", "Not the filer, so no urgency and no poop tray: neither is theirs to move.", render({ user: { ...CHECKER, roles: ["FILE_CHECKER"] }, edit: { task: loiTask(), onSave: async () => {} } })],
   ["Edit Task — someone who may not touch the loan", "Both loan boxes read-only, and the footer carries the reason instead of the shared-record line.", render({ edit: { task: loiTask(), onSave: async () => {}, loanRefusal: "Only the person who requested this task or the person working it can change its loan's name or link" } })],

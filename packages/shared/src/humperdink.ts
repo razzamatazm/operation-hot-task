@@ -103,9 +103,12 @@ export interface HumperdinkTerms {
 /* One person off Humperdink's contact grid (issue #197).
 
    `type` is the contact type text as the grid displays it — `"Broker"`,
-   `"Borrower"` — and it is what the scrape matched on. Humperdink's row ids are
-   positional (`row0ContactsGrid`), so anything that matched on those would
-   point at the wrong person the moment somebody adds a contact. */
+   `"Borrower"`, `"Silent Borrower"` — and it is what the scrape matched on.
+   It is kept as text, not a closed union: the userscript decides which types
+   travel, and the note prints whatever it sent under its own name, so a type
+   added there needs nothing here. Humperdink's row ids are positional
+   (`row0ContactsGrid`), so anything that matched on those would point at the
+   wrong person the moment somebody adds a contact. */
 export interface HumperdinkContact {
   type: string;
   name: string;
@@ -142,8 +145,10 @@ export interface HumperdinkPayload {
    */
   terms?: HumperdinkTerms;
   /**
-   * The loan's broker and borrower (#197), in that order. Only those two
-   * contact types travel; the rest of Humperdink's contact grid stays there.
+   * The loan's brokers, borrowers and silent borrowers (#197), grouped in that
+   * order, every one of each. Only those types travel; the rest of
+   * Humperdink's contact grid stays there. The note prints them in the order
+   * they arrive.
    */
   contacts?: HumperdinkContact[];
   /**
@@ -158,10 +163,12 @@ export type HumperdinkParseResult =
   | { ok: true; payload: HumperdinkPayload }
   | { ok: false; error: string };
 
-/* Every message is written to be read by the person who just pressed Import,
-   so each one says what to do next rather than naming the field that failed. */
+/* Every message is written to be read by the person who just pasted, so each
+   one says what to do next rather than naming the field that failed. The
+   button it names is the label the userscript's control wears in Humperdink's
+   Loan Terms header. */
 const NOT_OURS =
-  "That isn't a Humperdink payload. Press Send to Hot Task on the loan page, then paste here.";
+  "That isn't a Humperdink payload. Press Export to HT on the loan page, then paste here.";
 
 /** Pull the loan name out of a page title, or "" when the title isn't one. */
 export const loanNameFromPageTitle = (title: string | null | undefined): string => {
@@ -348,7 +355,7 @@ const readProperties = (value: unknown): HumperdinkProperty[] => {
 export const parseHumperdinkPayload = (text: string | null | undefined): HumperdinkParseResult => {
   const raw = (text ?? "").trim();
   if (!raw) {
-    return { ok: false, error: "Nothing to import — paste what Send to Hot Task copied." };
+    return { ok: false, error: "Nothing to import — paste what Export to HT copied." };
   }
 
   let decoded: unknown;
@@ -363,7 +370,7 @@ export const parseHumperdinkPayload = (text: string | null | undefined): Humperd
   }
 
   // Past this point the paste IS ours, so nothing below tells the filer to go
-  // and press Send to Hot Task — they already did. Every message from here on
+  // and press Export to HT — they already did. Every message from here on
   // is about the payload, not about where payloads come from.
   const version = decoded.version;
   if (typeof version !== "number" || !Number.isFinite(version) || version < 1) {
