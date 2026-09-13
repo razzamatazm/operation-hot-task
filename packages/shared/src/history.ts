@@ -65,6 +65,23 @@ export const currentAssigneeSince = (history: readonly Pick<TaskHistoryEvent, "a
   return takenAt;
 };
 
+/* Whether the person holding the task now was handed it rather than grabbing
+   it: the door they came through was `TASK_ASSIGNED`. Same forward pass as
+   `currentAssigneeSince`, so a handoff later returned to the pool and claimed
+   is a claim, and a handoff released in place is nobody's.
+
+   Asked by the startup repair of channel cards (ADR-0002), which has to tell a
+   card a handoff never edited from one a claim already did. Empty history says
+   no, which leaves a card alone rather than rewording it on a guess. */
+export const currentAssigneeWasHanded = (history: readonly Pick<TaskHistoryEvent, "action" | "at">[]): boolean => {
+  let handed = false;
+  for (const event of inTimeOrder(history)) {
+    if (ASSIGNEE_TAKEN.has(event.action)) handed = event.action === "TASK_ASSIGNED";
+    else if (ASSIGNEE_CLEARED.has(event.action)) handed = false;
+  }
+  return handed;
+};
+
 /* The two closing doors get their own history actions rather than riding the
    generic `TASK_STATUS_CHANGED` row (#239, ADR-0007 rule 6).
 

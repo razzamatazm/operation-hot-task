@@ -16,7 +16,9 @@
  *     return the task unchanged, which reported success for a request that did
  *     nothing.
  *   - DMs only: a DM_ASSIGN card to the recipient, a one-line DM to a displaced
- *     assignee, and nothing on the channel or the activity feed.
+ *     assignee, and no channel post or activity-feed alert. The channel card
+ *     already posted is edited in place (CHANNEL_ASSIGNED) so it stops offering
+ *     Claim.
  *   - The handoff note rides the DM_ASSIGN card and is NEVER written as a
  *     review note (which would double-notify through DM_NOTE).
  *   - History records TASK_ASSIGNED with a free-text detail string.
@@ -246,7 +248,7 @@ await check("handing a task to whoever already holds it is refused", async () =>
   assert.equal(canAssignTaskTo(after, OFFICER, CREATOR), false);
 });
 
-await check("the recipient gets a DM_ASSIGN card and nothing hits the channel", async () => {
+await check("the recipient gets a DM_ASSIGN card and the channel gets no new post", async () => {
   const ctx = await setup();
   const task = await openTask(ctx.service);
 
@@ -260,11 +262,12 @@ await check("the recipient gets a DM_ASSIGN card and nothing hits the channel", 
   assert.equal(assigns[0].note, "you know this file", "the note rides the card");
   assert.match(assigns[0].message, /Dana Requester assigned Assign Sim to you/);
 
-  assert.deepEqual(
-    emitted.filter((e) => e.target.startsWith("CHANNEL")),
-    [],
-    "no channel post — a handoff is a conversation between two people"
-  );
+  /* No channel post — a handoff is a conversation between two people. But the
+     card the channel already has is edited in place, silently, or it goes on
+     offering a Claim button on a task somebody now holds. */
+  const channel = emitted.filter((e) => e.target.startsWith("CHANNEL"));
+  assert.deepEqual(channel.map((e) => e.target), ["CHANNEL_ASSIGNED"], "one in-place card edit, no post");
+  assert.equal(channel[0].task.assignee.id, OFFICER.id, "carrying the new holder");
   assert.deepEqual(targeted(emitted, "ACTIVITY_FEED"), [], "and no activity-feed alert");
 
   // The note is a card decoration, never a review note (that would fire the
@@ -313,6 +316,11 @@ await check("a displaced assignee gets a one-line DM", async () => {
   assert.equal(displaced.length, 1, "the person it was taken from is always told");
   assert.match(displaced[0].message, /Pat passed Assign Sim to Casey Checker/);
   assert.equal(targeted(emitted, "DM_ASSIGN").length, 1, "and the recipient still gets their card");
+
+  // The channel card named the old holder; it is corrected to the new one.
+  const edits = targeted(emitted, "CHANNEL_ASSIGNED");
+  assert.equal(edits.length, 1, "a reassign corrects the channel card too");
+  assert.equal(edits[0].task.assignee.id, CHECKER.id);
 });
 
 await check("history records TASK_ASSIGNED with a free-text detail", async () => {

@@ -23,6 +23,8 @@
  *      doesn't change wording the first time Teams refreshes it.
  *   5. A card-tap claim and a web claim produce the same card body.
  *   6. A task born assigned says so, rather than reading as a claim.
+ *   7. A handoff edits the posted card the same way: no Claim button, and a
+ *      headline saying the holder was assigned it.
  *
  * Sibling of channel-card-terminal-sim-test.mjs, built the same way and
  * running against the compiled dist.
@@ -302,6 +304,76 @@ await check("a refresh does not turn a task born assigned into a claim", async (
   const reclaimed = await client.handleRefreshCard("task-1", "aad-viewer");
   assert.equal(headline(reclaimed), "Robin grabbed Dana's LOI Check");
   assert.equal(nameLine(reclaimed), "Smith-1042 - LOI Check");
+});
+
+await check("handing off a posted task takes the Claim button off its card", async () => {
+  const { client, posted, updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  assert.ok(actionTitles(cardOf(posted.at(-1))).some((title) => /Claim/.test(title)), "the posted card offers Claim");
+
+  // A handoff is a silent edit of the card already there, never a new post.
+  await notify("CHANNEL_ASSIGNED", liveTask("CLAIMED"), CREATOR);
+  assert.equal(posted.length, 1, "nothing new in the channel");
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "Casey was assigned Dana's LOI Check", "nobody grabbed it, and the card doesn't say they did");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
+  assert.ok(!actionTitles(card).some((title) => /Claim/.test(title)), "and nobody can claim it from the card any more");
+
+  // A later Teams refresh keeps saying so, rather than reverting to "grabbed".
+  client.setTaskLookup(async () => taskAt("CLAIMED"));
+  const refreshed = await client.handleRefreshCard("task-1", "aad-viewer");
+  assert.deepEqual(refreshed.body, card.body, "the refresh renders what the edit rendered");
+});
+
+await check("reassigning an in-flight task names the new holder on the card", async () => {
+  const { updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  await notify("CHANNEL_CLAIMED", liveTask("CLAIMED"), CHECKER);
+
+  const robin = { id: "aad-robin", displayName: "Robin Checker" };
+  await notify("CHANNEL_ASSIGNED", liveTask("CLAIMED", { assignee: robin }), CREATOR);
+  assert.equal(headline(cardOf(updated.at(-1))), "Robin was assigned Dana's LOI Check");
+});
+
+await check("the startup repair fixes a card a handoff left offering Claim, once", async () => {
+  const { client, updated, notify } = await botSetup();
+  // Posted as claimable, then handed off before the handoff edited the card.
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  client.setTaskLookup(async () => liveTask("CLAIMED"));
+
+  const first = await client.repairHandedOffCards(async () => true);
+  assert.equal(first.repaired, 1);
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "Casey was assigned Dana's LOI Check");
+  assert.ok(!actionTitles(card).some((title) => /Claim/.test(title)), "the Claim button is gone");
+
+  // Every boot runs it; a card already repaired is left alone.
+  const edits = updated.length;
+  const second = await client.repairHandedOffCards(async () => true);
+  assert.equal(second.repaired, 0, "nothing left to repair");
+  assert.equal(updated.length, edits, "and nothing is edited again");
+});
+
+await check("the startup repair leaves claimed, open and closed tasks alone", async () => {
+  const { client, updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+
+  // Somebody grabbed it: the claim already edited the card.
+  client.setTaskLookup(async () => liveTask("CLAIMED"));
+  assert.equal((await client.repairHandedOffCards(async () => false)).repaired, 0);
+
+  // Still in the pool, or finished: history is never even asked.
+  const asked = [];
+  for (const task of [liveTask("OPEN", { assignee: undefined }), liveTask("COMPLETED"), liveTask("CANCELLED")]) {
+    client.setTaskLookup(async () => task);
+    const result = await client.repairHandedOffCards(async (t) => {
+      asked.push(t.status);
+      return true;
+    });
+    assert.equal(result.repaired, 0, `${task.status} is not repaired`);
+  }
+  assert.deepEqual(asked, [], "only a task somebody holds is looked into");
+  assert.equal(updated.length, 0, "no card was touched");
 });
 
 console.log(`\n${passed} checks passed`);

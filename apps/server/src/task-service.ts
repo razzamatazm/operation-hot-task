@@ -2113,6 +2113,8 @@ export class TaskService {
          not something the taker does to them directly.
        - DMs only. No channel post, no activity-feed alert: a handoff is a
          conversation between two people and the channel already saw the task.
+         The card the channel already has is edited in place, silently, so it
+         stops offering Claim on a task somebody now holds.
        - The note rides the recipient's card only. It is never written as a
          review note — that would fire the DM_NOTE fan-out and double-notify. */
   async assignTask(params: {
@@ -2157,6 +2159,16 @@ export class TaskService {
         target: "DM_ASSIGN",
         recipientUserIds: [params.target.id],
         ...(note ? { note } : {})
+      });
+      // Not a post: the root channel card is edited to name the new holder, with
+      // no Claim button. Left alone, an OPEN task's card goes on offering Claim
+      // to the whole channel after somebody has been handed it.
+      await this.notify({
+        type: "TASK_STATUS_CHANGED",
+        task: updated,
+        actor: { id: params.actor.id, displayName: params.actor.displayName },
+        message: `${params.target.displayName} was assigned ${updated.folderName}`,
+        target: "CHANNEL_ASSIGNED"
       });
       if (previous) {
         // Anyone may pull a task out from under anyone, so the displaced

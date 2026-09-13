@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { currentAssigneeSince } from "../packages/shared/src/history.ts";
+import { currentAssigneeSince, currentAssigneeWasHanded } from "../packages/shared/src/history.ts";
 
 /* Only `action` and `at` are read, and the function's parameter type says so.
    Supplying an id, a taskId and a `by` would imply the rule consulted them. */
@@ -115,4 +115,51 @@ test("the caller's array is not reordered underneath it", () => {
   ];
   currentAssigneeSince(history);
   assert.deepEqual(history.map((e) => e.action), ["TASK_CLAIMED", "TASK_UNCLAIMED"]);
+});
+
+/* ── Handed it, or grabbed it ──────────────────────────────
+   The startup repair of channel cards a handoff left offering Claim asks this:
+   did the person holding the task now arrive by a handoff? Same forward pass,
+   so the same misattributions are the ones to rule out. */
+
+test("a claimed task was not handed to its holder", () => {
+  assert.equal(currentAssigneeWasHanded([CREATED, event("TASK_CLAIMED", "2026-03-01T09:30:00.000Z")]), false);
+});
+
+test("a task handed off after a claim was handed to its holder", () => {
+  const history = [
+    CREATED,
+    event("TASK_CLAIMED", "2026-03-01T09:30:00.000Z"),
+    event("TASK_ASSIGNED", "2026-03-01T14:00:00.000Z")
+  ];
+  assert.equal(currentAssigneeWasHanded(history), true);
+});
+
+test("a task handed off, returned to the pool and then claimed was not", () => {
+  const history = [
+    CREATED,
+    event("TASK_ASSIGNED", "2026-03-01T09:30:00.000Z"),
+    event("TASK_UNCLAIMED", "2026-03-01T11:00:00.000Z"),
+    event("TASK_CLAIMED", "2026-03-02T08:15:00.000Z")
+  ];
+  assert.equal(currentAssigneeWasHanded(history), false, "the holder now grabbed it themselves");
+});
+
+test("a handoff that was released in place leaves nobody handed anything", () => {
+  const history = [
+    CREATED,
+    event("TASK_ASSIGNED", "2026-03-01T09:30:00.000Z"),
+    event("TASK_RELEASED", "2026-03-01T11:00:00.000Z")
+  ];
+  assert.equal(currentAssigneeWasHanded(history), false);
+});
+
+test("handed or grabbed is read in time order, not arrival order", () => {
+  const shuffled = [
+    event("TASK_ASSIGNED", "2026-03-02T08:15:00.000Z"),
+    CREATED,
+    event("TASK_CLAIMED", "2026-03-01T09:30:00.000Z")
+  ];
+  assert.equal(currentAssigneeWasHanded(shuffled), true);
+  assert.equal(currentAssigneeWasHanded([]), false, "no history, no claim to repair on");
 });
