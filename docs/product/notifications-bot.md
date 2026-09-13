@@ -146,6 +146,11 @@
     recorded when the card was first posted, so a card keeps pointing where it
     always pointed across a config change. With no link recorded — the case
     whenever `TEAMS_APP_ID` is unset — the card carries no actions at all.
+  - Confirmed 2026-09-12: from the claim on, through completion and
+    cancellation, the card keeps Open in Hot Task, the task (type and file
+    name), who asked, and who claimed or finished it. The Humperdink link on
+    the file name stays on the claimable card only; the card doesn't need it
+    once the task is claimed.
   - The **re-open pointer card** is the exception: it is deliberately linkless,
     because the task it replaced now lives in a new thread.
 - **A claim sends each party one DM, and only one** (`DM_CHAT_SEED`, decided
