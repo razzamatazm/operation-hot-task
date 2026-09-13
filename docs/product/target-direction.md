@@ -18,7 +18,8 @@ Not yet implemented — do not present as current state. Everything else under
   Only worth building if the volume ever justifies it. What exists today is the
   clipboard hop described in
   [integrations-hosting.md](integrations-hosting.md): a userscript copies the
-  loan, the human pastes it into the create form and presses Create.
+  loan and opens the create form, which fills from the clipboard where Teams
+  allows it (or takes one paste), and the human presses Create.
 
 Shipped, previously listed here: the Teams tab, the notification bot, Entra ID
 SSO, the Azure Web App deployment, all of

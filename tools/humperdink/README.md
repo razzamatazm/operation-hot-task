@@ -5,9 +5,10 @@ button to a Humperdink loan details page, in the Loan Terms header right after
 the LOI button. Pressing it copies the loan — its name, the page's URL, its loan
 terms, its brokers, borrowers and silent borrowers, and any property it is
 acquiring — to your clipboard as JSON. Then it opens Hot Task in Teams desktop
-on a new LOI Check, with the paste box at the bottom of the form ready for you.
-Paste (⌘V) and that is the import: Folder Name, the Humperdink Link and the
-notes fill in straight away, with nothing else to press.
+on a new LOI Check. Where Teams lets Hot Task read the clipboard, Folder Name,
+the Humperdink Link and the notes fill in by themselves. Where it doesn't, the
+paste box at the bottom of the form is focused and ready: paste (⌘V) and that
+is the import, with nothing else to press.
 
 The first time you press it, Chrome asks whether to open Microsoft Teams. Tick
 **Always allow** and press Open, and every press after that goes straight to
@@ -18,10 +19,13 @@ from Humperdink". Teams writes every link it receives into its local log, so the
 loan itself travels on your clipboard and nowhere else. If the copy fails, the
 button says so and doesn't open anything.
 
-Humperdink has no API, so the clipboard is the whole integration. Hot Task never
-reads your clipboard on its own: you press paste. Clipboard-read permission
-inside the Teams webview is the kind of thing that works in dev and fails in
-production, so it is deliberately not used.
+Humperdink has no API, so the clipboard is the whole integration. Hot Task reads
+your clipboard in exactly one place: the LOI Check this button opens, through
+Teams, once
+([ADR-0012](../../docs/adr/0012-a-humperdink-arrival-may-read-the-clipboard.md)).
+It only fills the form if what it finds is a loan this button copied, and it
+never files anything: you still press Create. New Task and everything else in
+Hot Task never read it.
 
 ## Install it (about two minutes, once)
 
@@ -61,11 +65,12 @@ Nothing normally needs changing. Two values are pinned in the script:
    whether to open Teams. Tick Always allow.) If the button is dimmed, the
    contacts and properties haven't come back from Humperdink yet — they load
    after the page does, and hovering says so. Give it a second.
-2. Hot Task opens a new LOI Check with the paste box at the bottom of the form
-   focused (it reads `In Humperdink, press Export to HT, then paste here`).
-   Paste. That is the import: Folder Name, the Humperdink Link and the terms
-   fill in, the box empties, and it reads `Imported. Paste again to replace
-   it.` Anything you had already typed into Notes stays where it is — the terms
+2. Hot Task opens a new LOI Check. Where Teams lets it read the clipboard,
+   Folder Name, the Humperdink Link and the terms are already filled in, and the
+   paste box reads `Imported. Paste again to replace it.` Otherwise the paste
+   box at the bottom of the form is focused (it reads `In Humperdink, press
+   Export to HT, then paste here`): paste, and that is the import, filling the
+   same fields. Anything you had already typed into Notes stays where it is — the terms
    go in below it — and pasting again replaces the block the last import wrote
    rather than stacking a second copy. If you had an unfinished new task open
    in Hot Task, it is kept on the Task Drafts tab. You can also get here by

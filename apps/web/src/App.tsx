@@ -1,4 +1,4 @@
-import { app as teamsApp, authentication } from "@microsoft/teams-js";
+import { app as teamsApp, authentication, clipboard as teamsClipboard } from "@microsoft/teams-js";
 import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
@@ -20,7 +20,7 @@ import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
-import { moveAutosaveAside } from "./humperdink-arrival";
+import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
 import type { AutosaveMove } from "./humperdink-arrival";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
 import { Timeline } from "./timeline";
@@ -3552,10 +3552,19 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
 };
 
 /* ── Main app ─────────────────────────────────────────────── */
+/* The clipboard read a Humperdink arrival's form fills itself from (#415,
+   ADR-0012), through Teams rather than the browser. Handed only to that form.
+   Module-level, so its identity never changes under the form. */
+const readTeamsClipboard = (): Promise<string | null> => readArrivalClipboard(teamsClipboard);
+
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
+  /* The loans list has come back at least once (#415). A Humperdink arrival's
+     clipboard fill waits for it. A failed load leaves it false, and the paste
+     box is still there for ⌘V. */
+  const [loansLoaded, setLoansLoaded] = useState(false);
   /* Selectable people for the share and handoff pickers (issue #41, ADR-0002).
      Active users; carries roles so the handoff picker can filter to file
      checkers on a Fraud Check. */
@@ -3973,6 +3982,7 @@ export const App = () => {
     try {
       const data = await apiRequest<{ loans: Loan[] }>("/loans", { method: "GET" }, user);
       setLoans(data.loans);
+      setLoansLoaded(true);
     } catch {
       /* Loan typeahead is a convenience — a failed load just means no
          suggestions, so swallow rather than blocking the task view. */
@@ -4097,8 +4107,10 @@ export const App = () => {
         tokenCache.seed(token);
         const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
 
-        /* Humperdink arrival link → a new LOI Check, paste box focused, so the
-           loan Send to Hot Task just put on the clipboard is one paste away.
+        /* Humperdink arrival link → a new LOI Check, paste box focused. It
+           fills itself from the loan Send to Hot Task just put on the
+           clipboard where Teams can read it (#415), and is one paste away
+           where it can't.
            Never a task to focus and never a claim, whatever rides beside it.
            Marked here, in the same render as the person, and opened by the
            arrival effect once any unfinished new task has been moved to Task
@@ -5204,6 +5216,8 @@ export const App = () => {
           tasks={tasks}
           humperdinkArrival={humperdinkArrival}
           leaveAutosaveAlone={leaveAutosaveAlone}
+          readClipboard={humperdinkArrival ? readTeamsClipboard : undefined}
+          loansLoaded={loansLoaded}
           onClose={() => {
             setFormOpen(false);
             setReopened(null);

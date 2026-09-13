@@ -98,6 +98,11 @@ That form's own typing isn't kept against a reload, which costs little, since
 the loan it is about is still on the clipboard. Losing the old task is the one
 outcome that isn't allowed. Nothing is toasted either way.
 
+Since #415 the arrival's LOI Check can fill itself from the clipboard
+([ADR-0012](0012-a-humperdink-arrival-may-read-the-clipboard.md)). That fill
+happens on the form this rule opens, after the move or the hold, so it changes
+nothing here: whatever it fills in can't write over the old task either.
+
 **6. It goes when its owner goes.** Removing a person from the app removes their
 Saved for Later tasks.
 
