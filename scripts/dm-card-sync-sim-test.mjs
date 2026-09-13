@@ -29,7 +29,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { TeamsBotClient, advanceFor, closedStateFor, detailCard, noteCard, noteCardDataFromTask } from "../apps/server/dist/bot.js";
+import { TeamsBotClient, advanceFor, closedStateFor, detailCard, noteCard, noteCardDataFromTask, noteCardDetailsFromTask } from "../apps/server/dist/bot.js";
 import { TeamsNotificationProvider } from "../apps/server/dist/notifications.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -613,16 +613,21 @@ await check("a note card's Complete button is stripped by the same sync", async 
   });
   assert.deepEqual(actionTitles(cardOf(sent[0])), ["Reply", "Complete"]);
 
+  // Details built from the completed task, the way the notification layer
+  // builds them: the banner rides in on them. Complete is still offered, so the
+  // assertion proves the closed card drops it rather than never receiving it.
   await client.syncTaskCards({
     taskId: "task-2",
     folder: "Jones-88",
-    details: DETAILS,
+    details: noteCardDetailsFromTask(makeTask({ id: "task-2", folderName: "Jones-88", status: "COMPLETED" })),
     status: "COMPLETED",
     thread: [{ author: "Casey", text: "on it" }],
-    recipients: [{ userId: CHECKER.id, showAdvance: false }]
+    advance: { status: "COMPLETED", label: "Complete" },
+    recipients: [{ userId: CHECKER.id, showAdvance: true }]
   });
   assert.equal(sent.length, 1);
   assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Reply"]);
+  assert.equal(headline(cardOf(updated.at(-1))), "✅ Completed — Jones-88 - LOI Check");
 });
 
 await check("a silent sync never posts a replacement when the update is rejected", async () => {
