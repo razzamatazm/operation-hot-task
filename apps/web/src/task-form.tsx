@@ -689,8 +689,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setLoanHighlight(-1);
     /* The Humperdink paste box is a field like any other, and it sits on the
        form for every LOI — which a blank one is. Left alone it would still be
-       holding the pasted term sheet, with its button still reading "Imported",
-       over a form with nothing in it. */
+       holding a refused paste, or reading "Imported" in its placeholder, over a
+       form with nothing in it. */
     setImportText("");
     setImported(false);
     setImportedNote("");

@@ -43,7 +43,7 @@
   var LOAN_DETAILS_PATH = /^\/Loans\/Details\/[^/]+\/?$/i;
 
   var BUTTON_ID = "hot-task-send-control";
-  var IDLE_LABEL = "Send to Hot Task";
+  var IDLE_LABEL = "Export to HT";
   var LOADING_LABEL = "Loading…";
   var MESSAGE_MS = 6000;
   /* How often to check whether Humperdink's background grids have painted, and

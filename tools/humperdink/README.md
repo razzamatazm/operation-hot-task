@@ -28,7 +28,7 @@ production, so it is deliberately not used.
 4. Open any loan in Humperdink. An **Export to HT** button sits in the Loan
    Terms header, right after the LOI button, dressed like Humperdink's own. If
    that header hasn't appeared within about eight seconds (a Humperdink update
-   that moved it, say), a dark **Send to Hot Task** button takes the
+   that moved it, say), a dark **Export to HT** button takes the
    bottom-right corner instead, so the control is never silently missing. If
    Humperdink redraws the header, the button puts itself back.
 

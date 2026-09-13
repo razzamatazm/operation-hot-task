@@ -429,7 +429,7 @@ test("with no Loan Terms header to sit in, the control takes the corner once it 
   assert.equal(page.button, null, "it looks for the header before settling for the corner");
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(page.button.tagName, "BUTTON");
-  assert.equal(page.button.textContent, "Send to Hot Task");
+  assert.equal(page.button.textContent, "Export to HT", "the same name the paste box tells people to press");
   assert.equal(page.controlsOnPage, 1);
   await page.press();
   assert.equal(page.copied.length, 1);
