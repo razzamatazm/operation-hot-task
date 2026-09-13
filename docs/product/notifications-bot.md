@@ -151,10 +151,13 @@
 - **A claim sends each party one DM, and only one** (`DM_CHAT_SEED`, decided
   2026-09-12). The claimer and the creator both get the **conversation card**,
   and it carries everything a claim needs to say:
-  - a headline naming the task (the file name, or an OOO task's description),
-  - a context line — `LOI Check · asked by Tyler · assigned to Suzie` — the
-    channel card's line minus the file name, saying "assigned to" however the
-    holder got there, since this is the same card after a handoff,
+  - a title naming the task and its type, `Smith-1042 - LOI Check` (decided
+    2026-09-12). An OOO task's description stands in for the file name:
+    `Beach week - Out of Office`,
+  - a context line, `asked by Tyler · assigned to Suzie`: the channel card's
+    line minus the file name and the type, which the title already shows,
+    saying "assigned to" however the holder got there, since this is the same
+    card after a handoff,
   - the facts: How Bad, urgency time-frame, **due date**, notes, Humperdink link
     (an OOO task shows its dates instead),
   - the conversation so far, or "No messages yet. Reply here to chat about it."
@@ -330,6 +333,9 @@ place, so a card's buttons always show the step that is actually next.
 - At a terminal status the card becomes a record: a banner (`✅ Completed —
   <folder>` / `🚫 Cancelled` / `📦 Archived`) replaces the headline and every
   action button is dropped. `Open in Hot Task` survives on the detail card.
+  On the conversation card the banner keeps the type after the name
+  (`✅ Completed — Smith-1042 - LOI Check`), because its context line no
+  longer names it.
   **COMPLETED keeps the note card's reply box** — `addCompletedNote` (issue #45)
   still accepts notes on a completed task — while CANCELLED/ARCHIVED lose it.
   The card's Reply therefore routes through `TaskService.addNoteFromCard`, which

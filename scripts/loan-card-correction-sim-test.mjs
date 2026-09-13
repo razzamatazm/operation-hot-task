@@ -308,7 +308,7 @@ await check("a rename corrects all three posted surfaces, in place", async () =>
   // 3. The conversation cards, which are rebuilt from the task's live values.
   const note = editsTitled(h.updated, "Smith-1043").at(-1);
   assert.ok(note, "the conversation card was edited");
-  assert.equal(headline(cardOf(note)), "Smith-1043");
+  assert.equal(headline(cardOf(note)), "Smith-1043 - LOI Check");
 });
 
 await check("corrected cards keep the exact messages they were posted as", async () => {
@@ -387,6 +387,7 @@ await check("a finished task's card is corrected and stays terminal", async () =
   // The conversation card keeps the reply box a completed task still takes
   // (#45), and gains no step button back.
   const detail = cardOf(editsTitled(h.updated, "✅ Completed").at(-1));
+  assert.equal(headline(detail), "✅ Completed — Done-2 - LOI Check");
   assert.deepEqual(actionTitles(detail), ["Reply"], "and none on the DM card either");
 });
 
@@ -505,7 +506,7 @@ await check("folding two loans together corrects the absorbed loan's cards", asy
   assert.equal(headline(cardOf(channel)), "Casey Checker grabbed Alpha");
   const conversation = editsTitled(h.updated, "Alpha").at(-1);
   assert.ok(conversation, "the claim's conversation card was edited");
-  assert.equal(headline(cardOf(conversation)), "Alpha");
+  assert.equal(headline(cardOf(conversation)), "Alpha - LOI Check");
 });
 
 console.log(`\n${passed} checks passed`);

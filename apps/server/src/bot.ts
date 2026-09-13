@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TaskCardRecipient, TaskStatus, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, ChannelCardContext, FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatChannelContextLine, formatClaimedHeadline, formatHumperdinkCardLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -264,7 +264,9 @@ interface NoteThreadEntry {
    into the task. Rebuilt from the live task on every render — a note, a reply,
    a status sync, a loan correction — so it never quotes a stale value. */
 interface NoteCardDetails {
-  /* `LOI Check · asked by Tyler · assigned to Suzie`. */
+  /* `Smith-1042 - LOI Check`: the task and its type. */
+  title: string;
+  /* `asked by Tyler · assigned to Suzie`. No type: the title carries it. */
   contextLine: string;
   facts: string[];
   openUrl?: string;
@@ -399,20 +401,24 @@ export const taskFactLines = (task: LoanTask, options: { withDue: boolean }): st
   ];
 };
 
-/* The conversation card's details, from the live task. The context line is the
-   channel card's, minus the file name the card's headline already shows, and
-   it names the holder as "assigned to" whichever way they got there: this card
-   is the same card for a claim and a handoff, and "claimed by" would be wrong
-   on the second. */
+/* The conversation card's details, from the live task. The title names the
+   task and its type, `Smith-1042 - LOI Check`; an OOO task's folder name is its
+   description, so it reads `Beach week - Out of Office`. The context line is
+   the channel card's minus the two things the title already shows, the file
+   name and the type, and it names the holder as "assigned to" whichever way
+   they got there: this card is the same card for a claim and a handoff, and
+   "claimed by" would be wrong on the second. */
 export const noteCardDetailsFromTask = (task: LoanTask): NoteCardDetails => {
   const openUrl = taskDeepLink(task.id, task.folderName);
   return {
+    title: `${task.folderName} - ${TASK_TYPE_LABELS[task.taskType]}`,
     contextLine: formatChannelContextLine({
       taskType: task.taskType,
       folderName: "",
       createdBy: task.createdBy.displayName,
       ...(task.assignee ? { assignee: task.assignee.displayName } : {}),
-      assigneeVerb: ASSIGNED_VERB
+      assigneeVerb: ASSIGNED_VERB,
+      omitType: true
     }),
     facts: taskFactLines(task, { withDue: true }),
     ...(openUrl ? { openUrl } : {})
@@ -424,8 +430,8 @@ export const noteCardDetailsFromTask = (task: LoanTask): NoteCardDetails => {
    (e.g. Complete is the assignee's action, not the creator's) — without this
    the reply-box refresh would re-add Complete for anyone. */
 export const noteCardDataFromTask = (task: LoanTask, viewer?: UserIdentity): NoteCardData => {
-  const closed = closedStateFor(task.status, task.folderName);
   const details = noteCardDetailsFromTask(task);
+  const closed = closedStateFor(task.status, details.title);
   // FRAUD cards carry the role-aware two-phase button set (keyed off the viewer)
   // instead of the generic single advance. The key is always present for a fraud
   // task (empty when this viewer has no action in this state) so `noteCard`
@@ -516,10 +522,11 @@ export const noteCard = (data: NoteCardData): Record<string, unknown> => {
     type: "AdaptiveCard",
     version: "1.4",
     body: [
-      // A closed task's terminal banner takes the headline's place — it names
-      // the task too. The conversation stays below it, since the point of
-      // keeping the card is keeping the history.
-      { type: "TextBlock", text: data.closed ? data.closed.label : data.folder, weight: "Bolder", wrap: true, size: "Medium" },
+      // A closed task's terminal banner takes the title's place, and is built
+      // from the title so it still names the task and its type. The
+      // conversation stays below it, since the point of keeping the card is
+      // keeping the history.
+      { type: "TextBlock", text: data.closed ? data.closed.label : data.details.title, weight: "Bolder", wrap: true, size: "Medium" },
       { type: "TextBlock", text: data.details.contextLine, wrap: true, spacing: "Small", isSubtle: true },
       ...(data.details.facts.length > 0
         ? [{ type: "TextBlock", text: data.details.facts.join("\n"), wrap: true, spacing: "Small" }]
@@ -1610,6 +1617,10 @@ export class TeamsBotClient {
     advance?: AdvanceAction;
     recipients: TaskCardRecipient[];
   }): Promise<void> {
+    // The conversation card's banner carries its title, type included; a
+    // details card left over from an older claim keeps the folder-only banner
+    // it was always given.
+    const noteClosed = closedStateFor(opts.status, opts.details.title);
     const closed = closedStateFor(opts.status, opts.folder);
     await this.syncNoteCards({
       taskId: opts.taskId,
@@ -1617,7 +1628,7 @@ export class TeamsBotClient {
       details: opts.details,
       thread: opts.thread,
       ...(opts.advance ? { advance: opts.advance } : {}),
-      ...(closed ? { closed } : {}),
+      ...(noteClosed ? { closed: noteClosed } : {}),
       silent: true,
       recipients: opts.recipients.map((recipient) => ({
         ...recipient,

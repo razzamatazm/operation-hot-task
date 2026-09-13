@@ -163,7 +163,10 @@ export const TASK_TYPE_LABELS: Readonly<Record<TaskType, string>> = {
 
    `assigneeVerb` is how the holder got there — "claimed by" for a real claim,
    "done by" on the completed card, "assigned to" for a task born assigned
-   (Handoff at creation, ADR-0002), which nobody claimed. */
+   (Handoff at creation, ADR-0002), which nobody claimed.
+
+   `omitType` is the DM conversation card's: its title already reads
+   `Smith-1042 - LOI Check`, so the line under it would say the type twice. */
 export interface ChannelCardContext {
   taskType: TaskType;
   /** The file name, or — on OOO — the Vacation Description, which never
@@ -175,8 +178,8 @@ export interface ChannelCardContext {
   assignee?: string;
 }
 
-export const formatChannelContextLine = (params: ChannelCardContext & { assigneeVerb?: string }): string => {
-  const segments: string[] = [TASK_TYPE_LABELS[params.taskType]];
+export const formatChannelContextLine = (params: ChannelCardContext & { assigneeVerb?: string; omitType?: boolean }): string => {
+  const segments: string[] = params.omitType ? [] : [TASK_TYPE_LABELS[params.taskType]];
   if (params.taskType !== "OOO" && params.folderName.trim()) {
     segments.push(params.folderName.trim());
   }
