@@ -172,9 +172,9 @@ test("pressing it saves the form, then clears the autosave, then closes — and 
 });
 
 test("the form opened from Humperdink is the same create form, so it has the button", () => {
-  // Humperdink's deep link carries the create-form intent, which opens App's one
-  // create-mode form: the mount that also closes on setFormOpen(false).
-  assert.match(APP_SOURCE, /readCreateFormIntent\([^)]*\)\)\s*\{\s*setFormOpen\(true\)/, "the intent opens formOpen");
+  // A Humperdink arrival link (#412) opens App's one create-mode form: the
+  // mount that also closes on setFormOpen(false).
+  assert.match(APP_SOURCE, /arrival\.kind === "humperdink"\)\s*\{[^}]*setFormOpen\(true\)/, "the arrival opens formOpen");
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.ok(createMount, "App mounts the create form while formOpen");
   assert.match(createMount, /onSaveForLater=\{onSaveForLater\}/, "and hands it Save for later");

@@ -23,20 +23,27 @@ export const HOT_TASK_ENTITY_ID = "loan-tasks-home";
    always did. */
 export const CLAIM_INTENT_FIELD = "claimOnOpen";
 
-/* The field that carries "open the create form on arrival" inside the link's
-   `context` JSON, beside `subEntityId` (#198).
+/* The `subEntityId` a Humperdink arrival carries (#412): somebody pressed Send
+   to Hot Task, the loan is on their clipboard, and the tab should open a new LOI
+   Check for it.
 
-   The Humperdink userscript copies a loan to the clipboard and then wants to
-   land you where you can paste it. The payload travels on the clipboard, so the
-   link itself carries no data at all — it only has to say which of Hot Task's
-   two arrivals this is.
+   A fixed value in `subEntityId` rather than a field of its own, because
+   `subEntityId` is the one context value proven to reach the tab on Teams
+   desktop (2026-09-13, in all three states: Hot Task on screen, Teams on
+   another page, Teams quit). The separate create-form context field #198 used
+   was never once seen to survive real Teams, and is gone. Task ids are UUIDs, so this can't
+   collide with one.
 
-   Its own opt-in field rather than a sentinel in `subEntityId`, because every
-   surface shares this builder — including the web app's "Copy link" — and a
-   scheme that overloaded the task id would turn a link pasted into a chat into
-   one that opens a create form for whoever clicks it. A caller that doesn't ask
-   for it emits the byte-identical URL it always did. */
-export const CREATE_FORM_INTENT_FIELD = "openCreateForm";
+   Overloading the task id this way means a link pasted into a chat opens a form
+   for whoever clicks it. That was the reason #198 refused a sentinel, and it is
+   harmless: the form only fills from the clicker's own clipboard, only a valid
+   Send to Hot Task payload fills it, and nothing is filed until they press
+   Create. What must never happen is the claim scheme's failure, a link that
+   acts for someone, and this one doesn't act.
+
+   The link carries nothing but this. Teams writes every deep link it receives
+   into its local log, so no loan data goes in the URL. */
+export const HUMPERDINK_ARRIVAL_ID = "new:humperdink";
 
 export interface TeamsTaskDeepLinkOptions {
   /* Human-readable name for the link — Teams shows it instead of the bare URL
@@ -50,11 +57,6 @@ export interface TeamsTaskDeepLinkOptions {
      "Claim & Open" button. Ignored without a `taskId` — there is nothing to
      claim. */
   claim?: boolean;
-  /* Opt in to the create-form intent above. Off everywhere but the Humperdink
-     userscript's "Send to Hot Task" control (#198). Independent of `taskId`:
-     nothing builds both today, but the two are separate fields and the builder
-     honours whichever it was asked for. */
-  createForm?: boolean;
 }
 
 /* Build the deep link, or return undefined when we have no app id.
@@ -65,7 +67,9 @@ export interface TeamsTaskDeepLinkOptions {
 
    `taskId` is optional: with one, the link focuses that task (teams-js
    surfaces `subEntityId` as `page.subPageId`, which the web app reads to
-   expand + scroll to the card); without one, it opens the tab plain. */
+   expand + scroll to the card); without one, it opens the tab plain. The
+   Humperdink sentinel is never a task id here: handed it, the builder names no
+   task, so a task link can't turn into an arrival link. */
 export const teamsTaskDeepLink = (
   appId: string | null | undefined,
   taskId?: string,
@@ -77,17 +81,14 @@ export const teamsTaskDeepLink = (
   }
 
   const params: string[] = [];
-  /* `subEntityId` first and alone unless an intent was asked for, so every
+  /* `subEntityId` first and alone unless the claim was asked for, so every
      existing caller's URL is byte-for-byte what it was. */
   const context: Record<string, unknown> = {};
-  if (taskId) {
+  if (taskId && taskId !== HUMPERDINK_ARRIVAL_ID) {
     context.subEntityId = taskId;
     if (options.claim) {
       context[CLAIM_INTENT_FIELD] = true;
     }
-  }
-  if (options.createForm) {
-    context[CREATE_FORM_INTENT_FIELD] = true;
   }
   if (Object.keys(context).length > 0) {
     params.push(`context=${encodeURIComponent(JSON.stringify(context))}`);
@@ -103,14 +104,31 @@ export const teamsTaskDeepLink = (
   return params.length > 0 ? `${base}?${params.join("&")}` : base;
 };
 
+/* The Humperdink arrival link (#412), or undefined with no app id.
+
+   The `msteams:` form, not `https://teams.microsoft.com/l/…`: the https form
+   detours through Microsoft's "Join conversation" launcher page, and the
+   `msteams:` one was proven to open Teams desktop directly. The team uses Teams
+   desktop only. Context is exactly `{"subEntityId":"<sentinel>"}` and there
+   are no other params: no label, no webUrl, and never any loan data. */
+export const humperdinkArrivalLink = (appId: string | null | undefined): string | undefined => {
+  const id = appId?.trim();
+  if (!id) {
+    return undefined;
+  }
+  const context = encodeURIComponent(JSON.stringify({ subEntityId: HUMPERDINK_ARRIVAL_ID }));
+  return `msteams:/l/entity/${id}/${HOT_TASK_ENTITY_ID}?context=${context}`;
+};
+
 /* The claim-intent twin of a link already built. The channel card offers both
    buttons off one recorded URL, and that URL is the one saved when the card was
    posted — a card keeps pointing where it always pointed across a config
    change, which rebuilding from the live app id would quietly undo.
 
-   Returns undefined when there is nothing to claim: no link, or a link that
-   names no task. The caller then omits the affordance rather than offering a
-   button that lands on the plain tab. */
+   Returns undefined when there is nothing to claim: no link, a link that names
+   no task, or a Humperdink arrival link, which names no task either. The caller
+   then omits the affordance rather than offering a button that lands on the
+   plain tab. */
 export const withClaimIntent = (url: string | undefined): string | undefined => {
   if (!url) {
     return undefined;
@@ -140,7 +158,7 @@ export const withClaimIntent = (url: string | undefined): string | undefined => 
     } catch {
       return undefined;
     }
-    if (!context.subEntityId) {
+    if (!context.subEntityId || context.subEntityId === HUMPERDINK_ARRIVAL_ID) {
       return undefined;
     }
     seenContext = true;
@@ -164,22 +182,35 @@ export const readClaimIntent = (context: unknown): boolean => {
   return shape[CLAIM_INTENT_FIELD] === true || shape.page?.[CLAIM_INTENT_FIELD] === true;
 };
 
-/* Read the create-form intent back off whatever the host handed the tab (#198).
+/* Which way somebody arrived at the tab. */
+export type TeamsArrival =
+  /* Send to Hot Task: open a new LOI Check. Names no task, carries no claim. */
+  | { kind: "humperdink" }
+  /* A task link: focus that task, and claim it only when `claim` is set. */
+  | { kind: "task"; taskId: string; claim: boolean }
+  /* No deep link, or one that names nothing: the normal board. */
+  | { kind: "none" };
 
-   teams-js v2 surfaces the link's `subEntityId` as `page.subPageId` and the v1
-   shape put it at the top level; hosts differ on where the rest of the context
-   JSON lands, so this looks in both rather than trusting one shape. Anything it
-   can't find reads as no intent, which is the safe default — arriving by any
-   other route, or by a link that fails to announce itself, lands on the normal
-   board.
+/* Read the arrival off whatever the host handed the tab, once, so the tab has
+   one answer to branch on (#412).
 
-   Strictly `=== true`: only the boolean the builder writes counts, so a host
-   that stringifies context values, or a URL somebody hand-edited, doesn't open
-   a form nobody asked for. */
-export const readCreateFormIntent = (context: unknown): boolean => {
+   The value is `page.subPageId` (teams-js v2) or top-level `subEntityId` (v1),
+   the v2 one first, which is the order the tab always read them in. The
+   Humperdink sentinel is checked before anything treats the value as a task, so
+   it never becomes a task to focus, and a claim intent riding beside it is
+   ignored rather than claiming a task called `new:humperdink`. Anything that
+   isn't a non-empty string is no arrival. */
+export const readTeamsArrival = (context: unknown): TeamsArrival => {
   if (!context || typeof context !== "object") {
-    return false;
+    return { kind: "none" };
   }
   const shape = context as { page?: Record<string, unknown> } & Record<string, unknown>;
-  return shape[CREATE_FORM_INTENT_FIELD] === true || shape.page?.[CREATE_FORM_INTENT_FIELD] === true;
+  const value = shape.page?.subPageId ?? shape.subEntityId;
+  if (typeof value !== "string" || !value) {
+    return { kind: "none" };
+  }
+  if (value === HUMPERDINK_ARRIVAL_ID) {
+    return { kind: "humperdink" };
+  }
+  return { kind: "task", taskId: value, claim: readClaimIntent(context) };
 };

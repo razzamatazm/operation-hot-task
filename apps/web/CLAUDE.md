@@ -1976,6 +1976,13 @@ no field. Enter still imports what is in the box and never files the form.
 header; if that label changes, this placeholder and the parser's messages
 change with it.
 
+**A Humperdink arrival link opens it** (#412). A Teams deep link whose
+`subEntityId` is the shared sentinel `new:humperdink` opens the create form as
+a new LOI Check with this box focused (`humperdinkArrival` on `TaskForm`), so
+⌘V imports straight away. App reads the link through shared `readTeamsArrival`,
+so the sentinel never becomes a task to focus or claim. Like any prefilled form
+it does not open on the autosave. The userscript doesn't send the link yet.
+
 **The locked type's popover** (`.task-form-type-note`) is revealed by hover,
 `:focus-visible` and a click, and three things keep it honest:
 

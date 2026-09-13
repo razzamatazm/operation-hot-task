@@ -33,8 +33,12 @@
   **The control only copies.** It used to also open Hot Task's create form in a
   new tab through a Teams deep link (#198); that was dropped, and pressing it
   now puts the payload on the clipboard and says so, nothing more. The filer
-  opens an LOI Check in Hot Task and pastes. The web app still honours the
-  `openCreateForm` deep link intent, but the userscript no longer sends one.
+  opens an LOI Check in Hot Task and pastes. The web app recognises a
+  Humperdink arrival link (#412): a Teams deep link whose `subEntityId` is the
+  fixed sentinel `new:humperdink`, in the `msteams:` form, carrying no loan
+  data. On it the tab opens a new LOI Check with the paste box focused, never
+  focuses or claims a task, and files nothing until Create. The userscript does
+  not send that link yet.
 
   This is not an API integration and deliberately isn't one. There is no
   credential in the userscript, no write endpoint exposed to the browser, and
