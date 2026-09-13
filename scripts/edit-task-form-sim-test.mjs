@@ -999,16 +999,19 @@ test("pasting imports the pasted text, and Enter imports what is in the box", ()
     /if \(e\.key === "Enter"\) \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(importText\);/,
     "Enter imports the box's text and never submits the form"
   );
-  assert.doesNotMatch(formSource, /navigator\.clipboard/, "the app never reads the clipboard itself");
+  assert.doesNotMatch(formSource, /navigator\.clipboard/, "the form never reads the browser clipboard; an arrival is handed its Teams reader (#415)");
 
   const handler = formSource.slice(formSource.indexOf("const importFromHumperdink"));
   const body = handler.slice(0, handler.indexOf("\n  };"));
   assert.match(body, /parseHumperdinkPayload\(text\)/, "it parses what it was handed");
-  const failure = body.slice(0, body.indexOf("return;"));
+  /* The failure branch ends at the loud path's return, after the toast. The
+     arrival's quiet import (#415) leaves earlier, and has its own test. */
+  const loudReturn = body.indexOf("return;", body.indexOf("showToast("));
+  const failure = body.slice(0, loudReturn);
   assert.match(failure, /setImportText\(text\)/, "a bad paste stays in the box");
   assert.match(failure, /showToast\(result\.error/, "and says why");
   assert.doesNotMatch(failure, /setForm/, "without touching a field");
-  const success = body.slice(body.indexOf("return;"));
+  const success = body.slice(loudReturn);
   assert.match(success, /setImportText\(""\)/, "a good paste empties the box");
   assert.match(success, /applyImportedLoan\(/, "fills the form");
   assert.match(success, /setImported\(true\)/, "and turns the placeholder into the confirmation");

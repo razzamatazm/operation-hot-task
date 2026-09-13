@@ -44,18 +44,30 @@
   tab through an https link; that was dropped and this replaces it.
 
   On the arrival link the tab opens a new LOI Check with the paste box
-  focused, never focuses or claims a task, and files nothing until Create. The
-  filer pastes, and the paste is the import. An unfinished new task in the
-  person's autosave is moved to Task Drafts before that form opens (#413), and
-  if the move fails the form leaves the autosave untouched, so an arrival never
-  overwrites it.
+  focused, never focuses or claims a task, and files nothing until Create. An
+  unfinished new task in the person's autosave is moved to Task Drafts before
+  that form opens (#413), and if the move fails the form leaves the autosave
+  untouched, so an arrival never overwrites it.
+
+  **The arrival fills itself from the clipboard where Teams allows it** (#415,
+  [ADR-0012](../adr/0012-a-humperdink-arrival-may-read-the-clipboard.md)). If
+  teams-js `clipboard.isSupported()` is true, the tab calls `clipboard.read()`,
+  takes the `text/plain` text, and runs the paste box's own import on it once
+  the loans list has loaded, so Folder Name, the Humperdink Link and the terms
+  fill with no ⌘V and the task still joins the loan that URL names. Only a valid
+  payload fills it, and only on a form nobody has started on. Where the
+  clipboard isn't supported, the read is refused, or it holds something else,
+  nothing is said and the focused paste box waits for ⌘V. This is the only place
+  Hot Task reads the clipboard; New Task and every other route never do. It
+  needs no Teams manifest change: `isSupported()` asks the host's runtime, and
+  the manifest has no clipboard permission to declare. Whether Teams desktop
+  runs the read or the fallback is checked by a person after deploy.
 
   This is not an API integration and deliberately isn't one. There is no
   credential in the userscript, no write endpoint exposed to the browser, and
   no CORS surface: the human presses Create inside Teams under their existing
   SSO session, and a bad scrape is visible and correctable before anything is
-  persisted. Hot Task does not read the clipboard either — the human presses
-  paste. Clipboard-read permission inside the Teams webview works in dev and
-  fails in production.
+  persisted. The clipboard read is guarded by the paste box's own parser, not
+  trusted.
 - A real inbound write API remains phase 2 — see
   [target-direction.md](target-direction.md).

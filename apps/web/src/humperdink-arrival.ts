@@ -27,7 +27,10 @@
    person to do, and the old task is still where they left it.
 
    Framework-free and handed its request function and storage, so it runs
-   against a fake server in `scripts/humperdink-arrival-autosave-sim-test.mjs`. */
+   against a fake server in `scripts/humperdink-arrival-autosave-sim-test.mjs`.
+
+   The clipboard fill that arrival's form runs (#415) is at the bottom. */
+import { parseHumperdinkPayload } from "@loan-tasks/shared";
 import type { SavedForLaterTask } from "@loan-tasks/shared";
 import { autosaveCopy, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
@@ -77,4 +80,58 @@ export const moveAutosaveAside = async (
   } finally {
     clearTimeout(timer);
   }
+};
+
+/* ── Filling the LOI Check from the clipboard (#415, ADR-0012) ──
+
+   On a Humperdink arrival, and only there, the tab asks Teams for the
+   clipboard. Send to Hot Task put the loan on it a moment ago, so where Teams
+   can read it the form fills itself with no ⌘V.
+
+   The clipboard as teams-js hands it over: `isSupported()` asks whether this
+   Teams host offers the capability, and `read()` resolves a Blob. Passed in
+   rather than imported, so the reader runs against a fake in
+   `scripts/humperdink-arrival-clipboard-sim-test.mjs`. */
+export interface ArrivalClipboard {
+  isSupported: () => boolean;
+  read: () => Promise<Blob>;
+}
+
+/* The clipboard's `text/plain` text if it is a Send to Hot Task payload, and
+   null for everything else: no clipboard, a host that doesn't support it, a
+   read that is refused or throws, another kind of data, or text that isn't a
+   payload. A clipboard holding something else is not an error on this arrival,
+   so this never throws and never toasts, and text that isn't a payload is not
+   handed on to be kept anywhere. The paste box keeps focus either way. */
+export const readArrivalClipboard = async (clipboard: ArrivalClipboard | null | undefined): Promise<string | null> => {
+  try {
+    if (!clipboard || !clipboard.isSupported()) return null;
+    const blob: unknown = await clipboard.read();
+    if (!(blob instanceof Blob) || !/^text\/plain(;|$)/i.test(blob.type)) return null;
+    const text = await blob.text();
+    return parseHumperdinkPayload(text).ok ? text : null;
+  } catch {
+    return null;
+  }
+};
+
+/* What the arrival's form does with what was read, each time either the text or
+   the loans list changes:
+
+   - `wait`: nothing read yet, or the loans list hasn't loaded. The import runs
+     against the same loans a manual paste would see, so it waits for them.
+   - `drop`: the person has already started on the form (pasted, or typed) by
+     the time the loans came back. What they did is kept, and the read is let go.
+   - `apply`: run the paste box's own import on it. */
+export const arrivalPasteStep = ({
+  paste,
+  loansLoaded,
+  untouched
+}: {
+  paste: string | null;
+  loansLoaded: boolean;
+  untouched: boolean;
+}): "wait" | "drop" | "apply" => {
+  if (paste === null || !loansLoaded) return "wait";
+  return untouched ? "apply" : "drop";
 };

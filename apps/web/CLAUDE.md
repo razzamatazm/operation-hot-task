@@ -1992,6 +1992,21 @@ doesn't clear the slot. Silent both ways. The userscript's Export to HT sends
 the link after its copy lands (#414), so this is the form a Humperdink press
 lands on.
 
+**And it fills itself where Teams can read the clipboard** (#415,
+[ADR-0012](../../docs/adr/0012-a-humperdink-arrival-may-read-the-clipboard.md)).
+App hands the arrival's form, and only that form, `readClipboard`
+(`readArrivalClipboard` in [src/humperdink-arrival.ts](src/humperdink-arrival.ts)
+over teams-js `clipboard`): `isSupported()`, then `read()`, then the
+`text/plain` blob, handed back only if it parses as a payload. The form calls it
+once at open and runs `importFromHumperdink` on the result with `quiet`, once
+App's `loansLoaded` is true and only while the form is untouched
+(`arrivalPasteStep`). So a good read looks exactly like a good paste: fields
+filled, box empty, `Imported. Paste again to replace it.` Anything else (no
+support, a refused read, not a payload) draws nothing and toasts nothing, and
+the focused box waits for ⌘V. This is the app's only clipboard read. No other
+opening of the form is handed a reader, and nothing in `apps/web` calls the
+browser's clipboard read.
+
 **The locked type's popover** (`.task-form-type-note`) is revealed by hover,
 `:focus-visible` and a click, and three things keep it honest:
 

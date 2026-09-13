@@ -59,8 +59,9 @@ Two supporting commitments a neighbouring tool would not make:
   through: a Fraud Check's two phases, the Loan Docs merge chain, and the LOI
   corrections loop.
 - Loans come in from the in-house loan system by clipboard, not by API: a
-  userscript copies a loan off its page and opens the create form, and a human
-  presses paste and Create under their own sign-in.
+  userscript copies a loan off its page and opens the create form, which fills
+  itself from the clipboard where Teams allows it or takes one paste where it
+  doesn't, and a human presses Create under their own sign-in.
 - Hosted as a single Azure Web App serving the tab, the API, and the bot.
   Local development runs the same code against JSON files with no Teams
   credentials.

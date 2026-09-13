@@ -494,8 +494,9 @@
   /* ── Opening Hot Task (#414) ────────────────────────────────
 
      The loan travels on the clipboard, and only there. Once the copy lands, the
-     control opens Hot Task in Teams desktop on a new LOI Check, whose paste box
-     is the import (#409). The link that does it carries no loan data at all:
+     control opens Hot Task in Teams desktop on a new LOI Check, which fills
+     itself from that clipboard where Teams can read it (#415), or waits in its
+     paste box for ⌘V (#409). The link that does it carries no loan data at all:
      Teams writes every deep link it receives into its local log.
 
      So this script does need to know where Hot Task lives, which is one Teams

@@ -455,7 +455,13 @@ is gone seven days after it was last written.
   box, and leaves every field untouched — it never half-fills. The terms land
   *below* anything already typed in Notes rather than over it, and a second
   import replaces the block the first one wrote instead of stacking another
-  copy. Nothing else on the form is touched. See
+  copy. Nothing else on the form is touched. A Humperdink arrival (the
+  userscript's Export to HT opening Teams on a new LOI Check) runs this same
+  import on the clipboard with no paste, where Teams can read it, once the
+  loans list has loaded and only while the form is untouched (#415,
+  [ADR-0012](../adr/0012-a-humperdink-arrival-may-read-the-clipboard.md)).
+  Where it can't, or the clipboard holds no payload, nothing is said and the
+  focused paste box waits for ⌘V. See
   [integrations-hosting.md](integrations-hosting.md) and
   [tools/humperdink/](../../tools/humperdink/).
 - Optional fields:

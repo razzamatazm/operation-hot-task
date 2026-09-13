@@ -31,6 +31,7 @@ import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { autosaveCopy, browserDraftStorage, clearDraft, draftAction, newerAutosave, readDraftCopy, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
+import { arrivalPasteStep } from "./humperdink-arrival";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
@@ -166,7 +167,9 @@ interface TaskFormProps {
   /* This create form is a Humperdink arrival (#412): somebody pressed Send to
      Hot Task and Teams opened the tab on its link. The form opens as a new LOI
      Check, the one type the Humperdink import fills, with the paste box focused
-     so ⌘V imports straight away through the box's own paste import. Like any
+     so ⌘V imports straight away through the box's own paste import. Where
+     Teams can read the clipboard it doesn't wait for the ⌘V (#415, see
+     `readClipboard`). Like any
      prefilled form it does not open on the autosave: the arrival is about the
      loan on the clipboard, not last Tuesday's unfinished task. App has already
      moved that autosave to Task Drafts before opening this (#413). Ignored in
@@ -180,11 +183,20 @@ interface TaskFormProps {
      old task. Its own typing isn't kept against a reload; the loan it is about
      is still on the clipboard. */
   leaveAutosaveAlone?: boolean;
+  /* Reads the clipboard for a Humperdink arrival (#415, ADR-0012): the text if
+     it is a Send to Hot Task payload, null for anything else, and never
+     rejects. App hands it over only with `humperdinkArrival`, and the form
+     calls it once, at open, and only then, so no other way into the form reads
+     the clipboard. What it returns goes through the paste box's own import. */
+  readClipboard?: (() => Promise<string | null>) | undefined;
+  /* Whether App's loans list has loaded (#415). The arrival's clipboard import
+     waits for it, so it runs against the loans a manual paste would see. */
+  loansLoaded?: boolean;
   /* Present → edit mode (#260). Absent → the create form, unchanged. */
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, readClipboard, loansLoaded = false, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -360,9 +372,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      exists: held for the whole save so a second press can't store two copies,
      and doubling as the button's `Saving…`. Create waits on it too. */
   const [savingForLater, setSavingForLater] = useState(false);
-  /* Humperdink import (#194). `importText` is the paste box — the human
-     presses paste, the app never reads the clipboard itself. The paste is the
-     import (#409): a good one empties the box and sets `imported`, which swaps
+  /* Humperdink import (#194). `importText` is the paste box, and the human's
+     paste into it is the import (#409). The one other way in is a Humperdink
+     arrival, which runs this same import on the clipboard where Teams can read
+     it (#415, ADR-0012). A good import empties the box and sets `imported`, which swaps
      the placeholder for the confirmation and is cleared the moment the box is
      typed into, so it can't claim a paste it hasn't taken. */
   const [importText, setImportText] = useState("");
@@ -417,10 +430,14 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      in the box so the filer can see it: the parser returns a reason rather than
      a null so the filer, who has no console open, gets told. A success empties
      the box, so pasting a second loan replaces the first rather than landing
-     beside its text. */
-  const importFromHumperdink = (text: string): void => {
+     beside its text.
+
+     `quiet` is the arrival's clipboard fill (#415): nobody pressed anything, so
+     a failure there says nothing and puts nothing in the box. */
+  const importFromHumperdink = (text: string, { quiet = false }: { quiet?: boolean } = {}): void => {
     const result = parseHumperdinkPayload(text);
     if (!result.ok) {
+      if (quiet) return;
       setImportText(text);
       setImported(false);
       showToast(result.error, { variant: "error" });
@@ -437,6 +454,41 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setLoanHighlight(-1);
     setImported(true);
   };
+
+  /* A Humperdink arrival fills itself from the clipboard where Teams allows it
+     (#415, ADR-0012). The payload `readClipboard` found, held until it is
+     applied or let go. */
+  const [arrivalPaste, setArrivalPaste] = useState<string | null>(null);
+  /* Read once, at open, and only on an arrival. By now App has already moved
+     any unfinished new task to Task Drafts or kept this form off the autosave
+     (#413), so whatever the fill puts here can't cost the old task. A read that
+     lands after the form closed is dropped. Nothing comes back but a payload,
+     so a clipboard holding something else changes nothing and says nothing,
+     and the paste box keeps its focus for ⌘V. */
+  useEffect(() => {
+    if (!humperdinkArrival || editing || reopened || !readClipboard) return;
+    let open = true;
+    void readClipboard().then((text) => {
+      if (open && text !== null) setArrivalPaste(text);
+    });
+    return () => {
+      open = false;
+    };
+  }, []);
+  /* Applied through the paste box's own import once the loans list has loaded,
+     so the loan it names is looked up in the same list a manual paste sees.
+     Only on a form nobody has started on: a paste or typing that got there
+     first is kept. Files nothing; Create still does that. */
+  useEffect(() => {
+    const step = arrivalPasteStep({
+      paste: arrivalPaste,
+      loansLoaded,
+      untouched: !imported && importText === "" && !formHasChanges(openedWith.current, formNow.current)
+    });
+    if (step === "wait" || arrivalPaste === null) return;
+    setArrivalPaste(null);
+    if (step === "apply") importFromHumperdink(arrivalPaste, { quiet: true });
+  }, [arrivalPaste, loansLoaded]);
 
   /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
      by a task the current user created (merged loans share one id, so they
@@ -1517,8 +1569,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
             {/* Humperdink import (#194). One paste box, and the paste is the
                 import (#409): there is no button beside it, so the placeholder
                 says what to do. The pasted text comes off the paste event's own
-                `clipboardData`, which is the human pressing paste; the app
-                never reads the clipboard itself. The paste is taken whole and
+                `clipboardData`, which is the human pressing paste. (A
+                Humperdink arrival also runs this import on a clipboard read
+                through Teams, #415, and falls back to this box when it can't.)
+                The paste is taken whole and
                 the browser's own insert is cancelled, so a good paste empties
                 the box instead of the text landing in it a moment later.
 
