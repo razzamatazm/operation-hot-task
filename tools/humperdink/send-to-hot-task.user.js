@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.9.3
+// @version      1.9.4
 // @description  Copy a Humperdink loan to the clipboard, then open Hot Task in Teams desktop on a new LOI Check.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
@@ -559,10 +559,25 @@
     var icon = el.querySelector(".fa");
     var name = firstWords(el);
     if (!icon || !name) return null;
-    /* A copy keeps the original's ids and any inline click handler, which would
-       put a second LOI button on the page that opens the LOI. Strip both. */
+    /* Before the ids go: Humperdink can style a header button by its id, which a
+       copy has to lose, and a copy with identical insides still sat out of line.
+       So each box in the copy takes the size and spacing its original actually
+       renders with, whatever rule set it. */
+    if (typeof window.getComputedStyle === "function") {
+      matchRendered(el, anchor);
+      var originals = typeof anchor.querySelectorAll === "function" ? anchor.querySelectorAll("*") : [];
+      var copies = el.querySelectorAll("*");
+      for (var k = 0; k < copies.length && k < originals.length; k += 1) matchRendered(copies[k], originals[k]);
+    }
+    /* A copy keeps everything that makes the original the LOI button: its id,
+       `name="LOI"`, the `lending-controls-button` marker Humperdink's own code
+       finds its buttons by, and any inline handler. Kept, the page would have a
+       second LOI button that opens the LOI. Only presentation survives. */
     var nodes = [el].concat(Array.prototype.slice.call(el.querySelectorAll("*")));
     for (var i = 0; i < nodes.length; i += 1) stripIdentity(nodes[i]);
+    /* The LOI button's inline width is sized to "LOI"; "Export to HT" spilled out
+       of it. Let the control size to its own name. */
+    el.style.removeProperty("width");
     el.classList.remove("jqx-fill-state-hover", "jqx-fill-state-hover-Lending", "jqx-fill-state-pressed");
     icon.className = swapIcon(icon.className);
     var label = document.createElement("span");
@@ -572,14 +587,36 @@
     return el;
   }
 
+  /* What decides where a box and its text sit. Offsets only travel with
+     `position: relative`; copying an absolute one would stack the control on
+     top of the LOI button. */
+  var RENDERED_BOX = [
+    "display", "float", "vertical-align", "box-sizing", "height", "min-height",
+    "line-height", "font-size", "font-weight",
+    "margin-top", "margin-right", "margin-bottom", "margin-left",
+    "padding-top", "padding-right", "padding-bottom", "padding-left"
+  ];
+  var RELATIVE_OFFSETS = ["position", "top", "bottom"];
+
+  function matchRendered(copy, original) {
+    if (!copy.style || typeof copy.style.setProperty !== "function") return;
+    var rendered = window.getComputedStyle(original);
+    var names = rendered.getPropertyValue("position") === "relative" ? RENDERED_BOX.concat(RELATIVE_OFFSETS) : RENDERED_BOX;
+    for (var i = 0; i < names.length; i += 1) {
+      var value = rendered.getPropertyValue(names[i]);
+      if (value) copy.style.setProperty(names[i], value);
+    }
+  }
+
+  var PRESENTATION_ATTRIBUTE = /^(class|style|role|title|aria-.*)$/i;
+
   function stripIdentity(node) {
     if (typeof node.removeAttribute !== "function") return;
-    node.removeAttribute("id");
-    var handlers = [];
+    var identity = [];
     for (var i = 0; i < (node.attributes ? node.attributes.length : 0); i += 1) {
-      if (/^on/i.test(node.attributes[i].name)) handlers.push(node.attributes[i].name);
+      if (!PRESENTATION_ATTRIBUTE.test(node.attributes[i].name)) identity.push(node.attributes[i].name);
     }
-    for (var j = 0; j < handlers.length; j += 1) node.removeAttribute(handlers[j]);
+    for (var j = 0; j < identity.length; j += 1) node.removeAttribute(identity[j]);
   }
 
   /* The first text with something in it: the button's name. */

@@ -166,6 +166,9 @@ const runUserscript = ({
      Left out, the LOI button can't be copied and the script builds its control
      by hand, which is the fallback. */
   loiMarkup = null,
+  /* What the browser renders each box of the LOI button with, as a function of
+     the original node. Left out, the page has no getComputedStyle. */
+  renderedStyle = null,
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -233,7 +236,15 @@ const runUserscript = ({
       textContent: "",
       value: "",
       mounted: false,
-      style: { cssText: "" },
+      style: {
+        cssText: "",
+        setProperty(name, value) {
+          this[name] = value;
+        },
+        removeProperty(name) {
+          delete this[name];
+        }
+      },
       attributes: {},
       listeners: {},
       classList: { add() {}, remove() {} },
@@ -311,6 +322,11 @@ const runUserscript = ({
     });
     for (const [name, value] of Object.entries(spec.attrs ?? {})) el.setAttribute(name, value);
     el.id = spec.attrs?.id ?? "";
+    /* Inline declarations land on `style` the way a browser parses them. */
+    for (const declaration of String(spec.attrs?.style ?? "").split(";")) {
+      const [name, ...value] = declaration.split(":");
+      if (name.trim()) el.style.setProperty(name.trim(), value.join(":").trim());
+    }
     el.childNodes = (spec.children ?? []).map((child) => treeNode(child, el));
     return el;
   };
@@ -323,6 +339,11 @@ const runUserscript = ({
     insertAdjacentElement: (_position, el) => mountControl(el),
     ...(loiMarkup ? { cloneNode: () => treeNode(loiMarkup) } : {})
   };
+  /* The LOI button's own insides, for the script to read rendered styles off. */
+  if (loiMarkup) {
+    const original = treeNode(loiMarkup);
+    loiButton.querySelectorAll = () => descendantsOf(original);
+  }
 
   const document = {
     title,
@@ -434,7 +455,15 @@ const runUserscript = ({
     MutationObserver,
     innerWidth: 1280,
     console,
-    URL
+    URL,
+    ...(renderedStyle
+      ? {
+          getComputedStyle: (node) => {
+            const values = renderedStyle(node);
+            return { getPropertyValue: (name) => values[name] ?? "" };
+          }
+        }
+      : {})
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
@@ -537,15 +566,28 @@ test("a message goes in a note under the inline control, not over its label", as
 
 /* The inline control is a copy of the LOI button with its icon and name
    swapped, so it lines up with the bar by construction. Hand-tuned margins sat
-   a pixel or two off. The real button's insides aren't recorded anywhere (the
-   page is customer data), so this is a plausible shape, carrying the two things
-   a copy must not keep: ids and an inline click handler. */
+   a pixel or two off. This is the real LOI button as Humperdink renders it
+   (2026-09-13), plus a hover class and an inline handler and inner id, which a
+   copy must not keep either. */
 const LOI_MARKUP = {
-  className: "jqx-rc-all jqx-button jqx-widget jqx-fill-state-normal jqx-fill-state-hover",
-  attrs: { id: "btnLOIFile", onclick: "OpenLOIFile()", style: "padding-left: 10px; height: 24px;" },
+  className:
+    "loanpaneldiv jqx-rc-all jqx-rc-all-Lending jqx-button jqx-button-Lending jqx-widget jqx-widget-Lending jqx-fill-state-normal jqx-fill-state-normal-Lending jqx-fill-state-hover",
+  attrs: {
+    "lending-controls-button": "",
+    id: "btnLOIFile",
+    name: "LOI",
+    onclick: "OpenLOIFile()",
+    style: "padding-left: 10px !important; width: 60px; height: 24px;",
+    role: "button",
+    "aria-disabled": "false"
+  },
   children: [
-    { tag: "span", className: "fa fa-file-word-o fa-lg loanSettings" },
-    { tag: "div", attrs: { id: "lblLOI", style: "margin-top: 3px;" }, children: ["LOI"] }
+    {
+      tag: "span",
+      className: "fa fa-file-word-o fa-lg loanSettings",
+      attrs: { style: "font-size: 13px;margin-right: 5px;margin-top: 2px;" }
+    },
+    { tag: "div", attrs: { id: "lblLOI", style: "margin-top: 3px;" }, children: ["\n                        LOI\n                    "] }
   ]
 };
 const nodesOf = (node) => [node, ...(node.childNodes ?? []).flatMap(nodesOf)];
@@ -566,10 +608,49 @@ test("the inline control is a copy of the LOI button, with its own icon and name
     nodes.every((node) => node === page.button || !node.id),
     "no second btnLOIFile, and no copy of any id inside it"
   );
-  assert.ok(
-    nodes.every((node) => !Array.isArray(node.attributes) || node.attributes.every((a) => !/^on/i.test(a.name))),
-    "the LOI button's own click handler did not come along"
-  );
+  const attributeNames = nodes.flatMap((node) => (Array.isArray(node.attributes) ? node.attributes.map((a) => a.name) : []));
+  for (const identity of ["id", "name", "lending-controls-button", "onclick"]) {
+    assert.ok(!attributeNames.includes(identity), `the LOI button's ${identity} did not come along`);
+  }
+  assert.ok(attributeNames.includes("aria-disabled"), "presentation attributes stay");
+  assert.equal(page.button.style.width, undefined, "sized to its own name, not LOI's 60px");
+  assert.equal(page.button.style.height, "24px", "the rest of the LOI button's box stays");
+});
+
+/* A copy with identical insides still sat out of line on the real page:
+   Humperdink can style a header button by its id, and the copy has to drop the
+   id. So each box takes what its original renders with. */
+test("each box of the copy takes the size and spacing its LOI original renders with", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: LOI_MARKUP,
+    renderedStyle: (node) =>
+      node.id === "btnLOIFile"
+        ? { "margin-top": "4px", float: "left", height: "26px" }
+        : node.id === "lblLOI"
+          ? { "margin-top": "5px", "line-height": "18px" }
+          : {}
+  });
+  assert.equal(page.button.style["margin-top"], "4px");
+  assert.equal(page.button.style.float, "left");
+  assert.equal(page.button.style.height, "26px");
+  const nameBox = page.button.childNodes[1];
+  assert.equal(nameBox.style["margin-top"], "5px", "the box holding the name, matched by position");
+  assert.equal(nameBox.style["line-height"], "18px");
+  assert.equal(visibleText(page.button).trim(), "Export to HT");
+});
+
+test("an absolutely positioned LOI button's offsets are not copied onto the control", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: LOI_MARKUP,
+    renderedStyle: (node) => (node.id === "btnLOIFile" ? { position: "absolute", top: "3px", "margin-top": "1px" } : {})
+  });
+  assert.equal(page.button.style.position, undefined);
+  assert.equal(page.button.style.top, undefined);
+  assert.equal(page.button.style["margin-top"], "1px");
 });
 
 test("a name written straight into the LOI button is swapped too", () => {
