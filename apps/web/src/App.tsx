@@ -20,6 +20,8 @@ import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
+import { moveAutosaveAside } from "./humperdink-arrival";
+import type { AutosaveMove } from "./humperdink-arrival";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
 import { Timeline } from "./timeline";
 import { useToast } from "./toast";
@@ -3580,6 +3582,16 @@ export const App = () => {
      as a new LOI Check with its paste box focused. Set only with `formOpen`, and
      cleared by closing the form and by every other way into it. */
   const [humperdinkArrival, setHumperdinkArrival] = useState(false);
+  /* A Humperdink arrival link opened the tab, and the arrival effect has not
+     run yet (#413). Set alongside the signed-in person, so their first drafts
+     load waits for the autosave move instead of racing it. */
+  const [arrivalPending, setArrivalPending] = useState(false);
+  /* The open arrival form has no seat on the autosave, because moving the old
+     one to Task Drafts didn't land (#413). */
+  const [leaveAutosaveAlone, setLeaveAutosaveAlone] = useState(false);
+  /* The arrival's move while it is out (#413), so New Task pressed meanwhile
+     waits for it rather than opening on an autosave it is about to clear. */
+  const arrivalMove = useRef<Promise<void> | null>(null);
   /* Which task the edit form is open on (#260), or null. An id rather than the
      task itself: the list refreshes underneath, and holding the object would
      pin the form to a snapshot taken when the menu was clicked. */
@@ -4084,22 +4096,16 @@ export const App = () => {
         const token = await authentication.getAuthToken();
         tokenCache.seed(token);
         const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
-        setUser(me);
 
         /* Humperdink arrival link → a new LOI Check, paste box focused, so the
            loan Send to Hot Task just put on the clipboard is one paste away.
            Never a task to focus and never a claim, whatever rides beside it.
-           Opened only once the person is known, because the form pins whose
-           autosave seat it has at open. The link carries no data, and nothing
-           is filed until Create. */
-        if (arrival.kind === "humperdink") {
-          /* A form opened while sign-in was out is left alone, as every other
-             way into the form leaves it. */
-          if (formOpenNow.current) return;
-          setReopened(null);
-          setHumperdinkArrival(true);
-          setFormOpen(true);
-        }
+           Marked here, in the same render as the person, and opened by the
+           arrival effect once any unfinished new task has been moved to Task
+           Drafts (#413). The link carries no data, and nothing is filed until
+           Create. */
+        if (arrival.kind === "humperdink") setArrivalPending(true);
+        setUser(me);
       })
       .catch(() => {
         /* Plain browser (no Teams host) or SSO failure. In dev, keep the
@@ -4151,9 +4157,42 @@ export const App = () => {
     if (!user.id) return;
     refresh().catch(() => {});
     loadLoans().catch(() => {});
-    loadSavedForLater().catch(() => {});
-    loadAutosave().catch(() => {});
+    /* A Humperdink arrival loads these itself, after it has moved the autosave
+       (#413), so no load that went out before the move can land after it and
+       put the moved task back as an Autosaved row. */
+    if (!arrivalPending) {
+      loadSavedForLater().catch(() => {});
+      loadAutosave().catch(() => {});
+    }
   }, [user.id]);
+
+  /* A Humperdink arrival (#412, #413), once the person is known. An unfinished
+     new task in their autosave is moved to Task Drafts first, through Save for
+     later's own write, so the LOI Check that opens can't overwrite it. If that
+     move didn't land, the form opens with no seat on the autosave, so nothing
+     typed into it can overwrite the old task either. Silent both ways. Then the
+     drafts load, and the form opens. A form opened while sign-in was out is
+     left alone, as every other way into the form leaves it; so is an answer
+     that comes back after the dev user picker switched person. */
+  useEffect(() => {
+    if (!arrivalPending || !user.id) return;
+    setArrivalPending(false);
+    arrivalMove.current = (async () => {
+      const outcome: AutosaveMove = formOpenNow.current
+        ? { kind: "none" }
+        : await moveAutosaveAside(savedForLaterRequestFor(user), browserDraftStorage(), user.id);
+      if (user.id !== savedForLaterOwner.current) return;
+      loadSavedForLater().catch(() => {});
+      loadAutosave().catch(() => {});
+      if (formOpenNow.current) return;
+      setReopened(null);
+      setLeaveAutosaveAlone(outcome.kind === "held");
+      setHumperdinkArrival(true);
+      setFormOpen(true);
+    })().finally(() => {
+      arrivalMove.current = null;
+    });
+  }, [arrivalPending, user.id]);
 
   useEffect(() => {
     /* Load the people directory for the share picker (issue #41). Same
@@ -4252,10 +4291,10 @@ export const App = () => {
      keeps the typing as a new record if the old one went elsewhere; either way
      the saved record moves to the top of the list and replaces whatever it
      was reopened from. */
-  const onSaveForLater = async (form: SavedForLaterForm, savedId?: string): Promise<void> => {
+  const onSaveForLater = async (form: SavedForLaterForm, savedId?: string, clearAutosave = true): Promise<void> => {
     let saved: SavedForLaterTask;
     try {
-      saved = await saveForLaterRequest(savedForLaterRequestFor(user), form, savedId);
+      saved = await saveForLaterRequest(savedForLaterRequestFor(user), form, savedId, clearAutosave);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to save for later", { variant: "error" });
       throw err;
@@ -4263,8 +4302,10 @@ export const App = () => {
     if (saved.ownerId === savedForLaterOwner.current) {
       setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== savedId)]);
       /* A new form's typing was its autosave, and the server cleared that in the
-         same write (#371), so the Autosaved row goes as the draft row arrives. */
-      if (!savedId) setAutosave(null);
+         same write (#371), so the Autosaved row goes as the draft row arrives.
+         A form with no seat on the autosave (#413) cleared nothing, so the row
+         stays. */
+      if (!savedId && clearAutosave) setAutosave(null);
     }
   };
 
@@ -4285,6 +4326,7 @@ export const App = () => {
     setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
     if (formOpenNow.current) return;
     setHumperdinkArrival(false);
+    setLeaveAutosaveAlone(false);
     setReopened(latest);
     setFormOpen(true);
   }, [user, showToast]);
@@ -4346,9 +4388,13 @@ export const App = () => {
      left alone. */
   const openNewTask = useCallback(async (): Promise<void> => {
     setReopened(null);
+    /* An arrival's move still out (#413) goes first; its LOI Check then
+       opens, and this press leaves it alone like any form already up. */
+    if (arrivalMove.current) await arrivalMove.current;
     await loadAutosave();
     if (formOpenNow.current) return;
     setHumperdinkArrival(false);
+    setLeaveAutosaveAlone(false);
     setFormOpen(true);
   }, [loadAutosave]);
 
@@ -5157,10 +5203,12 @@ export const App = () => {
           user={user}
           tasks={tasks}
           humperdinkArrival={humperdinkArrival}
+          leaveAutosaveAlone={leaveAutosaveAlone}
           onClose={() => {
             setFormOpen(false);
             setReopened(null);
             setHumperdinkArrival(false);
+            setLeaveAutosaveAlone(false);
           }}
           onCreate={onCreate}
           onSaveForLater={onSaveForLater}
@@ -5246,7 +5294,7 @@ export const App = () => {
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
                 />
-                <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); } }} />
+                <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
               </div>
             </div>
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>

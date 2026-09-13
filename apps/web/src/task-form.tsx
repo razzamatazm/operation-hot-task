@@ -115,8 +115,10 @@ interface TaskFormProps {
      App never passes it to edit mode.
 
      `savedId` names the record a reopened form came from (#344), so the save
-     lands on that record instead of making a copy. */
-  onSaveForLater?: (form: CreateFormValues, savedId?: string) => Promise<void>;
+     lands on that record instead of making a copy. `clearAutosave` is whether
+     this form has a seat on the autosave (#371, #413): a new form's save clears
+     the slot in the same write, and a form without a seat leaves it alone. */
+  onSaveForLater?: (form: CreateFormValues, savedId?: string, clearAutosave?: boolean) => Promise<void>;
   /* The Saved for Later task this create form was reopened from (#344,
      ADR-0011). Present means the form opens on that record's values, every
      field, and stays the create form: Create Task and Save for later both
@@ -166,15 +168,23 @@ interface TaskFormProps {
      Check, the one type the Humperdink import fills, with the paste box focused
      so ⌘V imports straight away through the box's own paste import. Like any
      prefilled form it does not open on the autosave: the arrival is about the
-     loan on the clipboard, not last Tuesday's unfinished task. What happens to
-     that autosave is #413's. Ignored in edit mode and on a reopened form, which
-     App never opens this way. */
+     loan on the clipboard, not last Tuesday's unfinished task. App has already
+     moved that autosave to Task Drafts before opening this (#413). Ignored in
+     edit mode and on a reopened form, which App never opens this way. */
   humperdinkArrival?: boolean;
+  /* This new task form must not touch the autosave at all (#413): a Humperdink
+     arrival whose move of the old autosave to Task Drafts didn't land, so the
+     slot still holds somebody's other unfinished task. No seat on the server's
+     slot and no browser copy, the way a reopened form has none, so no typing,
+     Save for later, Create or Discard on this form can write over or clear the
+     old task. Its own typing isn't kept against a reload; the loan it is about
+     is still on the clipboard. */
+  leaveAutosaveAlone?: boolean;
   /* Present → edit mode (#260). Absent → the create form, unchanged. */
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -212,14 +222,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Null storage in edit mode is the whole of "edit mode saves no draft": there
      is nothing to switch off further down, because there is nowhere to write. */
   const [draftSeat] = useState<{ storage: ReturnType<typeof browserDraftStorage>; userId: string }>(() => ({
-    storage: edit || reopened ? null : browserDraftStorage(),
+    storage: edit || reopened || leaveAutosaveAlone ? null : browserDraftStorage(),
     userId: user.id
   }));
   /* Whether this form has a seat on the server's autosave (#371): a new task
      form does, and a reopened or edit form does not, for the reasons it has no
-     browser storage above. Nothing further down reads, writes or forgets the
-     server's autosave without it. */
-  const autosaveSeat = !edit && !reopened;
+     browser storage above. Nor does a Humperdink arrival told to leave the
+     autosave alone (#413), whose slot still holds another task. Nothing further
+     down reads, writes or forgets the server's autosave without it. */
+  const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone;
   /* The server calls behind that seat, pinned at open for the reason the seat's
      user id is. App's callbacks follow whoever is signed in now, and the dev
      user picker can change that mid-form; held from open, they write and forget
@@ -1072,7 +1083,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setSavingForLater(true);
     try {
       await settleUnsaved();
-      await onSaveForLater(values, reopened?.id);
+      await onSaveForLater(values, reopened?.id, autosaveSeat);
       forgetDraft();
       onClose();
     } catch {

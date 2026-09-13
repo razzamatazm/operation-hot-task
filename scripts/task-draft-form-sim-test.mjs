@@ -302,10 +302,10 @@ test("edit mode has nowhere to save a draft to, rather than a rule not to", () =
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
   assert.match(
     seat.slice(0, seat.indexOf("}));")),
-    /storage: edit \|\| reopened \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
     "edit mode's storage is null, so every draft call is already a no-op"
   );
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened;/, "nor a seat on the server's autosave");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone;/, "nor a seat on the server's autosave");
   assert.match(FORM_SOURCE, /if \(!autosaveSeat\) return;/, "and the save effect leaves immediately too");
 });
 

@@ -28,11 +28,15 @@ const isGone = (error: unknown): boolean =>
    A new form's save also clears the autosave, in the same request (#371): the
    typing it holds is exactly what is being put aside, and two requests could
    land one and not the other, leaving the form on the Task Drafts tab twice. A
-   reopened form never had the autosave, so its fallback POST leaves it alone. */
+   reopened form never had the autosave, so its fallback POST leaves it alone.
+   Neither does a new form with no seat on the autosave (`clearAutosave`
+   false): a Humperdink arrival whose move of the old autosave didn't land
+   (#413), where the slot still holds somebody's other task. */
 export const saveForLaterRequest = async (
   request: SavedForLaterRequest,
   form: SavedForLaterForm,
-  savedId?: string
+  savedId?: string,
+  clearAutosave = true
 ): Promise<SavedForLaterTask> => {
   const body = JSON.stringify({ form });
   if (savedId) {
@@ -43,7 +47,7 @@ export const saveForLaterRequest = async (
       if (!isGone(error)) throw error;
     }
   }
-  const postBody = savedId ? body : JSON.stringify({ form, clearAutosave: true });
+  const postBody = savedId || !clearAutosave ? body : JSON.stringify({ form, clearAutosave: true });
   const { item } = await request<{ item: SavedForLaterTask }>("/saved-for-later", { method: "POST", body: postBody });
   return item;
 };
