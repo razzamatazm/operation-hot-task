@@ -29,8 +29,9 @@ still has to press ⌘V. teams-js offers `clipboard.isSupported()` and
 Teams and runs the paste box's own import on it.**
 
 1. **Only on the arrival.** The read happens once, when the LOI Check the
-   arrival link opens is mounted. New Task, a reopened Task Draft, Edit Task and
-   every other route never read it.
+   arrival link opens is mounted (a development build mounts twice under React
+   StrictMode and drops the first answer). New Task, a reopened Task Draft, Edit
+   Task and every other route never read it.
 2. **Through Teams, where Teams says it can.** If `clipboard.isSupported()` is
    true, the tab calls `clipboard.read()` and takes the `text/plain` blob. It
    never calls the browser's own clipboard API.

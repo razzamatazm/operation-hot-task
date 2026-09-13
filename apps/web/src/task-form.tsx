@@ -459,7 +459,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      (#415, ADR-0012). The payload `readClipboard` found, held until it is
      applied or let go. */
   const [arrivalPaste, setArrivalPaste] = useState<string | null>(null);
-  /* Read once, at open, and only on an arrival. By now App has already moved
+  /* Read once, at open, and only on an arrival. (React's StrictMode mounts
+     twice in development, so a dev build asks twice and drops the first
+     answer; production asks once.) By now App has already moved
      any unfinished new task to Task Drafts or kept this form off the autosave
      (#413), so whatever the fill puts here can't cost the old task. A read that
      lands after the form closed is dropped. Nothing comes back but a payload,
