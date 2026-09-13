@@ -1,11 +1,13 @@
 # Send to Hot Task (Humperdink userscript)
 
-[`send-to-hot-task.user.js`](send-to-hot-task.user.js) adds a **Send to Hot
-Task** button to a Humperdink loan details page. Pressing it copies the loan —
-its name, the page's URL, its loan terms, its broker and borrower, and any
-property it is acquiring — to your clipboard as JSON. That is all it does. In
-Hot Task, start a new LOI Check and paste into its **Import from Humperdink**
-box, which fills Folder Name, the Humperdink Link and the notes.
+[`send-to-hot-task.user.js`](send-to-hot-task.user.js) adds an **Export to HT**
+button to a Humperdink loan details page, in the Loan Terms header right after
+the LOI button. Pressing it copies the loan — its name, the page's URL, its loan
+terms, its brokers, borrowers and silent borrowers, and any property it is
+acquiring — to your clipboard as JSON. That is all it does. In Hot Task, start a
+new LOI Check and paste into the paste box at the bottom of the form. The paste
+is the import: Folder Name, the Humperdink Link and the notes fill in straight
+away, with nothing else to press.
 
 It does not open Hot Task for you. It used to (#198), by opening a Teams link
 in a new tab; that was dropped in favour of copy-only, so the button never
@@ -23,8 +25,12 @@ production, so it is deliberately not used.
 2. Open the Tampermonkey dashboard → **+** (Create a new script).
 3. Delete the template it gives you, paste in the whole of
    `send-to-hot-task.user.js`, and press **Ctrl/Cmd + S**.
-4. Open any loan in Humperdink. A dark **Send to Hot Task** button sits in the
-   bottom-right corner.
+4. Open any loan in Humperdink. An **Export to HT** button sits in the Loan
+   Terms header, right after the LOI button, dressed like Humperdink's own. If
+   that header hasn't appeared within about eight seconds (a Humperdink update
+   that moved it, say), a dark **Export to HT** button takes the
+   bottom-right corner instead, so the control is never silently missing. If
+   Humperdink redraws the header, the button puts itself back.
 
 Everyone installs it themselves — there is no central deployment and nothing to
 roll out. Updating means pasting the current file over the old one, which is why
@@ -39,16 +45,17 @@ somewhere else, change that line.
 
 ## Use it
 
-1. On the loan page, press **Send to Hot Task**. The button confirms with
-   `Copied — paste it into Import from Humperdink on an LOI Check`. If it reads
-   `Loading…` instead, the contacts and properties haven't come back from
-   Humperdink yet — they load after the page does. Give it a second.
-2. In Hot Task, press New Task and pick LOI Check. Click into the paste box
-   beside **Import from Humperdink**, paste, and press **Import from
-   Humperdink**. Folder Name, the Humperdink Link and
-   the terms fill in, the task type becomes LOI, and the button reads
-   `Imported`. Anything you had already typed into Notes stays where it is —
-   the terms go in below it — and re-importing replaces the block the last
+1. On the loan page, press **Export to HT** in the Loan Terms header. A note
+   pinned under it confirms with `Copied. Paste it into a new LOI Check.` If
+   the button is dimmed, the contacts and properties haven't come back from
+   Humperdink yet — they load after the page does, and hovering says so. Give
+   it a second.
+2. In Hot Task, press New Task and pick LOI Check. Click into the paste box at
+   the bottom of the form (it reads `In Humperdink, press Export to HT, then
+   paste here`) and paste. That is the import: Folder Name, the Humperdink Link
+   and the terms fill in, the box empties, and it reads `Imported. Paste again
+   to replace it.` Anything you had already typed into Notes stays where it is —
+   the terms go in below it — and pasting again replaces the block the last
    import wrote rather than stacking a second copy.
 3. Fill in the rest as usual and press Create. The task links itself to the
    existing loan for that URL — the link is the canonical key for a loan
@@ -85,11 +92,13 @@ visible rather than silent:
 The contacts and properties
 ([#197](https://github.com/razzamatazm/operation-hot-task/issues/197)) are not
 in the page's HTML at all — Humperdink fetches them after render and paints them
-into jqxGrids — so the control waits for them and reads `Loading…` in the
-meantime. Each grid is found by its container id (`contenttableContactsGrid`,
+into jqxGrids — so the control waits for them in the meantime: dimmed with a
+hover that says why in the Loan Terms header, or reading `Loading…` as the
+floating fallback. Each grid is found by its container id (`contenttableContactsGrid`,
 `contenttablePropertiesGrid`), and then **everything inside it is matched on
 text**: the columns by their header (`Type`, `Name`, `Address`, `Transaction`,
-`Purchase Price`) and the people by their contact type (`Broker`, `Borrower`).
+`Purchase Price`) and the people by their contact type (`Broker`, `Borrower`,
+`Silent Borrower`, every row of each, grouped in that order).
 Nothing counts rows or columns from a fixed position — Humperdink's row ids are
 literally positional (`row0ContactsGrid`), so a scrape built on them would point
 at the wrong person the first time somebody adds a contact.

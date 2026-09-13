@@ -558,7 +558,7 @@ test("Start fresh empties the form, forgets the draft, and asks nothing first", 
      values object: the FRAUD seeder's box above, and the Humperdink paste box,
      which sits on every LOI form and a blank one is an LOI. */
   assert.match(body, /setImportText\(""\)/, "and the Humperdink paste box");
-  assert.match(body, /setImported\(false\)/, "whose button stops saying Imported");
+  assert.match(body, /setImported\(false\)/, "whose placeholder stops saying Imported");
   assert.match(body, /setImportedNote\(""\)/, "with nothing left of the note it wrote");
   assert.match(body, /forgetDraft\(\);/, "and the saved copy is deleted");
   assert.match(body, /setRestoredNote\(false\)/, "the line has nothing left to describe");

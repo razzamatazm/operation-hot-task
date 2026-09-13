@@ -36,6 +36,13 @@ import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
 import { useToast } from "./toast";
 
+/* The Humperdink paste box's words (#409). With no button beside it, the
+   placeholder is the whole instruction, so it names the userscript control's
+   label in Humperdink's Loan Terms header. */
+const IMPORT_PLACEHOLDER = "In Humperdink, press Export to HT, then paste here";
+const IMPORTED_PLACEHOLDER = "Imported. Paste again to replace it.";
+const IMPORTED_ANNOUNCEMENT = "Imported from Humperdink.";
+
 /* Someone the app could point a task at. Roles ride along because the handoff
    picker narrows to who could actually work the task. Lives here because the
    form is the surface that reads the whole directory; App imports it back for
@@ -321,10 +328,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      exists: held for the whole save so a second press can't store two copies,
      and doubling as the button's `Saving…`. Create waits on it too. */
   const [savingForLater, setSavingForLater] = useState(false);
-  /* Humperdink import (#194). `importText` is the paste target — the human
-     presses paste, the app never reads the clipboard itself. `imported` is the
-     button's own confirmation, cleared the moment the text changes so the label
-     can't claim a paste it hasn't taken. */
+  /* Humperdink import (#194). `importText` is the paste box — the human
+     presses paste, the app never reads the clipboard itself. The paste is the
+     import (#409): a good one empties the box and sets `imported`, which swaps
+     the placeholder for the confirmation and is cleared the moment the box is
+     typed into, so it can't claim a paste it hasn't taken. */
   const [importText, setImportText] = useState("");
   const [imported, setImported] = useState(false);
   /* The note text the last import wrote (#196), so a second import replaces its
@@ -373,15 +381,20 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   const lockedLink = edit?.task.humperdinkLink ?? "";
 
   /* Take a pasted Humperdink payload into the form, or say why it can't.
-     A failure leaves every field exactly as it was: the parser returns a reason
-     rather than a null so the filer, who has no console open, gets told. */
-  const importFromHumperdink = (): void => {
-    const result = parseHumperdinkPayload(importText);
+     A failure leaves every field exactly as it was, and leaves what was pasted
+     in the box so the filer can see it: the parser returns a reason rather than
+     a null so the filer, who has no console open, gets told. A success empties
+     the box, so pasting a second loan replaces the first rather than landing
+     beside its text. */
+  const importFromHumperdink = (text: string): void => {
+    const result = parseHumperdinkPayload(text);
     if (!result.ok) {
+      setImportText(text);
       setImported(false);
       showToast(result.error, { variant: "error" });
       return;
     }
+    setImportText("");
     const noteText = humperdinkNoteText(result.payload);
     setForm((c) => applyImportedLoan(c, result.payload, { noteText, previousNoteText: importedNote }));
     setImportedNote(noteText);
@@ -676,8 +689,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setLoanHighlight(-1);
     /* The Humperdink paste box is a field like any other, and it sits on the
        form for every LOI — which a blank one is. Left alone it would still be
-       holding the pasted term sheet, with its button still reading "Imported",
-       over a form with nothing in it. */
+       holding a refused paste, or reading "Imported" in its placeholder, over a
+       form with nothing in it. */
     setImportText("");
     setImported(false);
     setImportedNote("");
@@ -1469,9 +1482,13 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
               the shared-record line here, where it is genuinely under both of the
               fields it is about rather than under one of them. */}
           <div className="task-form-foot">
-            {/* Humperdink import (#194). The paste target and the button that
-                takes it; the human presses paste, the app never reads the
-                clipboard itself.
+            {/* Humperdink import (#194). One paste box, and the paste is the
+                import (#409): there is no button beside it, so the placeholder
+                says what to do. The pasted text comes off the paste event's own
+                `clipboardData`, which is the human pressing paste; the app
+                never reads the clipboard itself. The paste is taken whole and
+                the browser's own insert is cancelled, so a good paste empties
+                the box instead of the text landing in it a moment later.
 
                 LOI Check only. `Send to Hot Task` over in Humperdink is a
                 term-sheet handoff — it is how an LOI's terms get filed without
@@ -1488,11 +1505,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                   <input
                     type="text"
                     autoComplete="off"
-                    placeholder="Paste what Send to Hot Task copied"
+                    placeholder={imported ? IMPORTED_PLACEHOLDER : IMPORT_PLACEHOLDER}
                     value={importText}
                     onChange={(e) => {
                       setImportText(e.target.value);
                       setImported(false);
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      importFromHumperdink(e.clipboardData.getData("text/plain"));
                     }}
                     onKeyDown={(e) => {
                       // Enter in this field means "import", not "create the task" —
@@ -1500,14 +1521,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                       // out from under a paste.
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        importFromHumperdink();
+                        importFromHumperdink(importText);
                       }
                     }}
                   />
                 </label>
-                <button type="button" className="btn-ghost btn-sm" onClick={importFromHumperdink}>
-                  {imported ? "Imported" : "Import from Humperdink"}
-                </button>
+                {/* The placeholder change is silent to a screen reader, so the
+                    import is said here too. Always mounted, only its text
+                    changes, the same live region idiom as the footer's other
+                    lines. */}
+                <p className="sr-only" role="status">{imported ? IMPORTED_ANNOUNCEMENT : ""}</p>
               </div>
             )}
             {/* ADR-0008 rule 7, the quiet half — and #266's lock, which takes its
