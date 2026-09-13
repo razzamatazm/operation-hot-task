@@ -752,6 +752,27 @@ const claimedCard = (params: {
   ...openUrlAction(params.openUrl)
 });
 
+/* The channel card of a task somebody holds, headline chosen here. `handed`
+   means the holder was given the task (born assigned, or a handoff, ADR-0002)
+   rather than grabbing it. The post, the handoff edit and the Teams refresh all
+   build through this, so an edited card and a refreshed one can't drift apart
+   (#193, #407). A card-tap claim keeps calling `claimedCard` because its message
+   can carry a "Note posted." prefix. */
+const heldCard = (params: {
+  handed: boolean;
+  context: ChannelCardContext;
+  openUrl?: string;
+}): Record<string, unknown> =>
+  claimedCard({
+    message: (params.handed ? formatBornAssignedHeadline : formatClaimedHeadline)(
+      params.context.assignee,
+      params.context.createdBy,
+      params.context.taskType
+    ),
+    context: params.context,
+    ...(params.openUrl ? { openUrl: params.openUrl } : {})
+  });
+
 /* Terminal state the root card is silently edited to when a task completes —
    every action button is gone, but "Open in Hot Task" survives so the card that
    records the finished work is still a way into it (#178). Also the ARCHIVED
@@ -1754,11 +1775,7 @@ export class TeamsBotClient {
     }
     await this.updateTaskCard(
       taskId,
-      claimedCard({
-        message: formatBornAssignedHeadline(context.assignee, context.createdBy, context.taskType),
-        context,
-        ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {})
-      })
+      heldCard({ handed: true, context, ...(thread?.card?.openUrl ? { openUrl: thread.card.openUrl } : {}) })
     );
   }
 
@@ -1874,17 +1891,7 @@ export class TeamsBotClient {
        unless this is the task that was born in somebody's hands and is still in
        them, which nobody claimed and whose card said so when it was posted. */
     const stillBornAssigned = Boolean(content.bornAssignedTo) && task.assignee?.id === content.bornAssignedTo;
-    return withRefresh(
-      claimedCard({
-        message: (stillBornAssigned ? formatBornAssignedHeadline : formatClaimedHeadline)(
-          task.assignee?.displayName,
-          task.createdBy.displayName,
-          task.taskType
-        ),
-        context,
-        ...(content.openUrl ? { openUrl: content.openUrl } : {})
-      })
-    );
+    return withRefresh(heldCard({ handed: stillBornAssigned, context, ...(content.openUrl ? { openUrl: content.openUrl } : {}) }));
   }
 
   /* Correct the channel card of a task whose loan was renamed or relinked
@@ -2405,11 +2412,7 @@ export class TeamsBotClient {
     }
     const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
     const card = assignedContext
-      ? claimedCard({
-          message: formatBornAssignedHeadline(assignedContext.assignee, assignedContext.createdBy, assignedContext.taskType),
-          context: assignedContext,
-          ...(openUrl ? { openUrl } : {})
-        })
+      ? heldCard({ handed: true, context: assignedContext, ...(openUrl ? { openUrl } : {}) })
       : adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
     const posts = await this.broadcastCard(card, summary?.trim() || plainSummary(title), "create");
     if (posts.length > 0) {
