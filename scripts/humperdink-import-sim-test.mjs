@@ -1507,6 +1507,17 @@ test("the script carries no teams.microsoft.com link and never opens a tab", () 
   assert.ok(USERSCRIPT.includes(`"${LIVE_MANIFEST.id}"`), "the app id is written out as the live manifest's id");
 });
 
+/* The team installs and updates this script from loftools. A wrong or missing
+   update address fails silently: nobody gets another version, ever. */
+test("the script updates from its loftools address, with one version", () => {
+  const header = USERSCRIPT.match(/\/\/ ==UserScript==([\s\S]*?)\/\/ ==\/UserScript==/)[1];
+  const values = (key) => [...header.matchAll(new RegExp(`^//\\s*@${key}\\s+(.+?)\\s*$`, "gm"))].map((m) => m[1]);
+  const address = "https://loftools.thepopcorn.party/userscripts/send-to-hot-task.user.js";
+  assert.deepEqual(values("downloadURL"), [address]);
+  assert.deepEqual(values("updateURL"), [address]);
+  assert.equal(values("version").length, 1);
+});
+
 test("a second press copies and opens again", async () => {
   const page = goodPage();
   await page.press();

@@ -8,6 +8,13 @@
   [../AZURE_DEPLOYMENT.md](../AZURE_DEPLOYMENT.md) (`npm run azure:*`).
 - Local dev runs the same code with JSON file persistence and no Teams
   credentials.
+- **The team installs the userscript from loftools** (2026-09-13). loftools
+  (`~/repos/loftools`, https://loftools.thepopcorn.party) hosts the install
+  guide at `/install/` and a copy of the Humperdink userscript below, whose
+  update address points there so Tampermonkey keeps people current. The copy in
+  this repo stays the source of truth and is copied to loftools after a Hot
+  Task deploy, never before. loftools also hosts the team's TitlePro →
+  Humperdink property script, which has nothing to do with Hot Task.
 - **Humperdink → create form, via the clipboard.** A self-installed userscript
   ([tools/humperdink/](../../tools/humperdink/)) puts an **Export to HT**
   button in a loan details page's Loan Terms header (or, if that header never
