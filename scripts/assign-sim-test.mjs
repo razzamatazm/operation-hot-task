@@ -374,7 +374,7 @@ await check("a task created with an assignee is born CLAIMED, in one operation",
   const assigns = targeted(emitted, "DM_ASSIGN");
   assert.equal(assigns.length, 1, "the recipient is told the task exists and is theirs");
   assert.equal(assigns[0].note, "all yours");
-  assert.deepEqual(targeted(emitted, "DM_CLAIM"), [], "nobody claimed it, so no claim card");
+  assert.deepEqual(targeted(emitted, "DM_CHAT_SEED"), [], "nobody claimed it, so no claim card");
 
   const rows = (await ctx.service.getHistory(task.id)).filter((h) => h.action === "TASK_ASSIGNED");
   assert.equal(rows.length, 1, "the handoff is its own audit row");

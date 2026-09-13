@@ -1,26 +1,28 @@
 #!/usr/bin/env node
 /*
- * The channel card forgets who asked and what for (#193).
+ * What the channel card says at each stage of a task (#193, reworded
+ * 2026-09-12).
  *
- * The root channel card is edited in place for a task's whole life, and until
- * now every edit after creation rebuilt the body from the folder name alone.
- * The creator and the task type appear exactly once, in the creation
- * headline — so a claim overwrote both, and a completion card recorded that
- * something was done without saying what it was for or who wanted it.
+ * The root channel card is edited in place for a task's whole life. Every
+ * stage names who did what to whose task, then the file and its type on a
+ * line of their own, so a reader scrolling the channel can tell what the work
+ * was and who asked for it without opening anything:
+ *
+ *   Dana needs an LOI checked           new (then How Bad and Urgency)
+ *   Casey grabbed Dana's LOI Check      claimed
+ *   ✅ Casey completed Dana's LOI Check  completed, and archived
+ *   🚫 Dana cancelled their LOI Check   cancelled
+ *   Smith-1042 - LOI Check              the line under every one of them
  *
  * What's asserted here, over a real TeamsBotClient with the connector stubbed:
- *   1. The claimed / completed / cancelled cards each carry one headline and
- *      one context line naming the type (as its TASK_TYPE_LABELS label), the
- *      file, the assigner and the current holder. No detail block.
- *   2. The holder segment is omitted, not blanked, when there is no holder —
- *      a cancelled task nobody claimed.
- *   3. An OOO task carries no file name: its Folder Name is a Vacation
- *      Description and it has no Loan behind it.
- *   4. The user-specific refresh path renders the identical body, so an
- *      enriched card doesn't revert the first time Teams refreshes it.
+ *   1. Each stage's headline and name line, driven through the notification
+ *      layer that composes them.
+ *   2. No stage links the file name to Humperdink.
+ *   3. An OOO task's description stands in for the file name.
+ *   4. The user-specific refresh path renders the identical body, so a card
+ *      doesn't change wording the first time Teams refreshes it.
  *   5. A card-tap claim and a web claim produce the same card body.
- *   6. A task born assigned reads "assigned to", not "claimed by" — nobody
- *      claimed that one — on the same context line as the rest.
+ *   6. A task born assigned says so, rather than reading as a claim.
  *
  * Sibling of channel-card-terminal-sim-test.mjs, built the same way and
  * running against the compiled dist.
@@ -31,6 +33,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { TeamsBotClient } from "../apps/server/dist/bot.js";
+import { TeamsNotificationProvider } from "../apps/server/dist/notifications.js";
 
 let passed = 0;
 const check = async (label, fn) => {
@@ -41,7 +44,7 @@ const check = async (label, fn) => {
 
 const cardOf = (entry) => entry.activity.attachments[0].content;
 const headline = (card) => card.body?.[0]?.text;
-const contextLine = (card) => card.body?.[1]?.text;
+const nameLine = (card) => card.body?.[1]?.text;
 const actionTitles = (card) => (card.actions ?? []).map((action) => action.title);
 
 const CREATOR = { id: "aad-creator", displayName: "Dana Requester" };
@@ -63,6 +66,20 @@ const taskAt = (status, over = {}) => ({
   status,
   createdBy: CREATOR,
   assignee: CHECKER,
+  ...over
+});
+
+/* A whole task, for the paths that build the card from one. */
+const liveTask = (status, over = {}) => ({
+  ...taskAt(status),
+  dueAt: "2026-08-14T20:00:00.000Z",
+  urgency: "GREEN",
+  points: 2,
+  notes: "",
+  humperdinkLink: "https://humperdink.example/Loans/Details/1042",
+  createdAt: "2026-08-14T16:00:00.000Z",
+  updatedAt: "2026-08-14T16:00:00.000Z",
+  reviewNotes: [],
   ...over
 });
 
@@ -94,80 +111,105 @@ const botSetup = async () => {
         return { id: activityId };
       },
       sendToConversation: async () => ({ id: "activity-reply" }),
-      deleteActivity: async () => {}
+      deleteActivity: async () => {},
+      getConversationMembers: async () => []
     }
   });
-  return { client, posted, updated };
+  const notifier = new TeamsNotificationProvider(
+    client,
+    { isEnabled: () => false, sendToUsers: async () => {} },
+    { getNotificationChannelId: async () => "channel-1" },
+    async () => undefined
+  );
+  const notify = (target, task, actor) =>
+    notifier.notify({ type: "TASK_STATUS_CHANGED", task, actor, message: "", target, createdAt: new Date().toISOString() });
+  return { client, posted, updated, notify };
 };
 
 const postOpenTask = async (client) => {
-  await client.postTaskCard("task-1", "Dana Requester needs an LOI checked: Smith-1042", "How Bad: —\nUrgency: Today");
+  await client.postTaskCard("task-1", "Dana needs an LOI checked", "Smith-1042 - LOI Check\nHow Bad: —\nUrgency: Today");
 };
 
 console.log("Channel card facts sim");
 
-await check("the claimed card names the type, the file, the assigner and the claimer", async () => {
-  const { client, updated } = await botSetup();
-  await postOpenTask(client);
-  await client.markTaskClaimed("task-1", "Casey Checker grabbed Smith-1042", contextFor());
+await check("a new task's card says who needs what, then the file and its type", async () => {
+  const { posted, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
 
-  const card = cardOf(updated.at(-1));
-  assert.equal(headline(card), "Casey Checker grabbed Smith-1042");
-  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester · claimed by Casey Checker");
-  assert.equal(card.body.length, 2, "one headline plus one context line — no detail block");
+  const card = cardOf(posted.at(-1));
+  assert.equal(headline(card), "Dana needs an LOI checked");
+  assert.equal(
+    card.body[1].text,
+    "Smith-1042 - LOI Check\nHow Bad: 💩💩\nUrgency: Within 24 Hours",
+    "the task has a Humperdink link, and the card still doesn't carry it"
+  );
+  assert.equal(posted.at(-1).activity.summary, "Dana needs an LOI checked");
 });
 
-await check("the completed card says who asked and who did it", async () => {
-  const { client, updated } = await botSetup();
-  await postOpenTask(client);
-  await client.markTaskCompleted("task-1", contextFor());
+await check("the claimed card names the claimer and whose task, then the file and its type", async () => {
+  const { updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  await notify("CHANNEL_CLAIMED", liveTask("CLAIMED"), CHECKER);
 
   const card = cardOf(updated.at(-1));
-  assert.equal(headline(card), "✅ Completed — Smith-1042");
-  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester · done by Casey Checker");
+  assert.equal(headline(card), "Casey grabbed Dana's LOI Check");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
+  assert.equal(card.body.length, 2, "one headline plus the name line, no detail block");
+});
+
+await check("the completed card names who finished whose task", async () => {
+  const { updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  await notify("CHANNEL_COMPLETED", liveTask("COMPLETED"), CHECKER);
+
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "✅ Casey completed Dana's LOI Check");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
   assert.equal(card.body.length, 2);
 });
 
-await check("the cancelled card keeps the facts, and drops the holder when there was none", async () => {
-  const { client, updated } = await botSetup();
-  await postOpenTask(client);
+await check("the cancelled card says the creator cancelled it, held or not", async () => {
+  const { updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
 
-  await client.markTaskCancelled("task-1", contextFor());
-  assert.equal(contextLine(cardOf(updated.at(-1))), "LOI Check · Smith-1042 · asked by Dana Requester · claimed by Casey Checker");
+  // Only the creator can cancel, so the card names them whoever held it.
+  await notify("CHANNEL_CANCELLED", liveTask("CANCELLED"), CREATOR);
+  assert.equal(headline(cardOf(updated.at(-1))), "🚫 Dana cancelled their LOI Check");
 
-  // Cancelled before anyone took it: the segment is absent, not empty.
-  await client.markTaskCancelled("task-1", contextFor({ assignee: undefined }));
+  await notify("CHANNEL_CANCELLED", liveTask("CANCELLED", { assignee: undefined }), CREATOR);
   const card = cardOf(updated.at(-1));
-  assert.equal(headline(card), "🚫 Cancelled — Smith-1042");
-  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester");
+  assert.equal(headline(card), "🚫 Dana cancelled their LOI Check");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
   assert.equal(card.body.length, 2);
 });
 
-await check("an OOO task carries no file name on any of the three cards", async () => {
-  const { client, updated } = await botSetup();
-  await postOpenTask(client);
-  const ooo = contextFor({ taskType: "OOO", folderName: "Cabo, back Monday" });
+await check("an OOO task's description stands in for the file name", async () => {
+  const { updated, notify } = await botSetup();
+  await notify("CHANNEL", liveTask("OPEN", { assignee: undefined }), CREATOR);
+  const ooo = { taskType: "OOO", folderName: "Cabo, back Monday" };
 
-  await client.markTaskClaimed("task-1", "Casey Checker grabbed Cabo, back Monday", ooo);
-  assert.equal(contextLine(cardOf(updated.at(-1))), "Out of Office · asked by Dana Requester · claimed by Casey Checker");
+  await notify("CHANNEL_CLAIMED", liveTask("CLAIMED", ooo), CHECKER);
+  assert.equal(headline(cardOf(updated.at(-1))), "Casey grabbed Dana's Out of Office");
+  assert.equal(nameLine(cardOf(updated.at(-1))), "Cabo, back Monday - Out of Office");
 
-  await client.markTaskCompleted("task-1", ooo);
-  assert.equal(contextLine(cardOf(updated.at(-1))), "Out of Office · asked by Dana Requester · done by Casey Checker");
+  await notify("CHANNEL_COMPLETED", liveTask("COMPLETED", ooo), CHECKER);
+  assert.equal(headline(cardOf(updated.at(-1))), "✅ Casey completed Dana's Out of Office");
 
-  await client.markTaskCancelled("task-1", ooo);
-  assert.equal(contextLine(cardOf(updated.at(-1))), "Out of Office · asked by Dana Requester · claimed by Casey Checker");
+  await notify("CHANNEL_CANCELLED", liveTask("CANCELLED", ooo), CREATOR);
+  assert.equal(headline(cardOf(updated.at(-1))), "🚫 Dana cancelled their Out of Office");
+  assert.equal(nameLine(cardOf(updated.at(-1))), "Cabo, back Monday - Out of Office");
 });
 
-await check("a Teams refresh replays the enriched body rather than the folder-only form", async () => {
+await check("a Teams refresh replays the card the edit rendered", async () => {
   const { client, updated } = await botSetup();
   await postOpenTask(client);
 
   // Drive the in-place edit, then ask the refresh path for the same task and
   // require the two bodies to match. This is the "stays in sync" criterion: the
   // refresh path rebuilds from the task, so a builder change that misses it
-  // silently reverts the card.
+  // silently changes the card's wording.
   const cases = [
-    ["CLAIMED", () => client.markTaskClaimed("task-1", "Casey Checker grabbed Smith-1042", contextFor())],
+    ["CLAIMED", () => client.markTaskClaimed("task-1", "Casey grabbed Dana's LOI Check", contextFor())],
     ["COMPLETED", () => client.markTaskCompleted("task-1", contextFor())],
     ["ARCHIVED", () => client.markTaskCompleted("task-1", contextFor())],
     ["CANCELLED", () => client.markTaskCancelled("task-1", contextFor())]
@@ -181,12 +223,13 @@ await check("a Teams refresh replays the enriched body rather than the folder-on
   }
 });
 
-await check("a refresh of a cancelled task nobody claimed omits the holder too", async () => {
+await check("a refresh of a cancelled task nobody claimed reads the same", async () => {
   const { client } = await botSetup();
   await postOpenTask(client);
   client.setTaskLookup(async () => taskAt("CANCELLED", { assignee: undefined }));
   const card = await client.handleRefreshCard("task-1", "aad-viewer");
-  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester");
+  assert.equal(headline(card), "🚫 Dana cancelled their LOI Check");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
 });
 
 await check("a card-tap claim renders the same body as a web claim", async () => {
@@ -199,6 +242,7 @@ await check("a card-tap claim renders the same body as a web claim", async () =>
   );
   const outcome = await client.handleClaim("task-1", CHECKER.id, CHECKER.displayName);
   assert.equal(outcome.ok, true);
+  assert.equal(outcome.message, "Casey grabbed Dana's LOI Check");
 
   // The web claim's edit, for comparison.
   await client.markTaskClaimed("task-1", outcome.message, contextFor());
@@ -222,22 +266,22 @@ await check("a card-tap claim renders the same body as a web claim", async () =>
 const postBornAssigned = async (client) => {
   await client.postTaskCard(
     "task-1",
-    "Dana Requester needs an LOI checked: Smith-1042",
-    "How Bad: —\nUrgency: Today",
+    "Dana needs an LOI checked",
+    "Smith-1042 - LOI Check\nHow Bad: —\nUrgency: Today",
     undefined,
-    "Dana Requester needs an LOI checked",
+    "Dana needs an LOI checked",
     CREATOR.id,
     { ...contextFor(), assigneeId: CHECKER.id }
   );
 };
 
-await check("a task born assigned reads 'assigned to', not 'claimed by'", async () => {
+await check("a task born assigned says it was assigned, not grabbed", async () => {
   const { client, posted } = await botSetup();
   await postBornAssigned(client);
 
   const card = cardOf(posted[0]);
-  assert.equal(headline(card), "Dana Requester needs an LOI checked: Smith-1042");
-  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester · assigned to Casey Checker");
+  assert.equal(headline(card), "Casey was assigned Dana's LOI Check");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
   assert.deepEqual(actionTitles(card), [], "no Claim button to appear and then vanish");
 });
 
@@ -249,15 +293,15 @@ await check("a refresh does not turn a task born assigned into a claim", async (
   // same either way — so the refresh leans on what the post recorded.
   client.setTaskLookup(async () => taskAt("CLAIMED"));
   const card = await client.handleRefreshCard("task-1", "aad-viewer");
-  assert.equal(headline(card), "Dana Requester needs an LOI checked: Smith-1042");
-  assert.equal(contextLine(card), "LOI Check · Smith-1042 · asked by Dana Requester · assigned to Casey Checker");
+  assert.equal(headline(card), "Casey was assigned Dana's LOI Check");
+  assert.equal(nameLine(card), "Smith-1042 - LOI Check");
 
   // Once it changes hands somebody really did claim it, and the card says so.
   const other = { id: "aad-other", displayName: "Robin Checker" };
   client.setTaskLookup(async () => taskAt("CLAIMED", { assignee: other }));
   const reclaimed = await client.handleRefreshCard("task-1", "aad-viewer");
-  assert.equal(headline(reclaimed), "Robin Checker grabbed Smith-1042");
-  assert.equal(contextLine(reclaimed), "LOI Check · Smith-1042 · asked by Dana Requester · claimed by Robin Checker");
+  assert.equal(headline(reclaimed), "Robin grabbed Dana's LOI Check");
+  assert.equal(nameLine(reclaimed), "Smith-1042 - LOI Check");
 });
 
 console.log(`\n${passed} checks passed`);

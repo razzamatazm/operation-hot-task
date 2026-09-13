@@ -57,8 +57,9 @@ const makeTask = (overrides = {}) => ({
 });
 
 /* Both detail-card send paths land in the same list: DM_SHARE goes out
-   untracked, DM_ASSIGN and DM_CLAIM go out tracked, and all three build their
-   body in one place. */
+   untracked, DM_ASSIGN tracked, and both build their body in one place. A claim
+   sends the conversation card instead, which reads the same facts; it is
+   checked separately below. */
 const notifierSetup = () => {
   const cards = [];
   const botClient = {
@@ -90,7 +91,7 @@ const detailEvent = (task, target) => ({
   createdAt: new Date().toISOString()
 });
 
-const DETAIL_TARGETS = ["DM_SHARE", "DM_ASSIGN", "DM_CLAIM"];
+const DETAIL_TARGETS = ["DM_SHARE", "DM_ASSIGN"];
 
 const cardFor = async (task, target) => {
   const { notifier, cards } = notifierSetup();
@@ -114,13 +115,15 @@ await check("no detail card for an LOI quotes its terms", async () => {
 });
 
 await check("the rest of the LOI card is untouched", async () => {
-  const card = await cardFor(makeTask(), "DM_CLAIM");
+  const card = await cardFor(makeTask(), "DM_ASSIGN");
+  // The title names the task and its type, so there is no Type line, and no
+  // card links to Humperdink. The creator handed it over, so the title already
+  // says whose it is.
+  assert.equal(card.title, "Dana Requester assigned Smith-1042 - LOI Check to you");
   assert.deepEqual(card.detail.split("\n"), [
-    "Type: LOI Check",
     "How Bad: 💩💩",
     "Urgency: Within 24 Hours",
-    "Due: Aug 14, 2026",
-    "Humperdink: [link](https://humperdink.example/loan/1042)"
+    "Due: Aug 14, 2026"
   ]);
 });
 
@@ -128,8 +131,17 @@ await check("a personal share note still leads the body", async () => {
   // The terms go; what a human typed to the recipient stays.
   const { notifier, cards } = notifierSetup();
   await notifier.notify({ ...detailEvent(makeTask(), "DM_SHARE"), note: "second TD looks off" });
+  assert.equal(cards[0].title, "Dana Requester shared Smith-1042 - LOI Check with you");
   assert.equal(cards[0].detail.split("\n")[0], '"second TD looks off"');
   assert.equal(notesLine(cards[0]), undefined);
+});
+
+await check("a handoff by somebody other than the creator names who handed it over", async () => {
+  const { notifier, cards } = notifierSetup();
+  await notifier.notify({ ...detailEvent(makeTask(), "DM_ASSIGN"), actor: { id: "suzie-1", displayName: "Suzie Lim" } });
+  assert.equal(cards[0].title, "Suzie Lim assigned Smith-1042 - LOI Check to you");
+  // The creator isn't the one handing it over, so the card says whose it is.
+  assert.equal(cards[0].detail.split("\n")[0], "Created by Dana Requester");
 });
 
 // --- 2. An LOI card still links through to the task --------------------------
@@ -160,13 +172,55 @@ await check("the four other blended-field types keep their Notes line", async ()
 await check("an Out of Office card keeps its own body, which never had a Notes line", async () => {
   const card = await cardFor(
     makeTask({ taskType: "OOO", notes: "back Monday", startDate: "2026-08-17", returnDate: "2026-08-21" }),
-    "DM_CLAIM"
+    "DM_ASSIGN"
   );
-  assert.deepEqual(card.detail.split("\n"), [
-    "Type: Out of Office",
-    "Out: Aug 17, 2026 → Aug 21, 2026",
-    "Details: Smith-1042"
+  // The description is in the title now, so it isn't spelled out again below.
+  assert.equal(card.title, "Dana Requester assigned Smith-1042 - Out of Office to you");
+  assert.deepEqual(card.detail.split("\n"), ["Out: Aug 17, 2026 → Aug 21, 2026"]);
+});
+
+// --- 4. The claim's conversation card follows the same rule ------------------
+
+/* A claim sends one card to each party: the conversation card, carrying the
+   facts the details card used to. It reads them from the same builder, so the
+   terms stay off it and the deep link stays on. */
+await check("the conversation card a claim sends quotes no terms and keeps its link", async () => {
+  const synced = [];
+  const botClient = {
+    syncNoteCards: async (opts) => {
+      synced.push(opts);
+    }
+  };
+  const directory = new Map([CHECKER, CREATOR].map((u) => [u.id, u]));
+  const notifier = new TeamsNotificationProvider(
+    botClient,
+    { isEnabled: () => false, sendToUsers: async () => {} },
+    { getNotificationChannelId: async () => "channel-1" },
+    async (userId) => directory.get(userId)
+  );
+  await notifier.notify({
+    type: "TASK_CLAIMED",
+    task: makeTask(),
+    actor: { id: CHECKER.id, displayName: CHECKER.displayName },
+    message: "Casey Checker claimed Smith-1042",
+    target: "DM_CHAT_SEED",
+    recipientUserIds: [CHECKER.id, CREATOR.id],
+    createdAt: new Date().toISOString()
+  });
+
+  assert.equal(synced.length, 1, "one send covers both parties");
+  const { details, recipients } = synced[0];
+  assert.deepEqual(details.facts, [
+    "How Bad: 💩💩",
+    "Urgency: Within 24 Hours",
+    "Due: Aug 14, 2026"
   ]);
+  assert.ok(details.openUrl?.includes("task-259"), "the card links through to the task");
+  // The preview says who took it, in each reader's own terms, and names the
+  // task the way the card's title does.
+  const summaries = Object.fromEntries(recipients.map((r) => [r.userId, r.summary]));
+  assert.equal(summaries[CHECKER.id], "You claimed Smith-1042 - LOI Check");
+  assert.equal(summaries[CREATOR.id], "Casey Checker claimed Smith-1042 - LOI Check");
 });
 
 console.log(`\n${passed} checks passed`);

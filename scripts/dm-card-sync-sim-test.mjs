@@ -29,7 +29,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { TeamsBotClient, advanceFor, closedStateFor, detailCard, noteCard, noteCardDataFromTask } from "../apps/server/dist/bot.js";
+import { TeamsBotClient, advanceFor, closedStateFor, detailCard, noteCard, noteCardDataFromTask, noteCardDetailsFromTask } from "../apps/server/dist/bot.js";
 import { TeamsNotificationProvider } from "../apps/server/dist/notifications.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -84,7 +84,40 @@ await check("a live task's note card still carries its advance button", () => {
   const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CHECKER));
   assert.deepEqual(actionTitles(card), ["Reply", "Complete"]);
   assert.equal(hasReplyBox(card), true);
-  assert.equal(headline(card), "Conversation on Smith-1042");
+  assert.equal(headline(card), "Smith-1042 - LOI Check");
+});
+
+/* The conversation card is the one message a claim sends each party, so it
+   carries what the separate details card used to: who and what, the facts, and
+   the way into the task. The title names the task and its type; the context
+   line under it leaves the type out rather than saying it twice. */
+await check("the note card carries the task's details above the conversation", () => {
+  const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CHECKER));
+  const texts = (card.body ?? []).map((block) => block.text);
+  assert.equal(texts[0], "Smith-1042 - LOI Check");
+  // Casey is the one reading, so Casey is "you".
+  assert.equal(texts[1], "Created by Dana Requester · claimed by you");
+  // No Notes line on an LOI: its request field is the loan's terms (#259).
+  assert.equal(texts[2], "How Bad: 💩💩\nUrgency: Within 24 Hours\nDue: Aug 14, 2026");
+  assert.equal(texts[3], "Conversation");
+  assert.equal(texts[4], "**Casey Checker:** started on it");
+});
+
+await check("the people line says \"you\" to whoever is reading it", () => {
+  const creatorView = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED" }), CREATOR));
+  assert.equal(creatorView.body[1].text, "Created by you · claimed by Casey Checker");
+  // A card nobody holds yet names only who created it.
+  const unheld = noteCard(noteCardDataFromTask(makeTask({ status: "OPEN", assignee: undefined }), CHECKER));
+  assert.equal(unheld.body[1].text, "Created by Dana Requester");
+});
+
+await check("a note card with no messages yet says so instead of sitting empty", () => {
+  const card = noteCard(noteCardDataFromTask(makeTask({ status: "CLAIMED", reviewNotes: [] }), CHECKER));
+  const texts = (card.body ?? []).map((block) => block.text);
+  assert.ok(texts.includes("No messages yet. Reply here to chat about it."));
+  // A card that can't take a reply has nothing to invite.
+  const cancelled = noteCard(noteCardDataFromTask(makeTask({ status: "CANCELLED", reviewNotes: [] }), CHECKER));
+  assert.ok(!(cancelled.body ?? []).some((block) => block.text === "No messages yet. Reply here to chat about it."));
 });
 
 await check("COMPLETED note card drops every button but keeps the reply box", () => {
@@ -93,11 +126,20 @@ await check("COMPLETED note card drops every button but keeps the reply box", ()
   // COMPLETED task — the affordance would otherwise contradict the feature.
   assert.deepEqual(actionTitles(card), ["Reply"]);
   assert.equal(hasReplyBox(card), true);
-  assert.equal(headline(card), "✅ Completed — Smith-1042");
+  // The banner keeps the type: with it gone from the context line, the title
+  // is the only place a closed card says what kind of task this was.
+  assert.equal(headline(card), "✅ Completed — Smith-1042 - LOI Check");
+});
+
+await check("an Out of Office card is titled with its description and the type", () => {
+  const card = noteCard(noteCardDataFromTask(makeTask({ taskType: "OOO", folderName: "Beach week", status: "CLAIMED" }), CHECKER));
+  const texts = (card.body ?? []).map((block) => block.text);
+  assert.equal(texts[0], "Beach week - Out of Office");
+  assert.equal(texts[1], "Created by Dana Requester · claimed by you");
 });
 
 await check("CANCELLED / ARCHIVED note cards lose the reply box too", () => {
-  for (const [status, banner] of [["CANCELLED", "🚫 Cancelled — Smith-1042"], ["ARCHIVED", "📦 Archived — Smith-1042"]]) {
+  for (const [status, banner] of [["CANCELLED", "🚫 Cancelled — Smith-1042 - LOI Check"], ["ARCHIVED", "📦 Archived — Smith-1042 - LOI Check"]]) {
     const card = noteCard(noteCardDataFromTask(makeTask({ status }), CHECKER));
     assert.deepEqual(actionTitles(card), []);
     assert.equal(hasReplyBox(card), false);
@@ -534,6 +576,10 @@ const botSetup = async () => {
 
 const cardOf = (entry) => entry.activity.attachments[0].content;
 
+/* Every conversation card carries the task's details; these tests are about the
+   buttons, so any will do. */
+const DETAILS = { title: "Smith-1042 - LOI Check", createdBy: { id: CREATOR.id, displayName: CREATOR.displayName }, facts: [] };
+
 await check("the claim card is recorded on send, then edited in place on completion", async () => {
   const { client, sent, updated } = await botSetup();
   await client.sendTrackedDetailCard([CHECKER.id], {
@@ -549,6 +595,7 @@ await check("the claim card is recorded on send, then edited in place on complet
   await client.syncTaskCards({
     taskId: "task-1",
     folder: "Smith-1042",
+    details: DETAILS,
     status: "COMPLETED",
     thread: [],
     recipients: [{ userId: CHECKER.id, showAdvance: false }]
@@ -559,7 +606,8 @@ await check("the claim card is recorded on send, then edited in place on complet
   const edit = updated.find((entry) => entry.activityId === "activity-1");
   assert.ok(edit, "the recorded activity id is the one that gets updated");
   assert.deepEqual(actionTitles(cardOf(edit)), ["Open in Hot Task"]);
-  assert.equal(headline(cardOf(edit)), "✅ Completed — Smith-1042");
+  // A details card's banner names the type too, like the conversation card's.
+  assert.equal(headline(cardOf(edit)), "✅ Completed — Smith-1042 - LOI Check");
   assert.equal(cardOf(edit).body[1].text, "Type: LOI Check\nDue: Aug 14", "the stored detail block is replayed");
 });
 
@@ -568,21 +616,28 @@ await check("a note card's Complete button is stripped by the same sync", async 
   await client.syncNoteCards({
     taskId: "task-2",
     folder: "Jones-88",
+    details: DETAILS,
     thread: [{ author: "Casey", text: "on it" }],
     advance: { status: "COMPLETED", label: "Complete" },
     recipients: [{ userId: CHECKER.id, showAdvance: true, createIfMissing: true }]
   });
   assert.deepEqual(actionTitles(cardOf(sent[0])), ["Reply", "Complete"]);
 
+  // Details built from the completed task, the way the notification layer
+  // builds them: the banner rides in on them. Complete is still offered, so the
+  // assertion proves the closed card drops it rather than never receiving it.
   await client.syncTaskCards({
     taskId: "task-2",
     folder: "Jones-88",
+    details: noteCardDetailsFromTask(makeTask({ id: "task-2", folderName: "Jones-88", status: "COMPLETED" })),
     status: "COMPLETED",
     thread: [{ author: "Casey", text: "on it" }],
-    recipients: [{ userId: CHECKER.id, showAdvance: false }]
+    advance: { status: "COMPLETED", label: "Complete" },
+    recipients: [{ userId: CHECKER.id, showAdvance: true }]
   });
   assert.equal(sent.length, 1);
   assert.deepEqual(actionTitles(cardOf(updated.at(-1))), ["Reply"]);
+  assert.equal(headline(cardOf(updated.at(-1))), "✅ Completed — Jones-88 - LOI Check");
 });
 
 await check("a silent sync never posts a replacement when the update is rejected", async () => {
@@ -590,6 +645,7 @@ await check("a silent sync never posts a replacement when the update is rejected
   await client.syncNoteCards({
     taskId: "task-3",
     folder: "Gone-1",
+    details: DETAILS,
     thread: [{ author: "Casey", text: "hi" }],
     recipients: [{ userId: CHECKER.id, showAdvance: false, createIfMissing: true }]
   });
@@ -611,6 +667,7 @@ await check("a silent sync never posts a replacement when the update is rejected
   await client.syncTaskCards({
     taskId: "task-3",
     folder: "Gone-1",
+    details: DETAILS,
     status: "COMPLETED",
     thread: [],
     recipients: [{ userId: CHECKER.id, showAdvance: false }]
@@ -641,6 +698,34 @@ await check("a rejected card tap asks for a re-sync and says so", async () => {
   // Fire-and-forget, so let the microtask queue drain before reading.
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(resynced, ["task-9"], "the stale card is scheduled for repair");
+});
+
+/* A note on a completed task redraws the card through the note path, not the
+   status sync. It has to keep the Completed banner, or the card reads as live
+   again until some later sync happens to put the banner back. */
+await check("a note on a completed task keeps the card's Completed banner", async () => {
+  const { client, sent } = await botSetup();
+  const directory = new Map([CHECKER, CREATOR].map((u) => [u.id, u]));
+  const notifier = new TeamsNotificationProvider(
+    client,
+    { isEnabled: () => false, sendToUsers: async () => {} },
+    { getNotificationChannelId: async () => "channel-1" },
+    async (userId) => directory.get(userId)
+  );
+  await notifier.notify({
+    type: "TASK_STATUS_CHANGED",
+    task: makeTask({ status: "COMPLETED" }),
+    actor: { id: CREATOR.id, displayName: CREATOR.displayName },
+    message: "thanks!",
+    target: "DM_NOTE",
+    recipientUserIds: [CREATOR.id, CHECKER.id],
+    createdAt: new Date().toISOString()
+  });
+  assert.equal(sent.length, 1, "the checker's card goes out");
+  const card = cardOf(sent[0]);
+  assert.equal(headline(card), "✅ Completed — Smith-1042 - LOI Check");
+  assert.deepEqual(actionTitles(card), ["Reply"], "and no step button comes back");
+  assert.equal(card.body[1].text, "Created by Dana Requester · claimed by you", "a sent card says \"you\" to its own recipient");
 });
 
 console.log(`\n${passed} checks passed`);

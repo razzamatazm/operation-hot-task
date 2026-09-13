@@ -126,15 +126,13 @@ await check("a link cleared on the loan takes its line off the card", () => {
   assert.equal(next.humperdinkLink, undefined);
 });
 
-await check("a link added to a loan gains its line", () => {
+await check("a link added to a loan adds no line: no card links to Humperdink", () => {
   const next = correctedDetailSnapshot(snapshot(), {
     folderName: "Smith-1042",
     humperdinkLink: "https://humperdink.example/Loans/Details/7"
   });
-  assert.equal(
-    next.detail,
-    "Type: LOI Check\nHow Bad: 💩💩\nDue: Aug 14\nHumperdink: [link](https://humperdink.example/Loans/Details/7)"
-  );
+  assert.equal(next.detail, "Type: LOI Check\nHow Bad: 💩💩\nDue: Aug 14");
+  assert.equal(next.humperdinkLink, "https://humperdink.example/Loans/Details/7", "the value is still recorded");
 });
 
 await check("nothing moved means nothing is rewritten", () => {
@@ -269,12 +267,20 @@ await check("a rename corrects all three posted surfaces, in place", async () =>
   const task = await createLoanTask(h.service, "Smith-1042");
   await h.service.claimTask(task.id, CHECKER);
   await h.service.addReviewNote(task.id, "starting on it", CHECKER);
+  // A claim no longer sends a details card, so the tracked one comes from a
+  // handoff: a second task on the same loan, handed to the checker.
+  const handed = await h.service.createTask(
+    { folderName: "Smith-1042", taskType: "VALUE", urgency: "GREEN", points: 1, notes: "" },
+    CREATOR
+  );
+  await h.service.assignTask({ taskId: handed.id, target: CHECKER, actor: CREATOR });
   await h.settle();
 
   const postsBefore = h.created.length;
   const sendsBefore = h.sent.length;
-  assert.equal(postsBefore, 1, "one channel card was posted for the task");
+  assert.equal(postsBefore, 2, "one channel card was posted per task");
   const loanId = (await h.store.findTask(task.id)).loanId;
+  assert.equal((await h.store.findTask(handed.id)).loanId, loanId, "both tasks sit on the one loan");
   h.updated.length = 0;
 
   await h.loans.update(loanId, { name: "Smith-1043" }, { actor: CREATOR });
@@ -285,22 +291,22 @@ await check("a rename corrects all three posted surfaces, in place", async () =>
   assert.equal(h.sent.length, sendsBefore, "no new DM to anyone");
 
   // 1. The channel card — and it keeps the shape it was in.
-  const channel = channelEdits(h.updated).at(-1);
-  assert.ok(channel, "the channel card was edited");
-  assert.equal(headline(cardOf(channel)), "Casey Checker grabbed Smith-1043");
+  const channel = channelEdits(h.updated).find((entry) => headline(cardOf(entry)) === "Casey grabbed Dana's LOI Check");
+  assert.ok(channel, "the claimed task's channel card was edited, and still reads as claimed");
+  assert.equal(cardOf(channel).body[1].text, "Smith-1043 - LOI Check");
   assert.deepEqual(actionTitles(cardOf(channel)), [], "a claimed card gains no Claim button back");
 
-  // 2. The claim-detail DM card. Its title is replayed from a snapshot taken
+  // 2. The handoff's detail DM card. Its title is replayed from a snapshot taken
   // when it was sent, which is why this one is the surface a plain refresh got
-  // wrong: it repainted "You claimed Smith-1042" over the corrected task.
-  const detail = editsTitled(h.updated, "You claimed").at(-1);
-  assert.ok(detail, "the claim-detail card was edited");
-  assert.equal(headline(cardOf(detail)), "You claimed Smith-1043");
+  // wrong: it repainted the old name over the corrected task.
+  const detail = editsTitled(h.updated, "Dana Requester assigned").at(-1);
+  assert.ok(detail, "the detail card was edited");
+  assert.equal(headline(cardOf(detail)), "Dana Requester assigned Smith-1043 - Value Check to you");
 
-  // 3. The note cards, which are rebuilt from the task's live values.
-  const note = editsTitled(h.updated, "Conversation on").at(-1);
-  assert.ok(note, "the note card was edited");
-  assert.equal(headline(cardOf(note)), "Conversation on Smith-1043");
+  // 3. The conversation cards, which are rebuilt from the task's live values.
+  const note = editsTitled(h.updated, "Smith-1043 - LOI Check").at(-1);
+  assert.ok(note, "the conversation card was edited");
+  assert.equal(headline(cardOf(note)), "Smith-1043 - LOI Check");
 });
 
 await check("corrected cards keep the exact messages they were posted as", async () => {
@@ -322,7 +328,7 @@ await check("corrected cards keep the exact messages they were posted as", async
   );
 });
 
-await check("a corrected Humperdink link is the one behind the name", async () => {
+await check("a relinked loan puts no link on the channel card", async () => {
   const h = await harness();
   const task = await createLoanTask(h.service, "Link-1", "https://humperdink.example/Loans/Details/1");
   await h.settle();
@@ -336,11 +342,12 @@ await check("a corrected Humperdink link is the one behind the name", async () =
   );
   await h.settle();
 
-  const channel = channelEdits(h.updated).at(-1);
-  assert.ok(
-    headline(cardOf(channel)).includes("[Link-1](https://humperdink.example/Loans/Details/2)"),
-    `the name links to the corrected loan, got: ${headline(cardOf(channel))}`
-  );
+  // No Teams card links to Humperdink, before the relink or after it.
+  const cards = [...h.created.map((params) => params.activity.attachments[0].content), ...channelEdits(h.updated).map(cardOf)];
+  assert.ok(cards.length > 0, "there is a channel card to look at");
+  for (const card of cards) {
+    assert.equal(card.body[1].text, "Link-1 - LOI Check\nHow Bad: 💩💩\nUrgency: Within 24 Hours");
+  }
 });
 
 await check("an unclaimed task's card is still claimable afterwards", async () => {
@@ -354,7 +361,8 @@ await check("an unclaimed task's card is still claimable afterwards", async () =
   await h.settle();
 
   const card = cardOf(channelEdits(h.updated).at(-1));
-  assert.equal(headline(card), "Dana Requester needs an LOI checked: Open-2");
+  assert.equal(headline(card), "Dana needs an LOI checked");
+  assert.match(card.body[1].text, /^Open-2 - LOI Check\n/);
   assert.deepEqual(actionTitles(card), ["Claim"], "the task is still up for grabs");
 });
 
@@ -373,11 +381,15 @@ await check("a finished task's card is corrected and stays terminal", async () =
   await h.settle();
 
   const channel = cardOf(channelEdits(h.updated).at(-1));
-  assert.equal(headline(channel), "✅ Completed — Done-2");
+  assert.equal(headline(channel), "✅ Casey completed Dana's LOI Check");
+  assert.equal(channel.body[1].text, "Done-2 - LOI Check");
   assert.deepEqual(actionTitles(channel), [], "no action button is reintroduced");
 
+  // The conversation card keeps the reply box a completed task still takes
+  // (#45), and gains no step button back.
   const detail = cardOf(editsTitled(h.updated, "✅ Completed").at(-1));
-  assert.deepEqual(actionTitles(detail), [], "and none on the DM card either");
+  assert.equal(headline(detail), "✅ Completed — Done-2 - LOI Check");
+  assert.deepEqual(actionTitles(detail), ["Reply"], "and none on the DM card either");
 });
 
 await check("the rename returns without waiting on the card writes", async () => {
@@ -439,18 +451,20 @@ await check("a rename corrects the name and nothing else on the card", async () 
   await h.settle();
 
   const card = cardOf(channelEdits(h.updated).at(-1));
-  assert.equal(headline(card), "Dana Requester needs an LOI checked: Only-2");
-  assert.match(card.body[1].text, /How Bad: 💩💩\n/, "the body it was posted with is left alone");
+  assert.equal(headline(card), "Dana needs an LOI checked");
+  // The name line is the only line of the body that quotes the loan, so it is
+  // the only one rewritten; How Bad still says what was announced.
+  assert.equal(card.body[1].text, "Only-2 - LOI Check\nHow Bad: 💩💩\nUrgency: Within 24 Hours", "the rest of the posted body is left alone");
 });
 
 await check("a card sent before the values were recorded is still corrected", async () => {
   const h = await harness();
   const task = await createLoanTask(h.service, "Legacy-1");
-  await h.service.claimTask(task.id, CHECKER);
+  await h.service.assignTask({ taskId: task.id, target: CHECKER, actor: CREATOR });
   await h.settle();
   const loanId = (await h.store.findTask(task.id)).loanId;
 
-  // Every claim-detail card in existence when this shipped looks like this:
+  // Every tracked detail card in existence when this shipped looks like this:
   // rendered text, no record of which loan values went into it. Written off,
   // they would keep quoting the old name through the very rename meant to fix
   // them, so the values the edit moves AWAY from stand in for the record.
@@ -465,9 +479,9 @@ await check("a card sent before the values were recorded is still corrected", as
   await h.loans.update(loanId, { name: "Legacy-2" }, { actor: CREATOR });
   await h.settle();
 
-  const detail = editsTitled(h.updated, "You claimed").at(-1);
-  assert.ok(detail, "the claim-detail card was still edited");
-  assert.equal(headline(cardOf(detail)), "You claimed Legacy-2");
+  const detail = editsTitled(h.updated, "Dana Requester assigned").at(-1);
+  assert.ok(detail, "the detail card was still edited");
+  assert.equal(headline(cardOf(detail)), "Dana Requester assigned Legacy-2 - LOI Check to you");
 });
 
 await check("folding two loans together corrects the absorbed loan's cards", async () => {
@@ -492,9 +506,11 @@ await check("folding two loans together corrects the absorbed loan's cards", asy
   assert.equal(merged.loan.name, "Alpha");
   assert.equal((await h.store.findTask(absorbed.id)).folderName, "Alpha");
   const channel = channelEdits(h.updated).at(-1);
-  assert.equal(headline(cardOf(channel)), "Casey Checker grabbed Alpha");
-  const detail = editsTitled(h.updated, "You claimed").at(-1);
-  assert.equal(headline(cardOf(detail)), "You claimed Alpha");
+  assert.equal(headline(cardOf(channel)), "Casey grabbed Dana's LOI Check");
+  assert.equal(cardOf(channel).body[1].text, "Alpha - LOI Check");
+  const conversation = editsTitled(h.updated, "Alpha - LOI Check").at(-1);
+  assert.ok(conversation, "the claim's conversation card was edited");
+  assert.equal(headline(cardOf(conversation)), "Alpha - LOI Check");
 });
 
 console.log(`\n${passed} checks passed`);

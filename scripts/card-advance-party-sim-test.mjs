@@ -329,6 +329,9 @@ const notifierSetup = () => {
     syncTaskCards: async (opts) => {
       synced.push(opts);
     },
+    syncNoteCards: async (opts) => {
+      synced.push(opts);
+    },
     sendToDms: async () => {}
   };
   const directory = new Map(VIEWERS.map((user) => [user.id, user]));
@@ -351,11 +354,18 @@ const dmEvent = (task, target, recipientUserIds) => ({
   createdAt: new Date().toISOString()
 });
 
-await check("the claim DM card offers the claimer the step that is theirs", async () => {
-  const { notifier, sent } = notifierSetup();
-  await notifier.notify(dmEvent(makeTask({ status: "CLAIMED" }), "DM_CLAIM", [ASSIGNEE.id]));
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].detail.advance?.label, "Merge Done", "the claimer is the assignee and gets their own rung");
+await check("the claim's card offers the claimer the step that is theirs, and the creator nothing", async () => {
+  // A claim sends both parties one card, the conversation card; the step button
+  // on it is gated per recipient, the same rule as every other surface.
+  const { notifier, sent, synced } = notifierSetup();
+  const task = makeTask({ status: "CLAIMED" });
+  await notifier.notify({ ...dmEvent(task, "DM_CHAT_SEED", [ASSIGNEE.id, CREATOR.id]), actor: ASSIGNEE });
+  assert.equal(sent.length, 0, "no separate details card");
+  assert.equal(synced.length, 1);
+  assert.equal(synced[0].advance?.label, "Merge Done");
+  const byUser = Object.fromEntries(synced[0].recipients.map((r) => [r.userId, r.showAdvance]));
+  assert.equal(byUser[ASSIGNEE.id], true, "the claimer is the assignee and gets their own rung");
+  assert.equal(byUser[CREATOR.id], false, "the creator is not handed the assignee's move");
 });
 
 await check("a handoff mid-merge doesn't hand the creator's Approve Merge to the new assignee", async () => {
@@ -369,7 +379,8 @@ await check("a handoff mid-merge doesn't hand the creator's Approve Merge to the
   assert.equal(sent[0].detail.advance, undefined, "the new assignee is not offered the creator's approval");
   // Still a useful card: it says what happened and carries the task's details.
   assert.equal(sent[0].detail.title.includes("assigned"), true, "the card still says what happened");
-  assert.match(sent[0].detail.detail, /Type: Loan Docs/, "and still carries the task's details");
+  assert.match(sent[0].detail.title, / - Loan Docs to you$/, "and names the task's type");
+  assert.match(sent[0].detail.detail, /How Bad: /, "and still carries the task's details");
 });
 
 await check("the sync at MERGE_DONE re-arms the creator's card and only the creator's", async () => {

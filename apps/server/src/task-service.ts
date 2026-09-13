@@ -786,47 +786,30 @@ export class TaskService {
     }));
 
     this.background(async () => {
-      // No channel thread-reply on claim (Design A) — the root card silently
-      // flips to its claimed state via CHANNEL_CLAIMED below, so nobody is
-      // re-pinged.
+      /* One message per person on a claim: the conversation card, carrying the
+         task's details, its step button and the deep link, sent to the claimer
+         and the creator alike. It used to be two each — the claimer got a
+         details card and then the conversation card, the creator a "claimed"
+         one-liner and then the conversation card — and the second message in
+         each pair said nothing the first hadn't. The claimer's copy goes first,
+         as the details card did, ahead of the channel card flip. */
       await this.notify({
         type: "TASK_CLAIMED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
-        message: `You're on the hook for this one. Go get 'em.`,
-        target: "DM_CLAIM",
-        recipientUserIds: [user.id]
+        message: `${user.displayName} claimed ${updated.folderName}`,
+        target: "DM_CHAT_SEED",
+        recipientUserIds: [user.id, updated.createdBy.id]
       });
-      // Tell the creator their task got picked up (unless they claimed it).
-      if (task.createdBy.id !== user.id) {
-        await this.notify({
-          type: "TASK_CLAIMED",
-          task: updated,
-          actor: { id: user.id, displayName: user.displayName },
-          message: `${firstName(user.displayName)} claimed ${updated.folderName}`,
-          target: "DM",
-          recipientUserIds: [task.createdBy.id]
-        });
-      }
-      // Update the channel card to its claimed state for everyone — fires for
-      // web claims too, not just taps on the card's own Claim button.
+      // No channel thread-reply on claim (Design A) — the root card silently
+      // flips to its claimed state, so nobody is re-pinged. Fires for web
+      // claims too, not just taps on the card's own Claim button.
       await this.notify({
         type: "TASK_CLAIMED",
         task: updated,
         actor: { id: user.id, displayName: user.displayName },
         message: `${user.displayName} grabbed ${updated.folderName}`,
         target: "CHANNEL_CLAIMED"
-      });
-      // Open the conversation surface for BOTH parties so they can chat right
-      // away (the note card otherwise only appears once the first note is
-      // posted).
-      await this.notify({
-        type: "TASK_CLAIMED",
-        task: updated,
-        actor: { id: user.id, displayName: user.displayName },
-        message: `Chat opened for ${updated.folderName}`,
-        target: "DM_CHAT_SEED",
-        recipientUserIds: [updated.createdBy.id, user.id]
       });
       // Claiming is a status change like any other; the cards just sent above
       // are already correct, but a card left over from an earlier claim (or a
