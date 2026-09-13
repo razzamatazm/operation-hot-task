@@ -162,6 +162,10 @@ const runUserscript = ({
      page does; `false` is a Humperdink release that moved it, where the control
      gives up looking and takes the corner as a floating button. */
   anchor = true,
+  /* The LOI button's insides, as a tree the script can copy (see `treeNode`).
+     Left out, the LOI button can't be copied and the script builds its control
+     by hand, which is the fallback. */
+  loiMarkup = null,
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -261,12 +265,63 @@ const runUserscript = ({
     return el;
   };
 
+  /* A small element tree, just enough for the script to copy the LOI button and
+     swap its icon and name: children, text nodes, attributes, and lookups by
+     class. A string in `children` is a text node. */
+  const hasClass = (node, name) => String(node.className ?? "").split(/\s+/).includes(name);
+  const elementsIn = (node) => (node.childNodes ?? []).filter((child) => child.nodeType !== 3);
+  const descendantsOf = (node) => elementsIn(node).flatMap((child) => [child, ...descendantsOf(child)]);
+  const treeNode = (spec, parentNode = null) => {
+    if (typeof spec === "string") return { nodeType: 3, nodeValue: spec, parentNode };
+    const el = createElement(spec.tag ?? "div");
+    const attributes = [];
+    Object.assign(el, {
+      nodeType: 1,
+      parentNode,
+      className: spec.className ?? "",
+      attributes,
+      setAttribute(name, value) {
+        const found = attributes.find((attribute) => attribute.name === name);
+        if (found) found.value = value;
+        else attributes.push({ name, value });
+      },
+      removeAttribute(name) {
+        const at = attributes.findIndex((attribute) => attribute.name === name);
+        if (at >= 0) attributes.splice(at, 1);
+        if (name === "id") this.id = "";
+      },
+      querySelector(selector) {
+        return descendantsOf(this).find((node) => hasClass(node, selector.slice(1))) ?? null;
+      },
+      querySelectorAll() {
+        return descendantsOf(this);
+      },
+      replaceChild(next, old) {
+        this.childNodes[this.childNodes.indexOf(old)] = next;
+        next.parentNode = this;
+      },
+      classList: {
+        add: (...names) => {
+          el.className = [...new Set([...el.className.split(/\s+/), ...names])].filter(Boolean).join(" ");
+        },
+        remove: (...names) => {
+          el.className = el.className.split(/\s+/).filter((name) => name && !names.includes(name)).join(" ");
+        }
+      }
+    });
+    for (const [name, value] of Object.entries(spec.attrs ?? {})) el.setAttribute(name, value);
+    el.id = spec.attrs?.id ?? "";
+    el.childNodes = (spec.children ?? []).map((child) => treeNode(child, el));
+    return el;
+  };
+
   /* Humperdink's LOI button, inside the Loan Terms panel header. */
   const loiButton = {
     id: "btnLOIFile",
     className: "jqx-rc-all jqx-button jqx-widget jqx-fill-state-normal",
     closest: (selector) => (selector === ".loanpanelheader" ? {} : null),
-    insertAdjacentElement: (_position, el) => mountControl(el)
+    insertAdjacentElement: (_position, el) => mountControl(el),
+    ...(loiMarkup ? { cloneNode: () => treeNode(loiMarkup) } : {})
   };
 
   const document = {
@@ -479,6 +534,77 @@ test("a message goes in a note under the inline control, not over its label", as
   assert.equal(page.said, COPIED);
   assert.equal(page.button.textContent, "Export to HT", "the header button never changes width");
 });
+
+/* The inline control is a copy of the LOI button with its icon and name
+   swapped, so it lines up with the bar by construction. Hand-tuned margins sat
+   a pixel or two off. The real button's insides aren't recorded anywhere (the
+   page is customer data), so this is a plausible shape, carrying the two things
+   a copy must not keep: ids and an inline click handler. */
+const LOI_MARKUP = {
+  className: "jqx-rc-all jqx-button jqx-widget jqx-fill-state-normal jqx-fill-state-hover",
+  attrs: { id: "btnLOIFile", onclick: "OpenLOIFile()", style: "padding-left: 10px; height: 24px;" },
+  children: [
+    { tag: "span", className: "fa fa-file-word-o fa-lg loanSettings" },
+    { tag: "div", attrs: { id: "lblLOI", style: "margin-top: 3px;" }, children: ["LOI"] }
+  ]
+};
+const nodesOf = (node) => [node, ...(node.childNodes ?? []).flatMap(nodesOf)];
+const visibleText = (node) =>
+  node.nodeType === 3 ? node.nodeValue : node.childNodes ? node.childNodes.map(visibleText).join("") : node.textContent;
+
+test("the inline control is a copy of the LOI button, with its own icon and name", () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, loiMarkup: LOI_MARKUP });
+  const nodes = nodesOf(page.button);
+  assert.equal(page.button.id, CONTROL_ID);
+  assert.ok(page.button.childNodes, "copied, not built");
+  assert.match(page.button.className, /jqx-button/);
+  assert.doesNotMatch(page.button.className, /hover/, "not stuck looking hovered");
+  assert.equal(visibleText(page.button).trim(), "Export to HT");
+  const icon = nodes.find((node) => hasClassName(node, "fa"));
+  assert.deepEqual(icon.className.split(" "), ["fa", "fa-lg", "loanSettings", "fa-share-square-o"]);
+  assert.ok(
+    nodes.every((node) => node === page.button || !node.id),
+    "no second btnLOIFile, and no copy of any id inside it"
+  );
+  assert.ok(
+    nodes.every((node) => !Array.isArray(node.attributes) || node.attributes.every((a) => !/^on/i.test(a.name))),
+    "the LOI button's own click handler did not come along"
+  );
+});
+
+test("a name written straight into the LOI button is swapped too", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: { className: "jqx-button", children: [{ tag: "span", className: "fa fa-file-word-o" }, " LOI"] }
+  });
+  assert.ok(page.button.childNodes, "copied, not built");
+  assert.equal(visibleText(page.button).trim(), "Export to HT");
+});
+
+test("an LOI button with no icon to swap gets the hand-built control instead", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: { className: "jqx-button", children: ["LOI"] }
+  });
+  assert.equal(page.button.childNodes, undefined, "built, not copied");
+  assert.equal(page.button.textContent, "Export to HT");
+});
+
+test("the copied control presses, and comes back once after a repaint", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, loiMarkup: LOI_MARKUP });
+  page.repaintHeader();
+  assert.equal(page.controlsOnPage, 1);
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(page.said, COPIED);
+  assert.equal(visibleText(page.button).trim(), "Export to HT", "the header button never changes width");
+});
+
+function hasClassName(node, name) {
+  return String(node.className ?? "").split(/\s+/).includes(name);
+}
 
 test("running the script again leaves one control", () => {
   // Two stacked buttons on top of each other is a support call nobody can
