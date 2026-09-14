@@ -1898,16 +1898,16 @@ button.btn-good:hover {
 }
 
 /* Timeline: where the task is in its flow, first child of the expanded body (so
-   the sibling hairline rule above never applies to it). One line of words over
-   a segmented bar, the same two short lines on every task type at every width
+   the sibling hairline rule above never applies to it). On a phone, one line of
+   words over a segmented bar, the same two short lines on every task type
    (2026-09-13). It was a rail of every step, a dot and a name each, and a
    five-step flow could not fit that on a phone: it wrapped to two or three
    lines. The words say where the task is and what comes next; the bar says how
-   far, one segment per step, so no step needs its name drawn to say it.
+   far, one segment per step, so a phone draws no step's name.
 
-   Capped at 440px so a desktop card does not stretch the bar across the page.
-   The next step's name is the part that gives, by ellipsis; the step the task
-   is on never does. */
+   Under 860px it is capped at 440px; a wide card names every step instead (see
+   the query below). The next step's name is the part that gives, by ellipsis;
+   the step the task is on never does. */
 .timeline {
   display: flex;
   flex-direction: column;
@@ -1979,6 +1979,82 @@ button.btn-good:hover {
 }
 .timeline-off .timeline-now {
   color: var(--muted);
+}
+/* Each step is its segment and, on a wide card, its name under it. The names
+   are hidden below 860px, and that is what keeps a phone on two short lines:
+   five names do not fit a 390px card, and the line above already says where
+   the task is. 860 and not lower because the columns are equal fifths, and the
+   widest step a task can stand on, a Fraud Check's `Outstanding items`,
+   ellipsized in its fifth of a 720px card; the step the task is on never
+   ellipsizes. */
+.timeline-step {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.timeline-step-name {
+  display: none;
+}
+
+/* A wide card names every step (2026-09-13, the user's pick over an inline
+   strip and a filled track, driven on the real card, branch
+   `prototype/status-tracker-desktop`). The one-liner read as stranded there, a
+   440px strip in a body three times as wide. So the cap comes off, the bar runs
+   the width of the body, each step's name sits under its own segment, and the
+   line steps out of view without leaving the accessibility tree: the names sit
+   inside the bar's image and are never read, so the line is what a screen
+   reader hears at every width. A cancelled task keeps its line and draws no
+   names, because it stands on no step and walked none of them. Each name
+   ellipsizes in its own column, so nothing here wraps either. The names take
+   the timeline's own 0.85rem rather than a size of their own. After the base
+   rules, since a media query adds no specificity. */
+@media (min-width: 860px) {
+  .timeline {
+    max-width: none;
+  }
+  .timeline-off .timeline-step-name {
+    display: none;
+  }
+  /* `.sr-only`'s declarations, restated: a class cannot be applied under a
+     query, and the line has to stay visible on a phone. */
+  .timeline:not(.timeline-off) .timeline-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  .timeline-bar {
+    gap: 6px;
+  }
+  .timeline-seg {
+    height: 6px;
+  }
+  .timeline-step-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .timeline-step-done .timeline-step-name {
+    color: var(--ink-secondary);
+  }
+  .timeline-step-here .timeline-step-name {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .timeline-corrections .timeline-step-here .timeline-step-name {
+    color: var(--warn);
+  }
+  .timeline-finished .timeline-step-here .timeline-step-name {
+    color: var(--good);
+  }
 }
 
 @keyframes drop {

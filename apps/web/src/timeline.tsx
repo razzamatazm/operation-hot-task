@@ -17,6 +17,11 @@ import { CLOSED_STATUSES, LoanTask, TaskStatus, TaskType, statusDisplayName } fr
    reads as COMPLETED, and a status in no flow (CANCELLED) names itself over an
    empty bar.
 
+   A wide card names every step under its own segment instead, and the line
+   steps out of view there (see styles.css). Chosen over an inline strip and a
+   filled track, branch `prototype/status-tracker-desktop`. The markup is the
+   same at every width; only the stylesheet decides which half is drawn.
+
    Step names are the rail's own ("Opened", not "Open") except where the shared
    `statusDisplayName` has a say (#237): the claimed step on an LOI reads
    "In review", and the corrections state reads "Needs corrections". Never a
@@ -79,7 +84,11 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
         )}
       </div>
       {/* The segments are the only place the count lives, so the bar says it
-          in words to a screen reader. */}
+          in words to a screen reader. Each segment carries its step's name,
+          which only a wide card draws (2026-09-13): the bar is an image, so the
+          names are never read, and the line above says the same thing aloud at
+          every width. The step the task is on takes the line's own word, so a
+          task in corrections names the state here too, never the step. */}
       <div
         className="timeline-bar"
         role={step === undefined ? undefined : "img"}
@@ -89,10 +98,15 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
         {flow.map((s, i) => (
           <span
             key={s}
-            className={`timeline-seg${i < idx || (i === idx && tone !== "corrections") ? " timeline-seg-on" : ""}${
-              i === idx && tone === "corrections" ? " timeline-seg-flag" : ""
-            }`}
-          />
+            className={`timeline-step${i < idx ? " timeline-step-done" : i === idx ? " timeline-step-here" : ""}`}
+          >
+            <span
+              className={`timeline-seg${i < idx || (i === idx && tone !== "corrections") ? " timeline-seg-on" : ""}${
+                i === idx && tone === "corrections" ? " timeline-seg-flag" : ""
+              }`}
+            />
+            <span className="timeline-step-name">{i === idx ? now : timelineLabel(s, task.taskType)}</span>
+          </span>
         ))}
       </div>
     </div>

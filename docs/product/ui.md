@@ -164,12 +164,14 @@ Both views share one card component:
   menu, so nothing actionable is behind the fold.
 - **An open card leads with where the task is in its flow** (PR #421,
   confirmed 2026-09-13): the step it is on, `Next` and the step after it, and
-  a bar with one segment per step filled up to the current one. It is one line
-  over the bar on every task type, on a phone as on a desktop; it replaced a
-  rail naming every step, which ran to two or three lines on a phone. An LOI
-  sent back reads `Needs corrections` in place of the step name. Finished
-  tasks, archived ones included, show green; a cancelled task says
-  `Cancelled` over an empty bar.
+  a bar with one segment per step filled up to the current one. On a phone it
+  is one line over the bar on every task type; it replaced a rail naming every
+  step, which ran to two or three lines there. **On a wider screen every step
+  is named under its own segment** (confirmed 2026-09-13), with the bar across
+  the whole card and the current step in bold, because the one line looked
+  lost on a desktop card. Neither layout ever wraps. An LOI sent back reads
+  `Needs corrections` in place of the step name. Finished tasks, archived ones
+  included, show green; a cancelled task says `Cancelled` over an empty bar.
 - **Each section of an open card has its heading above it, at every width**
   (PR #421, confirmed 2026-09-13): `Outstanding items` on a Fraud Check, the
   Instructions heading on every other type (see

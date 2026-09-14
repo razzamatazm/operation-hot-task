@@ -108,7 +108,11 @@ const railParts = (task) => {
   const collect = (pattern) => [...markup.matchAll(pattern)].map((match) => match[1]);
   const [now = ""] = collect(/<span class="timeline-now">(.*?)<\/span>/g);
   const next = collect(/<span class="timeline-next-name">(.*?)<\/span>/g);
-  return { markup, now, stepLabels: [now, ...next] };
+  /* A wide card names every step under its segment, so those names answer to
+     the same rules as the line: a task in corrections must not read as under
+     review in either place. */
+  const names = collect(/<span class="timeline-step-name">(.*?)<\/span>/g);
+  return { markup, now, names, stepLabels: [now, ...next, ...names] };
 };
 
 const CONFIRM_LINE = {
@@ -201,6 +205,48 @@ test("a task in corrections is named as such and nowhere reads as under review",
     const line = CONFIRM_LINE.render(taskFor("NEEDS_REVIEW", taskType));
     assert.ok(shows(line, corrections), `${taskType}: ${line}`);
     assert.ok(!shows(line, underReview), `${taskType}: ${line}`);
+  }
+});
+
+/* ── A wide card names every step ──────────────────────── */
+/* On a wide card the rail draws each step's name under its segment. The step
+   the task is on takes the line's own word, which is what keeps "Needs
+   corrections" in place of "In review" there too. */
+
+test("the rail names each step once, and the step the task is on with the line's own word", () => {
+  for (const [status, taskType] of matrix) {
+    const { names, now, markup } = railParts(taskFor(status, taskType));
+    const where = `${status} / ${taskType}: ${markup}`;
+    assert.equal(names.length, taskType === "LOAN_DOCS" || taskType === "FRAUD" ? 5 : 3, where);
+    assert.equal(new Set(names).size, names.length, where);
+    if (!markup.includes("timeline-off")) assert.ok(names.includes(now), where);
+  }
+});
+
+/* The names are what a phone cannot fit. Hidden by a base rule and shown only
+   inside a `min-width` query, so a rule that shows them anywhere else is a
+   phone rail wrapping again. */
+test("only a min-width query shows the step names", () => {
+  const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const MEDIA = /@media([^{]*)\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g;
+  const outside = css.replace(MEDIA, "");
+  const nameRules = [...outside.matchAll(/([^{}]*\.timeline-step-name[^{}]*)\{([^}]*)\}/g)];
+  assert.ok(nameRules.length > 0, "no base rule for .timeline-step-name");
+  for (const [, selector, body] of nameRules) {
+    assert.match(body, /display:\s*none/, `${selector.trim()} must keep the names hidden outside a query`);
+  }
+  const showing = [...css.matchAll(MEDIA)].filter(([, , body]) =>
+    /\.timeline-step-name[^{]*\{[^}]*display:\s*(?!none)/.test(body)
+  );
+  assert.ok(showing.length > 0, "no query shows the step names");
+  for (const [, query] of showing) {
+    assert.match(query, /min-width/, `step names shown under "${query.trim()}"`);
+    assert.doesNotMatch(query, /max-width|pointer/, `step names shown under "${query.trim()}"`);
+    /* 860 was measured: below it, a Fraud Check's `Outstanding items`
+       ellipsizes in its fifth of the card, and the step a task is on never
+       ellipsizes. A lower query is a phone or a narrow card cutting it off. */
+    const px = Number(query.match(/min-width:\s*(\d+)px/)?.[1]);
+    assert.ok(px >= 860, `step names shown from ${px}px, under the 860px the widest current step needs`);
   }
 });
 

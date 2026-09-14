@@ -1106,13 +1106,28 @@ drove the stripe either.
 One stacked column (#106), sections separated by a hairline rather than
 nested card chrome, in this order:
 
-1. **Status timeline** (`.timeline`): where the task is in its flow, as one
-   line over a segmented bar (2026-09-13, the user's pick). The step it is on
-   sits at the left, `Next` and the step after it at the right, and under them
-   one segment per step, filled up to the one it is on. Two short lines on
-   every task type at every width, capped at 440px so a desktop card does not
-   stretch the bar across the page. The next step's name is what ellipsizes,
-   never the current one.
+1. **Status timeline** (`.timeline`): where the task is in its flow. Under
+   860px it is one line over a segmented bar (2026-09-13, the user's pick). The
+   step it is on sits at the left, `Next` and the step after it at the right,
+   and under them one segment per step, filled up to the one it is on. Two
+   short lines on every task type, capped at 440px. The next step's name is
+   what ellipsizes, never the current one.
+   **From 860px up every step is named under its own segment** (2026-09-13,
+   the user's pick over an inline strip and a filled track, driven on the real
+   card, branch `prototype/status-tracker-desktop`). The one-liner read as
+   stranded on a desktop card, a 440px strip in a body three times as wide. So
+   the cap comes off and the bar runs the width of the body. The step the task
+   is on is named in ink at 600, the steps behind it in secondary ink, the steps
+   ahead muted, and the line steps out of view. It stays in the accessibility
+   tree: the names sit inside the bar's `role="img"` and are never read, so the
+   line is what a screen reader hears at every width. A cancelled task keeps
+   its line and draws no names, since it stands on no step and walked none of
+   them. Each name ellipsizes in its own column, so nothing wraps at any width.
+   **The names are hidden below 860px**, and that is the whole of what keeps a
+   phone on two short lines; the surface test fails if a rule outside a
+   `min-width` query ever shows them. 860 and not lower because the columns are
+   equal fifths, and a Fraud Check's `Outstanding items`, the widest step a
+   task can stand on, ellipsized in its fifth of a 720px card.
    It replaced a rail that drew every step with a dot, a name and a `NOW` chip
    on the current one. A five-step flow could not fit that on a phone, so a
    Fraud Check or Loan Docs card opened on a rail two or three lines deep, and
@@ -1136,8 +1151,9 @@ nested card chrome, in this order:
    cannot drift from the web's, and `scripts/status-display-surface-sim-test.mjs`
    fails if one appears.
    **In corrections the line names the state, not the step.** `Needs
-   corrections` takes the step name's place in `--warn`, and the segment the
-   task is standing on goes `--warn` with it. Naming the step there would read
+   corrections` takes the step name's place in `--warn`, on the line and under
+   the segment on a wide card, and the segment the task is standing on goes
+   `--warn` with it. Naming the step there would read
    `In review`, the pairing ADR-0007 rule 4 exists to stop.
    The bar is `role="img"` labelled `Step N of M`, because the segments are the
    only place the count lives. It's the first child so the sibling-hairline
