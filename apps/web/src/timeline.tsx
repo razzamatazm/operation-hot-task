@@ -17,6 +17,11 @@ import { CLOSED_STATUSES, LoanTask, TaskStatus, TaskType, statusDisplayName } fr
    reads as COMPLETED, and a status in no flow (CANCELLED) names itself over an
    empty bar.
 
+   A wide card names every step under its own segment instead, and the line
+   steps out of view there (see styles.css). Chosen over an inline strip and a
+   filled track, branch `prototype/status-tracker-desktop`. The markup is the
+   same at every width; only the stylesheet decides which half is drawn.
+
    Step names are the rail's own ("Opened", not "Open") except where the shared
    `statusDisplayName` has a say (#237): the claimed step on an LOI reads
    "In review", and the corrections state reads "Needs corrections". Never a

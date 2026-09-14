@@ -1898,12 +1898,12 @@ button.btn-good:hover {
 }
 
 /* Timeline: where the task is in its flow, first child of the expanded body (so
-   the sibling hairline rule above never applies to it). One line of words over
-   a segmented bar, the same two short lines on every task type at every width
+   the sibling hairline rule above never applies to it). On a phone, one line of
+   words over a segmented bar, the same two short lines on every task type
    (2026-09-13). It was a rail of every step, a dot and a name each, and a
    five-step flow could not fit that on a phone: it wrapped to two or three
    lines. The words say where the task is and what comes next; the bar says how
-   far, one segment per step, so no step needs its name drawn to say it.
+   far, one segment per step, so a phone draws no step's name.
 
    Under 860px it is capped at 440px; a wide card names every step instead (see
    the query below). The next step's name is the part that gives, by ellipsis;
@@ -2016,6 +2016,8 @@ button.btn-good:hover {
   .timeline-off .timeline-step-name {
     display: none;
   }
+  /* `.sr-only`'s declarations, restated: a class cannot be applied under a
+     query, and the line has to stay visible on a phone. */
   .timeline:not(.timeline-off) .timeline-head {
     position: absolute;
     width: 1px;

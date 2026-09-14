@@ -242,6 +242,11 @@ test("only a min-width query shows the step names", () => {
   for (const [, query] of showing) {
     assert.match(query, /min-width/, `step names shown under "${query.trim()}"`);
     assert.doesNotMatch(query, /max-width|pointer/, `step names shown under "${query.trim()}"`);
+    /* 860 was measured: below it, a Fraud Check's `Outstanding items`
+       ellipsizes in its fifth of the card, and the step a task is on never
+       ellipsizes. A lower query is a phone or a narrow card cutting it off. */
+    const px = Number(query.match(/min-width:\s*(\d+)px/)?.[1]);
+    assert.ok(px >= 860, `step names shown from ${px}px, under the 860px the widest current step needs`);
   }
 });
 
