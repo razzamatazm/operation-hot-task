@@ -529,7 +529,7 @@ Four things about that rule:
   ornament, which is the one thing this row's rules refuse.
 
 Since every active row names its step, no row pays for the line in white space
-any more. The reservation stays because it is uniform rows are what lets an eye keep one rhythm down a list, and
+any more. The reservation stays because uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
 
 **Equal heights are not the same thing as a list that lines up**, and getting

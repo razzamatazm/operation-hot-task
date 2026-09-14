@@ -2905,9 +2905,12 @@ button.btn-good:hover {
      step is always `Opened`, so the pair is far inside the 164px cell.
 
      The tracking comes in to 0.04em, and that is what keeps the reserved line
-     to ONE line on a 360px screen (2026-09-10). `Final Approval Needed` is the
-     longest stage the app renders: 21 characters of JetBrains Mono at the 12px
-     touch floor. The title cell resolves to 164px at that width, and the label
+     to ONE line on a 360px screen (2026-09-10). It was set against `Final
+     Approval Needed`, then the longest stage: 21 characters of JetBrains Mono at
+     the 12px touch floor. Since 2026-09-13 the row speaks the tracker's words
+     and the longest step is `Outstanding items` (17), so the setting now carries
+     margin rather than sitting on the edge. The title cell resolves to 164px at
+     that width, and that old label
      measures ~181px at the base 0.12em and ~166px at 0.06em — still over, which
      is why this is 0.04em (~161px) and not the first number tried. Wrapped, that
      row alone came out 38px taller than every other one: the uniform-height rule

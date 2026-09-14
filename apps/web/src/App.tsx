@@ -2590,7 +2590,7 @@ const TaskCard = memo(({
                   <span className="task-card-collapsed-stage-join" aria-hidden="true">&nbsp;-&nbsp;</span>
                   {currentStepName(task)}
                 </span>
-            {/* How Bad?, and it shares the stage's line rather than holding one of
+                {/* How Bad?, and it shares the stage's line rather than holding one of
               its own (2026-09-10), so a task up for grabs reads its step and its
               rating on one line and every active row stays three lines tall. The
               rating only appears on a task that is unclaimed AND has never been
