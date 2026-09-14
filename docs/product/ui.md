@@ -167,7 +167,10 @@ Both views share one card component:
   `Opened`, `Claimed`, `In review`, `Needs corrections`, `Merge done`,
   `Outstanding items`, `Final approval`. It used to show only on a Loan Docs
   mid-merge or a Fraud Check mid-exchange, so most rows had a blank line there.
-  A task up for grabs shows `Opened` with its poop rating beside it. One-line
+  A rated task shows its poop rating beside the step, on every row that is not
+  closed (confirmed 2026-09-14): a teammate reads the ratings on claimed work
+  to judge who is already buried. It showed only on a task up for grabs from
+  2026-09-07 to 2026-09-14. One-line
   closed rows show no step; a creator's just-completed card, which stays
   full-size until it is archived, reads `Completed`. A released Fraud Check at
   final approval reads `Final approval` like a held one (it used to say `Final

@@ -1721,9 +1721,9 @@ button.btn-good:hover {
   display: contents;
 }
 
-/* How Bad?, in the title block beside the type, and only while the task is
-   unclaimed and out for the first time — see the comment in `TaskCard` for why
-   it appears at all and why it shares the stage's line. Fixed rather than
+/* How Bad?, in the title block beside the type, on every task that is not
+   closed — see the comment in `TaskCard` for why it appears there and why it
+   shares the stage's line. Fixed rather than
    shrinkable: a squeezed rating is a different number. It carries no touch
    target of its own (the track is read-only), so it can sit against the type. */
 .task-card-collapsed-status > .poop-track {
@@ -2901,8 +2901,9 @@ button.btn-good:hover {
      `.task-card-collapsed-status` (2026-09-13). `order: 2` on the box puts it
      after the unread dot, so the dot rides the end of the type instead of being
      pushed onto a line of its own. Inside it the step comes first and the
-     rating sits beside it; only a task up for grabs carries a rating, and its
-     step is always `Opened`, so the pair is far inside the 164px cell.
+     rating sits beside it. Every active row carries a rating since 2026-09-14;
+     between 560px and 900px every step fits beside five slots, and under 560px
+     the rating always takes the line under the step (the 560px block below).
 
      The tracking comes in to 0.04em, and that is what keeps the reserved line
      to ONE line on a 360px screen (2026-09-10). It was set against `Final
@@ -2927,29 +2928,53 @@ button.btn-good:hover {
      numbers about a screen nobody has. */
   .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    column-gap: 10px;
     order: 2;
     flex: 1 0 100%;
     min-width: 0;
   }
+  /* The step never breaks inside itself. Since 2026-09-14 the rating rides
+     beside every active row's step, and `Outstanding items` plus five slots is
+     wider than a phone's title cell; left to wrap, the step broke mid-phrase
+     (`OUTSTANDING` over `ITEMS`) with the rating floating between its two
+     halves. Whole, the longest step is ~130px against the 164px cell at 360px,
+     so it always fits, and it is the rating that moves down a line. */
   .task-card-collapsed-stage {
     flex: 0 1 auto;
-    white-space: normal;
+    white-space: nowrap;
     overflow: visible;
     letter-spacing: 0.04em;
   }
 
-  /* The rating beside the step, on the same reserved line. One line serving
-     both is what keeps the card at three lines instead of four; reserving a
-     second one in the pair (which is what this did first) made every card 19px
-     taller and pushed the names out of line with the due stamp beside them. */
+  /* The rating beside the step, on the same reserved line when both fit, and
+     on the line under the step when they do not. One line serving both is what
+     keeps most cards at three lines instead of four; reserving a second one in
+     the pair (which is what this did first) made every card 19px taller and
+     pushed the names out of line with the due stamp beside them. The gap is
+     the status box's `column-gap`, not a margin, so a rating that wraps starts
+     flush under the step. */
   .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status > .poop-track {
     flex: 0 0 auto;
-    margin-left: 10px;
+    margin-left: 0;
   }
   .task-card-collapsed-stage-join { display: none; }
 }
 @media (max-width: 560px) {
+  /* On a phone the rating always takes its own line under the step
+     (2026-09-14, the user's call: consistency is key). Left to wrap only when
+     it had to, a long step (`Outstanding items`, `Final approval`) pushed the
+     rating down a line while a short one (`Claimed`) kept it beside, so rows in
+     the same list put the poops in two different places and came out two
+     different heights. Every rated active row is four lines here. Above 560px
+     the step and five slots fit side by side on every row, so they share the
+     line as before. After the 900px block on purpose: it overrides the status
+     box's rules there, and a media query adds no specificity. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status > .poop-track {
+    flex-basis: 100%;
+  }
+
   /* Mini rows stack their title on a phone, the same way active rows do below
      900px. This is the phone-only half of what used to be one 560px rule; the
      active-row half moved up to 900px and left this behind unchanged. A mini

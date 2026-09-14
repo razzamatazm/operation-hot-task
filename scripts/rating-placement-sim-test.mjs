@@ -11,9 +11,11 @@
  *
  *   - The rating is set and changed in the task form alone. Every rating the
  *     card draws is read-only, for every viewer, the creator included.
- *   - Fresh unclaimed task (`isFirstTimeInPool`): the read-only row track.
- *   - Every other state — dropped and re-offered, claimed, closed: a read-only
- *     rating in the task menu.
+ *   - Every task that is not closed — up for grabs, re-offered, claimed, in
+ *     flight: the read-only row track (2026-09-14, the user's call, reversing
+ *     the 2026-09-10 first-time-in-pool narrowing). A teammate reads the
+ *     ratings on in-flight work to judge who is already buried.
+ *   - A closed task: a read-only rating in the task menu.
  *   - The open card body never shows a rating.
  *   - An unrated task shows nothing anywhere, for anyone.
  *
@@ -76,13 +78,32 @@ const task = (overrides = {}) => ({
 const STATES = {
   "unclaimed, never dropped": { make: (o) => task(o), surface: "row" },
   "unclaimed, pooledSince stamped equal to createdAt": { make: (o) => task({ pooledSince: FILED, ...o }), surface: "row" },
-  "unclaimed, dropped and re-offered": { make: (o) => task({ pooledSince: LATER, ...o }), surface: "menu" },
-  claimed: { make: (o) => task({ status: "CLAIMED", assignee: { ...ASSIGNEE }, ...o }), surface: "menu" },
+  "unclaimed, dropped and re-offered": { make: (o) => task({ pooledSince: LATER, ...o }), surface: "row" },
+  claimed: { make: (o) => task({ status: "CLAIMED", assignee: { ...ASSIGNEE }, ...o }), surface: "row" },
+  "loan docs mid-merge": {
+    make: (o) => task({ status: "MERGE_DONE", assignee: { ...ASSIGNEE }, ...o }),
+    surface: "row"
+  },
+  "loan docs merge approved": {
+    make: (o) => task({ status: "MERGE_APPROVED", assignee: { ...ASSIGNEE }, ...o }),
+    surface: "row"
+  },
+  "fraud check awaiting items": {
+    make: (o) => task({ taskType: "FRAUD", status: "AWAITING_ITEMS", assignee: { ...ASSIGNEE }, ...o }),
+    surface: "row"
+  },
+  "loi in review": {
+    make: (o) => task({ taskType: "LOI", status: "NEEDS_REVIEW", assignee: { ...ASSIGNEE }, ...o }),
+    surface: "row"
+  },
+  "out of office, unclaimed": { make: (o) => task({ taskType: "OOO", ...o }), surface: "row" },
   "fraud check released for any checker": {
     make: (o) => task({ taskType: "FRAUD", status: "PENDING_APPROVAL", pooledSince: LATER, ...o }),
-    surface: "menu"
+    surface: "row"
   },
-  closed: { make: (o) => task({ status: "COMPLETED", assignee: { ...ASSIGNEE }, ...o }), surface: "menu" }
+  completed: { make: (o) => task({ status: "COMPLETED", assignee: { ...ASSIGNEE }, ...o }), surface: "menu" },
+  cancelled: { make: (o) => task({ status: "CANCELLED", ...o }), surface: "menu" },
+  archived: { make: (o) => task({ status: "ARCHIVED", assignee: { ...ASSIGNEE }, ...o }), surface: "menu" }
 };
 
 const SURFACES = ["row", "menu"];
@@ -116,7 +137,7 @@ test("no surface on the card is a control, for any state", () => {
 test("the row copy is the bare track; the menu copy is a labelled group, not a menu item", () => {
   const row = render("row", STATES["unclaimed, never dropped"].make());
   assert.match(row, /^<span class="poop-track"/, "the row gets #332's track and nothing around it");
-  const menu = render("menu", STATES.claimed.make());
+  const menu = render("menu", STATES.completed.make());
   assert.match(menu, /class="task-card-menu-rating" role="group" aria-label="How Bad\?"/);
   assert.match(menu, /<b>How Bad\?<\/b>/);
   assert.doesNotMatch(menu, /role="menuitem/, "reference detail, not an arrow-key stop");
@@ -152,6 +173,24 @@ test("the menu folds the rating into its is-anything-worth-opening check, and hi
   assert.ok(hasContent, "menuHasContent is still an is-any-block-non-empty list");
   assert.match(hasContent[1], /menuRating/, "the rating block is folded into it");
   assert.match(APP, /\{!pendingTerminal && menuRating\}\s*\{!pendingTerminal && menuTimestamps\}/, "drawn directly above the timestamps");
+});
+
+test("on a phone the rating always takes its own line under a step that never breaks", () => {
+  const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
+  const beside = css.search(
+    /\.task-card-grouped:not\(\.task-card-grouped-mini\) \.task-card-collapsed-status > \.poop-track \{\s*flex: 0 0 auto;\s*margin-left: 0;/
+  );
+  assert.ok(beside >= 0, "the stacked layout's beside-the-step rule is where it was");
+  const phone = css.search(
+    /@media \(max-width: 560px\) \{[^@]*?\.task-card-grouped:not\(\.task-card-grouped-mini\) \.task-card-collapsed-status > \.poop-track \{\s*flex-basis: 100%;/
+  );
+  assert.ok(phone >= 0, "a 560px rule gives the rating a full line of its own (the user's call: consistency is key)");
+  assert.ok(phone > beside, "and it comes after the rule it overrides, since a media query adds no specificity");
+  assert.match(
+    css,
+    /\.task-card-collapsed-stage \{\s*flex: 0 1 auto;\s*white-space: nowrap;/,
+    "the step stays whole rather than breaking mid-phrase beside the rating"
+  );
 });
 
 test("no rule in styles.css addresses a rating block nothing emits", () => {

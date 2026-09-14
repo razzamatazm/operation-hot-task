@@ -1365,10 +1365,11 @@ export const inPoolSince = (task: Pick<LoanTask, "pooledSince" | "createdAt">): 
 /* Is this the task's FIRST time up for grabs, rather than a second offering of
    something somebody already had a go at (2026-09-10)?
 
-   Asked by the collapsed row, which shows the How Bad? rating on a task in the
-   pool and deliberately does not re-show it on one coming back: the score is
-   the ask as its filer sized it and describes a whole job, and half a job that
-   has been handed back is not that job any more.
+   Written for the collapsed row, which from 2026-09-10 to 2026-09-14 showed
+   the How Bad? rating only on a task out for the first time. The row now shows
+   it on every task that is not closed (the user's call), so no product code
+   asks this today; `scripts/pool-nag-sim-test.mjs` still pins what it answers
+   across the four doors below.
 
    Derived from `inPoolSince` rather than from `pooledSince` directly, and the
    difference is not cosmetic. `pooledSince` is absent on a task nobody has
