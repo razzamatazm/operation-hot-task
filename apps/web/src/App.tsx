@@ -2477,8 +2477,8 @@ const TaskCard = memo(({
     <CardMenuScopeProvider>
       <div className="task-card-expanded">
         <Timeline task={task} />
-        {/* No How Bad? here, in any state (#335): the row carries it on a
-            task out for the first time, the hamburger on every other, and the
+        {/* No How Bad? here, in any state (#335): the row carries it on every
+            task that is not closed, the hamburger on a closed one, and the
             row does not unmount on expand, so a copy here was the same number
             twice. */}
         {checklistBlock && <div className="task-card-checklist">{checklistBlock}</div>}
@@ -2570,10 +2570,11 @@ const TaskCard = memo(({
               for the one-line arrangement and goes with it.
 
               The stage and the rating ride one box, `.task-card-collapsed-status`,
-              because a task up for grabs has both now. On a wide screen the box
+              because every rated active row has both. On a wide screen the box
               is `display: contents` and the two sit in the type's line as they
               always did; below 900px it is that third line, the step then the
-              rating beside it. */}
+              rating beside it, and under 560px the rating always takes a fourth
+              line of its own. */}
           <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
             <span className="task-card-collapsed-type-text">{TASK_TYPE_LABELS[task.taskType]}</span>
             {!mini && (
@@ -2583,8 +2584,10 @@ const TaskCard = memo(({
                   {currentStepName(task)}
                 </span>
                 {/* How Bad?, and it shares the stage's line rather than holding one of
-              its own (2026-09-10), so a task reads its step and its rating on
-              one line and every active row stays three lines tall.
+              its own (2026-09-10), so above 560px a task reads its step and its
+              rating on one line. Under 560px the rating always drops to a line
+              of its own under the step (2026-09-14, the user's call), so every
+              rated row on a phone puts it in the same place.
 
               It sits above the names rather than beside them (the user's call):
               on a phone the title block is a column, so this lands under the

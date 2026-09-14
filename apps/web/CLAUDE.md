@@ -460,8 +460,8 @@ across one screen).
 An active row is **two grid lines at every width** — there is no responsive
 reflow, deliberately. (Two grid lines, not two lines of text: under 900px the
 title cell holds the name, the type, and one reserved line carrying the step,
-with the rating beside it or, on a long step on a phone, under it. See *one
-height* below.) The pair used to share one line with the title and
+with the rating beside it, or at 560px and below always on a line of its own
+under it. See *one height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -474,10 +474,12 @@ pair          | due
 ```
 
 **Under 900px every active row is one height, and it costs exactly one reserved
-line** (2026-09-10). Two things grow a row by a line — the type cell when a task
-has a stage, and the rating when a task is up for grabs — so a list came out as
+line** (2026-09-10). Two things grew a row by a line — the type cell when a task
+had a stage, and the rating when a task was up for grabs — so a list came out as
 a mixture of shorter and taller cards depending on facts that have nothing to do
-with each other.
+with each other. Since 2026-09-14 every active row carries both a step and (when
+rated) a rating, and on a phone the rating takes a fourth line on every rated
+row; see below.
 
 **Every active row names its step, and the rating shares that line**
 (2026-09-13, the user's call). The step is the status tracker's own word for
@@ -567,14 +569,16 @@ phone. The stage's tracking was set from numbers taken that way once and was
 two pixels wrong because of it. Apply the floor's declarations unconditionally
 in a scratch `<style>`, take the numbers, then remove it.
 
-**Where uniformity holds, and where it stops.** One height across every active
-row at **390px and up**, which is the iPhone width the board is used on. At
-**360px** it does not, and the cause is the pair rather than the reserved line:
-`Suzie → Unclaimed` wants ~172px against a cell that resolves to 164px, so the
-names wrap and those rows run ~21px taller. That is the standing "first names
-are never ellipsized, the pair wraps" rule doing exactly what it says, and it
-is not introduced here — the row that proves it is a released check, which
-carries no rating at all and wraps anyway. Closing it would mean either
+**Where uniformity holds, and where it stops.** One height across every rated
+active row at **390px and up** (123px on a phone since the rating took line 4
+on 2026-09-14, 104px at 700px, 72px on desktop, measured across the seeded
+cast), which is the iPhone width the board is used on. An unrated row is a line
+shorter on a phone, since it draws no track. At **360px** it does not hold, and
+the cause is the pair rather than the reserved line: `Suzie → Unclaimed` wants
+~172px against a cell that resolves to 164px, so the names wrap and those rows
+run ~21px taller. That is the standing "first names are never ellipsized, the
+pair wraps" rule doing exactly what it says, and it is not introduced by the
+rating. Closing it would mean either
 shortening the placeholder word `Unclaimed` at narrow widths or breaking that
 rule; **open, and nobody has asked for it.**
 
