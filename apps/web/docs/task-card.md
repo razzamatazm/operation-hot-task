@@ -51,12 +51,11 @@ Each slot has one job. When adding info, replace something — don't append:
   `STATUS_BANNER`. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS
   rides on the **title**, beside the type. The `How Bad?` score rides the
   title too — see *Poop* below.
-- **Title** — the loan name, then the task type beside it behind a hairline,
-  and the type carries the step the task is on (`Claimed`, `In review`,
-  `Merge done`) in lighter weight via `task-card-collapsed-stage`, on every
-  active row (2026-09-13). One line on a
-  wide screen; the name is the elastic part and the stage is what gives. See
-  *Grouped collapsed row* for how it stacks under 900px.
+- **Title** — on an active row, three lines at every width (2026-09-14, the
+  user's call): the loan name, then the task type with its `How Bad?` rating
+  right beside it, then the step the task is on (`Claimed`, `In review`,
+  `Merge done`) in lighter weight via `task-card-collapsed-stage`. Nothing on
+  it is cut. See *Grouped collapsed row* for the rules.
 - **Poop** — the `How Bad?` score, and it is on the row **of every task that
   is not closed** (2026-09-14, the user's call). From 2026-09-07 it showed only
   while a task was unclaimed, narrowed on 2026-09-10 to unclaimed and out for
@@ -65,11 +64,13 @@ Each slot has one job. When adding info, replace something — don't append:
   answers. A teammate reads the ratings on in-flight work to judge who is
   already buried before asking them for anything, and with no rating on a
   claimed row every in-flight task looks the same size (#431). It renders in
-  the **title block, sharing the stage's line** — beside the type on a wide
-  screen, and under 900px on the reserved line under it, which puts it above
-  the names (2026-09-10, the user's call). It briefly lived in the pair beside
-  the word `Unclaimed`, which cost the row a second reserved line; sharing the
-  stage's line is what took that back. Read-only, for everyone.
+  the **title block, right beside the type, at every width** (2026-09-14, the
+  user's call): the rating describes the work the type names, so it sits
+  against it, above the step and the names. From 2026-09-10 it shared the
+  step's line instead, which put it beside the type on a wide screen, beside
+  the step below 900px and under the step on a phone; three places on one
+  board. It briefly lived in the pair beside the word `Unclaimed` before that.
+  Read-only, for everyone.
 
   **The rating is changed in the task form and nowhere else** (#335, the
   user's call). Filing sets it and `Edit Task` changes it; every rating the card
@@ -97,8 +98,11 @@ Each slot has one job. When adding info, replace something — don't append:
   glyphs. A pass on 2026-09-10 cut the ghosts on the row, reasoning that one
   brown glyph trailed by four grey ones reads as debris; that was a change
   nobody asked for, made while fixing something else, and it was reverted the
-  same day. **The track looks the same on every surface.** If it should ever
-  stop looking the same, that is its own decision.
+  same day. **The track keeps its five slots on every surface, and the
+  collapsed row draws it smaller** (2026-09-14, the user's call): 9px glyphs
+  with no gap between them, against 13px in the menu and the form, at every
+  width, so the type and its rating share one line on a phone. The ghosts
+  stay. The measurement is under *Where uniformity holds*.
   An unrated task renders no track at all. See
   `PoopDisplay` / `.poop-track`. Never on a mini row: every mini is closed, and
   a closed task's rating is in the menu.
@@ -138,8 +142,8 @@ Each slot has one job. When adding info, replace something — don't append:
   rather than being added beside it. The rating was first allowed in because it
   sat only in the empty half of an unclaimed pair; on every active row it no
   longer can say that. It stays because the user ruled it part of what the row
-  is for (2026-09-14), and it shares the step's reserved line rather than
-  taking one of its own. A new field still replaces something instead.
+  is for (2026-09-14), and it shares the type's line rather than taking one of
+  its own. A new field still replaces something instead.
 - **Due** — label and value side by side, right-aligned, built by
   `groupedDue`. Full
   absolute timestamp shows as `title` tooltip. Red + bold
@@ -183,10 +187,9 @@ row and the list goes ragged (#116, which measured 86px of hamburger drift
 across one screen).
 
 An active row is **two grid lines at every width** — there is no responsive
-reflow, deliberately. (Two grid lines, not two lines of text: under 900px the
-title cell holds the name, the type, and one reserved line carrying the step,
-with the rating beside it, or at 560px and below always on a line of its own
-under it. See *one height* below.) The pair used to share one line with the title and
+reflow, deliberately. (Two grid lines, not two lines of text: the title cell
+holds three, the loan name, the type with its rating beside it, and the step.
+See *One arrangement at every width* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -198,52 +201,46 @@ title         | action
 pair          | due
 ```
 
-**Under 900px every active row is one height, and it costs exactly one reserved
-line** (2026-09-10). Two things grew a row by a line — the type cell when a task
-had a stage, and the rating when a task was up for grabs — so a list came out as
-a mixture of shorter and taller cards depending on facts that have nothing to do
-with each other. Since 2026-09-14 every active row carries both a step and (when
-rated) a rating, and on a phone the rating takes a fourth line on every rated
-row; see below.
+**One arrangement at every width** (2026-09-14, the user's call). An active
+row's title reads the same on a desktop and on a phone: the loan name, then the
+type with its rating right beside it, then the step. The rating describes the
+work the type names, so it sits against the type. The rules carry no width
+query; they are under *The active row's title, at every width* in `styles.css`.
 
-**Every active row names its step, and the rating shares that line**
-(2026-09-13, the user's call). The step is the status tracker's own word for
-where the task is, `currentStepName` in [src/timeline.tsx](../src/timeline.tsx),
-so the row and the card it opens can never disagree. It used to exist only on a
-LOAN_DOCS mid-merge or a FRAUD mid-exchange, through a row-only table
-(`stageSuffix`, deleted), and every other row left the line blank, which read
-as the step having gone missing. Mini (one-line closed) rows draw none; a creator's just-completed card stays
-full-size until it is archived (*Bucket sort*), so it reads `Completed`. The step and the rating
-ride one box, `.task-card-collapsed-status`: `display: contents` on a wide
-screen, so both sit in the type's line as before, and below 900px the third
-line, the step first and the rating beside it. One `min-height` on the type
-cell still reserves the line.
+It replaced three arrangements. Above 900px the name, type and step shared one
+line, and the step was cut behind an ellipsis whenever the name ran long. Below
+900px the title stacked and the rating shared the step's line. Under 560px the
+rating dropped to a line of its own under the step. So the poops sat somewhere
+different at each width, and a board seen on a laptop and on a phone looked
+like two different apps. The cost is height on a wide screen, where an active
+row's title is three lines where it was one.
 
-**On a phone the rating always takes the line under the step** (2026-09-14,
-the user's call: consistency is key). Every active row carries the rating
-since then, and a long step plus five slots is wider than a phone's title
-cell. Letting it wrap only where it had to was tried first: at 390px three of
-the ten seeded rows (`Final approval`, `Outstanding items`, `Merge approved`)
-put the poops under the step and the rest beside it, so one list had the
-rating in two places and rows of two heights. Under 560px the track takes
-`flex-basis: 100%`, so every rated active row is four lines. The step is
-`nowrap` at every width below 900px, so it never breaks mid-phrase (before
-that, `OUTSTANDING` broke over `ITEMS` with the rating between the halves).
-Between 560px and 900px every step fits beside five slots, so they share the
-line there. An unrated task draws no track and holds no fourth line, so it is
-a line shorter; unrated is rare (filing defaults to one), and a blank line
-held for nothing is the ornament this row refuses.
-`scripts/status-display-surface-sim-test.mjs` fails if the row's step and the
-tracker's current step differ in any state, or if the row stops asking
-`currentStepName`.
+**Every active row names its step** (2026-09-13, the user's call). The step is
+the status tracker's own word for where the task is, `currentStepName` in
+[src/timeline.tsx](../src/timeline.tsx), so the row and the card it opens can
+never disagree. It used to exist only on a LOAN_DOCS mid-merge or a FRAUD
+mid-exchange, through a row-only table (`stageSuffix`, deleted), and every other
+row left the line blank, which read as the step having gone missing. Mini
+(one-line closed) rows draw none; a creator's just-completed card stays
+full-size until it is archived (*Bucket sort*), so it reads `Completed`. The
+step takes a whole line (`flex: 0 0 100%`) under the type and its rating. It is
+`nowrap`, so it never breaks mid-phrase. The unread dot is not on the type's
+line at all; it rides the loan name's (see *Unread-note signal*). `scripts/status-display-surface-sim-test.mjs` fails if
+the row's step and the tracker's current step differ in any state, or if the
+row stops asking `currentStepName`; `scripts/rating-placement-sim-test.mjs`
+fails if the rating leaves the type's line or a width query rearranges the
+title.
 
-When this was written that was the difference between a 102px card and a 121px
-one (today's heights are under *Where uniformity holds* below). Reserving a second
-line in the pair as well — which is what this did first — made every card 19px
-taller for a slot only three rows in a typical list ever filled, and pushed the
-names out of line with the due stamp beside them. When the step and the rating
-do not fit side by side, the rating wraps under the step: the card grows,
-nothing breaks.
+**Nothing on the type's line gives.** On an active row the type's words do not
+shrink, the rating is fixed (a squeezed rating is a different number), and the
+dot never shrinks. That holds because the longest label, `Out of Office`, fits
+beside five slots in the narrowest title cell the board renders; the
+measurement is under *Where uniformity holds*. An unrated task draws no track,
+so its type's line is the type alone.
+
+**Every active row is one height.** The type cell reserves its two lines with a
+`min-height`, and every active row fills both, so rows match whatever their
+words say.
 
 Four things about that rule:
 
@@ -295,18 +292,29 @@ phone. The stage's tracking was set from numbers taken that way once and was
 two pixels wrong because of it. Apply the floor's declarations unconditionally
 in a scratch `<style>`, take the numbers, then remove it.
 
-**Where uniformity holds, and where it stops.** One height across every rated
-active row at **390px and up** (123px on a phone since the rating took line 4
-on 2026-09-14, 104px at 700px, 72px on desktop, measured across the seeded
-cast), which is the iPhone width the board is used on. An unrated row is a line
-shorter on a phone, since it draws no track. At **360px** it does not hold, and
-the cause is the pair rather than the reserved line: `Suzie → Unclaimed` wants
-~172px against a cell that resolves to 164px, so the names wrap and those rows
-run ~21px taller. That is the standing "first names are never ellipsized, the
-pair wraps" rule doing exactly what it says, and it is not introduced by the
-rating. Closing it would mean either
-shortening the placeholder word `Unclaimed` at narrow widths or breaking that
-rule; **open, and nobody has asked for it.**
+**Where uniformity holds, and where it stops.** Measured 2026-09-14 across the
+seeded cast with the touch floor forced on. One height across every active row
+at **390px and up**: 106px on a phone, 104px from about 800px. That is the
+iPhone width the board is used on, and nothing on any row is cut at any of
+those widths. A rated and an unrated row match, since the rating sits on a line
+the type already fills. The one row that differs is a fraud check awaiting
+items, whose `WITH REQUESTER` due stamp wraps to two lines and makes it 11px
+taller at every width; that predates this layout.
+
+The fit that holds it: five slots at the row's 9px are 62px, and `Out of
+Office`, the longest type, is 124px, so the type's line wants about 192px
+against a 194px title cell at 390px. At the menu's 13px the track is 95px and
+most rows pushed their poops down a line there; 10px still did it on
+`Out of Office`.
+
+At **360px** it does not hold, for two reasons. The title cell is 164px, so a
+long type (`Fraud Check`, `Value Check`, `Out of Office`) pushes its poops onto
+the line under it: 5 of the 10 seeded rows. No legible poop size closes that.
+And the pair wraps: `Suzie → Unclaimed` wants ~172px against the same 164px, so
+those rows run ~21px taller. That is the standing "first names are never
+ellipsized, the pair wraps" rule doing exactly what it says. Closing either
+would mean shrinking the type or the placeholder word `Unclaimed` at narrow
+widths; **open, and nobody has asked for it.**
 
 **Open: the due stamp's ragged left edge on a phone** (raised 2026-09-10, not
 acted on). `RETURNS Sep 12, 2026`, `Within 1 Hour`, `Urgent Now` and
@@ -360,49 +368,32 @@ so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
     that row render a red `OVERDUE BY` while the server agreed it was nobody's
     lateness, and what left the released check with no count-up at all.
 
-  **The title block is one line: loan name, then the task type.** The loan name
-  leads because it is what a person scans for — heading face, full ink, and the
-  elastic part of the row. The type sits directly beside it behind a hairline,
-  in ink and tracked, and it is capped at 45% of the cell so the name keeps the
-  space it earned. The type truncates before the row does: left unshrinkable it
-  is wider than a phone on a fraud check at final approval, and because it sits
-  in a fixed grid row it pushed the whole board sideways with no zoom to escape
-  it. **Under 900px the pair stacks** — name, then type underneath — and the
-  hairline goes with the side-by-side arrangement it belonged to.
+  **The title block stacks on every active row: loan name, then the type with
+  its rating, then the step.** The loan name leads because it is what a person
+  scans for: heading face, full ink. The type sits under it in ink and tracked,
+  its rating beside it, and the step under that. There is no hairline between
+  name and type any more; it belonged to a side-by-side arrangement that no
+  active row uses.
 
-  **900px, not a phone width** (2026-09-13, the user's call). This was a 560px
-  rule, and the band above it cut text on every row that had any: at 567px a
-  row read `ALVAREZ-2201 | LOI C…` and `OUT O…`. A sweep of the seeded board
-  with the 12px floor forced on found cuts at every width from 561 to 850 — the
-  type itself up to ~680px, then `Outstanding Items` and `Final Approval` — and
-  none from 855 up. 900 is a round margin over that edge, not a second
-  measurement. The seeded names are short (~110px), so the sweep was repeated
-  above 900 with the names swapped for 29- and 48-character ones: the type was
-  never cut at 905, 1000 or 1320px, and the only thing that gave was one stage
-  at 905 behind the 48-character name, which a wide screen is allowed to do.
-  Re-run both before lowering the number.
+  Until 2026-09-14 the active row stacked only below 900px (a 560px rule until
+  2026-09-13, widened after a sweep found text cut at every width from 561 to
+  850). Above it the title was one line with the type capped at 45% of the cell,
+  and the step behind a long loan name gave way to an ellipsis. Stacking at
+  every width took both the breakpoint and the cut away.
 
   **Mini (closed) rows are not part of that.** Their title stays on one line
-  down to 560px and only stacks on a phone, as before: they are most of the
-  Done list, and widening the stack for them would add a line to every closed
-  row across 561–900px. The widened rules are scoped to
-  `.task-card-grouped:not(.task-card-grouped-mini)`, and a separate 560px block
-  after them carries the mini half.
+  down to 560px and only stacks on a phone: they are most of the Done list, and
+  stacking them wider would add a line to every closed row. The active-row rules
+  are scoped to `.task-card-grouped:not(.task-card-grouped-mini)`, and a 560px
+  block carries the mini half. The type's 45% cap and its ellipsis still apply
+  there, because a mini's type shares its line with the loan name.
 
-  **The stage is its own box, and on a phone it takes a third line**
-  (2026-09-07). It used to be words inside the type's own span, so the two
-  truncated together and the ellipsis landed wherever it landed: stacking the
-  title bought the type a full-width line, and `Fraud Check - Final Approval
-  Needed` still wants ~290px of a title cell that resolves to about 200px at
-  390px, so what a person read was `FRAUD CHECK - FINAL APP…`. The half that
-  got cut is the status — where the task actually *is* — on the surface with no
-  zoom to go and look with. Split out, the type names what the task is and
-  stays whole, the stage is the part that gives on a wide screen, and under
-  900px it wraps in full onto a line of its own. Two things ride with that:
-  `currentStepName` returns **bare words**, because the hyphen belongs to the
-  one-line arrangement and `.task-card-collapsed-stage-join` is dropped when
-  the line breaks; and the stage takes `order: 2` so the unread dot stays at
-  the end of the type rather than being pushed onto a line by itself.
+  **The stage is its own box** (2026-09-07). It used to be words inside the
+  type's own span, so the two truncated together and a person read `FRAUD CHECK
+  - FINAL APP…`, with the half that got cut being where the task actually *is*.
+  Split out, the type names what the task is and the step names where it is.
+  `currentStepName` returns **bare words**; the hyphen that used to join them
+  on one line is gone with that line.
 
   The rating is on the row of every task that is not closed — see *Poop* under
   *Collapsed row* — and the ↗ that used
@@ -1280,17 +1271,19 @@ Per-user "I've seen the latest note from someone else" map persists in
 note arrives from the other party, the recipient's card:
 
 - Drops dim (`hasUnreadNote` short-circuits `dimmed`).
-- Pulses a small `.task-card-unread-dot` (7px, `--bad`) at the end of the
-  collapsed row's type label (`.task-card-collapsed-type`), animated via
-  `pulse-unread`.
+- Pulses a small `.task-card-unread-dot` (7px, `--bad`) beside the loan name
+  on the collapsed row, animated via `pulse-unread`.
 
-**The dot is the type cell's second child, beside the words, not inside them.**
-The cell is a flex row; `.task-card-collapsed-type-text` is the box that
-truncates and the dot sits next to it at `flex: 0 0 auto`. It was a plain child
-alongside the text, which meant the ellipsis capping the type at 45% of the
-title cell ate the dot too — on a phone a fraud check at final approval lost it
-altogether, and it is the only thing on the row saying a note is waiting. If you
-ever put `text-overflow` back on the cell itself, the dot goes with it.
+**The dot rides the loan name's line, beside the name and never inside it**
+(2026-09-14, the user's call). The name and the dot share
+`.task-card-collapsed-name-line`, a flex row in which the name is the box that
+ellipsizes and the dot sits next to it at `flex: 0 0 auto`, so a long name gives
+and the dot never does. It used to sit at the end of the type label, which on an
+active row put it on the line the rating needs: on a phone, one of the two got
+pushed down a line. Before that it was a plain child alongside the type's text,
+and the ellipsis capping the type ate it, which on a phone took off the only
+thing on the row saying a note is waiting. If you ever put `text-overflow` on
+the name's line itself, the dot goes with it.
 
 Its pulse halo reads `--bad` through `color-mix`, not a literal red. It was a
 hardcoded `rgba(220, 38, 38, …)` haloing a dot that is a rose in dark and a pale

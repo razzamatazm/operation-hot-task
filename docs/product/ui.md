@@ -167,10 +167,21 @@ Both views share one card component:
   `Opened`, `Claimed`, `In review`, `Needs corrections`, `Merge done`,
   `Outstanding items`, `Final approval`. It used to show only on a Loan Docs
   mid-merge or a Fraud Check mid-exchange, so most rows had a blank line there.
-  A rated task shows its poop rating beside the step, on every row that is not
-  closed (confirmed 2026-09-14): a teammate reads the ratings on claimed work
-  to judge who is already buried. It showed only on a task up for grabs from
-  2026-09-07 to 2026-09-14. One-line
+  A rated task shows its poop rating on every row that is not closed
+  (confirmed 2026-09-14): a teammate reads the ratings on claimed work to judge
+  who is already buried. It showed only on a task up for grabs from 2026-09-07
+  to 2026-09-14.
+- **An active row reads the same at every width** (confirmed 2026-09-14): loan
+  name, then the task type with its poop rating right beside it (the rating
+  describes that work), then the step, then the names. It used to rearrange
+  itself by screen width, the rating sharing the step's line and landing beside
+  the type, beside the step or under it depending on the screen, and the
+  one-line desktop title cut the step short. Rows are a line taller on a wide
+  screen as a result. To fit the type and its rating on one line on a phone,
+  the row draws the poops smaller than the task menu and the form do, and the
+  red new-note dot sits beside the loan name instead of after the type. On the
+  narrowest phones (360px) a long type can still push the poops down a line.
+  One-line
   closed rows show no step; a creator's just-completed card, which stays
   full-size until it is archived, reads `Completed`. A released Fraud Check at
   final approval reads `Final approval` like a held one (it used to say `Final

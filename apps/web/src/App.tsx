@@ -2541,59 +2541,42 @@ const TaskCard = memo(({
               on mobile); the name is still the link and says so with the same
               standing underline every link carries now. The per-row loan filter
               is gone. */}
-          <span className="task-card-collapsed-folder">
-            {task.taskType !== "OOO" && task.humperdinkLink ? (
-              <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
+          {/* The name's line carries the unread dot (2026-09-14, the user's
+              call). It used to ride the end of the type, where on an active row
+              it was one more thing competing with the rating for that line. The
+              name is what gives on a long one; the dot never does. */}
+          <span className="task-card-collapsed-name-line">
+            <span className="task-card-collapsed-folder">
+              {task.taskType !== "OOO" && task.humperdinkLink ? (
+                <a href={task.humperdinkLink} target="_blank" rel="noreferrer" aria-label={`Open Humperdink link for ${task.folderName}`} title="Open Humperdink link" onClick={stopBubble}>
+                  <span className="task-card-collapsed-folder-name">{task.folderName}</span>
+                </a>
+              ) : (
                 <span className="task-card-collapsed-folder-name">{task.folderName}</span>
-              </a>
-            ) : (
-              <span className="task-card-collapsed-folder-name">{task.folderName}</span>
+              )}
+            </span>
+            {hasUnreadNote && (
+              <span className="task-card-unread-dot" aria-label="New note" title="New note" />
             )}
           </span>
-          {/* Three children, and which of them may be cut is the whole point.
-              The dot never is: it used to be a plain child alongside the text,
-              so the ellipsis capping the type ate it too, and on a phone a
-              fraud check at final approval lost the one signal saying a note is
-              waiting, on the surface with no zoom to go looking with.
+          {/* On an active row, one arrangement at every width (2026-09-14, the
+              user's call): the type with its rating right beside it, and the
+              step on the line under them. The rating describes the work the
+              type names, so it sits against the type. It used to share the
+              step's line instead: beside the type on a wide screen, beside the
+              step below 900px, under the step on a phone. So the poops sat
+              somewhere different at every width, and the one-line wide
+              arrangement cut the step behind an ellipsis. The unread dot is on
+              the name's line above, so nothing else competes for this one.
 
-              The stage is the step the task is on, the rail's own word for it
-              (`currentStepName`), on every active row (2026-09-13). It used to
-              exist only on a Loan Docs mid-merge or a Fraud Check mid-exchange,
-              and every other row left its line blank. A mini (one-line closed)
-              row draws none: its section already says Done. A creator's
-              just-completed card is closed but not mini until it is archived,
-              so it keeps its third line and reads `Completed` there. The stage is its own box rather
-              than words inside the type's, so it is the part that gives — the
-              type names what the task IS and stays whole, and a cut lands on
-              the stage behind it. Below 900px it stops being cut at all and
-              takes a line of its own under the type. The hyphen is the join
-              for the one-line arrangement and goes with it.
+              The step is the rail's own word for where the task is
+              (`currentStepName`), on every active row (2026-09-13). A mini
+              (one-line closed) row draws neither it nor a rating: its section
+              already says Done, and a closed task's rating is in the menu. A
+              creator's just-completed card is closed but not mini until it is
+              archived, so it keeps the step line and reads `Completed`.
 
-              The stage and the rating ride one box, `.task-card-collapsed-status`,
-              because every rated active row has both. On a wide screen the box
-              is `display: contents` and the two sit in the type's line as they
-              always did; below 900px it is that third line, the step then the
-              rating beside it, and under 560px the rating always takes a fourth
-              line of its own. */}
-          <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
-            <span className="task-card-collapsed-type-text">{TASK_TYPE_LABELS[task.taskType]}</span>
-            {!mini && (
-              <span className="task-card-collapsed-status">
-                <span className="task-card-collapsed-stage">
-                  <span className="task-card-collapsed-stage-join" aria-hidden="true">&nbsp;-&nbsp;</span>
-                  {currentStepName(task)}
-                </span>
-                {/* How Bad?, and it shares the stage's line rather than holding one of
-              its own (2026-09-10), so above 560px a task reads its step and its
-              rating on one line. Under 560px the rating always drops to a line
-              of its own under the step (2026-09-14, the user's call), so every
-              rated row on a phone puts it in the same place.
-
-              It sits above the names rather than beside them (the user's call):
-              on a phone the title block is a column, so this lands under the
-              type and over the pair.
-
-              On every task that is not closed (2026-09-14, the user's call).
+              The rating is on every task that is not closed (2026-09-14, the user's call).
               From 2026-09-07 it showed only while a task was up for grabs, on
               the reasoning that the score only answers "can I take this right
               now". A teammate reads it on in-flight work too: two four-poop
@@ -2626,11 +2609,13 @@ const TaskCard = memo(({
               the job its filer sized; with the rating on claimed rows, hiding it
               only while a task sat back in the pool would make it blink off and
               on across one task's life. */}
-                {ratingBlock("row", task)}
+          <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
+            <span className="task-card-collapsed-type-text">{TASK_TYPE_LABELS[task.taskType]}</span>
+            {!mini && ratingBlock("row", task)}
+            {!mini && (
+              <span className="task-card-collapsed-stage">
+                {currentStepName(task)}
               </span>
-            )}
-            {hasUnreadNote && (
-              <span className="task-card-unread-dot" aria-label="New note" title="New note" />
             )}
           </span>
         </span>

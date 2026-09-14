@@ -175,22 +175,47 @@ test("the menu folds the rating into its is-anything-worth-opening check, and hi
   assert.match(APP, /\{!pendingTerminal && menuRating\}\s*\{!pendingTerminal && menuTimestamps\}/, "drawn directly above the timestamps");
 });
 
-test("on a phone the rating always takes its own line under a step that never breaks", () => {
+/* 2026-09-14, the user's call: one layout for an active row at every width.
+   Loan name, then the type with its rating right beside it (the rating
+   describes the type), then the step, then the names. It used to share the
+   step's line, beside the type on a wide screen and under the step on a phone,
+   so the poops moved around from one width to the next. */
+test("the rating sits beside the type, and the step takes its own line, at every width", () => {
   const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");
-  const beside = css.search(
-    /\.task-card-grouped:not\(\.task-card-grouped-mini\) \.task-card-collapsed-status > \.poop-track \{\s*flex: 0 0 auto;\s*margin-left: 0;/
+  assert.match(
+    APP,
+    /<span className="task-card-collapsed-type-text">\{TASK_TYPE_LABELS\[task\.taskType\]\}<\/span>\s*\{!mini && ratingBlock\("row", task\)\}\s*\{!mini && \(\s*<span className="task-card-collapsed-stage">/,
+    "the row draws the type, then its rating, then the step"
   );
-  assert.ok(beside >= 0, "the stacked layout's beside-the-step rule is where it was");
-  const phone = css.search(
-    /@media \(max-width: 560px\) \{[^@]*?\.task-card-grouped:not\(\.task-card-grouped-mini\) \.task-card-collapsed-status > \.poop-track \{\s*flex-basis: 100%;/
-  );
-  assert.ok(phone >= 0, "a 560px rule gives the rating a full line of its own (the user's call: consistency is key)");
-  assert.ok(phone > beside, "and it comes after the rule it overrides, since a media query adds no specificity");
   assert.match(
     css,
-    /\.task-card-collapsed-stage \{\s*flex: 0 1 auto;\s*white-space: nowrap;/,
-    "the step stays whole rather than breaking mid-phrase beside the rating"
+    /\.task-card-grouped:not\(\.task-card-grouped-mini\) \.task-card-collapsed-type > \.poop-track \{\s*flex: 0 0 auto;/,
+    "the rating is a fixed item on the type's line"
   );
+  assert.match(
+    css,
+    /\.task-card-grouped:not\(\.task-card-grouped-mini\) \.task-card-collapsed-stage \{[^}]*flex: 0 0 100%;[^}]*white-space: nowrap;/,
+    "the step takes a whole line of its own, and never breaks mid-phrase"
+  );
+  /* The unread dot rides the loan name's line (2026-09-14, the user's call), so
+     the type's line holds the type and its rating and nothing else. */
+  assert.match(
+    APP,
+    /<span className="task-card-collapsed-name-line">\s*<span className="task-card-collapsed-folder">[\s\S]*?<\/span>\s*\{hasUnreadNote && \(\s*<span className="task-card-unread-dot"/,
+    "the dot sits beside the loan name"
+  );
+  const typeCell = APP.slice(APP.indexOf("task-card-collapsed-type task-type-"), APP.indexOf("task-card-grouped-due"));
+  assert.ok(typeCell.length > 0, "the type cell is where it was");
+  assert.doesNotMatch(typeCell, /task-card-unread-dot/, "and not at the end of the type");
+  assert.equal((APP.match(/className="task-card-unread-dot"/g) ?? []).length, 1, "one dot on the row");
+  assert.match(
+    css,
+    /\.task-card-collapsed-name-line \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;/,
+    "the name's line lets the name give, so the dot is never cut"
+  );
+  assert.doesNotMatch(css, /@media \(max-width: 900px\)/, "no breakpoint rearranges the active row's title");
+  assert.doesNotMatch(css, /\.poop-track \{[^}]*flex-basis: 100%/, "no rule drops the rating onto a line of its own");
+  assert.doesNotMatch(APP + css, /task-card-collapsed-status|task-card-collapsed-stage-join/, "the shared step-and-rating box is gone");
 });
 
 test("no rule in styles.css addresses a rating block nothing emits", () => {
