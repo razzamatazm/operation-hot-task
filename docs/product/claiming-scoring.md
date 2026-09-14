@@ -24,9 +24,9 @@
 - The **creator** may change the points after filing, on any non-closed task,
   through `POST /api/tasks/:id/points`. One way in since #335: the task form
   — filing, or `Edit Task` afterwards (see [task-fields.md](task-fields.md)).
-  Every rating the card draws is read-only, for everyone: on the row of a task
-  out in the pool for the first time, in the task's menu otherwise, and never
-  in the open card. A points change is silent — it
+  Every rating the card draws is read-only, for everyone: on the row of every
+  task that is not closed (since 2026-09-14; claimed and in-flight rows
+  included), in the task's menu once it is closed, and never in the open card. A points change is silent — it
   is recorded in the task's history and DMs nobody.
 - Nobody else may, at any status, and nobody may on a closed task
 - Legacy tasks missing points are backfilled to `1`

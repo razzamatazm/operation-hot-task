@@ -11,11 +11,13 @@
    `ratingBlock` with its own name; a surface that is not the answer draws
    nothing. The expanded body is never the answer.
 
-   - row  — unclaimed and out for the first time. The question it answers is
-            "can I take this right now" while scanning the pool.
-   - menu — everything else: dropped and re-offered, claimed, in flight,
-            closed. Reference detail at the foot of the hamburger, above the
-            timestamps.
+   - row  — every task that is not closed (2026-09-14, the user's call). It
+            answers "can I take this right now" on a task up for grabs, and
+            "who is already buried" on claimed and in-flight work. From
+            2026-09-10 it was only on a task unclaimed and out for the first
+            time, which left every in-flight task looking the same size.
+   - menu — a closed task. Reference detail at the foot of the hamburger,
+            above the timestamps, so ~117 closed rows carry no emoji (#329).
 
    An unrated task draws nothing on either: `PoopDisplay` returns null for a
    zero, so there is never an empty five-slot block.
@@ -25,14 +27,14 @@
    `scripts/rating-placement-sim-test.mjs` renders this module. */
 import type { ReactElement } from "react";
 import type { LoanTask } from "@loan-tasks/shared";
-import { isFirstTimeInPool, isUnclaimed } from "@loan-tasks/shared";
+import { CLOSED_STATUSES } from "@loan-tasks/shared";
 
 export type RatingSurface = "row" | "menu";
 
 const clampRating = (count: number): number => Math.max(0, Math.min(5, count | 0));
 
 export const ratingSurface = (task: LoanTask): RatingSurface =>
-  isUnclaimed(task) && isFirstTimeInPool(task) ? "row" : "menu";
+  CLOSED_STATUSES.includes(task.status) ? "menu" : "row";
 
 /* ── Poop score track ─────────────────────────────────────── */
 /* Fixed five slots — 1..N in full colour, the rest ghosted, so a 3 reads as

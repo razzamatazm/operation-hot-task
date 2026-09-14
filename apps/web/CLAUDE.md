@@ -324,20 +324,22 @@ Each slot has one job. When adding info, replace something — don't append:
   column is the one that gives. Perspective rides here, not on a status
   banner: #36 removed the banner row along with `resolveBanner` /
   `STATUS_BANNER`. Stage detail (Merge Done, Merge Approved) for LOAN_DOCS
-  rides on the **title**, beside the type. An unclaimed task also carries the
-  `How Bad?` score here — see *Poop* below.
+  rides on the **title**, beside the type. The `How Bad?` score rides the
+  title too — see *Poop* below.
 - **Title** — the loan name, then the task type beside it behind a hairline,
   and the type carries the step the task is on (`Claimed`, `In review`,
   `Merge done`) in lighter weight via `task-card-collapsed-stage`, on every
   active row (2026-09-13). One line on a
   wide screen; the name is the elastic part and the stage is what gives. See
   *Grouped collapsed row* for how it stacks under 900px.
-- **Poop** — the `How Bad?` score, and it is on the row **only while the task
-  is unclaimed and out for the first time** (2026-09-07, narrowed 2026-09-10).
-  It answers one question — can I take a
-  five-poop set of loan docs right now — and that question is only live for
-  somebody looking at work nobody holds, so it appears exactly while the row
-  says `Unclaimed` and leaves the moment somebody takes the task. It renders in
+- **Poop** — the `How Bad?` score, and it is on the row **of every task that
+  is not closed** (2026-09-14, the user's call). From 2026-09-07 it showed only
+  while a task was unclaimed, narrowed on 2026-09-10 to unclaimed and out for
+  the first time, on the reasoning that it answers one question: can I take a
+  five-poop set of loan docs right now. That missed the second question it
+  answers. A teammate reads the ratings on in-flight work to judge who is
+  already buried before asking them for anything, and with no rating on a
+  claimed row every in-flight task looks the same size (#431). It renders in
   the **title block, sharing the stage's line** — beside the type on a wide
   screen, and under 900px on the reserved line under it, which puts it above
   the names (2026-09-10, the user's call). It briefly lived in the pair beside
@@ -355,10 +357,11 @@ Each slot has one job. When adding info, replace something — don't append:
   body's old `How Bad?` line drew the same number twice on every open pool
   task. One rule, `ratingSurface` in [src/poop-rating.tsx](src/poop-rating.tsx),
   picks the surface, and the two ask `ratingBlock` with their own name:
-  - **row** — unclaimed and out for the first time (this track);
-  - **menu** — every other state: dropped and re-offered, claimed, in flight,
-    closed. A labelled `role="group"` block (`.task-card-menu-rating`) directly
-    above the timestamps, folded into `menuHasContent`.
+  - **row** — every task that is not closed (this track);
+  - **menu** — a closed task. A labelled `role="group"` block
+    (`.task-card-menu-rating`) directly above the timestamps, folded into
+    `menuHasContent`. A creator's just-completed card is closed but still
+    full-size until archived, and it takes the menu copy like any closed task.
 
   An unrated task draws nothing on either, for anyone.
   `scripts/rating-placement-sim-test.mjs` sweeps every state for more than one
@@ -372,25 +375,17 @@ Each slot has one job. When adding info, replace something — don't append:
   same day. **The track looks the same on every surface.** If it should ever
   stop looking the same, that is its own decision.
   An unrated task renders no track at all. See
-  `PoopDisplay` / `.poop-track`. Never on a mini row: `isUnclaimed` is false on
-  every closed task, so nothing extra is needed to keep it off them.
+  `PoopDisplay` / `.poop-track`. Never on a mini row: every mini is closed, and
+  a closed task's rating is in the menu.
 
-  **A task that has been dropped and re-offered does not get one**
-  (2026-09-10). The score is the ask as its filer sized it and it describes a
-  whole job; a check somebody has already been half-way through is not that job
-  any more, so quoting the original number on the way back out is a number
-  attached to the wrong piece of work. The first time out is when it means what
-  it says.
+  **A task that has been dropped and re-offered keeps it** (2026-09-14). From
+  2026-09-10 it did not, on the reasoning that a check somebody has already
+  been half-way through is not the job its filer sized. With the rating on
+  claimed rows, hiding it only while the task sat back in the pool would make
+  it blink off and on across one task's life. Shared `isFirstTimeInPool` is no
+  longer read by the card.
 
-  The test is shared `isFirstTimeInPool`, which compares when the task arrived
-  in the pool against when it was filed. **Not** a bare `!task.pooledSince`:
-  that field is absent on a never-held task in production, but the dev seed
-  writes it equal to `createdAt`, and any fixture or import is entitled to do
-  the same. Reading the field directly took the rating off every seeded open
-  task on the board, which is how the first attempt at this rule announced
-  itself. The comparison is true under both spellings.
-
-  **An OOO gets one, and it is the case this is most for.** A review pass cut
+  **An OOO gets one.** A review pass cut
   it out on the reasoning that a vacation notice is never picked up. That is
   wrong: `canClaimTask` opens for it like any other `OPEN` task, the board
   files it under *Up for grabs* with a `Claim` button, its channel card asks
@@ -408,19 +403,18 @@ Each slot has one job. When adding info, replace something — don't append:
 
   It rode every row until #329 took it off entirely — five emoji on all ~130
   rows including the closed ones, which was the loudest thing on the densest
-  surface in the app. This is not that coming back; it is the same fact
-  drawn only where it is worth reading, on the three or four rows in a list
-  where somebody is deciding whether to take the work.
+  surface in the app. This is not all of that coming back: closed rows, most
+  of any list, still carry none. What returns is the rating on active work,
+  where the user has now said it is worth reading twice over, once to decide
+  whether to take a task and once to see who is already carrying what.
 
   **This is an append, and it is the row's one sanctioned one.** Rule 3 under
   *When Adding UI* says a new field on the collapsed row replaces something
-  rather than being added beside it, and this adds a track next to `Unclaimed`
-  without taking anything away. It is allowed here because the slot it lands in
-  is the one part of the row that is *empty on exactly these rows* — the
-  assignee half of the pair is a dashed placeholder and an italic `Unclaimed`,
-  which is the row saying it has nothing to put there — and because it leaves
-  when that emptiness does. A new field that cannot say both of those things
-  replaces something instead.
+  rather than being added beside it. The rating was first allowed in because it
+  sat only in the empty half of an unclaimed pair; on every active row it no
+  longer can say that. It stays because the user ruled it part of what the row
+  is for (2026-09-14), and it shares the step's reserved line rather than
+  taking one of its own. A new field still replaces something instead.
 - **Due** — label and value side by side, right-aligned, built by
   `groupedDue`. Full
   absolute timestamp shows as `title` tooltip. Red + bold
@@ -466,7 +460,8 @@ across one screen).
 An active row is **two grid lines at every width** — there is no responsive
 reflow, deliberately. (Two grid lines, not two lines of text: under 900px the
 title cell holds the name, the type, and one reserved line carrying the step,
-with the rating beside it on a task up for grabs. See *one height* below.) The pair used to share one line with the title and
+with the rating beside it or, on a long step on a phone, under it. See *one
+height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -494,19 +489,33 @@ as the step having gone missing. Mini (one-line closed) rows draw none; a creato
 full-size until it is archived (*Bucket sort*), so it reads `Completed`. The step and the rating
 ride one box, `.task-card-collapsed-status`: `display: contents` on a wide
 screen, so both sit in the type's line as before, and below 900px the third
-line, the step first and the rating beside it. The rating only appears on a
-task that is unclaimed *and* has never been dropped (`isFirstTimeInPool`), so
-the step beside it is always `Opened` and the pair fits a 360px row. One
-`min-height` on the type cell still reserves the line.
+line, the step first and the rating beside it. One `min-height` on the type
+cell still reserves the line.
+
+**On a phone the rating always takes the line under the step** (2026-09-14,
+the user's call: consistency is key). Every active row carries the rating
+since then, and a long step plus five slots is wider than a phone's title
+cell. Letting it wrap only where it had to was tried first: at 390px three of
+the ten seeded rows (`Final approval`, `Outstanding items`, `Merge approved`)
+put the poops under the step and the rest beside it, so one list had the
+rating in two places and rows of two heights. Under 560px the track takes
+`flex-basis: 100%`, so every rated active row is four lines. The step is
+`nowrap` at every width below 900px, so it never breaks mid-phrase (before
+that, `OUTSTANDING` broke over `ITEMS` with the rating between the halves).
+Between 560px and 900px every step fits beside five slots, so they share the
+line there. An unrated task draws no track and holds no fourth line, so it is
+a line shorter; unrated is rare (filing defaults to one), and a blank line
+held for nothing is the ornament this row refuses.
 `scripts/status-display-surface-sim-test.mjs` fails if the row's step and the
 tracker's current step differ in any state, or if the row stops asking
 `currentStepName`.
 
 That is the difference between a 102px card and a 121px one. Reserving a second
 line in the pair as well — which is what this did first — made every card 19px
-taller for a slot only three rows in a typical list ever fill, and pushed the
-names out of line with the due stamp beside them. If both ever do land on a row,
-they share the line side by side and it wraps: the card grows, nothing breaks.
+taller for a slot only three rows in a typical list ever filled, and pushed the
+names out of line with the due stamp beside them. When the step and the rating
+do not fit side by side, the rating wraps under the step: the card grows,
+nothing breaks.
 
 Four things about that rule:
 
@@ -586,8 +595,7 @@ when a checker loses the FILE_CHECKER role, at any live status) clear the
 assignee without moving the status. The row-only table named that case
 `Final Approval Needed`; since 2026-09-13 it reads the tracker's `Final approval`
 like a held check, and the pair's `Unclaimed` says the rest. Such a row draws its
-step and no rating, since being released is what makes `isFirstTimeInPool`
-false.
+step and, since 2026-09-14, its rating like any other active row.
 
 The LOAN_DOCS stages never collide this way either: `canUnclaimTask` and
 `canReturnToPool` are both `CLAIMED`-only, and both release paths are FRAUD-only,
@@ -666,7 +674,7 @@ so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
   the line breaks; and the stage takes `order: 2` so the unread dot stays at
   the end of the type rather than being pushed onto a line by itself.
 
-  The rating is back on the row for unclaimed tasks only — see *Poop* under
+  The rating is on the row of every task that is not closed — see *Poop* under
   *Collapsed row* — and the ↗ that used
   to follow the loan name is gone: a unicode arrow standing in for an icon,
   which renders as a colour emoji on mobile. The name is still the link and

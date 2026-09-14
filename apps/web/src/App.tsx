@@ -2337,8 +2337,8 @@ const TaskCard = memo(({
     </div>
   );
 
-  /* How Bad?, on a task whose one copy lives in the menu (#335): dropped and
-     re-offered, claimed, in flight or closed. Read-only for everyone — the
+  /* How Bad?, on a task whose one copy lives in the menu (#335): a closed
+     task, since 2026-09-14 every other state keeps it on the row. Read-only for everyone — the
      rating changes in the task form alone. Reference detail like the
      timestamps under it, and wrapped the same way: a labelled `group`,
      announced as part of the panel without becoming an arrow-key stop. Null
@@ -2583,24 +2583,26 @@ const TaskCard = memo(({
                   {currentStepName(task)}
                 </span>
                 {/* How Bad?, and it shares the stage's line rather than holding one of
-              its own (2026-09-10), so a task up for grabs reads its step and its
-              rating on one line and every active row stays three lines tall. The
-              rating only appears on a task that is unclaimed AND has never been
-              dropped, so the step beside it is always `Opened`.
+              its own (2026-09-10), so a task reads its step and its rating on
+              one line and every active row stays three lines tall.
 
               It sits above the names rather than beside them (the user's call):
               on a phone the title block is a column, so this lands under the
               type and over the pair.
 
-              Only while the task is up for grabs (2026-09-07). The score answers
-              one question, "can I take a five-poop set of loan docs right now",
-              and that is only live for somebody looking at work nobody holds.
-              #329 took it off the row entirely because five emoji rode every row
-              in the list including the ~117 closed ones — the same fact stated
-              wrongly rather than a fact worth hiding. Read-only here: a
-              five-slot editable track in a row that is itself a press target is
-              five touch targets nobody asked for, and the creator rates it in
-              the expanded body or on the edit form.
+              On every task that is not closed (2026-09-14, the user's call).
+              From 2026-09-07 it showed only while a task was up for grabs, on
+              the reasoning that the score only answers "can I take this right
+              now". A teammate reads it on in-flight work too: two four-poop
+              tasks in somebody's hands is the reason not to ask that person for
+              anything else, and a board with no ratings on claimed rows makes
+              every in-flight task look the same size. #329 took it off the row
+              entirely because five emoji rode every row including the ~117
+              closed ones; closed tasks still carry it in the menu, which is
+              what keeps that from coming back. Read-only here: a five-slot
+              editable track in a row that is itself a press target is five
+              touch targets nobody asked for, and the creator rates it on the
+              edit form.
 
               **An OOO is included, and it is the case this is most for.** A
               review pass excluded it on the reasoning that a vacation notice is
@@ -2616,15 +2618,11 @@ const TaskCard = memo(({
               cadence and not about pickup; don't borrow them for a question
               about the pool.
 
-              **A task dropped and re-offered does not get one** (2026-09-10).
-              The score is the ask as its filer sized it and describes a whole
-              job; a check somebody has already been half way through is not that
-              job any more. Shared `isFirstTimeInPool` is the test — it compares
-              when the task reached the pool against when it was filed, which is
-              true under both spellings of never-left, the field absent or
-              stamped equal to `createdAt` the way the dev seed writes it. A bare
-              `!task.pooledSince` reads as "this has been dropped" on every seeded
-              open task on the board. */}
+              A task dropped and re-offered keeps it too. From 2026-09-10 to
+              2026-09-14 it did not, on the reasoning that a half-done job is not
+              the job its filer sized; with the rating on claimed rows, hiding it
+              only while a task sat back in the pool would make it blink off and
+              on across one task's life. */}
                 {ratingBlock("row", task)}
               </span>
             )}
