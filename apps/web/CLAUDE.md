@@ -530,7 +530,10 @@ Four things about that rule:
   ornament, which is the one thing this row's rules refuse.
 
 Since every active row names its step, no row pays for the line in white space
-any more. The reservation stays because uniform rows are what lets an eye keep one rhythm down a list, and
+any more. Since the active row's type went a step larger (2026-09-13) its content
+draws about 2px over the reservation, so the reservation is a floor rather than
+the height, and rows match because every active row carries both lines. The
+reservation stays because uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
 
 **Equal heights are not the same thing as a list that lines up**, and getting
@@ -2346,8 +2349,9 @@ The floor is the **last block in `styles.css`**, under `## Touch floors`, for
 the reason every phone override is at the bottom: a media query adds no
 specificity, so a rule written above the ones it raises loses silently. 11px for
 the mono labels, 12px for the type cell, its step and the two list headings,
-and 13.5px for the type's own words, which sit a step over the cell at every
-width (2026-09-13, the user's call). It is scoped
+and 13.5px for the type's own words on an active row, which sit a step over the
+cell at every width (2026-09-13, the user's call). Mini rows keep the cell's size:
+their one-line title cut the larger type between about 570 and 620px. It is scoped
 to `pointer: coarse` rather than to a width, matching the input rule — the
 constraint is the device and the missing zoom, not the viewport, and a narrow
 desktop window can still be dragged wider.

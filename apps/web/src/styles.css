@@ -1677,19 +1677,29 @@ button.btn-good:hover {
    is allowed to give in the first place: an unshrinkable label here is wider
    than a phone and pushes the board sideways (see .task-card-collapsed-type).
    So it keeps a shrink factor and its own ellipsis, and the stage below simply
-   carries a much larger one.
-
-   A step larger than the cell's 0.68rem (2026-09-13, the user's call), so the
-   type reads as the row's label and the step beside or under it stays the
-   quieter half. Set here, not on the cell, so the stage keeps its size and the
-   cell's `em` reservation in the 900px block keeps its meaning. */
+   carries a much larger one. */
 .task-card-collapsed-type-text {
-  font-size: 0.78rem;
   min-width: 0;
   flex: 0 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* On an active row the type's words are a step larger than the cell's 0.68rem
+   (2026-09-13, the user's call), so the type reads as the row's label and the
+   step beside or under it stays the quieter half. Set on the words, not the
+   cell, so the stage keeps its size. The cell's `em` reservation in the 900px
+   block is measured at the cell's size and now sits about 2px under what an
+   active row draws, so it no longer sets the height: rows stay one height
+   because every active row carries both lines.
+
+   Not on a mini row. A closed row keeps its title on one line down to 560px
+   against fixed trailing tracks, and at the larger size its type ellipsized
+   between about 570 and 620px (`Value Check`, `LOI Check`; Codex on #428). The
+   Done list is the quiet one anyway. */
+.task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type-text {
+  font-size: 0.78rem;
 }
 
 /* The stage, and the part that gives on a wide screen. Its own box rather than
@@ -4722,26 +4732,31 @@ button.btn-good:hover {
   }
 
   /* 12px floor: the things that are read rather than glanced at. The type
-     label and its stage suffix name what the task IS. `Outstanding items` left
+     label and its step name what the task IS; on an active row the type's own
+     words sit a step over this, in the rule after the block. `Outstanding items` left
      this list when it moved onto the instructions box's ruled page (#367), and
      the conversation's heading followed it there (#387): both are the
      instructions label's peers now and take that label's size, floor or no
      floor.
 
-     The floor sits on the type CELL as well as on the two boxes inside it,
-     which the children would inherit anyway. It is there so the cell's own
+     The floor sits on the type CELL as well as on the two boxes inside it. A
+     mini row's type words take it from here; an active row's are overridden
+     just below. It is on the cell so the cell's own
      `em` resolves against the floored size: the stacked-title rule that reserves the
      stage's line (see the 900px block) is written in `em` precisely so it
      follows this floor instead of hard-coding what the floor happens to be
      today. */
   .task-card-collapsed-type,
+  .task-card-collapsed-type-text,
   .task-card-collapsed-stage,
   .saved-row-type {
     font-size: 12px;
   }
-  /* The type's own words sit 1.5px over that floor, the same step up they take
-     over the cell on a wide screen (2026-09-13). */
-  .task-card-collapsed-type-text {
+  /* On an active row the type's own words sit 1.5px over that floor, the same
+     step up they take over the cell on a wide screen (2026-09-13). The selector
+     matches the base rule's weight so this later rule wins; mini rows stay on
+     the 12px floor above. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type-text {
     font-size: 13.5px;
   }
 
