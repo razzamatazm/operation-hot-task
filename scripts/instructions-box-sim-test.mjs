@@ -77,6 +77,15 @@ await build({
   logLevel: "silent"
 });
 const { InstructionsSection, ThreadMessages, THREAD_HEAD_LABEL } = await import(pathToFileURL(threadModule).href);
+const avatarModule = join(scratch, "avatar.mjs");
+await build({
+  entryPoints: [join(REPO, "apps/web/src/avatar.ts")],
+  outfile: avatarModule,
+  bundle: true,
+  format: "esm",
+  logLevel: "silent"
+});
+const { avatarStyle } = await import(pathToFileURL(avatarModule).href);
 
 const CREATOR = { id: "creator-1", displayName: "Dana Requester" };
 const ASSIGNEE = { id: "assignee-1", displayName: "Casey Checker" };
@@ -302,6 +311,28 @@ test("a reply-less Fraud Check is not empty — it has the field", () => {
   const markup = messages(task({ taskType: "FRAUD", notes: "The request" }));
   assert.ok(markup.includes("The request"));
   assert.ok(!markup.includes("msgs-empty"), "it has something in its thread by definition");
+});
+
+/* ── Initials wear the person's color ─────────────────────── */
+
+test("a message's initials take its author's color, the same one the header pair uses", () => {
+  const markup = messages(
+    task({
+      taskType: "FRAUD",
+      notes: "The request",
+      reviewNotes: [note(ASSIGNEE, T2, "A reply"), note(CREATOR, T3, "An answer")]
+    })
+  );
+  const styles = [...markup.matchAll(/class="expand-avatar" style="([^"]*)"/g)].map((match) => match[1]);
+  assert.equal(styles.length, 3, "the field row and both replies each carry a colored circle");
+  const expected = [CREATOR, ASSIGNEE, CREATOR].map((person) => avatarStyle(person.id).background);
+  styles.forEach((style, i) => {
+    assert.ok(style.includes(`background:${expected[i]}`), `row ${i + 1} is drawn in its author's slot`);
+    assert.ok(style.includes("color:var(--avatar-ink)"), `row ${i + 1} uses the chip ink`);
+  });
+
+  const APP = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  assert.ok(!/const avatarStyle\s*=/.test(APP), "App.tsx has no second copy of the color rule to drift from this one");
 });
 
 /* ── Blast radius: unread, reply counts, reply cards ──────── */

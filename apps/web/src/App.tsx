@@ -13,6 +13,7 @@ import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_
 import { BOARD_PANEL_ID, BoardTab, BoardTabs, boardTabId } from "./board-tabs";
 import { LoanSearch, LoanSearchEmpty, LoanSearchStatus } from "./loan-search";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
+import { avatarStyle } from "./avatar";
 import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn } from "./loan-merge-confirm";
 import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
@@ -164,17 +165,6 @@ const applyTheme = (theme: HostTheme): void => {
 };
 
 /* ── Grouped ("courts") view helpers ──────────────────────── */
-/* Stable per-person color for the pair avatar chips: hashes the user id
-   into one of 8 themed slots (--avatar-1..8 in styles.css) so the same
-   person always gets the same chip color across rows and sessions. */
-const AVATAR_PALETTE_SIZE = 8;
-const avatarStyle = (id: string): CSSProperties => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  const slot = (hash % AVATAR_PALETTE_SIZE) + 1;
-  return { background: `var(--avatar-${slot})`, color: "var(--avatar-ink)", border: "none" };
-};
-
 /* Whose court is the ball in? Drives the grouped buckets. Mirrors the
    collapsed-row primary-action ladder so the section a task lands in and the
    button it offers agree. Permission edge cases (e.g. a LOAN_DOCS assignee
