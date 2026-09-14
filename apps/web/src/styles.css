@@ -2084,9 +2084,11 @@ button.btn-good:hover {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Small neutral avatar used in the notes thread. Sized to be read, not just
+/* The author's initials in the notes thread. Sized to be read, not just
    seen: a note no longer prints its author's name, so these two letters are
-   the only identity on the row. Keep .msg's first grid column in step. */
+   the only identity on the row. Keep .msg's first grid column in step. The
+   per-person fill comes inline from avatarStyle(); this neutral face is only
+   the fallback for an author with no id. */
 .expand-avatar {
   width: 24px;
   height: 24px;

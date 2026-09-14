@@ -16,6 +16,7 @@ import {
   threadOpeningNoteFor
 } from "@loan-tasks/shared";
 
+import { avatarStyle } from "./avatar";
 import { bylineOf, initialsOf } from "./format";
 
 /* ── The expanded card's Instructions box and its conversation ──────────── */
@@ -189,12 +190,14 @@ const useHoldMenu = ({
   };
 };
 
-/* Small neutral avatar. Mono treatment: initials in a neutral circle, no
-   per-user color. Since the thread dropped its author/timestamp row (#165)
-   these initials are the only visible identity on a note — hence the size, and
-   hence `.msg` carrying the full name for hover and for assistive tech. */
-export const ExpandAvatar = ({ name }: { name?: string }) => (
-  <span className="expand-avatar" aria-hidden="true">{initialsOf(name)}</span>
+/* The author's initials, in the same per-person color as the card header's
+   assigner/assignee pair and the checklist's adder chip (`avatarStyle`), so a
+   person is one color everywhere on the card. Since the thread dropped its
+   author/timestamp row (#165) these initials are the only visible identity on a
+   note — hence the size, and hence `.msg` carrying the full name for hover and
+   for assistive tech. Without an id it falls back to the neutral circle. */
+export const ExpandAvatar = ({ id, name }: { id?: string; name?: string }) => (
+  <span className="expand-avatar" style={id ? avatarStyle(id) : undefined} aria-hidden="true">{initialsOf(name)}</span>
 );
 
 /* What heads the conversation, on every type (#387). A Fraud Check's thread
@@ -724,7 +727,7 @@ const MessageRow = ({
   const byline = bylineOf(note.by.displayName, note.at);
   return (
     <div className={`msg${note.by.id === viewerId ? " msg-mine" : ""}`} title={byline}>
-      <ExpandAvatar name={note.by.displayName} />
+      <ExpandAvatar id={note.by.id} name={note.by.displayName} />
       <div className="msg-body">
         <span className="sr-only">{byline}</span>
         {editing && draft !== undefined ? (
@@ -993,7 +996,7 @@ export const ThreadMessages = ({
     <div className="msgs-list" ref={listRef} onPointerDown={onListPointerDown} onKeyDown={onListKeyDown}>
       {opensWithOriginatingNote && (
         <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
-          <ExpandAvatar name={task.createdBy.displayName} />
+          <ExpandAvatar id={task.createdBy.id} name={task.createdBy.displayName} />
           <div className="msg-body">
             <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
             <div className="msg-line">

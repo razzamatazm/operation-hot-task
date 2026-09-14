@@ -1389,6 +1389,14 @@ nested card chrome, in this order:
    author's initials to the left. Close to the chat apps everybody uses, not a
    copy of one: a thread here has exactly two people in it, so who said what is
    carried by the initials rather than by which wall the message is against.
+   **The initials wear the author's color** (2026-09-13, the user's call), from
+   the same `avatarStyle` as the header pair and the checklist's adder chip, so
+   a person is one color from the top of the card to the bottom. The circle was
+   neutral grey from before people had colors, and on a card whose header shows
+   Johanna in purple a grey `J` below read as somebody else. The rule lives in
+   [src/avatar.ts](src/avatar.ts) rather than `App.tsx` so `thread.tsx` can
+   use it and a node script can still render the thread; the contrast theme
+   still maps every slot to one neutral.
 
    Three sizing rules on that bubble are bugs, not taste, and each was hit in
    the prototype (`prototype/thread-bubbles-297`):
