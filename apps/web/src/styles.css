@@ -1443,7 +1443,9 @@ button.btn-good:hover {
 
 /* The Tasks board's tab row (#363, #390): All, Mine, then Drafts, where the
    heading stood. Each tab is the heading's own type (the display face at
-   0.95rem/700) with its count chip, so the row reads as headings. Each
+   0.95rem/700), so the row reads as headings; only Drafts takes a count chip,
+   and only while there is a draft (2026-09-14). The tab's `gap` spaces the chip
+   and leaves nothing behind when there is none. Each
    is a `.tab-btn`, so muted at rest, ink and the --brand underline when open,
    and no fill, all come from the one tab rule below; `.board-tab` only sets
    the heading's type and drops the nav bar's padding and its overlap onto a
