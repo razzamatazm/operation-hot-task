@@ -150,6 +150,7 @@ const withGrids = (over = {}) => ({
    beside it), the note it pins under that control, and the clipboard. Anything
    it starts reaching for beyond this fails here loudly, which is the point. */
 const CONTROL_ID = "hot-task-send-control";
+const hasClass = (node, name) => String(node.className ?? "").split(/\s+/).includes(name);
 const NOTE_ID = "hot-task-send-message";
 
 const runUserscript = ({
@@ -162,6 +163,10 @@ const runUserscript = ({
      page does; `false` is a Humperdink release that moved it, where the control
      gives up looking and takes the corner as a floating button. */
   anchor = true,
+  /* The LOI button's insides, as a tree the script can copy (see `treeNode`).
+     Left out, the LOI button can't be copied and the script builds its control
+     by hand, which is the fallback. */
+  loiMarkup = null,
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -229,7 +234,15 @@ const runUserscript = ({
       textContent: "",
       value: "",
       mounted: false,
-      style: { cssText: "" },
+      style: {
+        cssText: "",
+        setProperty(name, value) {
+          this[name] = value;
+        },
+        removeProperty(name) {
+          delete this[name];
+        }
+      },
       attributes: {},
       listeners: {},
       classList: { add() {}, remove() {} },
@@ -253,11 +266,76 @@ const runUserscript = ({
       },
       select() {},
       click() {
-        const event = { preventDefault() {} };
+        const target = this;
+        const event = {
+          preventDefault() {},
+          stopPropagation() {
+            target.propagationStopped = true;
+          }
+        };
         for (const fn of this.listeners.click ?? []) fn(event);
       }
     };
     created.push(el);
+    return el;
+  };
+
+  /* A small element tree, just enough for the script to copy the LOI button and
+     swap its icon and name: children, text nodes, attributes, and lookups by
+     class. A string in `children` is a text node. */
+  const elementsIn = (node) => (node.childNodes ?? []).filter((child) => child.nodeType !== 3);
+  const descendantsOf = (node) => elementsIn(node).flatMap((child) => [child, ...descendantsOf(child)]);
+  const treeNode = (spec, parentNode = null) => {
+    if (typeof spec === "string") return { nodeType: 3, nodeValue: spec, parentNode };
+    const el = createElement(spec.tag ?? "div");
+    const attributes = [];
+    Object.assign(el, {
+      nodeType: 1,
+      parentNode,
+      className: spec.className ?? "",
+      attributes,
+      setAttribute(name, value) {
+        const found = attributes.find((attribute) => attribute.name === name);
+        if (found) found.value = value;
+        else attributes.push({ name, value });
+      },
+      removeAttribute(name) {
+        const at = attributes.findIndex((attribute) => attribute.name === name);
+        if (at >= 0) attributes.splice(at, 1);
+        if (name === "id") this.id = "";
+      },
+      querySelector(selector) {
+        return this.querySelectorAll(selector)[0] ?? null;
+      },
+      /* Only the two selectors the script uses. Anything else fails loudly
+         rather than quietly matching everything. */
+      querySelectorAll(selector) {
+        const all = descendantsOf(this);
+        if (selector === "*") return all;
+        if (/^\.[\w-]+$/.test(selector)) return all.filter((node) => hasClass(node, selector.slice(1)));
+        throw new Error(`the fake DOM doesn't support the selector ${selector}`);
+      },
+      replaceChild(next, old) {
+        this.childNodes[this.childNodes.indexOf(old)] = next;
+        next.parentNode = this;
+      },
+      classList: {
+        add: (...names) => {
+          el.className = [...new Set([...el.className.split(/\s+/), ...names])].filter(Boolean).join(" ");
+        },
+        remove: (...names) => {
+          el.className = el.className.split(/\s+/).filter((name) => name && !names.includes(name)).join(" ");
+        }
+      }
+    });
+    for (const [name, value] of Object.entries(spec.attrs ?? {})) el.setAttribute(name, value);
+    el.id = spec.attrs?.id ?? "";
+    /* Inline declarations land on `style` the way a browser parses them. */
+    for (const declaration of String(spec.attrs?.style ?? "").split(";")) {
+      const [name, ...value] = declaration.split(":");
+      if (name.trim()) el.style.setProperty(name.trim(), value.join(":").trim());
+    }
+    el.childNodes = (spec.children ?? []).map((child) => treeNode(child, el));
     return el;
   };
 
@@ -266,7 +344,8 @@ const runUserscript = ({
     id: "btnLOIFile",
     className: "jqx-rc-all jqx-button jqx-widget jqx-fill-state-normal",
     closest: (selector) => (selector === ".loanpanelheader" ? {} : null),
-    insertAdjacentElement: (_position, el) => mountControl(el)
+    insertAdjacentElement: (_position, el) => mountControl(el),
+    ...(loiMarkup ? { cloneNode: () => treeNode(loiMarkup) } : {})
   };
 
   const document = {
@@ -480,6 +559,111 @@ test("a message goes in a note under the inline control, not over its label", as
   assert.equal(page.button.textContent, "Export to HT", "the header button never changes width");
 });
 
+/* The inline control is a copy of the LOI button with its icon and name
+   swapped, so it lines up with the bar by construction. Hand-tuned margins sat
+   a pixel or two off. This is the real LOI button as Humperdink renders it
+   (2026-09-13), plus a hover class and an inline handler and inner id, which a
+   copy must not keep either. */
+const LOI_MARKUP = {
+  className:
+    "loanpaneldiv jqx-rc-all jqx-rc-all-Lending jqx-button jqx-button-Lending jqx-widget jqx-widget-Lending jqx-fill-state-normal jqx-fill-state-normal-Lending jqx-fill-state-hover",
+  attrs: {
+    "lending-controls-button": "",
+    id: "btnLOIFile",
+    name: "LOI",
+    onclick: "OpenLOIFile()",
+    style: "padding-left: 10px !important; width: 60px; height: 24px;",
+    role: "button",
+    "aria-disabled": "false"
+  },
+  children: [
+    {
+      tag: "span",
+      className: "fa fa-file-word-o fa-lg loanSettings",
+      attrs: { style: "font-size: 13px;margin-right: 5px;margin-top: 2px;" }
+    },
+    { tag: "div", attrs: { id: "lblLOI", style: "margin-top: 3px;" }, children: ["\n                        LOI\n                    "] }
+  ]
+};
+const nodesOf = (node) => [node, ...(node.childNodes ?? []).flatMap(nodesOf)];
+const visibleText = (node) =>
+  node.nodeType === 3 ? node.nodeValue : node.childNodes ? node.childNodes.map(visibleText).join("") : node.textContent;
+
+test("the inline control is a copy of the LOI button, with its own icon and name", () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, loiMarkup: LOI_MARKUP });
+  const nodes = nodesOf(page.button);
+  assert.equal(page.button.id, CONTROL_ID);
+  assert.ok(page.button.childNodes, "copied, not built");
+  assert.match(page.button.className, /jqx-button/);
+  assert.doesNotMatch(page.button.className, /hover/, "not stuck looking hovered");
+  assert.equal(visibleText(page.button).trim(), "Export to HT");
+  const icon = nodes.find((node) => hasClass(node, "fa"));
+  assert.deepEqual(icon.className.split(" "), ["fa", "fa-lg", "loanSettings", "fa-share-square-o"]);
+  assert.ok(
+    nodes.every((node) => node === page.button || !node.id),
+    "no second btnLOIFile, and no copy of any id inside it"
+  );
+  const attributeNames = nodes.flatMap((node) => (Array.isArray(node.attributes) ? node.attributes.map((a) => a.name) : []));
+  for (const identity of ["id", "name", "lending-controls-button", "onclick"]) {
+    assert.ok(!attributeNames.includes(identity), `the LOI button's ${identity} did not come along`);
+  }
+  assert.ok(attributeNames.includes("aria-disabled"), "presentation attributes stay");
+  assert.equal(page.button.style.width, undefined, "sized to its own name, not LOI's 60px");
+  assert.equal(page.button.style.height, "24px", "the rest of the LOI button's box stays");
+});
+
+test("a copy taken while LOI is disabled doesn't look disabled", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: {
+      ...LOI_MARKUP,
+      className: `${LOI_MARKUP.className} jqx-fill-state-disabled jqx-fill-state-disabled-Lending`,
+      attrs: { ...LOI_MARKUP.attrs, "aria-disabled": "true" }
+    }
+  });
+  assert.doesNotMatch(page.button.className, /disabled/);
+  assert.equal(page.button.attributes.find((attribute) => attribute.name === "aria-disabled").value, "false");
+});
+
+/* The control wears LOI's classes, so a Humperdink handler listening higher up
+   the page for presses on its header buttons must never see this one. */
+test("a press on the copied control stops at the control", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, loiMarkup: LOI_MARKUP });
+  await page.press();
+  assert.equal(page.button.propagationStopped, true);
+  assert.equal(page.copied.length, 1);
+});
+
+test("a name written straight into the LOI button is swapped too", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: { className: "jqx-button", children: [{ tag: "span", className: "fa fa-file-word-o" }, " LOI"] }
+  });
+  assert.ok(page.button.childNodes, "copied, not built");
+  assert.equal(visibleText(page.button).trim(), "Export to HT");
+});
+
+test("an LOI button with no icon to swap gets the hand-built control instead", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: { className: "jqx-button", children: ["LOI"] }
+  });
+  assert.equal(page.button.childNodes, undefined, "built, not copied");
+  assert.equal(page.button.textContent, "Export to HT");
+});
+
+test("the copied control presses, and comes back once after a repaint", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, loiMarkup: LOI_MARKUP });
+  page.repaintHeader();
+  assert.equal(page.controlsOnPage, 1);
+  await page.press();
+  assert.equal(page.copied.length, 1);
+  assert.equal(page.said, COPIED);
+  assert.equal(visibleText(page.button).trim(), "Export to HT", "the header button never changes width");
+});
 test("running the script again leaves one control", () => {
   // Two stacked buttons on top of each other is a support call nobody can
   // describe, so the script bails when its own control is already mounted.
@@ -1505,6 +1689,17 @@ test("the script carries no teams.microsoft.com link and never opens a tab", () 
   assert.doesNotMatch(USERSCRIPT, /window\.open/);
   assert.match(USERSCRIPT, /msteams:/);
   assert.ok(USERSCRIPT.includes(`"${LIVE_MANIFEST.id}"`), "the app id is written out as the live manifest's id");
+});
+
+/* The team installs and updates this script from loftools. A wrong or missing
+   update address fails silently: nobody gets another version, ever. */
+test("the script updates from its loftools address, with one version", () => {
+  const header = USERSCRIPT.match(/\/\/ ==UserScript==([\s\S]*?)\/\/ ==\/UserScript==/)[1];
+  const values = (key) => [...header.matchAll(new RegExp(`^//\\s*@${key}\\s+(.+?)\\s*$`, "gm"))].map((m) => m[1]);
+  const address = "https://loftools.thepopcorn.party/userscripts/send-to-hot-task.user.js";
+  assert.deepEqual(values("downloadURL"), [address]);
+  assert.deepEqual(values("updateURL"), [address]);
+  assert.equal(values("version").length, 1);
 });
 
 test("a second press copies and opens again", async () => {

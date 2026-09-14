@@ -27,24 +27,41 @@ It only fills the form if what it finds is a loan this button copied, and it
 never files anything: you still press Create. New Task and everything else in
 Hot Task never read it.
 
-## Install it (about two minutes, once)
+## Install it (about five minutes, once)
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) in the browser you keep
-   Humperdink open in (Edge and Chrome both work).
-2. Open the Tampermonkey dashboard → **+** (Create a new script).
-3. Delete the template it gives you, paste in the whole of
-   `send-to-hot-task.user.js`, and press **Ctrl/Cmd + S**.
-4. Open any loan in Humperdink. An **Export to HT** button sits in the Loan
-   Terms header, right after the LOI button, dressed like Humperdink's own. If
-   that header hasn't appeared within about eight seconds (a Humperdink update
-   that moved it, say), a dark **Export to HT** button takes the
-   bottom-right corner instead, so the control is never silently missing. If
-   Humperdink redraws the header, the button puts itself back.
+Send people to the install guide on loftools:
+**https://loftools.thepopcorn.party/install/**. It walks through Tampermonkey,
+Chrome's **Allow User Scripts** switch, and an Install button for this script
+(and the TitlePro → Humperdink one, which lives in loftools).
 
-Everyone installs it themselves — there is no central deployment and nothing to
-roll out. Updating means pasting the current file over the old one, which is why
-the payload carries a version number: an old script and a new Hot Task (or the
-reverse) tell you so instead of importing something half-right.
+Once installed, open any loan in Humperdink. An **Export to HT** button sits in
+the Loan Terms header, right after the LOI button. It is a copy of the LOI
+button with the icon and name swapped, so it lines up with Humperdink's own
+buttons. The copy sizes to its own name and leaves behind everything that makes
+the original the LOI button (its id, `name`, Humperdink's
+`lending-controls-button` marker, and any hover, pressed or disabled state),
+and a press on it goes no further than the control. If the LOI button is ever a
+shape the copy doesn't recognise, a hand-built button stands in. If that header hasn't appeared within about eight seconds (a Humperdink
+update that moved it, say), a dark **Export to HT** button takes the
+bottom-right corner instead, so the control is never silently missing. If
+Humperdink redraws the header, the button puts itself back.
+
+## Updates
+
+This file is the source of truth, because the tests here run it against the
+app's parser. loftools (`~/repos/loftools`) serves a copy at
+`/userscripts/send-to-hot-task.user.js`, and the header's `@downloadURL` and
+`@updateURL` point there, so Tampermonkey checks it about daily and takes any
+higher `@version`. To ship a change:
+
+1. **Raise `@version`** here, or nobody receives it.
+2. **Deploy Hot Task first**, then copy this file over the loftools copy
+   unchanged. A copy that runs ahead of the live app opens a Teams screen the
+   app may not have yet.
+
+The payload still carries its own version number for anyone on an old copy: an
+old script and a new Hot Task (or the reverse) say so instead of importing
+something half-right.
 
 ## Configuration
 

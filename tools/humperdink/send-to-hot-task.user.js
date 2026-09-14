@@ -1,16 +1,19 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.9.0
+// @version      1.9.5
 // @description  Copy a Humperdink loan to the clipboard, then open Hot Task in Teams desktop on a new LOI Check.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
 // @run-at       document-idle
 // @grant        none
+// @downloadURL  https://loftools.thepopcorn.party/userscripts/send-to-hot-task.user.js
+// @updateURL    https://loftools.thepopcorn.party/userscripts/send-to-hot-task.user.js
 // ==/UserScript==
 
-/* See README.md beside this file for install instructions and for why this is
-   self-installed rather than centrally deployed.
+/* See README.md beside this file for install instructions. This file is the
+   source of truth; loftools serves a copy of it, and Tampermonkey updates from
+   that copy, so raise @version with every change or nobody receives it.
 
    The payload shape is the contract in packages/shared/src/humperdink.ts —
    `HumperdinkPayload` there, `parseHumperdinkPayload` reads what this writes.
@@ -528,18 +531,17 @@
   /* ── The control ────────────────────────────────────────────
 
      Humperdink's panel-header buttons are divs carrying jqx classes rather than
-     <button>s, so this matches that shape. The classes are copied off the LOI
-     button at mount time instead of being hard-coded, so a Humperdink restyle
-     carries over on its own. */
+     <button>s. The control is a copy of the LOI button itself, icon and name
+     swapped, so it sits on the bar exactly where Humperdink's own buttons do and
+     a Humperdink restyle carries over on its own. It used to be built by hand
+     with tuned margins, which sat a pixel or two off the rest of the bar. If the
+     LOI button is ever a shape the swap doesn't recognise (no Font Awesome icon,
+     or no name), the hand-built control is the fallback. */
   function createInlineControl(anchor) {
-    var el = document.createElement("div");
+    var el = copyOfButton(anchor) || buildInlineControl(anchor);
     el.id = BUTTON_ID;
     el.setAttribute("role", "button");
-    el.className = anchor.className;
-    el.style.cssText = "padding-left:10px !important;padding-right:12px;height:24px;margin-left:6px;cursor:pointer;";
-    el.innerHTML =
-      '<span class="fa ' + ICON_CLASS + ' fa-lg loanSettings" style="font-size:13px;margin-right:5px;margin-top:2px;"></span>' +
-      '<div class="hot-task-label" style="margin-top:3px;white-space:nowrap;"></div>';
+    el.style.cursor = "pointer";
     /* jqx paints hover through a class rather than through CSS, so drive it by
        hand or the control is the one dead-looking thing in the bar. */
     el.addEventListener("mouseenter", function () {
@@ -548,6 +550,85 @@
     el.addEventListener("mouseleave", function () {
       el.classList.remove("jqx-fill-state-hover", "jqx-fill-state-hover-Lending");
     });
+    return el;
+  }
+
+  function copyOfButton(anchor) {
+    if (typeof anchor.cloneNode !== "function") return null;
+    var el = anchor.cloneNode(true);
+    var icon = el.querySelector(".fa");
+    var name = firstWords(el);
+    if (!icon || !name) return null;
+    /* A copy keeps everything that makes the original the LOI button: its id,
+       `name="LOI"`, the `lending-controls-button` marker Humperdink's own code
+       finds its buttons by, and any inline handler. Kept, the page would have a
+       second LOI button that opens the LOI. Only presentation survives. */
+    var nodes = [el].concat(Array.prototype.slice.call(el.querySelectorAll("*")));
+    for (var i = 0; i < nodes.length; i += 1) stripIdentity(nodes[i]);
+    /* The LOI button's inline width is sized to "LOI"; "Export to HT" spilled out
+       of it. Let the control size to its own name. */
+    el.style.removeProperty("width");
+    /* Only the resting look travels. A copy taken while LOI was hovered, pressed
+       or disabled would otherwise wear that state for good. */
+    el.className = String(el.className)
+      .split(/\s+/)
+      .filter(function (name) {
+        return name && !/-(hover|pressed|disabled)(-|$)/.test(name);
+      })
+      .join(" ");
+    el.setAttribute("aria-disabled", "false");
+    icon.className = swapIcon(icon.className);
+    var label = document.createElement("span");
+    label.className = "hot-task-label";
+    label.style.whiteSpace = "nowrap";
+    name.parentNode.replaceChild(label, name);
+    return el;
+  }
+
+  var PRESENTATION_ATTRIBUTE = /^(class|style|role|title|aria-.*)$/i;
+
+  function stripIdentity(node) {
+    if (typeof node.removeAttribute !== "function") return;
+    var identity = [];
+    for (var i = 0; i < (node.attributes ? node.attributes.length : 0); i += 1) {
+      if (!PRESENTATION_ATTRIBUTE.test(node.attributes[i].name)) identity.push(node.attributes[i].name);
+    }
+    for (var j = 0; j < identity.length; j += 1) node.removeAttribute(identity[j]);
+  }
+
+  /* The first text with something in it: the button's name. */
+  function firstWords(node) {
+    var children = node.childNodes || [];
+    for (var i = 0; i < children.length; i += 1) {
+      var child = children[i];
+      if (child.nodeType === 3 && child.nodeValue.trim()) return child;
+      if (child.nodeType === 1) {
+        var found = firstWords(child);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /* Font Awesome's size and width modifiers stay; the glyph is swapped. */
+  function swapIcon(className) {
+    var kept = String(className)
+      .split(/\s+/)
+      .filter(function (name) {
+        return name && (!/^fa-/.test(name) || /^fa-(lg|fw|[2-5]x)$/.test(name));
+      });
+    kept.push(ICON_CLASS);
+    return kept.join(" ");
+  }
+
+  /* The fallback: the LOI button's classes on a hand-built body. */
+  function buildInlineControl(anchor) {
+    var el = document.createElement("div");
+    el.className = anchor.className;
+    el.style.cssText = "padding-left:10px !important;padding-right:12px;height:24px;margin-left:6px;cursor:pointer;";
+    el.innerHTML =
+      '<span class="fa ' + ICON_CLASS + ' fa-lg loanSettings" style="font-size:13px;margin-right:5px;margin-top:2px;"></span>' +
+      '<div class="hot-task-label" style="margin-top:3px;white-space:nowrap;"></div>';
     return el;
   }
 
@@ -705,6 +786,10 @@
       control = createInlineControl(anchor);
       control.addEventListener("click", function (event) {
         event.preventDefault();
+        /* The control wears LOI's classes, so a Humperdink handler listening
+           higher up for presses on its header buttons would otherwise take
+           this for one of them. */
+        event.stopPropagation();
         onPress();
       });
       anchor.insertAdjacentElement("afterend", control);
