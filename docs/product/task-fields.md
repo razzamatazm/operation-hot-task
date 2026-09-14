@@ -447,11 +447,14 @@ is gone seven days after it was last written.
   box** (2026-09-14, the user's call: a box beside Create Task was confusing,
   and the arrival's clipboard fill is meant to make it unnecessary). Pasting
   what the **Send to Hot Task** userscript's **Export to HT** button copied off
-  a Humperdink loan page anywhere on the form is the import (#409): Folder
-  Name, the Humperdink Link and the loan's terms, brokers, borrowers, silent
-  borrowers and acquired properties fill in, and the pasted text lands nowhere.
-  Any paste that isn't a valid payload lands where it was pasted, as it always
-  did, with no toast; it never half-fills. The terms land *below* anything
+  a Humperdink loan page into any field on the form is the import (#409):
+  Folder Name, the Humperdink Link and the loan's terms, brokers, borrowers,
+  silent borrowers and acquired properties fill in, and the pasted text lands
+  nowhere. A paste made with no field selected reaches nothing. An export Hot
+  Task recognises but can't read (from a newer script, or missing the loan
+  name or link) is refused with a toast saying why, and nothing lands. Any other
+  paste lands where it was pasted, as it always did, with no toast. It never
+  half-fills. The terms land *below* anything
   already typed in Notes rather than over it, and a second import replaces the
   block the first one wrote instead of stacking another copy. Nothing else on
   the form is touched. A Humperdink arrival (the userscript's Export to HT

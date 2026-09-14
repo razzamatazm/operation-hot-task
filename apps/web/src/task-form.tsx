@@ -368,7 +368,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      and doubling as the button's `Saving…`. Create waits on it too. */
   const [savingForLater, setSavingForLater] = useState(false);
   /* Humperdink import (#194). There is no box for it since 2026-09-14: a Send to
-     Hot Task payload pasted anywhere on an LOI Check being filed is the import,
+     Hot Task payload pasted into any field on an LOI Check being filed is the import,
      and any other paste lands where it was pasted. The one other way in is a
      Humperdink arrival, which runs this same import on the clipboard where
      Teams can read it (#415, ADR-0012). A good import sets `imported`, which the
@@ -419,13 +419,19 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   const lockedFolderName = edit?.task.folderName ?? "";
   const lockedLink = edit?.task.humperdinkLink ?? "";
 
-  /* Take a Humperdink payload into the form, and answer whether it did. Text
-     that isn't a payload changes nothing and says nothing: with no paste box,
-     every paste on the form comes through here, and a stray paste into Notes is
-     not an error. It never half-fills. */
+  /* Take a Humperdink payload into the form, and answer whether it took the
+     paste. Text without the export's marker changes nothing and says nothing:
+     with no paste box, every paste on the form comes through here, and a stray
+     paste into Notes is not an error. An export it recognises but can't read
+     (a newer script, a missing name or link) is taken and refused out loud, so
+     raw JSON never lands in Notes unexplained. It never half-fills. */
   const importFromHumperdink = (text: string): boolean => {
     const result = parseHumperdinkPayload(text);
-    if (!result.ok) return false;
+    if (!result.ok) {
+      if (!result.ours) return false;
+      showToast(result.error, { variant: "error" });
+      return true;
+    }
     const noteText = humperdinkNoteText(result.payload);
     setForm((c) => applyImportedLoan(c, result.payload, { noteText, previousNoteText: importedNote }));
     setImportedNote(noteText);
@@ -1171,9 +1177,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
           className="task-form"
           onSubmit={handleSubmit}
           /* The Humperdink import (#194, #409), with no box of its own: a Send
-             to Hot Task payload pasted anywhere on an LOI Check being filed
-             fills the form, and the browser's insert is cancelled only then.
-             Any other paste lands where it was pasted. LOI Check only, because
+             to Hot Task payload pasted into any field on an LOI Check being
+             filed fills the form, and an export the parser can't read is
+             refused with its reason; the browser's insert is cancelled for
+             both. Any other paste lands where it was pasted. LOI Check only, because
              it is the one type whose request field is a term sheet; never in
              edit mode, which doesn't offer the fields an import rewrites. */
           onPaste={(e) => {

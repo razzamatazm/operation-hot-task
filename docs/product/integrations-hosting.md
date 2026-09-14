@@ -21,7 +21,7 @@
   appears, a floating **Send to Hot Task** button in the corner); it copies the
   loan's name, page URL, loan terms, its brokers, borrowers and silent
   borrowers, and any property it is acquiring, as a versioned JSON payload.
-  Pasting that anywhere on an LOI Check being filed is the import (#409; the
+  Pasting that into any field on an LOI Check being filed is the import (#409; the
   form has had no paste box since 2026-09-14): it fills
   Folder Name, the Humperdink Link and the notes, and sets the task type to
   LOI. The terms are read by

@@ -88,7 +88,7 @@ Nothing normally needs changing. Two values are pinned in the script:
    go in below it — and pasting again replaces the block the last import wrote
    rather than stacking a second copy. If you had an unfinished new task open
    in Hot Task, it is kept on the Task Drafts tab. You can also get here by
-   hand: New Task, LOI Check, click into the form, paste.
+   hand: New Task, LOI Check, click into any field, paste.
 3. Fill in the rest as usual and press Create. The task links itself to the
    existing loan for that URL — the link is the canonical key for a loan
    ([ADR-0001](../../docs/adr/0001-loan-entity.md)) — so importing the same loan

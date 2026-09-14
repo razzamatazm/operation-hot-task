@@ -984,7 +984,7 @@ test("the footer holds the exits, and an LOI Check being filed keeps the import'
 
 /* The paste handler can't be fired from a static render, so its wiring is read
    off the source, the way the Start fresh clears are. */
-test("a payload pasted anywhere on an LOI Check being filed is the import, and any other paste is left alone", () => {
+test("a payload pasted into any field on an LOI Check being filed is the import, a broken export is refused, and any other paste is left alone", () => {
   const onPaste = formSource.match(/<form[\s\S]*?onPaste=\{\(e\) => \{([\s\S]*?)\n\s*\}\}/)?.[1];
   assert.ok(onPaste, "the form element takes the paste");
   assert.match(onPaste, /if \(editing \|\| form\.taskType !== "LOI"\) return;/, "only while filing an LOI Check");
@@ -999,8 +999,11 @@ test("a payload pasted anywhere on an LOI Check being filed is the import, and a
   const handler = formSource.slice(formSource.indexOf("const importFromHumperdink"));
   const body = handler.slice(0, handler.indexOf("\n  };"));
   assert.match(body, /parseHumperdinkPayload\(text\)/, "it parses what it was handed");
-  assert.match(body, /if \(!result\.ok\) return false;/, "text that isn't a payload changes nothing");
-  assert.doesNotMatch(body, /showToast/, "and says nothing: a stray paste into Notes is not an error");
+  const refusal = body.slice(body.indexOf("if (!result.ok)"), body.indexOf("return true;") + "return true;".length);
+  assert.match(refusal, /if \(!result\.ours\) return false;/, "text without the export's marker changes nothing and says nothing");
+  assert.ok(refusal.indexOf("if (!result.ours) return false;") < refusal.indexOf("showToast("), "it leaves before any toast");
+  assert.match(refusal, /showToast\(result\.error, \{ variant: "error" \}\);\s*return true;/, "an export it can't read is taken and refused with the parser's reason");
+  assert.doesNotMatch(refusal, /setForm|applyImportedLoan/, "without touching a field");
   assert.match(body, /applyImportedLoan\(/, "a payload fills the form");
   assert.match(body, /setImported\(true\)/, "and the live region says so");
 });

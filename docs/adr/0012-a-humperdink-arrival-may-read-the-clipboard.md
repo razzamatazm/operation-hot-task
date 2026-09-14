@@ -6,8 +6,9 @@ as #413 recorded there.
 
 **Amended 2026-09-14: the paste box is gone.** The create form no longer draws
 one. Where this record says "the paste box's import", read the form's paste
-import: a valid payload pasted anywhere on an LOI Check being filed imports,
-and anything else pastes as normal, silently. On an arrival focus sits in the
+import: a valid payload pasted into any field on an LOI Check being filed
+imports, an export the parser recognises but refuses is blocked with its
+reason, and anything else pastes as normal, silently. On an arrival focus sits in the
 request field instead of the box, so ⌘V is still the fallback. The guard in
 rule 3 is unchanged: only a payload the parser accepts fills anything.
 

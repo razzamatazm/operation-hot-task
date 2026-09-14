@@ -190,11 +190,11 @@ test("the form applies it through its own paste import, once the loans have load
   assert.doesNotMatch(apply, /onCreate|onSaveForLater|apiRequest/, "nothing is created until Create");
 });
 
-test("an import that fails says nothing and touches nothing", () => {
+test("the arrival only hands the import a payload that parses, so a fill never toasts", () => {
   const body = FORM_SOURCE.match(/const importFromHumperdink = \(([\s\S]*?)\n  \};/)?.[0];
   assert.ok(body);
-  assert.match(body, /if \(!result\.ok\) return false;/);
-  assert.doesNotMatch(body, /showToast/);
+  assert.match(body, /if \(!result\.ours\) return false;/, "text that isn't an export leaves quietly");
+  assert.match(ARRIVAL_SOURCE, /return parseHumperdinkPayload\(text\)\.ok \? text : null;/, "and the reader lets nothing else through");
   assert.doesNotMatch(body, /onCreate|onSaveForLater/);
 });
 

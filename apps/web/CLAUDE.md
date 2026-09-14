@@ -2046,11 +2046,15 @@ beside Create Task and read as one more field to fill, and the arrival's
 clipboard fill below is meant to make it unnecessary. The paste is still the
 import (#409), just without a box: `onPaste` on the `<form>` itself, on an LOI
 Check being filed, takes the text off the event's `clipboardData` (the human's
-paste, not a clipboard read) and hands it to `importFromHumperdink`. Only when
-that answers true, a payload the parser accepted, is the browser's own insert
-cancelled. Anything else pastes where it was pasted, with no toast, because
-every paste on the form now passes through here and a stray paste into Notes is
-not an error. A good import says `Imported from Humperdink.` through an sr-only
+paste, not a clipboard read) and hands it to `importFromHumperdink`. It answers
+true, and the browser's own insert is cancelled, for anything carrying the
+export's own marker (the parser's `ours`): a payload the parser accepted
+imports, and one it refused (a newer script, a missing name or link) toasts the
+parser's reason instead of dropping raw JSON into Notes. Text without the marker
+pastes where it was pasted, with no toast, because every paste on the form
+passes through here and a stray paste into Notes is not an error. A paste only
+reaches the form from a field inside it, so ⌘V with no field selected takes
+nothing; on an arrival, focus already sits in the request field. A good import says `Imported from Humperdink.` through an sr-only
 `role="status"` line in the footer, mounted while an LOI Check is being filed.
 
 **A Humperdink arrival link opens it** (#412). A Teams deep link whose

@@ -831,6 +831,22 @@ test("JSON from something else entirely is not mistaken for ours", () => {
   assert.match(result.error, /isn't a Humperdink payload/);
 });
 
+/* Since the paste box went (2026-09-14) every paste on an LOI Check passes
+   through the parser, so the form has to tell a stray paste, which it lets
+   through silently, from an export it can't read, which it refuses out loud. */
+test("a failure says whether the text was an export at all", () => {
+  for (const stray of ["", "hello", "{not json", "[1,2,3]", JSON.stringify({ loanName: "Adams", loanUrl: LOAN_URL })]) {
+    const result = parseHumperdinkPayload(stray);
+    assert.equal(result.ok, false);
+    assert.equal(result.ours, false, `${stray} is not an export`);
+  }
+  for (const broken of [{ version: 99 }, { version: undefined }, { loanName: "" }, { loanUrl: "https://humperdink.loneoakfund.com/Loans/Index" }]) {
+    const result = parseHumperdinkPayload(payloadText(broken));
+    assert.equal(result.ok, false);
+    assert.equal(result.ours, true, `${JSON.stringify(broken)} is an export it can't read`);
+  }
+});
+
 test("a payload missing the name or the link is rejected whole, not half-read", () => {
   for (const broken of [{ loanName: "" }, { loanName: "   " }, { loanUrl: "" }, { loanName: 7 }, { loanUrl: null }]) {
     const result = parseHumperdinkPayload(payloadText(broken));
