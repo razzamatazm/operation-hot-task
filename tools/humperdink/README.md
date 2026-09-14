@@ -37,7 +37,11 @@ Chrome's **Allow User Scripts** switch, and an Install button for this script
 Once installed, open any loan in Humperdink. An **Export to HT** button sits in
 the Loan Terms header, right after the LOI button. It is a copy of the LOI
 button with the icon and name swapped, so it lines up with Humperdink's own
-buttons. If that header hasn't appeared within about eight seconds (a Humperdink
+buttons. The copy sizes to its own name and leaves behind everything that makes
+the original the LOI button (its id, `name`, Humperdink's
+`lending-controls-button` marker, and any hover, pressed or disabled state),
+and a press on it goes no further than the control. If the LOI button is ever a
+shape the copy doesn't recognise, a hand-built button stands in. If that header hasn't appeared within about eight seconds (a Humperdink
 update that moved it, say), a dark **Export to HT** button takes the
 bottom-right corner instead, so the control is never silently missing. If
 Humperdink redraws the header, the button puts itself back.

@@ -150,6 +150,7 @@ const withGrids = (over = {}) => ({
    beside it), the note it pins under that control, and the clipboard. Anything
    it starts reaching for beyond this fails here loudly, which is the point. */
 const CONTROL_ID = "hot-task-send-control";
+const hasClass = (node, name) => String(node.className ?? "").split(/\s+/).includes(name);
 const NOTE_ID = "hot-task-send-message";
 
 const runUserscript = ({
@@ -166,9 +167,6 @@ const runUserscript = ({
      Left out, the LOI button can't be copied and the script builds its control
      by hand, which is the fallback. */
   loiMarkup = null,
-  /* What the browser renders each box of the LOI button with, as a function of
-     the original node. Left out, the page has no getComputedStyle. */
-  renderedStyle = null,
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -268,7 +266,13 @@ const runUserscript = ({
       },
       select() {},
       click() {
-        const event = { preventDefault() {} };
+        const target = this;
+        const event = {
+          preventDefault() {},
+          stopPropagation() {
+            target.propagationStopped = true;
+          }
+        };
         for (const fn of this.listeners.click ?? []) fn(event);
       }
     };
@@ -279,7 +283,6 @@ const runUserscript = ({
   /* A small element tree, just enough for the script to copy the LOI button and
      swap its icon and name: children, text nodes, attributes, and lookups by
      class. A string in `children` is a text node. */
-  const hasClass = (node, name) => String(node.className ?? "").split(/\s+/).includes(name);
   const elementsIn = (node) => (node.childNodes ?? []).filter((child) => child.nodeType !== 3);
   const descendantsOf = (node) => elementsIn(node).flatMap((child) => [child, ...descendantsOf(child)]);
   const treeNode = (spec, parentNode = null) => {
@@ -302,10 +305,15 @@ const runUserscript = ({
         if (name === "id") this.id = "";
       },
       querySelector(selector) {
-        return descendantsOf(this).find((node) => hasClass(node, selector.slice(1))) ?? null;
+        return this.querySelectorAll(selector)[0] ?? null;
       },
-      querySelectorAll() {
-        return descendantsOf(this);
+      /* Only the two selectors the script uses. Anything else fails loudly
+         rather than quietly matching everything. */
+      querySelectorAll(selector) {
+        const all = descendantsOf(this);
+        if (selector === "*") return all;
+        if (/^\.[\w-]+$/.test(selector)) return all.filter((node) => hasClass(node, selector.slice(1)));
+        throw new Error(`the fake DOM doesn't support the selector ${selector}`);
       },
       replaceChild(next, old) {
         this.childNodes[this.childNodes.indexOf(old)] = next;
@@ -339,11 +347,6 @@ const runUserscript = ({
     insertAdjacentElement: (_position, el) => mountControl(el),
     ...(loiMarkup ? { cloneNode: () => treeNode(loiMarkup) } : {})
   };
-  /* The LOI button's own insides, for the script to read rendered styles off. */
-  if (loiMarkup) {
-    const original = treeNode(loiMarkup);
-    loiButton.querySelectorAll = () => descendantsOf(original);
-  }
 
   const document = {
     title,
@@ -455,15 +458,7 @@ const runUserscript = ({
     MutationObserver,
     innerWidth: 1280,
     console,
-    URL,
-    ...(renderedStyle
-      ? {
-          getComputedStyle: (node) => {
-            const values = renderedStyle(node);
-            return { getPropertyValue: (name) => values[name] ?? "" };
-          }
-        }
-      : {})
+    URL
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
@@ -602,7 +597,7 @@ test("the inline control is a copy of the LOI button, with its own icon and name
   assert.match(page.button.className, /jqx-button/);
   assert.doesNotMatch(page.button.className, /hover/, "not stuck looking hovered");
   assert.equal(visibleText(page.button).trim(), "Export to HT");
-  const icon = nodes.find((node) => hasClassName(node, "fa"));
+  const icon = nodes.find((node) => hasClass(node, "fa"));
   assert.deepEqual(icon.className.split(" "), ["fa", "fa-lg", "loanSettings", "fa-share-square-o"]);
   assert.ok(
     nodes.every((node) => node === page.button || !node.id),
@@ -617,40 +612,27 @@ test("the inline control is a copy of the LOI button, with its own icon and name
   assert.equal(page.button.style.height, "24px", "the rest of the LOI button's box stays");
 });
 
-/* A copy with identical insides still sat out of line on the real page:
-   Humperdink can style a header button by its id, and the copy has to drop the
-   id. So each box takes what its original renders with. */
-test("each box of the copy takes the size and spacing its LOI original renders with", () => {
+test("a copy taken while LOI is disabled doesn't look disabled", () => {
   const page = runUserscript({
     title: "Adams - Harbor - Details",
     href: LOAN_URL,
-    loiMarkup: LOI_MARKUP,
-    renderedStyle: (node) =>
-      node.id === "btnLOIFile"
-        ? { "margin-top": "4px", float: "left", height: "26px" }
-        : node.id === "lblLOI"
-          ? { "margin-top": "5px", "line-height": "18px" }
-          : {}
+    loiMarkup: {
+      ...LOI_MARKUP,
+      className: `${LOI_MARKUP.className} jqx-fill-state-disabled jqx-fill-state-disabled-Lending`,
+      attrs: { ...LOI_MARKUP.attrs, "aria-disabled": "true" }
+    }
   });
-  assert.equal(page.button.style["margin-top"], "4px");
-  assert.equal(page.button.style.float, "left");
-  assert.equal(page.button.style.height, "26px");
-  const nameBox = page.button.childNodes[1];
-  assert.equal(nameBox.style["margin-top"], "5px", "the box holding the name, matched by position");
-  assert.equal(nameBox.style["line-height"], "18px");
-  assert.equal(visibleText(page.button).trim(), "Export to HT");
+  assert.doesNotMatch(page.button.className, /disabled/);
+  assert.equal(page.button.attributes.find((attribute) => attribute.name === "aria-disabled").value, "false");
 });
 
-test("an absolutely positioned LOI button's offsets are not copied onto the control", () => {
-  const page = runUserscript({
-    title: "Adams - Harbor - Details",
-    href: LOAN_URL,
-    loiMarkup: LOI_MARKUP,
-    renderedStyle: (node) => (node.id === "btnLOIFile" ? { position: "absolute", top: "3px", "margin-top": "1px" } : {})
-  });
-  assert.equal(page.button.style.position, undefined);
-  assert.equal(page.button.style.top, undefined);
-  assert.equal(page.button.style["margin-top"], "1px");
+/* The control wears LOI's classes, so a Humperdink handler listening higher up
+   the page for presses on its header buttons must never see this one. */
+test("a press on the copied control stops at the control", async () => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, loiMarkup: LOI_MARKUP });
+  await page.press();
+  assert.equal(page.button.propagationStopped, true);
+  assert.equal(page.copied.length, 1);
 });
 
 test("a name written straight into the LOI button is swapped too", () => {
@@ -682,11 +664,6 @@ test("the copied control presses, and comes back once after a repaint", async ()
   assert.equal(page.said, COPIED);
   assert.equal(visibleText(page.button).trim(), "Export to HT", "the header button never changes width");
 });
-
-function hasClassName(node, name) {
-  return String(node.className ?? "").split(/\s+/).includes(name);
-}
-
 test("running the script again leaves one control", () => {
   // Two stacked buttons on top of each other is a support call nobody can
   // describe, so the script bails when its own control is already mounted.
