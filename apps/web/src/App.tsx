@@ -23,7 +23,7 @@ import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraft
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
 import type { AutosaveMove } from "./humperdink-arrival";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
-import { Timeline } from "./timeline";
+import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -396,29 +396,6 @@ const firstName = (displayName: string | undefined): string => {
    (share, handoff) offer. `roles` came with the Handoff (ADR-0002): the handoff
    picker filters to people who can actually work the task, so a Fraud Check
    never offers someone the server would reject. */
-
-/* LOAN_DOCS and FRAUD have multiple stages between claim and complete. The
-   stage rides on the title beside the type so the type label stays terse.
-   For FRAUD it also disambiguates a released final-approval task sitting in the
-   pool ("Final Approval Needed") from a fresh unclaimed check.
-
-   Bare words, no leading `- `. The hyphen is the join between two things that
-   are sitting on one line, so it belongs to the row that draws them and not to
-   the string: on a phone the stage drops to a line of its own under the type
-   (2026-09-07), where a leading hyphen would read as a bullet. */
-const stageSuffix = (task: LoanTask): string => {
-  if (task.taskType === "LOAN_DOCS") {
-    if (task.status === "MERGE_DONE") return "Merge Done";
-    if (task.status === "MERGE_APPROVED") return "Merge Approved";
-    return "";
-  }
-  if (task.taskType === "FRAUD") {
-    if (task.status === "AWAITING_ITEMS") return "Outstanding Items";
-    if (task.status === "PENDING_APPROVAL") return task.assignee ? "Final Approval" : "Final Approval Needed";
-    return "";
-  }
-  return "";
-};
 
 /* Sliders rather than a cog: what is behind it is a set of view preferences,
    not system configuration, and the app already has an Admin tab that is the
@@ -2589,35 +2566,35 @@ const TaskCard = memo(({
               fraud check at final approval lost the one signal saying a note is
               waiting, on the surface with no zoom to go looking with.
 
-              The stage is its own box rather than words inside the type's, so
-              it is the part that gives — the type names what the task IS and
-              stays whole, and a cut lands on the stage behind it. On a phone
-              (2026-09-07) it stops being cut at all and takes a line of its
-              own under the type: `Fraud Check - Final Approval Needed` wants
-              ~290px against a title cell of about 200px there, so what a person
-              actually read was `FRAUD CHECK - FINAL APP…`. The hyphen is the
-              join for the one-line arrangement and goes with it. */}
+              The stage is the step the task is on, the rail's own word for it
+              (`currentStepName`), on every active row (2026-09-13). It used to
+              exist only on a Loan Docs mid-merge or a Fraud Check mid-exchange,
+              and every other row left its line blank. A closed row draws none:
+              its section already says Done. The stage is its own box rather
+              than words inside the type's, so it is the part that gives — the
+              type names what the task IS and stays whole, and a cut lands on
+              the stage behind it. Below 900px it stops being cut at all and
+              takes a line of its own under the type. The hyphen is the join
+              for the one-line arrangement and goes with it.
+
+              The stage and the rating ride one box, `.task-card-collapsed-status`,
+              because a task up for grabs has both now. On a wide screen the box
+              is `display: contents` and the two sit in the type's line as they
+              always did; below 900px it is that third line, the step then the
+              rating beside it. */}
           <span className={`task-card-collapsed-type task-type-${task.taskType.toLowerCase()}`}>
             <span className="task-card-collapsed-type-text">{TASK_TYPE_LABELS[task.taskType]}</span>
-            {stageSuffix(task) && (
-              <span className="task-card-collapsed-stage">
-                <span className="task-card-collapsed-stage-join" aria-hidden="true">&nbsp;-&nbsp;</span>
-                {stageSuffix(task)}
-              </span>
-            )}
-            {hasUnreadNote && (
-              <span className="task-card-unread-dot" aria-label="New note" title="New note" />
-            )}
+            {!mini && (
+              <span className="task-card-collapsed-status">
+                <span className="task-card-collapsed-stage">
+                  <span className="task-card-collapsed-stage-join" aria-hidden="true">&nbsp;-&nbsp;</span>
+                  {currentStepName(task)}
+                </span>
             {/* How Bad?, and it shares the stage's line rather than holding one of
-              its own (2026-09-10). The two can never both appear, which is what
-              lets one reserved line serve both and takes a whole line back off
-              every card: a stage only exists on a LOAN_DOCS mid-merge or a FRAUD
-              mid-exchange, both of which have been claimed, and the rating only
-              appears on a task that is unclaimed AND has never been dropped. A
-              released check has a stage and no rating; a task fresh in the pool
-              has a rating and no stage. If that ever stops being true they share
-              the line side by side and it wraps — nothing breaks, the card just
-              grows, which is the honest failure.
+              its own (2026-09-10), so a task up for grabs reads its step and its
+              rating on one line and every active row stays three lines tall. The
+              rating only appears on a task that is unclaimed AND has never been
+              dropped, so the step beside it is always `Opened`.
 
               It sits above the names rather than beside them (the user's call):
               on a phone the title block is a column, so this lands under the
@@ -2656,7 +2633,12 @@ const TaskCard = memo(({
               stamped equal to `createdAt` the way the dev seed writes it. A bare
               `!task.pooledSince` reads as "this has been dropped" on every seeded
               open task on the board. */}
-            {ratingBlock("row", task)}
+                {ratingBlock("row", task)}
+              </span>
+            )}
+            {hasUnreadNote && (
+              <span className="task-card-unread-dot" aria-label="New note" title="New note" />
+            )}
           </span>
         </span>
         <span className={`task-card-grouped-due${groupedOverdue ? " task-card-grouped-due-overdue" : ""}${due.done ? " task-card-grouped-due-done" : ""}`} title={dueTitle}>

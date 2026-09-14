@@ -90,7 +90,7 @@ process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
 const railSource = readFileSync(join(REPO, "apps/web/src/timeline.tsx"), "utf8");
 const railModule = join(scratch, "timeline.mjs");
 writeFileSync(railModule, (await transform(railSource, { loader: "tsx", jsx: "automatic", format: "esm" })).code);
-const { Timeline } = await import(pathToFileURL(railModule).href);
+const { Timeline, currentStepName } = await import(pathToFileURL(railModule).href);
 
 /* ── The surfaces, as a person sees them ───────────────── */
 
@@ -280,4 +280,26 @@ test("no web or server source spells a status name out for itself", () => {
 
 test("the tab still draws the rail this file judges", () => {
   assert.match(codeOf("apps/web/src/App.tsx"), /<Timeline\b/, "App.tsx no longer renders the timeline rail");
+});
+
+/* ── The collapsed row names the same step ──────────────── */
+/* Every active row carries the step it is on, under its type (2026-09-13). It
+   used to on a Loan Docs mid-merge and a Fraud Check mid-exchange only, and
+   every other row left the line blank. The row asks the rail's own function, so
+   the two words can only agree; these hold that from both ends. */
+
+test("the row's step is the rail's current step, in every state", () => {
+  for (const [status, taskType] of matrix) {
+    const task = taskFor(status, taskType);
+    const { now, markup } = railParts(task);
+    const step = currentStepName(task);
+    assert.equal(step, now, `${status} / ${taskType}: ${markup}`);
+    assert.ok(step.trim().length > 0, `${status} / ${taskType}: the row would draw an empty step`);
+  }
+});
+
+test("App.tsx draws the row's step from the rail's function, on every row that is not closed", () => {
+  const code = codeOf("apps/web/src/App.tsx");
+  assert.match(code, /\{!mini && \(\s*<span className="task-card-collapsed-status">[\s\S]*?\{currentStepName\(task\)\}/, "the row's step no longer comes from currentStepName");
+  assert.doesNotMatch(code, /stageSuffix/, "a second, row-only step table is back");
 });

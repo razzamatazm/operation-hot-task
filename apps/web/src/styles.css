@@ -1715,12 +1715,20 @@ button.btn-good:hover {
   white-space: pre;
 }
 
+/* The step and the rating's shared box. On a wide screen it is not a box at
+   all: its two children sit in the type's flex line exactly as they did before
+   it existed, the stage giving first and the rating fixed. The 900px block
+   turns it into the third line. */
+.task-card-collapsed-status {
+  display: contents;
+}
+
 /* How Bad?, in the title block beside the type, and only while the task is
    unclaimed and out for the first time — see the comment in `TaskCard` for why
    it appears at all and why it shares the stage's line. Fixed rather than
    shrinkable: a squeezed rating is a different number. It carries no touch
    target of its own (the track is read-only), so it can sit against the type. */
-.task-card-collapsed-type > .poop-track {
+.task-card-collapsed-status > .poop-track {
   flex: 0 0 auto;
   margin-left: 10px;
   /* Exactly one of the type's own lines, not the track's natural 17px (a 13px
@@ -2872,10 +2880,11 @@ button.btn-good:hover {
      value, which is why that floor also names this cell and not only its
      children.
 
-     Mini rows are excluded, and not incidentally: a closed task never has a
-     stage (`stageSuffix` answers only on live LOAN_DOCS and FRAUD statuses), so
-     reserving a line there would add one to every row in Done and buy nothing.
-     They are half-height on purpose. */
+     Every active row fills it since 2026-09-13, when the step went onto every
+     row; the reservation still holds the height steady while a row's words
+     change. Mini rows are excluded, and not incidentally: a closed row draws no
+     step, so reserving a line there would add one to every row in Done and buy
+     nothing. They are half-height on purpose. */
   .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
     min-height: calc(2.8em + 1px);
   }
@@ -2885,12 +2894,15 @@ button.btn-good:hover {
      long ones: `Fraud Check - Final Approval Needed` wants ~290px of a title
      cell that resolves to about 200px at 390px, so it rendered as `FRAUD CHECK
      - FINAL APP…` and the status — the thing that says where the task actually
-     is — was the half that got cut. It wraps in full instead, into a line every
-     active row now reserves whether it has a stage or not.
+     is — was the half that got cut. It wraps in full instead, into the line
+     every active row reserves.
 
-     `order: 2` puts it after the unread dot rather than before it, so the dot
-     rides the end of the type on line two instead of being pushed onto a line
-     of its own.
+     The step and the rating share that line through their box,
+     `.task-card-collapsed-status` (2026-09-13). `order: 2` on the box puts it
+     after the unread dot, so the dot rides the end of the type instead of being
+     pushed onto a line of its own. Inside it the step comes first and the
+     rating sits beside it; only a task up for grabs carries a rating, and its
+     step is always `Opened`, so the pair is far inside the 164px cell.
 
      The tracking comes in to 0.04em, and that is what keeps the reserved line
      to ONE line on a 360px screen (2026-09-10). `Final Approval Needed` is the
@@ -2910,28 +2922,27 @@ button.btn-good:hover {
      viewport, so the floored 12px never applies and the label measures ~15px
      narrower than it does on a real phone. Numbers taken without forcing it are
      numbers about a screen nobody has. */
-  .task-card-collapsed-stage {
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status {
+    display: flex;
+    align-items: center;
     order: 2;
     flex: 1 0 100%;
+    min-width: 0;
+  }
+  .task-card-collapsed-stage {
+    flex: 0 1 auto;
     white-space: normal;
     overflow: visible;
     letter-spacing: 0.04em;
   }
 
-  /* The rating takes that same reserved line, because it and the stage can
-     never both be on a row — see `TaskCard` for why. One line serving both is
-     what keeps the card at three lines instead of four; reserving a second one
-     in the pair (which is what this did first) made every card 19px taller for
-     a slot only three rows in a list ever fill, and pushed the names out of
-     line with the due stamp beside them.
-
-     Left-aligned under the type rather than indented to it: it is the third
-     line's occupant, whichever occupant that is, and the stage starts at the
-     same x. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type > .poop-track {
-    order: 2;
-    flex: 1 0 100%;
-    margin-left: 0;
+  /* The rating beside the step, on the same reserved line. One line serving
+     both is what keeps the card at three lines instead of four; reserving a
+     second one in the pair (which is what this did first) made every card 19px
+     taller and pushed the names out of line with the due stamp beside them. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status > .poop-track {
+    flex: 0 0 auto;
+    margin-left: 10px;
   }
   .task-card-collapsed-stage-join { display: none; }
 }
