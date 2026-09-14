@@ -2882,7 +2882,7 @@ button.btn-good:hover {
 
      Every active row fills it since 2026-09-13, when the step went onto every
      row; the reservation still holds the height steady while a row's words
-     change. Mini rows are excluded, and not incidentally: a closed row draws no
+     change. Mini rows are excluded, and not incidentally: a mini row draws no
      step, so reserving a line there would add one to every row in Done and buy
      nothing. They are half-height on purpose. */
   .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {

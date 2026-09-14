@@ -490,7 +490,8 @@ where the task is, `currentStepName` in [src/timeline.tsx](src/timeline.tsx),
 so the row and the card it opens can never disagree. It used to exist only on a
 LOAN_DOCS mid-merge or a FRAUD mid-exchange, through a row-only table
 (`stageSuffix`, deleted), and every other row left the line blank, which read
-as the step having gone missing. Closed rows draw none. The step and the rating
+as the step having gone missing. Mini (one-line closed) rows draw none; a creator's just-completed card stays
+full-size until it is archived (*Bucket sort*), so it reads `Completed`. The step and the rating
 ride one box, `.task-card-collapsed-status`: `display: contents` on a wide
 screen, so both sit in the type's line as before, and below 900px the third
 line, the step first and the rating beside it. The rating only appears on a

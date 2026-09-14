@@ -2569,8 +2569,10 @@ const TaskCard = memo(({
               The stage is the step the task is on, the rail's own word for it
               (`currentStepName`), on every active row (2026-09-13). It used to
               exist only on a Loan Docs mid-merge or a Fraud Check mid-exchange,
-              and every other row left its line blank. A closed row draws none:
-              its section already says Done. The stage is its own box rather
+              and every other row left its line blank. A mini (one-line closed)
+              row draws none: its section already says Done. A creator's
+              just-completed card is closed but not mini until it is archived,
+              so it keeps its third line and reads `Completed` there. The stage is its own box rather
               than words inside the type's, so it is the part that gives — the
               type names what the task IS and stays whole, and a cut lands on
               the stage behind it. Below 900px it stops being cut at all and

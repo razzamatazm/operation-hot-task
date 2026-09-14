@@ -162,6 +162,16 @@ Both views share one card component:
   open or close themselves — no status change, new note, or refresh moves a
   row either way (#161). The collapsed row carries the primary action and the
   menu, so nothing actionable is behind the fold.
+- **Every active row names the step it is on, under its type** (PR #427,
+  confirmed 2026-09-13), in the same words as the open card's tracker below:
+  `Opened`, `Claimed`, `In review`, `Needs corrections`, `Merge done`,
+  `Outstanding items`, `Final approval`. It used to show only on a Loan Docs
+  mid-merge or a Fraud Check mid-exchange, so most rows had a blank line there.
+  A task up for grabs shows `Opened` with its poop rating beside it. One-line
+  closed rows show no step; a creator's just-completed card, which stays
+  full-size until it is archived, reads `Completed`. A released Fraud Check at
+  final approval reads `Final approval` like a held one (it used to say `Final
+  Approval Needed`); `Unclaimed` beside it says nobody holds it.
 - **An open card leads with where the task is in its flow** (PR #421,
   confirmed 2026-09-13): the step it is on, `Next` and the step after it, and
   a bar with one segment per step filled up to the current one. On a phone it

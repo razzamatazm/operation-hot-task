@@ -298,7 +298,7 @@ test("the row's step is the rail's current step, in every state", () => {
   }
 });
 
-test("App.tsx draws the row's step from the rail's function, on every row that is not closed", () => {
+test("App.tsx draws the row's step from the rail's function, on every row that is not a one-line closed row", () => {
   const code = codeOf("apps/web/src/App.tsx");
   assert.match(code, /\{!mini && \(\s*<span className="task-card-collapsed-status">[\s\S]*?\{currentStepName\(task\)\}/, "the row's step no longer comes from currentStepName");
   assert.doesNotMatch(code, /stageSuffix/, "a second, row-only step table is back");
