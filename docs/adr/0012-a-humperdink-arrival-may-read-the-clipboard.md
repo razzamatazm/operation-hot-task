@@ -4,6 +4,13 @@ Status: Accepted, and built (#415, under #411). Overturns the position #194 took
 that Hot Task never reads the clipboard itself. Narrowly amends ADR-0011 rule 5,
 as #413 recorded there.
 
+**Amended 2026-09-14: the paste box is gone.** The create form no longer draws
+one. Where this record says "the paste box's import", read the form's paste
+import: a valid payload pasted anywhere on an LOI Check being filed imports,
+and anything else pastes as normal, silently. On an arrival focus sits in the
+request field instead of the box, so ⌘V is still the fallback. The guard in
+rule 3 is unchanged: only a payload the parser accepts fills anything.
+
 ## Context
 
 Humperdink has no API, so a loan crosses into Hot Task on the clipboard. The

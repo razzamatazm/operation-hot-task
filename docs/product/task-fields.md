@@ -443,25 +443,24 @@ is gone seven days after it was last written.
     Correcting a task is unaffected: an existing field still cannot be emptied
     on any type. A Fraud Check filed without a note opens on an empty
     conversation rather than a blank first message.
-- LOI Check only, create mode only, in the footer beside Cancel and Create Task:
-  the Humperdink paste box. Its placeholder reads `In Humperdink, press Export to
-  HT, then paste here`. Pasting what the **Send to Hot Task** userscript's
-  **Export to HT** button copied off a Humperdink loan page is the import, with
-  no button to press (#409): Folder Name, the Humperdink Link and the loan's
-  terms, brokers, borrowers, silent borrowers and acquired properties fill in,
-  the box empties and its placeholder reads `Imported. Paste again to replace
-  it.` Enter in the box imports whatever is typed there, and never files the
-  task. A malformed or empty paste reports the problem in a toast, stays in the
-  box, and leaves every field untouched — it never half-fills. The terms land
-  *below* anything already typed in Notes rather than over it, and a second
-  import replaces the block the first one wrote instead of stacking another
-  copy. Nothing else on the form is touched. A Humperdink arrival (the
-  userscript's Export to HT opening Teams on a new LOI Check) runs this same
-  import on the clipboard with no paste, where Teams can read it, once the
-  loans list has loaded and only while the form is untouched (#415,
+- LOI Check only, create mode only: the Humperdink import. **There is no paste
+  box** (2026-09-14, the user's call: a box beside Create Task was confusing,
+  and the arrival's clipboard fill is meant to make it unnecessary). Pasting
+  what the **Send to Hot Task** userscript's **Export to HT** button copied off
+  a Humperdink loan page anywhere on the form is the import (#409): Folder
+  Name, the Humperdink Link and the loan's terms, brokers, borrowers, silent
+  borrowers and acquired properties fill in, and the pasted text lands nowhere.
+  Any paste that isn't a valid payload lands where it was pasted, as it always
+  did, with no toast; it never half-fills. The terms land *below* anything
+  already typed in Notes rather than over it, and a second import replaces the
+  block the first one wrote instead of stacking another copy. Nothing else on
+  the form is touched. A Humperdink arrival (the userscript's Export to HT
+  opening Teams on a new LOI Check) runs this same import on the clipboard with
+  no paste, where Teams can read it, once the loans list has loaded and only
+  while the form is untouched (#415,
   [ADR-0012](../adr/0012-a-humperdink-arrival-may-read-the-clipboard.md)).
   Where it can't, or the clipboard holds no payload, nothing is said and the
-  focused paste box waits for ⌘V. See
+  arrival's focus sits in the request field, so ⌘V still imports. See
   [integrations-hosting.md](integrations-hosting.md) and
   [tools/humperdink/](../../tools/humperdink/).
 - Optional fields:

@@ -554,11 +554,9 @@ test("Start fresh empties the form, forgets the draft, and asks nothing first", 
   assert.match(body, /setForm\(blank\)/, "every field goes back to the blank form");
   assert.match(body, /openedWith\.current = blank/, "which is now what a Cancel measures against");
   assert.match(body, /setSeedDraft\(""\)/, "the outstanding-items box too");
-  /* Every field, per the criterion — including the two that are not in the
-     values object: the FRAUD seeder's box above, and the Humperdink paste box,
-     which sits on every LOI form and a blank one is an LOI. */
-  assert.match(body, /setImportText\(""\)/, "and the Humperdink paste box");
-  assert.match(body, /setImported\(false\)/, "whose placeholder stops saying Imported");
+  /* Every field, per the criterion — including what is not in the values
+     object: the FRAUD seeder's box above, and what a Humperdink import left. */
+  assert.match(body, /setImported\(false\)/, "the import's announcement is taken back");
   assert.match(body, /setImportedNote\(""\)/, "with nothing left of the note it wrote");
   assert.match(body, /forgetDraft\(\);/, "and the saved copy is deleted");
   assert.match(body, /setRestoredNote\(false\)/, "the line has nothing left to describe");

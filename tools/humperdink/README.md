@@ -6,9 +6,8 @@ the LOI button. Pressing it copies the loan — its name, the page's URL, its lo
 terms, its brokers, borrowers and silent borrowers, and any property it is
 acquiring — to your clipboard as JSON. Then it opens Hot Task in Teams desktop
 on a new LOI Check. Where Teams lets Hot Task read the clipboard, Folder Name,
-the Humperdink Link and the notes fill in by themselves. Where it doesn't, the
-paste box at the bottom of the form is focused and ready: paste (⌘V) and that
-is the import, with nothing else to press.
+the Humperdink Link and the notes fill in by themselves. Where it doesn't,
+paste (⌘V) straight away and that is the import, with nothing else to press.
 
 The first time you press it, Chrome asks whether to open Microsoft Teams. Tick
 **Always allow** and press Open, and every press after that goes straight to
@@ -83,15 +82,13 @@ Nothing normally needs changing. Two values are pinned in the script:
    contacts and properties haven't come back from Humperdink yet — they load
    after the page does, and hovering says so. Give it a second.
 2. Hot Task opens a new LOI Check. Where Teams lets it read the clipboard,
-   Folder Name, the Humperdink Link and the terms are already filled in, and the
-   paste box reads `Imported. Paste again to replace it.` Otherwise the paste
-   box at the bottom of the form is focused (it reads `In Humperdink, press
-   Export to HT, then paste here`): paste, and that is the import, filling the
-   same fields. Anything you had already typed into Notes stays where it is — the terms
+   Folder Name, the Humperdink Link and the terms are already filled in.
+   Otherwise paste (⌘V) straight away, and that is the import, filling the same
+   fields. Anything you had already typed into Notes stays where it is — the terms
    go in below it — and pasting again replaces the block the last import wrote
    rather than stacking a second copy. If you had an unfinished new task open
    in Hot Task, it is kept on the Task Drafts tab. You can also get here by
-   hand: New Task, LOI Check, click the paste box, paste.
+   hand: New Task, LOI Check, click into the form, paste.
 3. Fill in the rest as usual and press Create. The task links itself to the
    existing loan for that URL — the link is the canonical key for a loan
    ([ADR-0001](../../docs/adr/0001-loan-entity.md)) — so importing the same loan

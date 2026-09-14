@@ -7,7 +7,7 @@
    it into this shape and copies it; the create form parses it back with
    `parseHumperdinkPayload` and fills its fields.
 
-   The human's paste into the LOI Check's paste box is the import. The one
+   The human's paste anywhere on an LOI Check being filed is the import. The one
    other way in is a Humperdink arrival (#415, ADR-0012): the tab reads the
    clipboard through Teams, where Teams supports it, and runs the same import on
    it. Either way this parser is the guard, and only a payload it accepts fills

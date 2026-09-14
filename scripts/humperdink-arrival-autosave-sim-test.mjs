@@ -300,11 +300,10 @@ const renderForm = (props) =>
 
 globalThis.window = { localStorage: memoryStorage() };
 
-test("a held arrival still opens a new LOI Check with the paste box, not the old autosave", () => {
+test("a held arrival still opens a new LOI Check, not the old autosave", () => {
   const html = renderForm({ humperdinkArrival: true, leaveAutosaveAlone: true, autosave: serverAutosave(OLD_TASK, Date.now() - 60000) });
   assert.doesNotMatch(html, /Castillo - Ridge/);
   assert.match(html, /<option value="LOI" selected="">/);
-  assert.match(html, /placeholder="In Humperdink, press Export to HT, then paste here"/);
 });
 
 test("a held form has no seat on either copy of the autosave, so typing into it can't write over the old one", () => {

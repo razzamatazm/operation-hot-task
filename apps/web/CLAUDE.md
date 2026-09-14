@@ -1901,8 +1901,8 @@ beside it. What keeps it honest:
   deleted. (Cancel on a create form measures against the blank form since #365,
   so an emptied one closes without asking regardless.) It
   also clears everything that is a field without being in the values object —
-  the typeahead's three pieces of state, the FRAUD seeder's box, the Humperdink
-  paste box and its "Imported" placeholder — and takes the line down: after `Start
+  the typeahead's three pieces of state, the FRAUD seeder's box, and what a
+  Humperdink import left behind — and takes the line down: after `Start
   fresh` nothing was restored, so there is nothing to say.
 - **Focus moves to the folder name box**, first thing and before those clears.
   The button unmounts itself, so focus would fall to the document body, outside
@@ -2039,25 +2039,24 @@ ring.
 
 **The Humperdink import is LOI-only** (2026-09-04). `Send to Hot Task` over in
 Humperdink copies a term sheet, and an LOI Check is the only type whose request
-field is one — on the other five the paste box took a paste nobody has. Not
-disabled and not left to fail on the parse: not drawn.
+field is one.
 
-**The paste is the import** (#409). The box has one purpose, so there is no
-button beside it: `onPaste` takes the text off the event's `clipboardData`
-(the human's paste, not a clipboard read), cancels the browser's own insert and
-imports. A good paste empties the box and swaps the placeholder from `In
-Humperdink, press Export to HT, then paste here` to `Imported. Paste again to
-replace it.`, and an sr-only `role="status"` line says it for a screen reader.
-A bad paste toasts the parser's reason, leaves the text in the box and touches
-no field. Enter still imports what is in the box and never files the form.
-`Export to HT` is the userscript control's label in Humperdink's Loan Terms
-header; if that label changes, this placeholder and the parser's messages
-change with it.
+**There is no paste box** (2026-09-14, the user's call). It sat in the footer
+beside Create Task and read as one more field to fill, and the arrival's
+clipboard fill below is meant to make it unnecessary. The paste is still the
+import (#409), just without a box: `onPaste` on the `<form>` itself, on an LOI
+Check being filed, takes the text off the event's `clipboardData` (the human's
+paste, not a clipboard read) and hands it to `importFromHumperdink`. Only when
+that answers true, a payload the parser accepted, is the browser's own insert
+cancelled. Anything else pastes where it was pasted, with no toast, because
+every paste on the form now passes through here and a stray paste into Notes is
+not an error. A good import says `Imported from Humperdink.` through an sr-only
+`role="status"` line in the footer, mounted while an LOI Check is being filed.
 
 **A Humperdink arrival link opens it** (#412). A Teams deep link whose
 `subEntityId` is the shared sentinel `new:humperdink` opens the create form as
-a new LOI Check with this box focused (`humperdinkArrival` on `TaskForm`), so
-⌘V imports straight away. App reads the link through shared `readTeamsArrival`,
+a new LOI Check with focus in the request field (`humperdinkArrival` on
+`TaskForm`), so ⌘V lands inside the form and imports straight away. App reads the link through shared `readTeamsArrival`,
 so the sentinel never becomes a task to focus or claim. It never opens on the
 autosave, and never overwrites it (#413, ADR-0011 rule 5). Before the form
 opens, App moves an autosave worth keeping to Task Drafts through Save for
@@ -2076,12 +2075,11 @@ App hands the arrival's form, and only that form, `readClipboard`
 (`readArrivalClipboard` in [src/humperdink-arrival.ts](src/humperdink-arrival.ts)
 over teams-js `clipboard`): `isSupported()`, then `read()`, then the
 `text/plain` blob, handed back only if it parses as a payload. The form calls it
-once at open and runs `importFromHumperdink` on the result with `quiet`, once
-App's `loansLoaded` is true and only while the form is untouched
+once at open and runs `importFromHumperdink` on the result, once App's
+`loansLoaded` is true and only while the form is untouched
 (`arrivalPasteStep`). So a good read looks exactly like a good paste: fields
-filled, box empty, `Imported. Paste again to replace it.` Anything else (no
-support, a refused read, not a payload) draws nothing and toasts nothing, and
-the focused box waits for ⌘V. This is the app's only clipboard read. No other
+filled. Anything else (no support, a refused read, not a payload) draws nothing
+and toasts nothing, and focus waits in the request field for ⌘V. This is the app's only clipboard read. No other
 opening of the form is handed a reader, and nothing in `apps/web` calls the
 browser's clipboard read.
 

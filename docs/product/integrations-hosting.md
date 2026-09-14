@@ -21,7 +21,8 @@
   appears, a floating **Send to Hot Task** button in the corner); it copies the
   loan's name, page URL, loan terms, its brokers, borrowers and silent
   borrowers, and any property it is acquiring, as a versioned JSON payload.
-  Pasting that into an LOI Check's paste box is the import (#409): it fills
+  Pasting that anywhere on an LOI Check being filed is the import (#409; the
+  form has had no paste box since 2026-09-14): it fills
   Folder Name, the Humperdink Link and the notes, and sets the task type to
   LOI. The terms are read by
   element id off Humperdink's Loan Terms panel; a **core** field whose element
@@ -50,8 +51,8 @@
   copy says so and opens nothing. #198 once opened the create form in a new
   tab through an https link; that was dropped and this replaces it.
 
-  On the arrival link the tab opens a new LOI Check with the paste box
-  focused, never focuses or claims a task, and files nothing until Create. An
+  On the arrival link the tab opens a new LOI Check with focus in its request
+  field, so ⌘V lands inside the form, never focuses or claims a task, and files nothing until Create. An
   unfinished new task in the person's autosave is moved to Task Drafts before
   that form opens (#413), and if the move fails the form leaves the autosave
   untouched, so an arrival never overwrites it.
@@ -59,12 +60,12 @@
   **The arrival fills itself from the clipboard where Teams allows it** (#415,
   [ADR-0012](../adr/0012-a-humperdink-arrival-may-read-the-clipboard.md)). If
   teams-js `clipboard.isSupported()` is true, the tab calls `clipboard.read()`,
-  takes the `text/plain` text, and runs the paste box's own import on it once
+  takes the `text/plain` text, and runs the form's own paste import on it once
   the loans list has loaded, so Folder Name, the Humperdink Link and the terms
   fill with no ⌘V and the task still joins the loan that URL names. Only a valid
   payload fills it, and only on a form nobody has started on. Where the
   clipboard isn't supported, the read is refused, or it holds something else,
-  nothing is said and the focused paste box waits for ⌘V. This is the only place
+  nothing is said and focus waits in the request field for ⌘V. This is the only place
   Hot Task reads the clipboard; New Task and every other route never do. It
   needs no Teams manifest change: `isSupported()` asks the host's runtime, and
   the manifest has no clipboard permission to declare. Whether Teams desktop
@@ -74,7 +75,7 @@
   credential in the userscript, no write endpoint exposed to the browser, and
   no CORS surface: the human presses Create inside Teams under their existing
   SSO session, and a bad scrape is visible and correctable before anything is
-  persisted. The clipboard read is guarded by the paste box's own parser, not
+  persisted. The clipboard read is guarded by the paste import's own parser, not
   trusted.
 - A real inbound write API remains phase 2 — see
   [target-direction.md](target-direction.md).

@@ -321,19 +321,18 @@ const render = (props) =>
     }))
   );
 
-const IMPORT_BOX = /placeholder="In Humperdink, press Export to HT, then paste here"/;
 const selectedType = (html) => html.match(/<option value="([A-Z_]+)" selected="">/)?.[1];
 
-test("an arrival opens the create form as an LOI Check with the paste box on it", () => {
+test("an arrival opens the create form as an LOI Check", () => {
   const html = render({ humperdinkArrival: true });
   assert.equal(selectedType(html), "LOI");
-  assert.match(html, IMPORT_BOX);
   assert.match(html, /Create Task/);
 });
 
 /* An arrival is about a loan on the clipboard, so an unfinished Fraud Check in
-   the autosave must not come back in its place and take the paste box with it.
-   What happens to that autosave is #413's; here it is only not restored. */
+   the autosave must not come back in its place, where a Humperdink paste does
+   nothing. What happens to that autosave is #413's; here it is only not
+   restored. */
 test("an arrival opens on an LOI Check, not on the autosave", () => {
   const autosave = {
     form: {
@@ -357,18 +356,14 @@ test("an arrival opens on an LOI Check, not on the autosave", () => {
   const html = render({ humperdinkArrival: true, autosave });
   assert.doesNotMatch(html, /Castillo - Ridge/);
   assert.equal(selectedType(html), "LOI");
-  assert.match(html, IMPORT_BOX);
 });
 
-test("the paste box takes focus on an arrival, and on no other opening", () => {
-  assert.match(FORM_SOURCE, /ref=\{importInputRef\}/, "the paste box carries the ref");
+test("the request field takes focus on an arrival, and on no other opening, so ⌘V lands inside the form", () => {
   const effect = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!humperdinkArrival\) return;([\s\S]*?)\}, \[\]\);/)?.[1];
   assert.ok(effect, "a mount effect gated on the arrival");
-  assert.match(effect, /importInputRef\.current\?\.focus\(\)/);
+  assert.match(effect, /notesRef\.current\?\.focus\(\)/);
 });
 
-test("the arrival's paste box is the same box, whose paste is the import", () => {
-  const box = FORM_SOURCE.match(/ref=\{importInputRef\}([\s\S]*?)\/>/)?.[1];
-  assert.ok(box);
-  assert.match(box, /onPaste=\{\(e\) => \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\);/);
+test("the arrival's ⌘V goes through the form's own paste import", () => {
+  assert.match(FORM_SOURCE, /onPaste=\{\(e\) => \{[\s\S]*?importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\)/);
 });

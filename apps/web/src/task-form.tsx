@@ -37,11 +37,8 @@ import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
 import { useToast } from "./toast";
 
-/* The Humperdink paste box's words (#409). With no button beside it, the
-   placeholder is the whole instruction, so it names the userscript control's
-   label in Humperdink's Loan Terms header. */
-const IMPORT_PLACEHOLDER = "In Humperdink, press Export to HT, then paste here";
-const IMPORTED_PLACEHOLDER = "Imported. Paste again to replace it.";
+/* Said to a screen reader when a Humperdink import lands, since the fields
+   filling is the only other sign of it. */
 const IMPORTED_ANNOUNCEMENT = "Imported from Humperdink.";
 
 /* Someone the app could point a task at. Roles ride along because the handoff
@@ -166,8 +163,8 @@ interface TaskFormProps {
   initialValues?: CreateFormInitialValues;
   /* This create form is a Humperdink arrival (#412): somebody pressed Send to
      Hot Task and Teams opened the tab on its link. The form opens as a new LOI
-     Check, the one type the Humperdink import fills, with the paste box focused
-     so ⌘V imports straight away through the box's own paste import. Where
+     Check, the one type the Humperdink import fills, with focus in the request
+     field so ⌘V imports straight away through the form's paste import. Where
      Teams can read the clipboard it doesn't wait for the ⌘V (#415, see
      `readClipboard`). Like any
      prefilled form it does not open on the autosave: the arrival is about the
@@ -187,7 +184,7 @@ interface TaskFormProps {
      it is a Send to Hot Task payload, null for anything else, and never
      rejects. App hands it over only with `humperdinkArrival`, and the form
      calls it once, at open, and only then, so no other way into the form reads
-     the clipboard. What it returns goes through the paste box's own import. */
+     the clipboard. What it returns goes through the form's own paste import. */
   readClipboard?: (() => Promise<string | null>) | undefined;
   /* Whether App's loans list has loaded (#415). The arrival's clipboard import
      waits for it, so it runs against the loans a manual paste would see. */
@@ -207,15 +204,13 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      away the button that was clicked. */
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const folderNameRef = useRef<HTMLInputElement>(null);
-  /* The Humperdink paste box, focused when a Humperdink arrival opens the form
-     (#412) so ⌘V lands in it and imports. */
-  const importInputRef = useRef<HTMLInputElement>(null);
-  /* Once, at open, and only on an arrival. After mount, so it wins over
-     anything else in the form that takes focus as it paints. The box is drawn
-     because an arrival opens as an LOI Check. */
+  /* A Humperdink arrival (#412) puts focus in the request field, the box an
+     LOI's terms land in, so ⌘V lands inside the form and the form's paste
+     import takes it. Once, at open, and only on an arrival. After mount, so it
+     wins over anything else in the form that takes focus as it paints. */
   useEffect(() => {
     if (!humperdinkArrival) return;
-    importInputRef.current?.focus();
+    notesRef.current?.focus();
   }, []);
   /* Where this form's saved draft lives (#284), decided once at open and never
      re-read. Two things are pinned here rather than looked up as needed:
@@ -372,13 +367,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      exists: held for the whole save so a second press can't store two copies,
      and doubling as the button's `Saving…`. Create waits on it too. */
   const [savingForLater, setSavingForLater] = useState(false);
-  /* Humperdink import (#194). `importText` is the paste box, and the human's
-     paste into it is the import (#409). The one other way in is a Humperdink
-     arrival, which runs this same import on the clipboard where Teams can read
-     it (#415, ADR-0012). A good import empties the box and sets `imported`, which swaps
-     the placeholder for the confirmation and is cleared the moment the box is
-     typed into, so it can't claim a paste it hasn't taken. */
-  const [importText, setImportText] = useState("");
+  /* Humperdink import (#194). There is no box for it since 2026-09-14: a Send to
+     Hot Task payload pasted anywhere on an LOI Check being filed is the import,
+     and any other paste lands where it was pasted. The one other way in is a
+     Humperdink arrival, which runs this same import on the clipboard where
+     Teams can read it (#415, ADR-0012). A good import sets `imported`, which the
+     footer's screen reader line says. */
   const [imported, setImported] = useState(false);
   /* The note text the last import wrote (#196), so a second import replaces its
      own block rather than stacking a second copy of the terms under the first.
@@ -425,25 +419,13 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   const lockedFolderName = edit?.task.folderName ?? "";
   const lockedLink = edit?.task.humperdinkLink ?? "";
 
-  /* Take a pasted Humperdink payload into the form, or say why it can't.
-     A failure leaves every field exactly as it was, and leaves what was pasted
-     in the box so the filer can see it: the parser returns a reason rather than
-     a null so the filer, who has no console open, gets told. A success empties
-     the box, so pasting a second loan replaces the first rather than landing
-     beside its text.
-
-     `quiet` is the arrival's clipboard fill (#415): nobody pressed anything, so
-     a failure there says nothing and puts nothing in the box. */
-  const importFromHumperdink = (text: string, { quiet = false }: { quiet?: boolean } = {}): void => {
+  /* Take a Humperdink payload into the form, and answer whether it did. Text
+     that isn't a payload changes nothing and says nothing: with no paste box,
+     every paste on the form comes through here, and a stray paste into Notes is
+     not an error. It never half-fills. */
+  const importFromHumperdink = (text: string): boolean => {
     const result = parseHumperdinkPayload(text);
-    if (!result.ok) {
-      if (quiet) return;
-      setImportText(text);
-      setImported(false);
-      showToast(result.error, { variant: "error" });
-      return;
-    }
-    setImportText("");
+    if (!result.ok) return false;
     const noteText = humperdinkNoteText(result.payload);
     setForm((c) => applyImportedLoan(c, result.payload, { noteText, previousNoteText: importedNote }));
     setImportedNote(noteText);
@@ -453,6 +435,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setLoanSuggestOpen(false);
     setLoanHighlight(-1);
     setImported(true);
+    return true;
   };
 
   /* A Humperdink arrival fills itself from the clipboard where Teams allows it
@@ -466,7 +449,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      (#413), so whatever the fill puts here can't cost the old task. A read that
      lands after the form closed is dropped. Nothing comes back but a payload,
      so a clipboard holding something else changes nothing and says nothing,
-     and the paste box keeps its focus for ⌘V. */
+     and focus stays in the request field for ⌘V. */
   useEffect(() => {
     if (!humperdinkArrival || editing || reopened || !readClipboard) return;
     let open = true;
@@ -477,7 +460,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       open = false;
     };
   }, []);
-  /* Applied through the paste box's own import once the loans list has loaded,
+  /* Applied through the form's own paste import once the loans list has loaded,
      so the loan it names is looked up in the same list a manual paste sees.
      Only on a form nobody has started on: a paste or typing that got there
      first is kept. Files nothing; Create still does that. */
@@ -485,11 +468,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     const step = arrivalPasteStep({
       paste: arrivalPaste,
       loansLoaded,
-      untouched: !imported && importText === "" && !formHasChanges(openedWith.current, formNow.current)
+      untouched: !imported && !formHasChanges(openedWith.current, formNow.current)
     });
     if (step === "wait" || arrivalPaste === null) return;
     setArrivalPaste(null);
-    if (step === "apply") importFromHumperdink(arrivalPaste, { quiet: true });
+    if (step === "apply") importFromHumperdink(arrivalPaste);
   }, [arrivalPaste, loansLoaded]);
 
   /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
@@ -773,11 +756,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setLoanQuery("");
     setLoanSuggestOpen(false);
     setLoanHighlight(-1);
-    /* The Humperdink paste box is a field like any other, and it sits on the
-       form for every LOI — which a blank one is. Left alone it would still be
-       holding a refused paste, or reading "Imported" in its placeholder, over a
-       form with nothing in it. */
-    setImportText("");
+    /* What a Humperdink import left: its announcement, and the note block a
+       later import would otherwise look for. */
     setImported(false);
     setImportedNote("");
     forgetDraft();
@@ -1187,7 +1167,20 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
         onKeyDown={(e) => { if (e.key === "Escape") requestClose(); }}
       >
         <div className="form-panel">
-        <form className="task-form" onSubmit={handleSubmit}>
+        <form
+          className="task-form"
+          onSubmit={handleSubmit}
+          /* The Humperdink import (#194, #409), with no box of its own: a Send
+             to Hot Task payload pasted anywhere on an LOI Check being filed
+             fills the form, and the browser's insert is cancelled only then.
+             Any other paste lands where it was pasted. LOI Check only, because
+             it is the one type whose request field is a term sheet; never in
+             edit mode, which doesn't offer the fields an import rewrites. */
+          onPaste={(e) => {
+            if (editing || form.taskType !== "LOI") return;
+            if (importFromHumperdink(e.clipboardData.getData("text/plain"))) e.preventDefault();
+          }}
+        >
           {/* Where these values came from, on a form that opened on a saved
               draft (#285). At the top because it explains the whole form under
               it, and a person who opens New Task expecting an empty one reads
@@ -1561,66 +1554,18 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
             </div>
           )}
           {/* The footer: a tinted strip across the bottom of the panel holding the
-              two exits and, to their left, the one thing each mode has to say
-              beside them. Filing puts the Humperdink import here — it is a
-              shortcut past the whole form rather than a field in it, and sitting
-              above Folder Name it read as the first thing to fill in. Editing puts
-              the shared-record line here, where it is genuinely under both of the
-              fields it is about rather than under one of them. */}
+              two exits and, to their left, the one thing edit mode has to say
+              beside them: the shared-record line, where it is genuinely under
+              both of the fields it is about rather than under one of them.
+              Filing used to put a Humperdink paste box here; it went on
+              2026-09-14, and the paste import lives on the form element. */}
           <div className="task-form-foot">
-            {/* Humperdink import (#194). One paste box, and the paste is the
-                import (#409): there is no button beside it, so the placeholder
-                says what to do. The pasted text comes off the paste event's own
-                `clipboardData`, which is the human pressing paste. (A
-                Humperdink arrival also runs this import on a clipboard read
-                through Teams, #415, and falls back to this box when it can't.)
-                The paste is taken whole and
-                the browser's own insert is cancelled, so a good paste empties
-                the box instead of the text landing in it a moment later.
-
-                LOI Check only. `Send to Hot Task` over in Humperdink is a
-                term-sheet handoff — it is how an LOI's terms get filed without
-                being retyped — and on any other type it was a control that took a
-                paste nobody has. Narrower than the old rule, which only kept it
-                off an out-of-office task on the grounds that a vacation has no
-                loan; that was true and not the point. Hidden in edit mode too,
-                where it would rewrite fields this ticket deliberately doesn't
-                offer. */}
+            {/* A Humperdink import only fills fields, which a screen reader
+                doesn't hear, so it is said here. Always mounted on an LOI Check
+                being filed, only its text changes, the same live region idiom
+                as the footer's other lines. */}
             {!editing && form.taskType === "LOI" && (
-              <div className="task-form-import">
-                <label className="task-form-import-field">
-                  <span className="sr-only">Paste from Humperdink</span>
-                  <input
-                    ref={importInputRef}
-                    type="text"
-                    autoComplete="off"
-                    placeholder={imported ? IMPORTED_PLACEHOLDER : IMPORT_PLACEHOLDER}
-                    value={importText}
-                    onChange={(e) => {
-                      setImportText(e.target.value);
-                      setImported(false);
-                    }}
-                    onPaste={(e) => {
-                      e.preventDefault();
-                      importFromHumperdink(e.clipboardData.getData("text/plain"));
-                    }}
-                    onKeyDown={(e) => {
-                      // Enter in this field means "import", not "create the task" —
-                      // the form's implicit submit would file a half-filled task
-                      // out from under a paste.
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        importFromHumperdink(importText);
-                      }
-                    }}
-                  />
-                </label>
-                {/* The placeholder change is silent to a screen reader, so the
-                    import is said here too. Always mounted, only its text
-                    changes, the same live region idiom as the footer's other
-                    lines. */}
-                <p className="sr-only" role="status">{imported ? IMPORTED_ANNOUNCEMENT : ""}</p>
-              </div>
+              <p className="sr-only" role="status">{imported ? IMPORTED_ANNOUNCEMENT : ""}</p>
             )}
             {/* ADR-0008 rule 7, the quiet half — and #266's lock, which takes its
                 place. Both are one sentence about both loan fields, so both live
