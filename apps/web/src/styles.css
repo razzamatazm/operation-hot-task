@@ -2834,14 +2834,20 @@ button.btn-good:hover {
      board with the 12px floor forced on found something cut at every width
      from 561 to 850: the type itself (`LOI C…`, `OUT O…`) up to ~680, and a
      stage (`Outstanding Items`, `Final Approval`) the rest of the way. Nothing
-     is cut from 855 up. 900 rather than the measured edge leaves room for an
-     unread dot or a stage a little longer than any seeded one. */
-  .task-card-collapsed-title {
+     is cut from 855 up. 900 is a round margin over that measured edge, not a
+     second measurement. Above it the type holds even behind a 48-character
+     loan name; only the stage gives, which is what it is for.
+
+     Active rows only. Mini (closed) rows keep their one-line title above
+     560px, as they always have: they are most of the Done list, and stacking
+     them across this band would add a line to every one of them. They still
+     stack on a phone — see the 560px block right after this one. */
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-title {
     flex-direction: column;
     align-items: flex-start;
     gap: 1px;
   }
-  .task-card-collapsed-type {
+  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
     max-width: 100%;
     padding-left: 0;
     border-left: none;
@@ -2928,6 +2934,24 @@ button.btn-good:hover {
     margin-left: 0;
   }
   .task-card-collapsed-stage-join { display: none; }
+}
+@media (max-width: 560px) {
+  /* Mini rows stack their title on a phone, the same way active rows do below
+     900px. This is the phone-only half of what used to be one 560px rule; the
+     active-row half moved up to 900px and left this behind unchanged. A mini
+     never has a stage or a rating, so the title and type are all it needs. */
+  .task-card-grouped-mini .task-card-collapsed-title {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .task-card-grouped-mini .task-card-collapsed-type {
+    max-width: 100%;
+    padding-left: 0;
+    border-left: none;
+    flex-wrap: wrap;
+    row-gap: 1px;
+  }
 }
 /* Free text exactly as typed. `pre-wrap` is the whole formatting story: a
    typed list of figures has to read as a list, and the app does no parsing.
@@ -4686,7 +4710,7 @@ button.btn-good:hover {
 
      The floor sits on the type CELL as well as on the two boxes inside it,
      which the children would inherit anyway. It is there so the cell's own
-     `em` resolves against the floored size: the phone rule that reserves the
+     `em` resolves against the floored size: the stacked-title rule that reserves the
      stage's line (see the 900px block) is written in `em` precisely so it
      follows this floor instead of hard-coding what the floor happens to be
      today. */

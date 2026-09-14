@@ -623,10 +623,19 @@ so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
   row read `ALVAREZ-2201 | LOI C…` and `OUT O…`. A sweep of the seeded board
   with the 12px floor forced on found cuts at every width from 561 to 850 — the
   type itself up to ~680px, then `Outstanding Items` and `Final Approval` — and
-  none from 855 up. 900 leaves headroom over that edge for an unread dot or a
-  longer stage. Re-run the sweep before lowering it: the edge moves with the
-  longest type-plus-stage string, not with the loan name, because the type cell
-  is capped at 45% of the title cell.
+  none from 855 up. 900 is a round margin over that edge, not a second
+  measurement. The seeded names are short (~110px), so the sweep was repeated
+  above 900 with the names swapped for 29- and 48-character ones: the type was
+  never cut at 905, 1000 or 1320px, and the only thing that gave was one stage
+  at 905 behind the 48-character name, which a wide screen is allowed to do.
+  Re-run both before lowering the number.
+
+  **Mini (closed) rows are not part of that.** Their title stays on one line
+  down to 560px and only stacks on a phone, as before: they are most of the
+  Done list, and widening the stack for them would add a line to every closed
+  row across 561–900px. The widened rules are scoped to
+  `.task-card-grouped:not(.task-card-grouped-mini)`, and a separate 560px block
+  after them carries the mini half.
 
   **The stage is its own box, and on a phone it takes a third line**
   (2026-09-07). It used to be words inside the type's own span, so the two
