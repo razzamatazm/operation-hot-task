@@ -7,7 +7,7 @@
    it into this shape and copies it; the create form parses it back with
    `parseHumperdinkPayload` and fills its fields.
 
-   The human's paste into the LOI Check's paste box is the import. The one
+   The human's paste into any field on an LOI Check being filed is the import. The one
    other way in is a Humperdink arrival (#415, ADR-0012): the tab reads the
    clipboard through Teams, where Teams supports it, and runs the same import on
    it. Either way this parser is the guard, and only a payload it accepts fills
@@ -161,9 +161,13 @@ export interface HumperdinkPayload {
   properties?: HumperdinkProperty[];
 }
 
+/* `ours` on a failure says whether the text carried the export's own `kind` at
+   all. The create form has no paste box, so every paste on an LOI Check comes
+   through here: a stray paste (`ours: false`) is let through silently, and an
+   export it can't read (`ours: true`) is refused with `error`. */
 export type HumperdinkParseResult =
   | { ok: true; payload: HumperdinkPayload }
-  | { ok: false; error: string };
+  | { ok: false; error: string; ours: boolean };
 
 /* Every message is written to be read by the person who just pasted, so each
    one says what to do next rather than naming the field that failed. The
@@ -357,18 +361,18 @@ const readProperties = (value: unknown): HumperdinkProperty[] => {
 export const parseHumperdinkPayload = (text: string | null | undefined): HumperdinkParseResult => {
   const raw = (text ?? "").trim();
   if (!raw) {
-    return { ok: false, error: "Nothing to import — paste what Export to HT copied." };
+    return { ok: false, error: "Nothing to import — paste what Export to HT copied.", ours: false };
   }
 
   let decoded: unknown;
   try {
     decoded = JSON.parse(raw);
   } catch {
-    return { ok: false, error: NOT_OURS };
+    return { ok: false, error: NOT_OURS, ours: false };
   }
 
   if (!isRecord(decoded) || decoded.kind !== HUMPERDINK_PAYLOAD_KIND) {
-    return { ok: false, error: NOT_OURS };
+    return { ok: false, error: NOT_OURS, ours: false };
   }
 
   // Past this point the paste IS ours, so nothing below tells the filer to go
@@ -378,13 +382,15 @@ export const parseHumperdinkPayload = (text: string | null | undefined): Humperd
   if (typeof version !== "number" || !Number.isFinite(version) || version < 1) {
     return {
       ok: false,
-      error: "That payload doesn't say which version it is. Re-copy it with an up-to-date Send to Hot Task script."
+      error: "That payload doesn't say which version it is. Re-copy it with an up-to-date Send to Hot Task script.",
+      ours: true
     };
   }
   if (version > SUPPORTED_HUMPERDINK_PAYLOAD_VERSION) {
     return {
       ok: false,
-      error: `That payload came from a newer Send to Hot Task script (v${version}). Hot Task reads up to v${SUPPORTED_HUMPERDINK_PAYLOAD_VERSION} — it needs updating.`
+      error: `That payload came from a newer Send to Hot Task script (v${version}). Hot Task reads up to v${SUPPORTED_HUMPERDINK_PAYLOAD_VERSION} — it needs updating.`,
+      ours: true
     };
   }
 
@@ -393,13 +399,15 @@ export const parseHumperdinkPayload = (text: string | null | undefined): Humperd
   if (!loanName || !loanUrl) {
     return {
       ok: false,
-      error: "That payload is missing the loan name or its link. Re-copy it from the loan page."
+      error: "That payload is missing the loan name or its link. Re-copy it from the loan page.",
+      ours: true
     };
   }
   if (!isLoanDetailsUrl(loanUrl)) {
     return {
       ok: false,
-      error: "That payload's link isn't a Humperdink loan page. Re-copy it from the loan page."
+      error: "That payload's link isn't a Humperdink loan page. Re-copy it from the loan page.",
+      ours: true
     };
   }
 

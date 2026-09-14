@@ -536,7 +536,7 @@ test("with no Loan Terms header to sit in, the control takes the corner once it 
   assert.equal(page.button, null, "it looks for the header before settling for the corner");
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(page.button.tagName, "BUTTON");
-  assert.equal(page.button.textContent, "Export to HT", "the same name the paste box tells people to press");
+  assert.equal(page.button.textContent, "Export to HT", "the same name the parser's messages tell people to press");
   assert.equal(page.controlsOnPage, 1);
   await page.press();
   assert.equal(page.copied.length, 1);
@@ -829,6 +829,22 @@ test("JSON from something else entirely is not mistaken for ours", () => {
   const result = parseHumperdinkPayload(JSON.stringify({ loanName: "Adams", loanUrl: LOAN_URL }));
   assert.equal(result.ok, false);
   assert.match(result.error, /isn't a Humperdink payload/);
+});
+
+/* Since the paste box went (2026-09-14) every paste on an LOI Check passes
+   through the parser, so the form has to tell a stray paste, which it lets
+   through silently, from an export it can't read, which it refuses out loud. */
+test("a failure says whether the text was an export at all", () => {
+  for (const stray of ["", "hello", "{not json", "[1,2,3]", JSON.stringify({ loanName: "Adams", loanUrl: LOAN_URL })]) {
+    const result = parseHumperdinkPayload(stray);
+    assert.equal(result.ok, false);
+    assert.equal(result.ours, false, `${stray} is not an export`);
+  }
+  for (const broken of [{ version: 99 }, { version: undefined }, { loanName: "" }, { loanUrl: "https://humperdink.loneoakfund.com/Loans/Index" }]) {
+    const result = parseHumperdinkPayload(payloadText(broken));
+    assert.equal(result.ok, false);
+    assert.equal(result.ours, true, `${JSON.stringify(broken)} is an export it can't read`);
+  }
 });
 
 test("a payload missing the name or the link is rejected whole, not half-read", () => {

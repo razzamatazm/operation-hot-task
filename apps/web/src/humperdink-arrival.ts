@@ -102,7 +102,8 @@ export interface ArrivalClipboard {
    read that is refused or throws, another kind of data, or text that isn't a
    payload. A clipboard holding something else is not an error on this arrival,
    so this never throws and never toasts, and text that isn't a payload is not
-   handed on to be kept anywhere. The paste box keeps focus either way. */
+   handed on to be kept anywhere. Focus stays in the form's request field either
+   way, so ⌘V still imports. */
 export const readArrivalClipboard = async (clipboard: ArrivalClipboard | null | undefined): Promise<string | null> => {
   try {
     if (!clipboard || !clipboard.isSupported()) return null;
@@ -122,7 +123,7 @@ export const readArrivalClipboard = async (clipboard: ArrivalClipboard | null | 
      against the same loans a manual paste would see, so it waits for them.
    - `drop`: the person has already started on the form (pasted, or typed) by
      the time the loans came back. What they did is kept, and the read is let go.
-   - `apply`: run the paste box's own import on it. */
+   - `apply`: run the form's own paste import on it. */
 export const arrivalPasteStep = ({
   paste,
   loansLoaded,

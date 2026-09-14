@@ -3562,7 +3562,7 @@ export const App = () => {
      re-renders the task list) as the user types. */
   const [formOpen, setFormOpen] = useState(false);
   /* The create form was opened by a Humperdink arrival link (#412), so it opens
-     as a new LOI Check with its paste box focused. Set only with `formOpen`, and
+     as a new LOI Check with focus in its request field. Set only with `formOpen`, and
      cleared by closing the form and by every other way into it. */
   const [humperdinkArrival, setHumperdinkArrival] = useState(false);
   /* A Humperdink arrival link opened the tab, and the arrival effect has not
@@ -4081,7 +4081,7 @@ export const App = () => {
         tokenCache.seed(token);
         const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
 
-        /* Humperdink arrival link → a new LOI Check, paste box focused. It
+        /* Humperdink arrival link → a new LOI Check, request field focused. It
            fills itself from the loan Send to Hot Task just put on the
            clipboard where Teams can read it (#415), and is one paste away
            where it can't.

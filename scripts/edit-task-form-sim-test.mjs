@@ -958,76 +958,54 @@ test("the terms box goes tall on edit, and mono only on an LOI", () => {
   assert.ok(!render({}).includes("task-form-terms"), "and filing keeps its short box");
 });
 
-/* The footer strip carries the two exits plus the one thing each mode has to
-   say beside them. Filing: the Humperdink import, which is a shortcut past the
-   form rather than a field in it. Editing: the shared-record line, which is the
-   only place that is genuinely under BOTH loan fields now that they no longer
-   sit side by side. */
-const IMPORT_PLACEHOLDER = "In Humperdink, press Export to HT, then paste here";
+/* The footer strip carries the two exits plus, in edit mode, the shared-record
+   line, which is the only place that is genuinely under BOTH loan fields now
+   that they no longer sit side by side. */
 
-test("the footer holds the exits, and the import belongs to filing alone", () => {
-  const create = render({});
-  const foot = create.slice(create.indexOf('class="task-form-foot"'));
-  assert.ok(foot.includes(`placeholder="${IMPORT_PLACEHOLDER}"`), "the paste box is in the footer, saying what to do");
-  assert.ok(foot.includes(">Cancel<") && foot.includes(">Create Task<"), "beside the two exits");
-  assert.ok(!editing().includes(IMPORT_PLACEHOLDER), "editing offers no import");
+/* The Humperdink paste box is gone (2026-09-14). The arrival fills the form from
+   the clipboard, and a box beside Create Task read as one more field to fill. */
+test("the create form draws no Humperdink paste box on any type", () => {
+  for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
+    const html = render({ initialValues: { taskType } });
+    assert.ok(!html.includes("task-form-import"), `${taskType} has no paste box`);
+    assert.ok(!html.includes("then paste here"), `${taskType} has no paste instruction`);
+    assert.ok(!html.includes("Paste from Humperdink"), `${taskType} has no paste label`);
+  }
+  assert.ok(!editing().includes("task-form-import"), "and editing has none either");
 });
 
-/* #409: the paste is the import, so the box stands alone. The only buttons in
-   the footer are its exits. */
-test("the paste box has no Import button beside it", () => {
+test("the footer holds the exits, and an LOI Check being filed keeps the import's live region", () => {
   const create = render({});
-  const importRow = create.slice(create.indexOf('class="task-form-import"'));
-  const row = importRow.slice(0, importRow.indexOf('class="task-form-foot-actions"'));
-  assert.doesNotMatch(row, /<button/, "nothing to press beside the box");
-  assert.ok(!create.includes("Import from Humperdink"), "and the old label is gone from the form");
-  assert.match(row, /<p class="sr-only" role="status"><\/p>/, "the import's live region is mounted, and silent until one lands");
+  const foot = create.slice(create.indexOf('class="task-form-foot"'));
+  assert.ok(foot.includes(">Cancel<") && foot.includes(">Create Task<"), "the two exits");
+  const beforeActions = foot.slice(0, foot.indexOf('class="task-form-foot-actions"'));
+  assert.match(beforeActions, /<p class="sr-only" role="status"><\/p>/, "mounted, and silent until an import lands");
 });
 
 /* The paste handler can't be fired from a static render, so its wiring is read
    off the source, the way the Start fresh clears are. */
-test("pasting imports the pasted text, and Enter imports what is in the box", () => {
-  const box = formSource.slice(formSource.indexOf('className="task-form-import-field"'));
-  const input = box.slice(0, box.indexOf("</label>"));
+test("a payload pasted into any field on an LOI Check being filed is the import, a broken export is refused, and any other paste is left alone", () => {
+  const onPaste = formSource.match(/<form[\s\S]*?onPaste=\{\(e\) => \{([\s\S]*?)\n\s*\}\}/)?.[1];
+  assert.ok(onPaste, "the form element takes the paste");
+  assert.match(onPaste, /if \(editing \|\| form\.taskType !== "LOI"\) return;/, "only while filing an LOI Check");
   assert.match(
-    input,
-    /onPaste=\{\(e\) => \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\);/,
-    "the paste event's own text goes straight to the import, and the browser's insert is cancelled"
+    onPaste,
+    /if \(importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\)\) e\.preventDefault\(\);/,
+    "the browser's insert is cancelled only when the paste imported"
   );
-  assert.match(
-    input,
-    /if \(e\.key === "Enter"\) \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(importText\);/,
-    "Enter imports the box's text and never submits the form"
-  );
+  assert.equal(formSource.match(/onPaste=/g)?.length, 1, "one paste handler, on the form");
   assert.doesNotMatch(formSource, /navigator\.clipboard/, "the form never reads the browser clipboard; an arrival is handed its Teams reader (#415)");
 
   const handler = formSource.slice(formSource.indexOf("const importFromHumperdink"));
   const body = handler.slice(0, handler.indexOf("\n  };"));
   assert.match(body, /parseHumperdinkPayload\(text\)/, "it parses what it was handed");
-  /* The failure branch ends at the loud path's return, after the toast. The
-     arrival's quiet import (#415) leaves earlier, and has its own test. */
-  const loudReturn = body.indexOf("return;", body.indexOf("showToast("));
-  const failure = body.slice(0, loudReturn);
-  assert.match(failure, /setImportText\(text\)/, "a bad paste stays in the box");
-  assert.match(failure, /showToast\(result\.error/, "and says why");
-  assert.doesNotMatch(failure, /setForm/, "without touching a field");
-  const success = body.slice(loudReturn);
-  assert.match(success, /setImportText\(""\)/, "a good paste empties the box");
-  assert.match(success, /applyImportedLoan\(/, "fills the form");
-  assert.match(success, /setImported\(true\)/, "and turns the placeholder into the confirmation");
-});
-
-/* `Send to Hot Task` in Humperdink copies a term sheet, and an LOI Check is the
-   only task type whose request field is one. On the other five the control took
-   a paste nobody has, so it is not drawn — not disabled, not left to fail on the
-   parse. The create form opens on LOI, which is why the test above sees it. */
-test("the import is offered on an LOI Check and on nothing else", () => {
-  assert.ok(render({}).includes(IMPORT_PLACEHOLDER), "an LOI Check gets it");
-  for (const taskType of ["BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
-    const html = render({ initialValues: { taskType } });
-    assert.ok(!html.includes('class="task-form-import"'), `${taskType} has no paste box`);
-    assert.ok(!html.includes(IMPORT_PLACEHOLDER), `${taskType} has no import instruction either`);
-  }
+  const refusal = body.slice(body.indexOf("if (!result.ok)"), body.indexOf("return true;") + "return true;".length);
+  assert.match(refusal, /if \(!result\.ours\) return false;/, "text without the export's marker changes nothing and says nothing");
+  assert.ok(refusal.indexOf("if (!result.ours) return false;") < refusal.indexOf("showToast("), "it leaves before any toast");
+  assert.match(refusal, /showToast\(result\.error, \{ variant: "error" \}\);\s*return true;/, "an export it can't read is taken and refused with the parser's reason");
+  assert.doesNotMatch(refusal, /setForm|applyImportedLoan/, "without touching a field");
+  assert.match(body, /applyImportedLoan\(/, "a payload fills the form");
+  assert.match(body, /setImported\(true\)/, "and the live region says so");
 });
 
 test("the loan fields are no longer paired, and the sentence is in the footer", () => {
@@ -1048,7 +1026,6 @@ test("without an edit, the form is the create form it has always been", () => {
   const html = render({});
   assert.ok(html.includes("Create Task"));
   assert.ok(html.includes("Folder Name"));
-  assert.ok(html.includes("Paste from Humperdink"));
   assert.ok(html.includes("How Bad?"));
   assert.ok(html.includes("Share Directly"));
   assert.ok(!html.includes("task-form-locked"), "and the type select is live");

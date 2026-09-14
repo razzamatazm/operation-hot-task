@@ -5,10 +5,10 @@
    Send to Hot Task copies the loan and opens the Humperdink arrival link. On
    that arrival, and nowhere else, the tab asks Teams for the clipboard. If
    Teams says it can read one and what it holds is a Send to Hot Task payload,
-   the new LOI Check runs its own paste box import on it with no press, once
-   the loans list has loaded. Anything else (no support, a refused read,
-   something that isn't a payload) changes nothing and says nothing: the paste
-   box still has focus, so ⌘V imports.
+   the new LOI Check runs its own paste import on it with no press, once the
+   loans list has loaded. Anything else (no support, a refused read, something
+   that isn't a payload) changes nothing and says nothing: focus is inside the
+   form, so ⌘V imports.
 
    Three techniques, the arrangement the other arrival tests use:
 
@@ -180,28 +180,26 @@ test("the form reads the clipboard once, at open, and only on a Humperdink arriv
   assert.match(read, /return \(\) => \{\s*open = false;\s*\};/, "a read that lands after the form closed is dropped");
 });
 
-test("the form applies it through the paste box's own import, quietly, once the loans have loaded", () => {
+test("the form applies it through its own paste import, once the loans have loaded", () => {
   const apply = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*const step = arrivalPasteStep\(([\s\S]*?)\n  \}, \[arrivalPaste, loansLoaded\]\);/)?.[0];
   assert.ok(apply, "an effect keyed on the text and the loans");
   assert.match(apply, /loansLoaded/);
-  assert.match(apply, /untouched: !imported && importText === "" && !formHasChanges\(openedWith\.current, formNow\.current\)/);
-  assert.match(apply, /importFromHumperdink\(arrivalPaste, \{ quiet: true \}\)/);
+  assert.match(apply, /untouched: !imported && !formHasChanges\(openedWith\.current, formNow\.current\)/);
+  assert.match(apply, /importFromHumperdink\(arrivalPaste\)/);
   assert.doesNotMatch(apply, /parseHumperdinkPayload|applyImportedLoan/, "not a second copy of the import");
   assert.doesNotMatch(apply, /onCreate|onSaveForLater|apiRequest/, "nothing is created until Create");
 });
 
-test("a quiet import that fails says nothing and leaves the box empty", () => {
+test("the arrival only hands the import a payload that parses, so a fill never toasts", () => {
   const body = FORM_SOURCE.match(/const importFromHumperdink = \(([\s\S]*?)\n  \};/)?.[0];
   assert.ok(body);
-  const failure = body.slice(body.indexOf("if (!result.ok)"), body.indexOf("setImportText(\"\");"));
-  assert.ok(failure.indexOf("if (quiet) return;") >= 0, "a quiet failure leaves");
-  assert.ok(failure.indexOf("if (quiet) return;") < failure.indexOf("showToast("), "before the toast");
-  assert.ok(failure.indexOf("if (quiet) return;") < failure.indexOf("setImportText(text)"), "and before the text lands in the box");
+  assert.match(body, /if \(!result\.ours\) return false;/, "text that isn't an export leaves quietly");
+  assert.match(ARRIVAL_SOURCE, /return parseHumperdinkPayload\(text\)\.ok \? text : null;/, "and the reader lets nothing else through");
   assert.doesNotMatch(body, /onCreate|onSaveForLater/);
 });
 
-test("the paste box's own paste is still the import, loud as before", () => {
-  assert.match(FORM_SOURCE, /onPaste=\{\(e\) => \{\s*e\.preventDefault\(\);\s*importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\);/);
+test("a paste on the form is still the import", () => {
+  assert.match(FORM_SOURCE, /onPaste=\{\(e\) => \{[\s\S]*?if \(importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\)\) e\.preventDefault\(\);/);
 });
 
 /* ── App (read out of the source) ───────────────────────── */
@@ -258,10 +256,10 @@ const render = (props) =>
     }))
   );
 
-test("until anything is read, the arrival is an empty LOI Check with the paste box and no toast", () => {
+test("until anything is read, the arrival is an empty LOI Check with no paste box and no toast", () => {
   const html = render({ humperdinkArrival: true, readClipboard: async () => PAYLOAD, loansLoaded: false });
   assert.match(html, /<option value="LOI" selected="">/);
-  assert.match(html, /placeholder="In Humperdink, press Export to HT, then paste here"/);
+  assert.doesNotMatch(html, /task-form-import|then paste here/);
   assert.doesNotMatch(html, /Adams - Harbor/);
   assert.doesNotMatch(html, /role="alert"|toast-error/);
 });
