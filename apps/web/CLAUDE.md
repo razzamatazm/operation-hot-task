@@ -330,7 +330,7 @@ Each slot has one job. When adding info, replace something — don't append:
   and the type carries an optional stage (`Merge Done`, `Final Approval
   Needed`) in lighter weight via `task-card-collapsed-stage`. One line on a
   wide screen; the name is the elastic part and the stage is what gives. See
-  *Grouped collapsed row* for how it stacks under 560px.
+  *Grouped collapsed row* for how it stacks under 900px.
 - **Poop** — the `How Bad?` score, and it is on the row **only while the task
   is unclaimed and out for the first time** (2026-09-07, narrowed 2026-09-10).
   It answers one question — can I take a
@@ -338,7 +338,7 @@ Each slot has one job. When adding info, replace something — don't append:
   somebody looking at work nobody holds, so it appears exactly while the row
   says `Unclaimed` and leaves the moment somebody takes the task. It renders in
   the **title block, sharing the stage's line** — beside the type on a wide
-  screen, and under 560px on the reserved line under it, which puts it above
+  screen, and under 900px on the reserved line under it, which puts it above
   the names (2026-09-10, the user's call). It briefly lived in the pair beside
   the word `Unclaimed`, which cost the row a second reserved line; sharing the
   stage's line is what took that back. Read-only, for everyone.
@@ -463,7 +463,7 @@ row and the list goes ragged (#116, which measured 86px of hamburger drift
 across one screen).
 
 An active row is **two grid lines at every width** — there is no responsive
-reflow, deliberately. (Two grid lines, not two lines of text: under 560px the
+reflow, deliberately. (Two grid lines, not two lines of text: under 900px the
 title cell holds the name, the type, and one reserved line carrying either the
 stage or the rating. See *one height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
@@ -477,7 +477,7 @@ title         | action
 pair          | due
 ```
 
-**Under 560px every active row is one height, and it costs exactly one reserved
+**Under 900px every active row is one height, and it costs exactly one reserved
 line** (2026-09-10). Two things grow a row by a line — the type cell when a task
 has a stage, and the rating when a task is up for grabs — so a list came out as
 a mixture of shorter and taller cards depending on facts that have nothing to do
@@ -615,8 +615,27 @@ so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
   space it earned. The type truncates before the row does: left unshrinkable it
   is wider than a phone on a fraud check at final approval, and because it sits
   in a fixed grid row it pushed the whole board sideways with no zoom to escape
-  it. **Under 560px the pair stacks** — name, then type underneath — and the
+  it. **Under 900px the pair stacks** — name, then type underneath — and the
   hairline goes with the side-by-side arrangement it belonged to.
+
+  **900px, not a phone width** (2026-09-13, the user's call). This was a 560px
+  rule, and the band above it cut text on every row that had any: at 567px a
+  row read `ALVAREZ-2201 | LOI C…` and `OUT O…`. A sweep of the seeded board
+  with the 12px floor forced on found cuts at every width from 561 to 850 — the
+  type itself up to ~680px, then `Outstanding Items` and `Final Approval` — and
+  none from 855 up. 900 is a round margin over that edge, not a second
+  measurement. The seeded names are short (~110px), so the sweep was repeated
+  above 900 with the names swapped for 29- and 48-character ones: the type was
+  never cut at 905, 1000 or 1320px, and the only thing that gave was one stage
+  at 905 behind the 48-character name, which a wide screen is allowed to do.
+  Re-run both before lowering the number.
+
+  **Mini (closed) rows are not part of that.** Their title stays on one line
+  down to 560px and only stacks on a phone, as before: they are most of the
+  Done list, and widening the stack for them would add a line to every closed
+  row across 561–900px. The widened rules are scoped to
+  `.task-card-grouped:not(.task-card-grouped-mini)`, and a separate 560px block
+  after them carries the mini half.
 
   **The stage is its own box, and on a phone it takes a third line**
   (2026-09-07). It used to be words inside the type's own span, so the two
@@ -627,7 +646,7 @@ so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
   got cut is the status — where the task actually *is* — on the surface with no
   zoom to go and look with. Split out, the type names what the task is and
   stays whole, the stage is the part that gives on a wide screen, and under
-  560px it wraps in full onto a line of its own. Two things ride with that:
+  900px it wraps in full onto a line of its own. Two things ride with that:
   `stageSuffix` returns **bare words**, because the hyphen belongs to the
   one-line arrangement and `.task-card-collapsed-stage-join` is dropped when
   the line breaks; and the stage takes `order: 2` so the unread dot stays at
