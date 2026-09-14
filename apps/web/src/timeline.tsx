@@ -48,7 +48,13 @@ const TIMELINE_LABELS: Record<string, string> = {
 };
 const timelineLabel = (status: TaskStatus, taskType: TaskType): string =>
   statusDisplayName(status, taskType) ?? TIMELINE_LABELS[status] ?? status;
-export const Timeline = ({ task }: { task: LoanTask }) => {
+
+/* Where a task stands in its flow, and the word for it. The rail draws this,
+   and so does the collapsed row's third line (2026-09-13, the user's call: it
+   used to name a stage only on a Loan Docs mid-merge or a Fraud Check
+   mid-exchange, and every other row left the line blank). One function, so the
+   row and the card it opens can never name the step differently. */
+const placeInFlow = (task: LoanTask) => {
   const flow: TaskStatus[] =
     task.taskType === "LOAN_DOCS"
       ? ["OPEN", "CLAIMED", "MERGE_DONE", "MERGE_APPROVED", "COMPLETED"]
@@ -71,6 +77,13 @@ export const Timeline = ({ task }: { task: LoanTask }) => {
     step !== undefined && tone !== "corrections"
       ? timelineLabel(step, task.taskType)
       : timelineLabel(task.status, task.taskType);
+  return { flow, idx, step, tone, now };
+};
+
+export const currentStepName = (task: LoanTask): string => placeInFlow(task).now;
+
+export const Timeline = ({ task }: { task: LoanTask }) => {
+  const { flow, idx, step, tone, now } = placeInFlow(task);
   const following = step !== undefined && !CLOSED_STATUSES.includes(task.status) ? flow[idx + 1] : undefined;
   return (
     <div className={`timeline timeline-${tone}`}>

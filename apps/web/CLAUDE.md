@@ -327,8 +327,9 @@ Each slot has one job. When adding info, replace something — don't append:
   rides on the **title**, beside the type. An unclaimed task also carries the
   `How Bad?` score here — see *Poop* below.
 - **Title** — the loan name, then the task type beside it behind a hairline,
-  and the type carries an optional stage (`Merge Done`, `Final Approval
-  Needed`) in lighter weight via `task-card-collapsed-stage`. One line on a
+  and the type carries the step the task is on (`Claimed`, `In review`,
+  `Merge done`) in lighter weight via `task-card-collapsed-stage`, on every
+  active row (2026-09-13). One line on a
   wide screen; the name is the elastic part and the stage is what gives. See
   *Grouped collapsed row* for how it stacks under 900px.
 - **Poop** — the `How Bad?` score, and it is on the row **only while the task
@@ -464,8 +465,8 @@ across one screen).
 
 An active row is **two grid lines at every width** — there is no responsive
 reflow, deliberately. (Two grid lines, not two lines of text: under 900px the
-title cell holds the name, the type, and one reserved line carrying either the
-stage or the rating. See *one height* below.) The pair used to share one line with the title and
+title cell holds the name, the type, and one reserved line carrying the step,
+with the rating beside it on a task up for grabs. See *one height* below.) The pair used to share one line with the title and
 needed a fixed 196px reservation sized to the widest pair in the app; on a
 typical row that left ~38px of dead space between the names and the due
 stamp. Moving the pair onto its own line removed both the gap and the
@@ -483,14 +484,23 @@ has a stage, and the rating when a task is up for grabs — so a list came out a
 a mixture of shorter and taller cards depending on facts that have nothing to do
 with each other.
 
-**The two share one line, because they can never both appear.** A stage only
-exists on a LOAN_DOCS mid-merge or a FRAUD mid-exchange, both of which have been
-claimed; the rating only appears on a task that is unclaimed *and* has never
-been dropped (`isFirstTimeInPool`). A released check has a stage and no rating; a
-task fresh in the pool has a rating and no stage. So the rating renders inside
-`.task-card-collapsed-type` alongside the stage, takes the same wrapped line
-under the type, and one `min-height` on that cell reserves the line for whichever
-occupant turns up.
+**Every active row names its step, and the rating shares that line**
+(2026-09-13, the user's call). The step is the status tracker's own word for
+where the task is, `currentStepName` in [src/timeline.tsx](src/timeline.tsx),
+so the row and the card it opens can never disagree. It used to exist only on a
+LOAN_DOCS mid-merge or a FRAUD mid-exchange, through a row-only table
+(`stageSuffix`, deleted), and every other row left the line blank, which read
+as the step having gone missing. Mini (one-line closed) rows draw none; a creator's just-completed card stays
+full-size until it is archived (*Bucket sort*), so it reads `Completed`. The step and the rating
+ride one box, `.task-card-collapsed-status`: `display: contents` on a wide
+screen, so both sit in the type's line as before, and below 900px the third
+line, the step first and the rating beside it. The rating only appears on a
+task that is unclaimed *and* has never been dropped (`isFirstTimeInPool`), so
+the step beside it is always `Opened` and the pair fits a 360px row. One
+`min-height` on the type cell still reserves the line.
+`scripts/status-display-surface-sim-test.mjs` fails if the row's step and the
+tracker's current step differ in any state, or if the row stops asking
+`currentStepName`.
 
 That is the difference between a 102px card and a 121px one. Reserving a second
 line in the pair as well — which is what this did first — made every card 19px
@@ -511,16 +521,16 @@ Four things about that rule:
   padding, not its natural 17px (a 13px glyph plus 2px of padding). Left
   natural it made a rated row ~2px taller than a staged one — the same bug,
   smaller, and small enough to look like nothing and read like mess.
-- **Mini rows are excluded** (`:not(.task-card-grouped-mini)`). A closed task
-  never has a stage and never carries a rating, so reserving the line there
+- **Mini rows are excluded** (`:not(.task-card-grouped-mini)`). A closed row
+  draws no step and never carries a rating, so reserving the line there
   would add height to every row in Done and buy nothing. Minis are half-height
   on purpose.
 - **A reservation belongs to the thing it reserves for.** If both occupants ever
   leave, the `min-height` goes with them. A blank line held for nothing is
   ornament, which is the one thing this row's rules refuse.
 
-The cost is a line of white space on the rows that have neither, and it is
-deliberate: uniform rows are what lets an eye keep one rhythm down a list, and
+Since every active row names its step, no row pays for the line in white space
+any more. The reservation stays because uniform rows are what lets an eye keep one rhythm down a list, and
 this is the surface where a thumb is doing the scrolling.
 
 **Equal heights are not the same thing as a list that lines up**, and getting
@@ -570,10 +580,11 @@ For the record, the collision that once existed: a released Fraud Check is
 unclaimed *and* carries a stage, because the two `unassignInPlace` paths (the
 creator's "release for any fraud checker" at `PENDING_APPROVAL`, and the sweep
 when a checker loses the FILE_CHECKER role, at any live status) clear the
-assignee without moving the status. `Final Approval Needed` is in fact *only*
-reachable there — `stageSuffix` returns it precisely when a `PENDING_APPROVAL`
-check has no assignee. Such a row draws its status line and no rating, since
-being released is what makes `isFirstTimeInPool` false.
+assignee without moving the status. The row-only table named that case
+`Final Approval Needed`; since 2026-09-13 it reads the tracker's `Final approval`
+like a held check, and the pair's `Unclaimed` says the rest. Such a row draws its
+step and no rating, since being released is what makes `isFirstTimeInPool`
+false.
 
 The LOAN_DOCS stages never collide this way either: `canUnclaimTask` and
 `canReturnToPool` are both `CLAIMED`-only, and both release paths are FRAUD-only,
@@ -647,7 +658,7 @@ so a `MERGE_DONE` or `MERGE_APPROVED` task always has a holder.
   zoom to go and look with. Split out, the type names what the task is and
   stays whole, the stage is the part that gives on a wide screen, and under
   900px it wraps in full onto a line of its own. Two things ride with that:
-  `stageSuffix` returns **bare words**, because the hyphen belongs to the
+  `currentStepName` returns **bare words**, because the hyphen belongs to the
   one-line arrangement and `.task-card-collapsed-stage-join` is dropped when
   the line breaks; and the stage takes `order: 2` so the unread dot stays at
   the end of the type rather than being pushed onto a line by itself.
