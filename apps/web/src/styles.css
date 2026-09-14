@@ -1682,61 +1682,106 @@ button.btn-good:hover {
    Done list is the quiet one anyway. */
 .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type-text {
   font-size: 0.78rem;
+  /* Never cut on an active row: the type has a whole line, and the longest
+     label (`Out of Office`) fits beside five slots on a phone. */
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
-/* The stage, and the part that gives on a wide screen. Its own box rather than
-   words inside the type's, so a cut lands here and not on the type.
-
-   Shrink 100 against the type's 1, and the size of the number is the point.
-   Flex splits a squeeze in proportion to shrink factor times base width, so it
-   cannot be sequenced — "spend the stage first, then the type" is only ever
-   approximated by making the ratio big enough that the type's share rounds
-   under a character. At 6 it did not: in what was then the 560–780 band, where
-   the two were still side by side and the cell is capped at 45%, a `Fraud
-   Check - Outstanding Items` lost a letter off `FRAUD CHECK` while the stage
-   still had room to give. The pair stacks below 900px now, so this only
-   decides what gives on a wide screen. */
+/* The step the task is on. A mini row never draws one. */
 .task-card-collapsed-stage {
   min-width: 0;
-  flex: 0 100 auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-weight: 500;
   color: var(--ink-secondary);
 }
 
-/* The hyphen that joins the two on one line. It belongs to that arrangement,
-   so the phone rule that stacks them takes it away rather than leaving what
-   would read as a bullet at the head of the line. */
-.task-card-collapsed-stage-join {
-  white-space: pre;
+/* ── The active row's title, at every width ───────────────── */
+/* One arrangement, whatever the width (2026-09-14, the user's call): loan name,
+   then the type with its rating beside it, then the step, then the names on
+   the grid line below. The rating describes the work the type names, so it
+   sits against the type.
+
+   It used to depend on the width. Above 900px the name, type and step shared
+   one line and the step was cut behind an ellipsis whenever the name ran long;
+   below it the title stacked and the rating shared the step's line; under
+   560px the rating dropped to a line of its own. The poops sat in a different
+   place at each, and a board seen on a laptop and a phone looked like two
+   apps.
+
+   Nothing on the type's line gives. It holds the type and its rating and
+   nothing else: the unread dot rides the loan name's line instead (see
+   .task-card-collapsed-name-line). The step takes a whole line under it and is
+   `nowrap`, so it never breaks mid-phrase.
+
+   Mini (closed) rows are not part of this: they stay on one line above 560px
+   and stack on a phone (the 560px block further down). They carry no step and
+   no rating, and they are most of the Done list. */
+.task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-title {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
+  max-width: 100%;
+  padding-left: 0;
+  border-left: none;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 1px;
+  /* Both lines, reserved: two of the cell's own 1.4 lines plus the row-gap
+     between them. In `em` so it follows the `pointer: coarse` floor, which is
+     why that floor names this cell as well as the boxes inside it. Every active
+     row fills both lines, so this is a floor that keeps a row's height steady
+     while its words change, not white space. */
+  min-height: calc(2.8em + 1px);
+}
+.task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-stage {
+  flex: 0 0 100%;
+  white-space: nowrap;
+  /* Pulled in from the type's 0.12em (2026-09-10), set so the longest step
+     stays one line on a 360px phone with the touch floor on. The secondary half
+     of a label whose primary half keeps the full tracking above it. */
+  letter-spacing: 0.04em;
 }
 
-/* The step and the rating's shared box. On a wide screen it is not a box at
-   all: its two children sit in the type's flex line exactly as they did before
-   it existed, the stage giving first and the rating fixed. The 900px block
-   turns it into the third line. */
-.task-card-collapsed-status {
-  display: contents;
-}
-
-/* How Bad?, in the title block beside the type, on every task that is not
-   closed — see the comment in `TaskCard` for why it appears there and why it
-   shares the stage's line. Fixed rather than
-   shrinkable: a squeezed rating is a different number. It carries no touch
-   target of its own (the track is read-only), so it can sit against the type. */
-.task-card-collapsed-status > .poop-track {
+/* How Bad?, beside the type, on every task that is not closed. See the comment
+   in `TaskCard` for why it is on the row at all. Fixed rather than shrinkable:
+   a squeezed rating is a different number. It carries no touch target of its
+   own (the track is read-only), so it can sit against the type. */
+.task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type > .poop-track {
   flex: 0 0 auto;
-  margin-left: 10px;
-  /* Exactly one of the type's own lines, not the track's natural 17px (a 13px
-     glyph plus its 2px padding). It shares the reserved line with the stage, so
-     it has to measure the same as the stage does or the rows that carry a
-     rating come out ~2px taller than the rows that carry a status — which is
-     the uniform-height bug at a size small enough to look like nothing and read
-     like mess. The glyphs are centred in the line rather than cropped. */
+  margin-left: 6px;
+  gap: 0;
+  /* One of the cell's lines, not the track's natural height (a glyph plus its
+     2px padding), so a rated row is not a couple of pixels taller than an
+     unrated one. The glyphs are centred in the line rather than cropped. */
   height: 1.4em;
   padding: 0;
+}
+
+/* Smaller than the menu's and the form's 13px (2026-09-14, the user's call),
+   at every width, so the type and its rating share one line on a phone. Five
+   slots at 13px measure 95px, and `Out of Office` (124px at the touch floor)
+   beside them wanted 229px of a title cell that is 194px at 390px, so most
+   rows pushed the poops down a line. At 9px with no gap the track is 62px and
+   every seeded row fits from 390px up. At 360px (a 164px cell) a long type
+   still wraps; no legible size closes that. Re-measure `Out of Office` at
+   390px with the touch floor forced on before growing this. */
+.task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type > .poop-track .poop-slot {
+  font-size: 9px;
+}
+
+/* The loan name's line: the name, and the unread dot beside it (2026-09-14, the
+   user's call). A box of its own so the name can ellipsize while the dot never
+   does: the dot is a fixed flex item, and the name is the part that gives. The
+   dot used to ride the end of the type, where on an active row it competed
+   with the rating for that line and pushed one of them down on a phone. */
+.task-card-collapsed-name-line {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* The loan name, promoted to top billing: it is what a person scans for, so it
@@ -2830,155 +2875,11 @@ button.btn-good:hover {
   color: var(--ink-secondary);
   font-weight: 600;
 }
-@media (max-width: 900px) {
-  /* The title stacks below 900px: loan name, then the type under it. Side by
-     side there is not enough width for both, and the type was the one getting
-     cut — with zoom off there is no recovering from that. The hairline goes
-     with the side-by-side arrangement it belonged to; stacked, the line break
-     is the separator, and a rule above the type would read as a divider across
-     the row.
-
-     This was 560px, a phone-only rule, until 2026-09-13. A sweep of the seeded
-     board with the 12px floor forced on found something cut at every width
-     from 561 to 850: the type itself (`LOI C…`, `OUT O…`) up to ~680, and a
-     stage (`Outstanding Items`, `Final Approval`) the rest of the way. Nothing
-     is cut from 855 up. 900 is a round margin over that measured edge, not a
-     second measurement. Above it the type holds even behind a 48-character
-     loan name; only the stage gives, which is what it is for.
-
-     Active rows only. Mini (closed) rows keep their one-line title above
-     560px, as they always have: they are most of the Done list, and stacking
-     them across this band would add a line to every one of them. They still
-     stack on a phone — see the 560px block right after this one. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-title {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1px;
-  }
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
-    max-width: 100%;
-    padding-left: 0;
-    border-left: none;
-    flex-wrap: wrap;
-    row-gap: 1px;
-  }
-
-  /* Every active row is the same height, stage or no stage (2026-09-10). The
-     third line is *reserved* rather than added: without this, a list is a
-     mixture of two-line and three-line rows depending on whether a task's type
-     happens to have stages at all, and the rows jump about under a thumb
-     scrolling past them. Uniform rows are what makes a list scannable — the eye
-     learns one rhythm and keeps it — and the cost is one line of white space
-     under the short types, which is a cost worth paying on the surface where
-     everything else is already fighting for width.
-
-     Two lines of the type's own metric (`1.4` line-height, twice) plus the
-     `row-gap` a real wrapped stage puts between them — without that 1px the
-     reservation is a pixel short of the thing it reserves for, and a list ends
-     up 120px and 121px rows, which is the whole bug wearing a smaller hat. In
-     `em` so it follows the `pointer: coarse` floor rather than assuming today's
-     value, which is why that floor also names this cell and not only its
-     children.
-
-     Every active row fills it since 2026-09-13, when the step went onto every
-     row; the reservation still holds the height steady while a row's words
-     change. Mini rows are excluded, and not incidentally: a mini row draws no
-     step, so reserving a line there would add one to every row in Done and buy
-     nothing. They are half-height on purpose. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-type {
-    min-height: calc(2.8em + 1px);
-  }
-
-  /* And the stage takes a third line under the type (2026-09-07). Stacking the
-     title bought the type a full-width line, which is still not enough for the
-     long ones: `Fraud Check - Final Approval Needed` wants ~290px of a title
-     cell that resolves to about 200px at 390px, so it rendered as `FRAUD CHECK
-     - FINAL APP…` and the status — the thing that says where the task actually
-     is — was the half that got cut. It wraps in full instead, into the line
-     every active row reserves.
-
-     The step and the rating share that line through their box,
-     `.task-card-collapsed-status` (2026-09-13). `order: 2` on the box puts it
-     after the unread dot, so the dot rides the end of the type instead of being
-     pushed onto a line of its own. Inside it the step comes first and the
-     rating sits beside it. Every active row carries a rating since 2026-09-14;
-     between 560px and 900px every step fits beside five slots, and under 560px
-     the rating always takes the line under the step (the 560px block below).
-
-     The tracking comes in to 0.04em, and that is what keeps the reserved line
-     to ONE line on a 360px screen (2026-09-10). It was set against `Final
-     Approval Needed`, then the longest stage: 21 characters of JetBrains Mono at
-     the 12px touch floor. Since 2026-09-13 the row speaks the tracker's words
-     and the longest step is `Outstanding items` (17), so the setting now carries
-     margin rather than sitting on the edge. The title cell resolves to 164px at
-     that width, and that old label
-     measures ~181px at the base 0.12em and ~166px at 0.06em — still over, which
-     is why this is 0.04em (~161px) and not the first number tried. Wrapped, that
-     row alone came out 38px taller than every other one: the uniform-height rule
-     broken by the very string it was built for. The type cannot shrink to fix it
-     (12px is the floor, and the floor is the point) and the action column cannot
-     give (its width is reserved on purpose, #116), so the tracking is what is
-     left. It stays tracked, just less — this is the secondary half of a label
-     whose primary half keeps the full 0.12em beside it.
-
-     Measured with the `pointer: coarse` floor forced on unconditionally, which
-     is the only way to see this: automation reports a fine pointer at every
-     viewport, so the floored 12px never applies and the label measures ~15px
-     narrower than it does on a real phone. Numbers taken without forcing it are
-     numbers about a screen nobody has. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    column-gap: 10px;
-    order: 2;
-    flex: 1 0 100%;
-    min-width: 0;
-  }
-  /* The step never breaks inside itself. Since 2026-09-14 the rating rides
-     beside every active row's step, and `Outstanding items` plus five slots is
-     wider than a phone's title cell; left to wrap, the step broke mid-phrase
-     (`OUTSTANDING` over `ITEMS`) with the rating floating between its two
-     halves. Whole, the longest step is ~130px against the 164px cell at 360px,
-     so it always fits, and it is the rating that moves down a line. */
-  .task-card-collapsed-stage {
-    flex: 0 1 auto;
-    white-space: nowrap;
-    overflow: visible;
-    letter-spacing: 0.04em;
-  }
-
-  /* The rating beside the step, on the same reserved line when both fit, and
-     on the line under the step when they do not. One line serving both is what
-     keeps most cards at three lines instead of four; reserving a second one in
-     the pair (which is what this did first) made every card 19px taller and
-     pushed the names out of line with the due stamp beside them. The gap is
-     the status box's `column-gap`, not a margin, so a rating that wraps starts
-     flush under the step. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status > .poop-track {
-    flex: 0 0 auto;
-    margin-left: 0;
-  }
-  .task-card-collapsed-stage-join { display: none; }
-}
 @media (max-width: 560px) {
-  /* On a phone the rating always takes its own line under the step
-     (2026-09-14, the user's call: consistency is key). Left to wrap only when
-     it had to, a long step (`Outstanding items`, `Final approval`) pushed the
-     rating down a line while a short one (`Claimed`) kept it beside, so rows in
-     the same list put the poops in two different places and came out two
-     different heights. Every rated active row is four lines here. Above 560px
-     the step and five slots fit side by side on every row, so they share the
-     line as before. After the 900px block on purpose: it overrides the status
-     box's rules there, and a media query adds no specificity. */
-  .task-card-grouped:not(.task-card-grouped-mini) .task-card-collapsed-status > .poop-track {
-    flex-basis: 100%;
-  }
-
-  /* Mini rows stack their title on a phone, the same way active rows do below
-     900px. This is the phone-only half of what used to be one 560px rule; the
-     active-row half moved up to 900px and left this behind unchanged. A mini
-     never has a stage or a rating, so the title and type are all it needs. */
+  /* Mini rows stack their title on a phone, the way active rows do at every
+     width. A mini never has a step or a rating, so the title and type are all
+     it needs, and above 560px it stays on one line: minis are most of the Done
+     list, and stacking them wider would add a line to every one. */
   .task-card-grouped-mini .task-card-collapsed-title {
     flex-direction: column;
     align-items: flex-start;
@@ -3376,10 +3277,10 @@ button.btn-good:hover {
   border-radius: 10px;
 }
 
-/* Unread-note dot — sits at the end of the collapsed row's type label,
-   pulsing. It never shrinks and never shrinks away: it is the flex sibling of
-   the type's words, which are the part allowed to give (see
-   .task-card-collapsed-type). */
+/* Unread-note dot. Sits beside the loan name on the collapsed row, pulsing
+   (2026-09-14, the user's call). It never shrinks and never shrinks away: it is
+   the flex sibling of the name, which is the part allowed to give (see
+   .task-card-collapsed-name-line). */
 .task-card-unread-dot {
   display: inline-block;
   flex: 0 0 auto;
@@ -4748,8 +4649,8 @@ button.btn-good:hover {
      The floor sits on the type CELL as well as on the two boxes inside it. A
      mini row's type words take it from here; an active row's are overridden
      just below. It is on the cell so the cell's own
-     `em` resolves against the floored size: the stacked-title rule that reserves the
-     stage's line (see the 900px block) is written in `em` precisely so it
+     `em` resolves against the floored size: the rule that reserves the type
+     cell's two lines (see *The active row's title, at every width*) is written in `em` precisely so it
      follows this floor instead of hard-coding what the floor happens to be
      today. */
   .task-card-collapsed-type,

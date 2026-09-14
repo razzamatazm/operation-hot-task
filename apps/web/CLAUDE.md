@@ -197,9 +197,12 @@ with the others.
 
 **The rating** (`How Bad?`): changed in the task form and nowhere else; every
 rating the card draws is read-only. An open card draws it in exactly one place,
-never in the body (`ratingSurface`), and never on a mini row. The fixed 5-slot
-track looks the same on every surface; if it should ever stop looking the same,
-that is its own decision.
+never in the body (`ratingSurface`), and never on a mini row. The track keeps
+all five slots on every surface. On the collapsed row it is drawn smaller than
+in the menu and the form (2026-09-14, the user's call), so the type and its
+rating share one line on a phone; don't grow it back without re-measuring
+`Out of Office` beside it at 390px. The unread dot sits beside the loan name,
+not at the end of the type.
 
 **`Confirm` does two things in one write.** Never fire `ARCHIVED` after it from
 the row; a second call is what could leave a task completed and not archived.
@@ -219,8 +222,10 @@ the row; a second call is what could leave a task completed and not archived.
   same change. Equal heights with zigzagging names is worse than neither.
 - Measure with the `pointer: coarse` floor forced on. Playwright reports a fine
   pointer at every viewport, so its numbers come out ~15% narrower than a phone.
-- Re-run the width sweep in [docs/task-card.md](docs/task-card.md) before
-  lowering the 900px title-stacking breakpoint.
+- An active row's title is one arrangement at every width (2026-09-14, the
+  user's call): loan name, then the type with its rating beside it, then the
+  step. No breakpoint rearranges it, and nothing on it is cut. Don't bring back
+  a wide-screen one-line title or move the rating off the type's line.
 
 **Action slot and panels:**
 - A panel that escapes the card is portaled through `useAnchoredPanel`. The
