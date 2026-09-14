@@ -1110,13 +1110,15 @@ nested card chrome, in this order:
    860px it is one line over a segmented bar (2026-09-13, the user's pick). The
    step it is on sits at the left, `Next` and the step after it at the right,
    and under them one segment per step, filled up to the one it is on. Two
-   short lines on every task type, capped at 440px. The next step's name is
+   short lines on every task type, running the width of the body (it was
+   capped at 440px, which left it stranded partway across a mid-size card;
+   uncapped 2026-09-13, the user's call). The next step's name is
    what ellipsizes, never the current one.
    **From 860px up every step is named under its own segment** (2026-09-13,
    the user's pick over an inline strip and a filled track, driven on the real
    card, branch `prototype/status-tracker-desktop`). The one-liner read as
    stranded on a desktop card, a 440px strip in a body three times as wide. So
-   the cap comes off and the bar runs the width of the body. The step the task
+   every step gets its name. The step the task
    is on is named in ink at 600, the steps behind it in secondary ink, the steps
    ahead muted, and the line steps out of view. It stays in the accessibility
    tree: the names sit inside the bar's `role="img"` and are never read, so the
