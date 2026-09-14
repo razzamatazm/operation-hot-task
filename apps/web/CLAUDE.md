@@ -2345,7 +2345,9 @@ the second channel the accessibility notes claim.
 The floor is the **last block in `styles.css`**, under `## Touch floors`, for
 the reason every phone override is at the bottom: a media query adds no
 specificity, so a rule written above the ones it raises loses silently. 11px for
-the mono labels, 12px for the type label and the two list headings. It is scoped
+the mono labels, 12px for the type cell, its step and the two list headings,
+and 13.5px for the type's own words, which sit a step over the cell at every
+width (2026-09-13, the user's call). It is scoped
 to `pointer: coarse` rather than to a width, matching the input rule — the
 constraint is the device and the missing zoom, not the viewport, and a narrow
 desktop window can still be dragged wider.
