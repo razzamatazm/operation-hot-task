@@ -915,23 +915,26 @@ test("neither Grouped nor Flat view draws a Saved for Later section: the task li
 
 const renderTabs = (props) =>
   renderToStaticMarkup(
-    createElement(BoardTabs, { tab: "all", onTabChange: () => {}, allCount: 13, mineCount: 4, draftsCount: 2, ...props })
+    createElement(BoardTabs, { tab: "all", onTabChange: () => {}, draftsCount: 2, ...props })
   );
 const tabButtons = (html) => [...html.matchAll(/<button [^>]*role="tab"[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0]);
 
-test("the header's tab row is All, Mine, then Drafts, each with its count", () => {
+/* 2026-09-14, the user's call: All and Mine carry no count, and Drafts shows
+   its count only while there is a draft. The sections under the tabs already
+   count their rows. */
+test("the header's tab row is All, Mine, then Drafts, and only Drafts carries a count", () => {
   const html = renderTabs();
   assert.match(html, /^<div class="board-tabs" role="tablist" aria-label="Board">/);
   const [all, mine, drafts, extra] = tabButtons(html);
   assert.equal(extra, undefined, "three tabs");
-  const label = (spoken, shown, count) =>
-    new RegExp(`<span class="board-tab-label"><span class="sr-only">${spoken}</span><span aria-hidden="true">${shown}</span></span><span class="section-count">${count}</span></button>$`);
+  const label = (spoken, shown) =>
+    `<span class="board-tab-label"><span class="sr-only">${spoken}</span><span aria-hidden="true">${shown}</span></span>`;
   assert.match(all, /id="board-tab-all"/);
-  assert.match(all, label("All Tasks", "All", 13));
+  assert.ok(all.endsWith(`${label("All Tasks", "All")}</button>`), "All has no count");
   assert.match(mine, /id="board-tab-mine"/);
-  assert.match(mine, label("My Tasks", "Mine", 4));
+  assert.ok(mine.endsWith(`${label("My Tasks", "Mine")}</button>`), "Mine has no count");
   assert.match(drafts, /id="board-tab-drafts"/);
-  assert.match(drafts, label("Task Drafts", "Drafts", 2));
+  assert.ok(drafts.endsWith(`${label("Task Drafts", "Drafts")}<span class="section-count">2</span></button>`), "Drafts counts its drafts");
 });
 
 test("the tabs read All, Mine and Drafts at every width, with no second set of names behind a breakpoint", () => {
@@ -961,16 +964,20 @@ test("the selected tab is the one announced and the only one Tab lands on", () =
   }
 });
 
-test("with no drafts the Task Drafts tab is still there, counting none", () => {
+test("with no drafts the Task Drafts tab is still there, with no count beside it", () => {
   const [, , drafts] = tabButtons(renderTabs({ draftsCount: 0 }));
-  assert.match(drafts, /<span class="sr-only">Task Drafts<\/span><span aria-hidden="true">Drafts<\/span><\/span><span class="section-count">0<\/span>/);
+  assert.ok(
+    drafts.endsWith(`<span class="sr-only">Task Drafts</span><span aria-hidden="true">Drafts</span></span></button>`),
+    "the tab, and no chip reading 0"
+  );
+  assert.doesNotMatch(drafts, /section-count/);
 });
 
 test("while searching, All Tasks carries the loan's name at every width, its full name on hover, and My Tasks keeps its own", () => {
-  const [loan, mine] = tabButtons(renderTabs({ allLabel: "Castillo - Harbor View", allTitle: "Castillo - Harbor View", allCount: 2 }));
-  assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span><span class="section-count">2<\/span>/);
+  const [loan, mine] = tabButtons(renderTabs({ allLabel: "Castillo - Harbor View", allTitle: "Castillo - Harbor View" }));
+  assert.match(loan, /<span class="board-tab-label" title="Castillo - Harbor View">Castillo - Harbor View<\/span><\/button>/);
   assert.doesNotMatch(loan, /sr-only/, "a loan's name is read as shown");
-  assert.match(mine, /<span class="sr-only">My Tasks<\/span><span aria-hidden="true">Mine<\/span><\/span><span class="section-count">4<\/span>/);
+  assert.match(mine, /<span class="sr-only">My Tasks<\/span><span aria-hidden="true">Mine<\/span><\/span><\/button>/);
 });
 
 test("pressing a tab, or an arrow key across the row, selects it, and the row cycles all three", () => {
@@ -1012,8 +1019,7 @@ test("the tab row is always drawn on the Tasks board, so Mine and an empty searc
   }
   const tabsProps = block.slice(tabs, block.indexOf("/>", tabs));
   assert.match(tabsProps, /draftsCount=\{taskDraftsCount\(savedForLater, autosave, now\)\}/, "counted from every draft the viewer has, not a filtered list");
-  assert.match(tabsProps, /allCount=\{allBoardTasks\.length\}/, "All Tasks counts the Everyone list, or the search result");
-  assert.match(tabsProps, /mineCount=\{mineBoardTasks\.length\}/, "My Tasks counts the Mine list");
+  assert.doesNotMatch(tabsProps, /allCount|mineCount/, "All Tasks and My Tasks carry no count");
   assert.equal((APP_SOURCE.match(/<BoardTabs\b/g) ?? []).length, 1, "the Tasks board is the only list with a tab row");
 });
 

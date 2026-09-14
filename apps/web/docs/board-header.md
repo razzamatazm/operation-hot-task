@@ -8,8 +8,11 @@ changing the All / Mine / Drafts tabs, the loan search or the app menu.
   then `New Task` hard right. On the Tasks board the heading is a tab row
   (`BoardTabs`, [src/board-tabs.tsx](../src/board-tabs.tsx), #363, three tabs
   since #390): `All`, `Mine` and `Drafts`, each the heading's own
-  type with its `.section-count` chip, the open one in ink over a `--brand`
-  underline and the others muted, no fill or box. All Tasks is the board under
+  type, the open one in ink over a `--brand`
+  underline and the others muted, no fill or box. **Only Drafts carries a
+  count, and only while there is a draft** (the user's call, 2026-09-14): a
+  `.section-count` chip beside it when there is at least one, nothing at zero.
+  All and Mine carry none; the sections under them count their own rows. All Tasks is the board under
   Everyone and My Tasks the board under Mine; they replaced the app menu's Show
   row and the header's `Show everyone` link, and there is no Show link in the
   header on any tab. While a loan is searched All Tasks carries the loan's name,
@@ -62,7 +65,7 @@ changing the All / Mine / Drafts tabs, the loan search or the app menu.
   (`loanSearchResults`, and a test fails if the two limits drift). A pasted
   Humperdink link is looked up by shared `findLoanForCreate` instead, because that
   ranking only reads names. Picking narrows All Tasks through
-  `visibleBoardTasks`, so that tab's label and count, sections, empty state and
+  `visibleBoardTasks`, so that tab's label, sections, empty state and
   Collapse all follow it. While narrowed All Tasks reads the loan's name, with
   `Clear search` beside the tabs while All Tasks is open. It never narrows My
   Tasks or Task Drafts (#390): `visibleBoardTasks` applies a loan only on

@@ -5250,8 +5250,6 @@ export const App = () => {
                 tab={boardTab}
                 onTabChange={selectBoardTab}
                 {...(searchLoan ? { allLabel: searchLoan.name, allTitle: searchLoan.name } : {})}
-                allCount={allBoardTasks.length}
-                mineCount={mineBoardTasks.length}
                 draftsCount={taskDraftsCount(savedForLater, autosave, now)}
               />
               {boardTab === "all" && searchLoan && <LoanSearchStatus loan={searchLoan} onClear={clearSearch} />}

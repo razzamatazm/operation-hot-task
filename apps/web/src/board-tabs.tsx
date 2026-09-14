@@ -15,8 +15,10 @@ export type { BoardTab } from "./board-filter";
    mixed in with tasks.
 
    While a loan is searched, All carries the loan's name, which can be long and
-   is the one label that ellipsizes. Every tab is drawn, with its count,
-   including zero.
+   is the one label that ellipsizes. Every tab is always drawn. Only Drafts
+   carries a count, and only while there is a draft (2026-09-14, the user's
+   call): All and Mine had counts too, which said again what the sections under
+   them already count, and a Drafts chip reading 0 was a box holding nothing.
 
    The names are the short ones at every width. `All Tasks`, `My Tasks` and
    `Task Drafts` were cut off on phones and narrow windows, and a second set of
@@ -44,8 +46,6 @@ export const BoardTabs = ({
   onTabChange,
   allLabel,
   allTitle,
-  allCount,
-  mineCount,
   draftsCount
 }: {
   tab: BoardTab;
@@ -54,16 +54,15 @@ export const BoardTabs = ({
   allLabel?: ReactNode;
   /* The full text behind a label that may be cut short, a long loan name. */
   allTitle?: string;
-  allCount: number;
-  mineCount: number;
+  /* Drafts is the one tab with a count, drawn only while there is a draft. */
   draftsCount: number;
 }) => {
   const refs = useRef<Partial<Record<BoardTab, HTMLButtonElement | null>>>({});
-  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; spoken?: string; title?: string; count: number }> = [
+  const tabs: ReadonlyArray<{ value: BoardTab; label: ReactNode; spoken?: string; title?: string; count?: number }> = [
     allLabel === undefined
-      ? { value: "all", label: "All", spoken: "All Tasks", count: allCount }
-      : { value: "all", label: allLabel, ...(allTitle ? { title: allTitle } : {}), count: allCount },
-    { value: "mine", label: "Mine", spoken: "My Tasks", count: mineCount },
+      ? { value: "all", label: "All", spoken: "All Tasks" }
+      : { value: "all", label: allLabel, ...(allTitle ? { title: allTitle } : {}) },
+    { value: "mine", label: "Mine", spoken: "My Tasks" },
     { value: "drafts", label: "Drafts", spoken: "Task Drafts", count: draftsCount }
   ];
 
@@ -109,7 +108,7 @@ export const BoardTabs = ({
                 label
               )}
             </span>
-            <span className="section-count">{count}</span>
+            {count ? <span className="section-count">{count}</span> : null}
           </button>
         );
       })}

@@ -59,9 +59,14 @@ Neither view shows a Saved for Later task. Those have their own tab.
 ## All Tasks, My Tasks and Task Drafts tabs
 
 The Tasks board's header is a tab row where its heading used to be: **All
-Tasks**, **My Tasks** and **Task Drafts**, each with its count (#363, three tabs
-since #390). The search, the app menu and `New Task` stay where they were, at
-the right of the same header.
+Tasks**, **My Tasks** and **Task Drafts** (#363, three tabs since #390). The
+search, the app menu and `New Task` stay where they were, at the right of the
+same header.
+
+**Only Task Drafts shows a count, and only when there are drafts** (confirmed
+2026-09-14). All Tasks and My Tasks show none; the sections on the board count
+their own rows. Task Drafts shows how many drafts there are beside its name when
+there is at least one, and nothing when there are none.
 
 **The header is pinned** (#390). It stays at the top of the screen while the
 list scrolls under it, on a phone as on a desktop, so the tabs, the search and
@@ -78,14 +83,13 @@ the same.
 
 - **All Tasks** is the board described above, everybody's work. While a loan is
   searched its label is the loan's name (cut short if long, the full name on
-  hover). Its count is the number of tasks it shows.
+  hover).
 - **My Tasks** is the same board narrowed to the viewer's own work (see *My
-  Tasks* below). Its count is the number of tasks it shows, whichever tab is
-  open.
+  Tasks* below).
 - **Task Drafts** lists the new tasks the viewer put aside with **Save for
   later** on the create form (the button keeps that wording; only the tab says
-  Task Drafts). Newest saved first. The tab is always there, and its count is
-  how many rows its page shows. With none, its page says `No task drafts. Use
+  Task Drafts). Newest saved first. The tab is always there; its count, shown
+  only when there is at least one, is how many rows its page shows. With none, its page says `No task drafts. Use
   Save for later on a new task to keep one here.` Only their owner ever sees
   them. The viewer's autosave is listed here too (#371), as one more row placed
   by when it was last written, reading `Autosaved N ago` instead of `saved N
@@ -137,8 +141,8 @@ has it, and it combines with either view and with both task tabs:
 
 - A closed task stays on the board while it closed inside the window; `All`
   keeps every closed task the app holds. Open and in-flight tasks are never cut,
-  however old. Done, its count, both task tabs' counts, the empty states and
-  Collapse all all follow it.
+  however old. Done, its count, the empty states and Collapse all all follow
+  it.
 - **A loan search ignores it.** With a loan picked the board shows every task on
   that loan, closed ones of any age included. Clearing the search puts the
   window back.
