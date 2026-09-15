@@ -187,7 +187,7 @@ test("App carries no hardcoded cast", () => {
    `x-user-*` header path it rides — no SSO. */
 test("the switcher stays out of a production build, and off a deployed server", () => {
   assert.ok(APP_SOURCE.includes("if (!IS_DEV) return;"), "the roster fetch is dev-gated");
-  assert.ok(APP_SOURCE.includes("{IS_DEV ? ("), "the selector is dev-gated");
+  assert.ok(APP_SOURCE.includes("{IS_DEV && (\n        <header className=\"app-bar\">"), "the selector and the bar it sits in are dev-gated");
   assert.ok(
     /if \(!ssoConfigured\(\)\) \{\s*router\.get\("\/dev\/users"/.test(ROUTES_SOURCE),
     "the dev route is registered only when SSO is unconfigured"

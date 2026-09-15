@@ -267,13 +267,8 @@ h1, h2, h3, h4 {
 }
 
 /* ── App bar ──────────────────────────────────────────────── */
-/* No brand lockup here — Teams already shows "Hot Task" in its own tab, so
-   an in-app logo/title would be pure duplication. New Task now lives on the
-   list's own section header (see .task-grid-head), so this row is just nav
-   (admin only) + the dev user picker — light
-   enough that it doesn't need its own heavy divider; the tab strip carries
-   its own thin underline when it's present, and the list header below
-   supplies the real dividing line. */
+/* Dev builds only: the mock user picker, and nothing else. Production has no
+   app bar (#438), so the list header is the top of the page there. */
 .app-bar {
   display: flex;
   align-items: flex-end;
@@ -300,10 +295,8 @@ h1, h2, h3, h4 {
    no `position` of its own. */
 .app-menu {
   display: inline-flex;
-  /* Last on the list header, hard right. It lives here rather than in the app
-     bar because in production that bar is empty for everyone but an admin —
-     the dev user picker is the only other thing in it, and that is stripped
-     from the build. A control nobody can see is not a control. */
+  /* Last on the list header, hard right. Production has no app bar (#438), so
+     the list header is the only place a control here can live. */
   margin-left: 2px;
   flex: 0 0 auto;
 }
@@ -450,6 +443,47 @@ h1, h2, h3, h4 {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Metrics and Admin, an admin's only way in since the app bar went (#438).
+   Last in the panel and ruled off from the settings above it, because these
+   leave the board rather than change it. Two of Collapse All Tasks' buttons
+   share the row, half each. */
+.app-menu-admin {
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.app-menu-admin-row {
+  display: flex;
+  gap: 8px;
+}
+
+.app-menu-admin-row .app-menu-action {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The one way back from Metrics and Admin. A link in every way but the
+   element, so it wears the standing underline links here carry, in ink, and
+   the ghost token pair so `button:hover` cannot paint a fill under it. It is a
+   grid item of `.app-shell`, which would otherwise stretch it full width. */
+.back-to-tasks {
+  --btn-bg: transparent;
+  --btn-bg-hover: transparent;
+  justify-self: start;
+  padding: 4px 0;
+  border: none;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.15s;
+}
+
+.back-to-tasks:hover { text-decoration-color: currentColor; }
 
 .user-picker {
   display: flex;
@@ -1485,14 +1519,7 @@ button.btn-good:hover {
   white-space: nowrap;
 }
 
-/* ── Tab bar ──────────────────────────────────────────────── */
-.tab-bar {
-  display: flex;
-  gap: 4px;
-  border-bottom: 2px solid var(--line);
-  padding: 0;
-}
-
+/* ── Tabs ─────────────────────────────────────────────────── */
 .tab-btn {
   display: inline-flex;
   align-items: center;
@@ -3468,8 +3495,7 @@ button.btn-good:hover {
     gap: 10px;
   }
 
-  /* Tab labels + user picker stay one row at every width — wrapping them
-     onto separate lines is never necessary and looks broken. */
+  /* The dev user picker stays one row at every width. */
   .app-bar-actions {
     flex-wrap: nowrap;
     gap: 10px;

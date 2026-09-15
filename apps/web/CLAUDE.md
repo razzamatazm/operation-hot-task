@@ -36,8 +36,8 @@ there.
   `overflow` on `.app-shell` or `body` silently unpins it.
 - Keyboard focus is drawn by `--focus-ring` on `:focus-visible`. A rule that
   removes an outline puts the ring back.
-- The app bar is empty for most people in production: the dev user picker is
-  stripped and the nav tabs are admin-only. New controls go somewhere else.
+- The app bar exists only in a dev build, to hold the user picker; production
+  has none. New controls go somewhere else.
 - Measure widths with the `pointer: coarse` floor forced on. Playwright reports
   a fine pointer at every viewport, so its numbers come out about 15% narrower
   than a phone.
