@@ -41,8 +41,11 @@
   **The control copies, then opens Hot Task in Teams desktop** (#414). Once the
   payload is on the clipboard, still inside the same press, the userscript
   navigates to the Humperdink arrival link (#412): a Teams deep link whose
-  `subEntityId` is the fixed sentinel `new:humperdink`, in the `msteams:` form,
-  carrying no loan data, because Teams logs every deep link it receives. It is
+  `subEntityId` is the sentinel `new:humperdink` plus a tag that changes on every
+  press (`new:humperdink:<tag>`), in the `msteams:` form, carrying no loan data,
+  because Teams logs every deep link it receives. The tag is there because Teams
+  desktop ignores a link identical to the page it is showing, so without it a
+  second press with Hot Task still on screen opened nothing. It is
   never the `https://teams.microsoft.com/l/…` form, which detours through
   Microsoft's launcher page; the team uses Teams desktop only. The Teams app id
   is written into the userscript from the one live install's manifest, and a

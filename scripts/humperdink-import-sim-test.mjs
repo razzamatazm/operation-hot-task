@@ -1646,6 +1646,12 @@ test("a grid that stays empty is refused, not imported as a loan with nobody on 
 
 const goodPage = (over = {}) => runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, ...over });
 
+/* The press tag the userscript put after the sentinel, or undefined. */
+const pressTagOf = (href) => {
+  const context = JSON.parse(decodeURIComponent(href.split("?context=")[1] ?? "{}"));
+  return /^new:humperdink:(.+)$/.exec(context.subEntityId ?? "")?.[1];
+};
+
 test("one press copies the loan once, then opens Hot Task in Teams desktop", async () => {
   const page = goodPage();
   await page.press();
@@ -1665,8 +1671,26 @@ test("the link it opens is the shared arrival link for the live install", async 
   assert.match(LIVE_MANIFEST.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   const page = goodPage();
   await page.press();
-  assert.equal(page.navigated[0].href, humperdinkArrivalLink(LIVE_MANIFEST.id));
-  assert.ok(page.navigated[0].href.includes(encodeURIComponent(HUMPERDINK_ARRIVAL_ID)));
+  const href = page.navigated[0].href;
+  assert.equal(href, humperdinkArrivalLink(LIVE_MANIFEST.id, pressTagOf(href)));
+  assert.ok(href.includes(encodeURIComponent(HUMPERDINK_ARRIVAL_ID)));
+});
+
+/* Teams desktop ignores a deep link identical to the page it is showing, so a
+   second press with Hot Task still on screen used to open nothing. */
+test("every press opens its own link, so a second press reaches Hot Task already on screen", async () => {
+  // No wait between the presses: two copies landing in the same millisecond
+  // must still make two links (#436 review).
+  const page = goodPage();
+  await page.press();
+  await page.press();
+  assert.equal(page.navigated.length, 2);
+  const [first, second] = page.navigated.map((n) => n.href);
+  assert.notEqual(first, second);
+  for (const href of [first, second]) {
+    assert.match(pressTagOf(href), /^[0-9a-z]+$/, "the tag is only a timestamp");
+    assert.equal(href, humperdinkArrivalLink(LIVE_MANIFEST.id, pressTagOf(href)));
+  }
 });
 
 test("the link carries no loan data", async () => {
@@ -1697,7 +1721,7 @@ test("the execCommand fallback copies, then opens Hot Task the same way", async 
   await page.press();
   assert.equal(page.navigated.length, 1);
   assert.equal(page.navigated[0].copiesBefore, 1);
-  assert.equal(page.navigated[0].href, humperdinkArrivalLink(LIVE_MANIFEST.id));
+  assert.equal(page.navigated[0].href, humperdinkArrivalLink(LIVE_MANIFEST.id, pressTagOf(page.navigated[0].href)));
 });
 
 test("the script carries no teams.microsoft.com link and never opens a tab", () => {

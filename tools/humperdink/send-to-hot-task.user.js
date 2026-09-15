@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.9.5
+// @version      1.9.6
 // @description  Copy a Humperdink loan to the clipboard, then open Hot Task in Teams desktop on a new LOI Check.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
@@ -514,17 +514,33 @@
      `msteams:`, never Teams' https web link: that form detours through
      Microsoft's "Join conversation" launcher page, and the team uses
      Teams desktop only. It's a navigation rather than a new tab, since Chrome
-     hands the protocol to Teams and the loan page stays where it is. */
+     hands the protocol to Teams and the loan page stays where it is.
+
+     Every press gets its own link: the sentinel plus a press tag, the time in
+     base 36 and then a count of presses on this page. Teams desktop ignores a
+     link identical to the page it is already showing, so the same link twice
+     left Hot Task on screen and opened nothing. The count is what keeps two
+     presses whose copies land in the same millisecond apart; the time keeps
+     presses from different page loads apart. The time is always 8 characters
+     in base 36 until the year 2059, so the two parts can't run together into
+     another press's tag. */
   var HOT_TASK_APP_ID = "bca6db0b-b2b7-423f-8c22-f4348f3a0340";
   var HOT_TASK_ENTITY_ID = "loan-tasks-home";
   var HUMPERDINK_ARRIVAL_ID = "new:humperdink";
-  var ARRIVAL_LINK =
-    "msteams:/l/entity/" +
-    HOT_TASK_APP_ID +
-    "/" +
-    HOT_TASK_ENTITY_ID +
-    "?context=" +
-    encodeURIComponent(JSON.stringify({ subEntityId: HUMPERDINK_ARRIVAL_ID }));
+  var pressCount = 0;
+
+  function arrivalLink() {
+    pressCount += 1;
+    var subEntityId = HUMPERDINK_ARRIVAL_ID + ":" + Date.now().toString(36) + pressCount.toString(36);
+    return (
+      "msteams:/l/entity/" +
+      HOT_TASK_APP_ID +
+      "/" +
+      HOT_TASK_ENTITY_ID +
+      "?context=" +
+      encodeURIComponent(JSON.stringify({ subEntityId: subEntityId }))
+    );
+  }
 
   var COPIED_MESSAGE = "Copied. Opening Hot Task in Teams…";
 
@@ -769,7 +785,7 @@
       copyText(text).then(
         function () {
           say(COPIED_MESSAGE, true);
-          window.location.assign(ARRIVAL_LINK);
+          window.location.assign(arrivalLink());
         },
         function () {
           say("Couldn't reach the clipboard. Copy this page's URL by hand.", false);

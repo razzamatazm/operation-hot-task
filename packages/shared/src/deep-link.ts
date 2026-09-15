@@ -41,9 +41,26 @@ export const CLAIM_INTENT_FIELD = "claimOnOpen";
    Create. What must never happen is the claim scheme's failure, a link that
    acts for someone, and this one doesn't act.
 
-   The link carries nothing but this. Teams writes every deep link it receives
-   into its local log, so no loan data goes in the URL. */
+   The link carries nothing but this and a press tag (below). Teams writes every
+   deep link it receives into its local log, so no loan data goes in the URL. */
 export const HUMPERDINK_ARRIVAL_ID = "new:humperdink";
+
+/* The sentinel, alone or with a press tag after a colon: `new:humperdink` or
+   `new:humperdink:<tag>`.
+
+   The tag is there because Teams desktop ignores a deep link identical to the
+   page it is already showing. It navigates, but never reloads the tab, so a
+   second Export to HT with Hot Task still on screen opened nothing (seen in
+   Teams' own log 2026-09-14: presses 2 to 4 logged no frame reload, and two
+   links differing only in the tag reloaded it both times). A tag that differs on
+   every press makes every press a new link. The bare sentinel still reads as an
+   arrival, for any userscript copy from before the tag. */
+export const isHumperdinkArrival = (value: unknown): boolean =>
+  typeof value === "string" && (value === HUMPERDINK_ARRIVAL_ID || value.startsWith(`${HUMPERDINK_ARRIVAL_ID}:`));
+
+/* What a press tag may be: letters and digits, so nothing but a counter or a
+   timestamp can ride in the link. */
+const PRESS_TAG = /^[0-9a-z]+$/i;
 
 export interface TeamsTaskDeepLinkOptions {
   /* Human-readable name for the link — Teams shows it instead of the bare URL
@@ -84,7 +101,7 @@ export const teamsTaskDeepLink = (
   /* `subEntityId` first and alone unless the claim was asked for, so every
      existing caller's URL is byte-for-byte what it was. */
   const context: Record<string, unknown> = {};
-  if (taskId && taskId !== HUMPERDINK_ARRIVAL_ID) {
+  if (taskId && !isHumperdinkArrival(taskId)) {
     context.subEntityId = taskId;
     if (options.claim) {
       context[CLAIM_INTENT_FIELD] = true;
@@ -110,13 +127,19 @@ export const teamsTaskDeepLink = (
    detours through Microsoft's "Join conversation" launcher page, and the
    `msteams:` one was proven to open Teams desktop directly. The team uses Teams
    desktop only. Context is exactly `{"subEntityId":"<sentinel>"}` and there
-   are no other params: no label, no webUrl, and never any loan data. */
-export const humperdinkArrivalLink = (appId: string | null | undefined): string | undefined => {
+   are no other params: no label, no webUrl, and never any loan data.
+
+   `press` is the press tag (see `isHumperdinkArrival`). The userscript passes a
+   new one on every press. A tag that isn't letters and digits is left off rather
+   than put in the link. */
+export const humperdinkArrivalLink = (appId: string | null | undefined, press?: string): string | undefined => {
   const id = appId?.trim();
   if (!id) {
     return undefined;
   }
-  const context = encodeURIComponent(JSON.stringify({ subEntityId: HUMPERDINK_ARRIVAL_ID }));
+  const tag = press?.trim();
+  const subEntityId = tag && PRESS_TAG.test(tag) ? `${HUMPERDINK_ARRIVAL_ID}:${tag}` : HUMPERDINK_ARRIVAL_ID;
+  const context = encodeURIComponent(JSON.stringify({ subEntityId }));
   return `msteams:/l/entity/${id}/${HOT_TASK_ENTITY_ID}?context=${context}`;
 };
 
@@ -158,7 +181,7 @@ export const withClaimIntent = (url: string | undefined): string | undefined => 
     } catch {
       return undefined;
     }
-    if (!context.subEntityId || context.subEntityId === HUMPERDINK_ARRIVAL_ID) {
+    if (!context.subEntityId || isHumperdinkArrival(context.subEntityId)) {
       return undefined;
     }
     seenContext = true;
@@ -209,7 +232,7 @@ export const readTeamsArrival = (context: unknown): TeamsArrival => {
   if (typeof value !== "string" || !value) {
     return { kind: "none" };
   }
-  if (value === HUMPERDINK_ARRIVAL_ID) {
+  if (isHumperdinkArrival(value)) {
     return { kind: "humperdink" };
   }
   return { kind: "task", taskId: value, claim: readClaimIntent(context) };
