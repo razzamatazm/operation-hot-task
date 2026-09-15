@@ -3393,7 +3393,7 @@ button.btn-good:hover {
   vertical-align: middle;
   /* Two stops of the same token rather than a literal red. The halo was a
      hardcoded `rgba(220, 38, 38, …)` — a light-theme red pulsing around a dot
-     that is a rose in the dark theme and a pale red in contrast, because
+     that is a tomato in dark, a rose in indigo and a pale red in contrast, because
      `--bad` names a role and every theme answers it in its own hue. */
   --unread-halo: color-mix(in srgb, var(--bad) 55%, transparent);
   --unread-halo-out: color-mix(in srgb, var(--bad) 0%, transparent);
