@@ -25,7 +25,8 @@ and not `clipboard-read`, and a direct read with the tab focused fails with
 using the browser's clipboard API applies to writing, which that frame allows,
 not to reading. The old `document.execCommand("paste")` is off too: in the
 focused tab with a text box focused, the browser reports it unsupported, it
-returns false, and nothing is pasted. So on Teams desktop an arrival is always one ⌘V away. The read stays
+returns false, and nothing is pasted. So on Teams desktop an arrival is always one paste (CTRL-V) away, and its
+request field says so. The read stays
 in, because it is harmless when it fails and starts working if Teams fixes this.
 Microsoft has also deprecated the teams-js clipboard capability.
 
@@ -42,7 +43,8 @@ production. That was a guess about reliability, not a finding.
 
 Since then the press has grown a second half. The userscript copies the loan and
 then opens Teams desktop on a Humperdink arrival link (#412, #414), a deep link
-whose `subEntityId` is the fixed sentinel `new:humperdink` and which carries no
+whose `subEntityId` is the sentinel `new:humperdink` (tagged per press since
+#436, so a repeat press isn't ignored by Teams) and which carries no
 loan data. The tab opens a new LOI Check with the paste box focused. The person
 has just pressed one button in Humperdink, lands on a form about that loan, and
 still has to press ⌘V. teams-js offers `clipboard.isSupported()` and

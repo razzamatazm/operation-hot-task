@@ -517,14 +517,21 @@
      hands the protocol to Teams and the loan page stays where it is.
 
      Every press gets its own link: the sentinel plus a press tag, the time in
-     base 36. Teams desktop ignores a link identical to the page it is already
-     showing, so the same link twice left Hot Task on screen and opened nothing. */
+     base 36 and then a count of presses on this page. Teams desktop ignores a
+     link identical to the page it is already showing, so the same link twice
+     left Hot Task on screen and opened nothing. The count is what keeps two
+     presses whose copies land in the same millisecond apart; the time keeps
+     presses from different page loads apart. The time is always 8 characters
+     in base 36 until the year 2059, so the two parts can't run together into
+     another press's tag. */
   var HOT_TASK_APP_ID = "bca6db0b-b2b7-423f-8c22-f4348f3a0340";
   var HOT_TASK_ENTITY_ID = "loan-tasks-home";
   var HUMPERDINK_ARRIVAL_ID = "new:humperdink";
+  var pressCount = 0;
 
   function arrivalLink() {
-    var subEntityId = HUMPERDINK_ARRIVAL_ID + ":" + Date.now().toString(36);
+    pressCount += 1;
+    var subEntityId = HUMPERDINK_ARRIVAL_ID + ":" + Date.now().toString(36) + pressCount.toString(36);
     return (
       "msteams:/l/entity/" +
       HOT_TASK_APP_ID +

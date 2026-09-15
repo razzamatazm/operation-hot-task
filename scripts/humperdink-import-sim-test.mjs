@@ -1679,9 +1679,10 @@ test("the link it opens is the shared arrival link for the live install", async 
 /* Teams desktop ignores a deep link identical to the page it is showing, so a
    second press with Hot Task still on screen used to open nothing. */
 test("every press opens its own link, so a second press reaches Hot Task already on screen", async () => {
+  // No wait between the presses: two copies landing in the same millisecond
+  // must still make two links (#436 review).
   const page = goodPage();
   await page.press();
-  await new Promise((resolve) => setTimeout(resolve, 5));
   await page.press();
   assert.equal(page.navigated.length, 2);
   const [first, second] = page.navigated.map((n) => n.href);
