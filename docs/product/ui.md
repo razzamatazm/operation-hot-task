@@ -213,9 +213,9 @@ Both views share one card component:
   Expand all — opening cards you never asked for is the behaviour above that
   got removed.
 
-Full row layout, column semantics, and styling conventions are documented in
-[apps/web/CLAUDE.md](../../apps/web/CLAUDE.md) — that's the canonical
-reference for this component; don't duplicate it here.
+The row's layout and styling live in the code (`TaskCard` in
+`apps/web/src/App.tsx` and `apps/web/src/styles.css`). The traps in changing it
+are in [apps/web/CLAUDE.md](../../apps/web/CLAUDE.md).
 
 ## Metrics Tab
 

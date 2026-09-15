@@ -2003,8 +2003,8 @@ const TaskCard = memo(({
      row lifted here by an unread reply used to sit under the heading "Needs
      you" reading `Waiting on Suzie` — the section and the slot contradicting
      each other in the one place both are scanned, which is the promise the
-     whole product is organised around ("the group a task sits in never
-     disagrees with the button it offers", PRODUCT.md).
+     whole product is organised around: the group a task sits in never
+     disagrees with the button it offers.
 
      Two words, because the pull has two states and the row should say which:
      `Unread reply` while the dot is still lit, `Read reply` once the viewer has

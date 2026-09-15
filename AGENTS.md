@@ -60,7 +60,7 @@ for `apps/web`.
 | Topic | Doc |
 |---|---|
 | Product scope, rules, workflow, API surface | [docs/product/README.md](docs/product/README.md) |
-| Design / UI reference for `apps/web` | [apps/web/CLAUDE.md](apps/web/CLAUDE.md) |
+| UI traps in `apps/web` | [apps/web/CLAUDE.md](apps/web/CLAUDE.md) |
 | Domain glossary | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |
 | Git workflow, branches, PRs | [docs/agents/git-workflow.md](docs/agents/git-workflow.md) |
 | Code guardrails, cross-cutting change checklist | [docs/agents/code-guardrails.md](docs/agents/code-guardrails.md) |
