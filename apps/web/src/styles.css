@@ -451,6 +451,104 @@ h1, h2, h3, h4 {
   cursor: not-allowed;
 }
 
+/* ── PROTOTYPE #438, throwaway ───────────────────────────── */
+/* A: plain list rows across the top of the panel, divider under them. */
+.proto-menu-a {
+  display: flex;
+  flex-direction: column;
+  margin: -8px -8px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.proto-menu-a-item {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--control-hover);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+
+.proto-menu-a-item-hint {
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* B: a labelled Admin section last, two buttons side by side. */
+.proto-menu-b {
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.proto-menu-b-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* C: back link on Metrics and Admin is shared by every variant. */
+.proto-back-link {
+  --btn-bg: transparent;
+  --btn-bg-hover: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 8px;
+  padding: 4px 0;
+  border: none;
+  font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 4px;
+}
+
+.proto-back-link:hover { text-decoration-color: var(--ink); }
+
+.proto-switcher {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.proto-switcher-label { padding: 0 10px; }
+
+.proto-switcher-arrow {
+  --btn-bg: transparent;
+  --btn-bg-hover: color-mix(in srgb, var(--bg) 18%, transparent);
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  color: var(--bg);
+}
+
 .user-picker {
   display: flex;
   align-items: center;

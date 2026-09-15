@@ -28,6 +28,7 @@ import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+import { PrototypeSwitcher, usePrototypeVariant } from "./prototype-switcher";
 const IS_DEV = import.meta.env.DEV;
 /* Nobody yet, in either build. Prod fills it from the SSO token; dev fills it
    from the server's active-user directory (`fetchDevUsers`, #309) — the mock
@@ -2862,8 +2863,12 @@ const AppMenu = ({
   expandedIds,
   onCollapseAll,
   themeChoice,
-  onThemeChange
+  onThemeChange,
+  isAdmin,
+  onOpenPage
 }: {
+  isAdmin: boolean;
+  onOpenPage: (page: "metrics" | "admin") => void;
   grouped: boolean;
   onGroupedChange: (next: boolean) => void;
   /* How far back finished tasks go (#391). Everyone / Mine used to sit above
@@ -2899,6 +2904,20 @@ const AppMenu = ({
 
   const collapseCount = expandedIds.length;
 
+  /* PROTOTYPE #438 */
+  const variant = usePrototypeVariant();
+  const pages = isAdmin
+    ? ([
+        { key: "metrics", label: "Metrics", hint: "Claims and task counts" },
+        { key: "admin", label: "Admin", hint: "People and roles" }
+      ] as const)
+    : [];
+  const openPage = (page: "metrics" | "admin"): void => {
+    setOpen(false);
+    window.scrollTo({ top: 0 });
+    onOpenPage(page);
+  };
+
   return (
     <div className="app-menu" ref={wrapRef}>
       <button
@@ -2913,6 +2932,33 @@ const AppMenu = ({
       </button>
       {open && (
         <div className="app-menu-panel" role="menu">
+          {variant === "A" && pages.length > 0 && (
+            <div className="proto-menu-a" role="group" aria-label="Pages">
+              {pages.map((p) => (
+                <button key={p.key} type="button" role="menuitem" className="proto-menu-a-item" onClick={() => openPage(p.key)}>
+                  {p.label}
+                  <span className="proto-menu-a-item-hint">{p.hint}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {variant === "C" && pages.length > 0 && (
+            <div className="app-menu-group" role="group" aria-label="Page">
+              <span className="app-menu-label">Page</span>
+              <div className="app-menu-choices">
+                <button type="button" role="menuitemradio" aria-checked className="app-menu-choice app-menu-choice-on">
+                  Tasks
+                </button>
+                {pages.map((p) => (
+                  <button key={p.key} type="button" role="menuitemradio" aria-checked={false} className="app-menu-choice" onClick={() => openPage(p.key)}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <button
             type="button"
             role="menuitem"
@@ -2984,6 +3030,19 @@ const AppMenu = ({
               ))}
             </div>
           </div>
+
+          {variant === "B" && pages.length > 0 && (
+            <div className="app-menu-group proto-menu-b" role="group" aria-label="Admin">
+              <span className="app-menu-label">Admin</span>
+              <div className="proto-menu-b-row">
+                {pages.map((p) => (
+                  <button key={p.key} type="button" role="menuitem" className="app-menu-action" onClick={() => openPage(p.key)}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5099,32 +5158,7 @@ export const App = () => {
           just nav (admin only) + the dev user picker — no need for it to
           read as its own heavy "bar" anymore. */}
       <header className="app-bar">
-        {isAdmin && (
-          <nav className="tab-bar">
-            <button
-              type="button"
-              className={`tab-btn${activeTab === "active" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("active")}
-            >
-              Tasks
-              <span className="section-count">{activeCount}</span>
-            </button>
-            <button
-              type="button"
-              className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("metrics")}
-            >
-              Metrics
-            </button>
-            <button
-              type="button"
-              className={`tab-btn${activeTab === "admin" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("admin")}
-            >
-              Admin
-            </button>
-          </nav>
-        )}
+        {/* PROTOTYPE #438: tab row gone; the dev picker stays so roles can be switched. */}
         <div className="app-bar-actions">
           {IS_DEV ? (
             <label className="user-picker">
@@ -5151,9 +5185,7 @@ export const App = () => {
                 )}
               </select>
             </label>
-          ) : (
-            <span className="user-picker user-picker-static">{user.displayName}</span>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -5265,6 +5297,8 @@ export const App = () => {
                   onCollapseAll={collapseAllTasks}
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
+                  isAdmin={isAdmin}
+                  onOpenPage={setActiveTab}
                 />
                 <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
               </div>
@@ -5290,12 +5324,19 @@ export const App = () => {
       })()}
 
       {/* ── Metrics tab content ─────────────────────── */}
+      {/* PROTOTYPE #438: the one way back from Metrics and Admin. */}
+      {(activeTab === "metrics" || activeTab === "admin") && isAdmin && (
+        <button type="button" className="proto-back-link" onClick={() => setActiveTab("active")}>
+          ← Back to Tasks
+        </button>
+      )}
       {activeTab === "metrics" && isAdmin && (
         <MetricsPanel leaderboard={claimsLeaderboard} totals={statusTotals} typeBreakdown={typeBreakdown} />
       )}
 
       {/* ── Admin tab content ───────────────────────── */}
       {activeTab === "admin" && isAdmin && <AdminPanel user={user} />}
+      <PrototypeSwitcher />
 
       {/* Last in the tree so it paints over everything, including the edit form,
           which is itself a modal (#265). */}
