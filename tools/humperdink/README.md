@@ -3,8 +3,8 @@
 [`send-to-hot-task.user.js`](send-to-hot-task.user.js) adds an **Export to HT**
 button to a Humperdink loan details page, in the Loan Terms header right after
 the LOI button. Pressing it copies the loan — its name, the page's URL, its loan
-terms, its brokers, borrowers and silent borrowers, and any property it is
-acquiring — to your clipboard as JSON. Then it opens Hot Task in Teams desktop
+terms and extensions, its brokers, borrowers, silent borrowers and lenders, and
+every property on it with its release price — to your clipboard as JSON. Then it opens Hot Task in Teams desktop
 on a new LOI Check. Where Teams lets Hot Task read the clipboard, Folder Name,
 the Humperdink Link and the notes fill in by themselves. Where it doesn't,
 paste (⌘V) straight away and that is the import, with nothing else to press.
@@ -53,7 +53,10 @@ app's parser. loftools (`~/repos/loftools`) serves a copy at
 `@updateURL` point there, so Tampermonkey checks it about daily and takes any
 higher `@version`. To ship a change:
 
-1. **Raise `@version`** here, or nobody receives it.
+1. **Raise `@version`** here, or nobody receives it. Version 1.10.0 (#442) is
+   the one that sends extensions, lenders, release prices and refinanced
+   properties and respects the panel switches; a copy older than that still
+   imports, just without them.
 2. **Deploy Hot Task first**, then copy this file over the loftools copy
    unchanged. A copy that runs ahead of the live app opens a Teams screen the
    app may not have yet.
@@ -79,8 +82,8 @@ Nothing normally needs changing. Two values are pinned in the script:
    pinned under it confirms with `Copied. Opening Hot Task in Teams…`, and
    Teams desktop comes forward on Hot Task. (First time only: Chrome asks
    whether to open Teams. Tick Always allow.) If the button is dimmed, the
-   contacts and properties haven't come back from Humperdink yet — they load
-   after the page does, and hovering says so. Give it a second.
+   contacts, properties or release prices haven't come back from Humperdink
+   yet — they load after the page does, and hovering says so. Give it a second.
 2. Hot Task opens a new LOI Check. Where Teams lets it read the clipboard,
    Folder Name, the Humperdink Link and the terms are already filled in.
    Otherwise paste (⌘V) straight away, and that is the import, filling the same
@@ -121,6 +124,19 @@ visible rather than silent:
   its unused panels with `0.00%` and `$0.00`, and a note full of zeroed labels
   is worse than no note.
 
+Each conditional panel (Extensions, Junior Financing, Seller Financing,
+Disbursement Options, Interest Reserve, Partial Reconveyance) also has an on/off
+**switch**, and since #442 the switch decides whether the panel travels at all.
+Humperdink leaves a switched-off panel's figures sitting in its inputs, so
+without it an unused panel's stale numbers would reach the note. A switch is
+read by id (`toggleExtensions`, `toggleHoldBack` and so on) and is on when its
+`.toggle-on` child carries `active`; a switch that has gone is reported like a
+missing core id. Junior or seller financing switched on with nothing filled in
+sends one `Permitted` line. Extension rows are numbered from 1
+(`ExtensionMonthStart1` …), and a loan with no extensions has no row elements at
+all, so a missing row 1 is normal; the notes box `extensionstextarea` is on
+every loan and is reported if it goes.
+
 The contacts and properties
 ([#197](https://github.com/razzamatazm/operation-hot-task/issues/197)) are not
 in the page's HTML at all — Humperdink fetches them after render and paints them
@@ -129,16 +145,33 @@ hover that says why in the Loan Terms header, or reading `Loading…` as the
 floating fallback. Each grid is found by its container id (`contenttableContactsGrid`,
 `contenttablePropertiesGrid`), and then **everything inside it is matched on
 text**: the columns by their header (`Type`, `Name`, `Address`, `Transaction`,
-`Purchase Price`) and the people by their contact type (`Broker`, `Borrower`,
-`Silent Borrower`, every row of each, grouped in that order).
+`Purchase Price`, `Company`, `Email`) and the people by their contact type
+(`Broker`, `Borrower`, `Silent Borrower`, `Lender`, every row of each, grouped
+in that order). Hot Task prints the lender under Junior Financing rather than
+with the other contacts.
 Nothing counts rows or columns from a fixed position — Humperdink's row ids are
 literally positional (`row0ContactsGrid`), so a scrape built on them would point
 at the wrong person the first time somebody adds a contact.
 
-Only properties whose transaction reads as an acquisition contribute, and only
-their street address and purchase price. The loan-level scenario type is
-deliberately never consulted: one loan can buy some properties and refinance
-others, so the per-property signal is the authoritative one.
+Every property on the loan contributes, acquisition or refinance (#442; #197
+took acquisitions only), with its street address, transaction type, purchase
+price and release price. The loan-level scenario type is never consulted.
+
+The **release price** isn't on the loan page at all. Each property's lives in
+its property details, which Humperdink loads from `/Loans/NewPropertyPartial`
+when somebody opens the property, keyed by two ids that only the properties
+grid's row data carries. So once the properties grid has rows, the control reads
+that row data through the page's jQuery and fetches each property's details in
+the background, reading the `txtReleasePrice` input's value. It does this while
+it is still dimmed, never during the press: copying and opening Teams both have
+to happen inside the press, and a press that waited on the network would lose
+that. Moving the pointer onto the button fetches them again in the background,
+so a release price edited, or a property added, since the page loaded is
+normally in before the press; a property the last finished fetch didn't include
+is refused with "try again in a moment". Prices are matched to properties on the
+whole address, so two properties on one street in different towns keep their
+own. A fetch that fails, or details with no release price field, are reported
+and nothing is copied.
 
 A grid that is still empty when the control gives up waiting is **refused**, not
 imported as an absence. Humperdink offers no "loaded, and there are none"

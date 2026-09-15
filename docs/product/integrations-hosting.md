@@ -19,8 +19,9 @@
   ([tools/humperdink/](../../tools/humperdink/)) puts an **Export to HT**
   button in a loan details page's Loan Terms header (or, if that header never
   appears, a floating **Send to Hot Task** button in the corner); it copies the
-  loan's name, page URL, loan terms, its brokers, borrowers and silent
-  borrowers, and any property it is acquiring, as a versioned JSON payload.
+  loan's name, page URL, loan terms and extensions, its brokers, borrowers,
+  silent borrowers and lenders, and every property on the loan with its release
+  price, as a versioned JSON payload.
   Pasting that into any field on an LOI Check being filed is the import (#409; the
   form has had no paste box since 2026-09-14): it fills
   Folder Name, the Humperdink Link and the notes, and sets the task type to
@@ -31,10 +32,21 @@
   empty labels. The contacts and properties are not in the page's HTML —
   Humperdink fetches them after render — so the button reads `Loading…` until
   they arrive, and matches them on header and contact-type *text* rather than on
-  row position. Only properties whose transaction reads as an acquisition
-  contribute, and only their street address and purchase price; the loan-level
-  scenario type is never consulted, because one loan can buy some properties and
-  refinance others. Because the link is the canonical key for a loan
+  row position. **Every property on the loan travels**, acquisitions and
+  refinances alike (#442, 2026-09-15, the user's call: the desk writes loans on
+  both), each as its street address, transaction type, purchase price and
+  release price. The release price isn't on the loan page; the button fetches
+  each property's details in the background while it is still loading, never
+  during the press. **A conditional panel travels only while its on/off switch
+  is on** (#442): Humperdink leaves a switched-off panel's figures in place, so
+  the switch, not the figures, says whether the loan uses it. Junior or seller
+  financing switched on with nothing filled in says `Permitted`. The note is laid
+  out the way the desk asked for it (2026-09-15): contacts with company and
+  email, then properties with city, short transaction type and `PP:`, then the
+  terms (`Terms:`, `Extensions:`, `Loan Term Notes:`, `Junior Financing:` with
+  the lender, `Blended Totals:`, a one-line seller financing, Disbursement
+  Options, Interest Reserve with its notes, and Partial Reconveyance followed by
+  each property's release price). A sim test pins that layout line for line. Because the link is the canonical key for a loan
   ([ADR-0001](../adr/0001-loan-entity.md)), the created task joins the loan
   that URL already names rather than minting a duplicate.
 
