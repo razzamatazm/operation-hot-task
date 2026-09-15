@@ -37,12 +37,11 @@ A change is `update(apply)`, and `apply` is synchronous on purpose: it cannot
 await a lookup, so it cannot wait on its own queue. Work out anything you need
 to look up before you call `update`, and keep only the change inside it.
 
-## Changing a product rule touches four places
+## Changing a product rule touches three places
 
 1. `packages/shared` — types + workflow predicate
 2. `apps/server` — validation and service logic
 3. `apps/web` — labels, affordances, gating
-4. `docs/product/` — the relevant doc, once the decision is confirmed
 
 ## Credentials
 

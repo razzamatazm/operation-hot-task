@@ -49,8 +49,9 @@ for `apps/web`.
 - These docs describe **current implementation**. Planned work lives only in
   [docs/product/target-direction.md](docs/product/target-direction.md) — don't
   present it as built.
-- When the user confirms a product or workflow decision, record it in the
-  relevant doc under `docs/product/` before moving on.
+- Ship code, not doc upkeep. Don't edit `docs/product/`, `CONTEXT.md`, ADRs or
+  any `CLAUDE.md` as part of a change unless the user asks or a test reads the
+  file. Where a doc and the code disagree, the code wins.
 - Worktrees belong in `.claude/worktrees/`, named for the ticket where there is
   one. The reflex to avoid is `git worktree add ../oht-169`, which drops them
   beside the repo in `~/repos`, where they read as new projects.
@@ -64,7 +65,7 @@ for `apps/web`.
 | Domain glossary | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |
 | Git workflow, branches, PRs | [docs/agents/git-workflow.md](docs/agents/git-workflow.md) |
 | Code guardrails, cross-cutting change checklist | [docs/agents/code-guardrails.md](docs/agents/code-guardrails.md) |
-| How to work in this repo (questions, decisions, doc upkeep) | [docs/agents/charter.md](docs/agents/charter.md) |
-| Issues / PRDs, triage labels, domain-doc upkeep | [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md), [docs/agents/triage-labels.md](docs/agents/triage-labels.md), [docs/agents/domain.md](docs/agents/domain.md) |
+| How to work in this repo (questions vs judgment calls) | [docs/agents/charter.md](docs/agents/charter.md) |
+| Issues / PRDs, triage labels, domain glossary use | [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md), [docs/agents/triage-labels.md](docs/agents/triage-labels.md), [docs/agents/domain.md](docs/agents/domain.md) |
 | Azure deployment | [docs/AZURE_DEPLOYMENT.md](docs/AZURE_DEPLOYMENT.md) |
 | Humperdink → create form userscript | [tools/humperdink/README.md](tools/humperdink/README.md) |
