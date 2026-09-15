@@ -31,6 +31,5 @@ updates and overdue reminders through a Teams bot.
 | Integrations and hosting | [integrations-hosting.md](integrations-hosting.md) |
 | **Not built yet** | [target-direction.md](target-direction.md) |
 
-Row layout and visual conventions for the task card are in
-[apps/web/CLAUDE.md](../../apps/web/CLAUDE.md), which is canonical for that
-component — don't restate it here.
+The task card's layout and look live in the code; the traps in changing them
+are in [apps/web/CLAUDE.md](../../apps/web/CLAUDE.md).

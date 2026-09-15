@@ -1,11 +1,12 @@
 # CLAUDE.md (apps/web)
 
-UI rules for `apps/web`. Product rules, workflow and everything non-visual
+UI traps for `apps/web`. Product rules, workflow and everything non-visual
 start at [../../AGENTS.md](../../AGENTS.md).
 
 This file holds only the traps: changes that look fine on screen and break
-something anyway. Look and feel lives in the code. Read `src/styles.css` and
-the component you are changing, and match what is there.
+something anyway, and that no test catches. Look and feel lives in the code.
+Read `src/styles.css` and the component you are changing, and match what is
+there.
 
 ## Styles
 
@@ -14,12 +15,15 @@ the component you are changing, and match what is there.
   `contrast`); the theme you are not looking at is the one that breaks.
 - Filled buttons take their label colour from `--on-accent`. White ink fails
   contrast on the dark and contrast themes' pastel fills.
+- Colour is never the only signal: status and lateness carry words beside their
+  colour, and `--muted` stays at about 5:1 against `--panel`.
 - A button's fill runs through `--btn-bg` / `--btn-bg-hover`. A variant sets
   those tokens on its class, and `:disabled` overrides them the same way. A
   `background` declared on the class loses to `button:hover` on specificity, so
   the brand fill comes back under the cursor (#171).
-- Both shadow tokens hold transparent values, the contrast theme included. The
-  keyword `none` voids any declaration that composes them with a second shadow.
+- A shadow token with nothing to draw holds a transparent shadow, never the
+  keyword `none`, which voids any declaration that composes the token with a
+  second shadow.
 - A breakpoint override sits after the rule it overrides. A media query adds no
   specificity, so a phone rule written above its base rule parses fine and never
   applies. Task-card phone rules live at the bottom of `styles.css` under their
@@ -53,10 +57,10 @@ the component you are changing, and match what is there.
   app draws only controls the server accepts.
 - `Confirm` completes and archives in one write. The row sends that one call; a
   follow-up `ARCHIVED` can leave a task completed and not archived.
+- Every row is keyboard-focusable (`tabIndex={0}`), and Enter or Space toggles
+  it.
 - A closed (mini) row always renders its action cell: its hamburger is the only
   route to Re-open and Archive.
-- An opened card stays where it is. Opening a card that an unread reply pulled
-  into "Needs you" must not move it (`src/court-latch.ts`).
 - A panel that escapes the card is portaled through `useAnchoredPanel`, with its
   own class rather than `.share-pop-panel` (that class carries the menu's
   outside-click exemption). A portaled panel hosting a text field stops every
@@ -65,34 +69,25 @@ the component you are changing, and match what is there.
   in removes the bot's only route.
 - A disabled action keeps its reason on the wrapper's `title` and the button's
   `aria-label`, so a screen reader still gets it.
-- A new section in the hamburger panel joins `menuHasContent`.
-- UI copy points only at things a screen renders. The task's history log has no
-  screen.
 
 ## Task form (`src/task-form.tsx`)
 
 - One form files and edits. A new field joins it.
 - A Save sends only the fields that moved, one call per field on the existing
   focused routes. The form has no task-shaped endpoint.
-- The Humperdink arrival is the app's only clipboard read. No other opening of
-  the form is handed a reader, and nothing else in `apps/web` reads the
-  clipboard.
 - Every refusal a save can hit is reachable without a dialog: the confirmed
   merge re-send runs the same check as the save that asked.
-- Dialogs share one shape: `alertdialog`, inert backdrop, Escape declines, focus
-  on the safe answer, buttons worded as answers.
-- The locked type's popover hides with `visibility`, which keeps its
-  `aria-describedby` target resolvable.
 
-## Mobile zoom
+## Phone
 
-The Teams mobile webview has no zoom reset, so page zoom is suppressed in three
-layers that `scripts/zoom-guard-sim-test.mjs` holds together.
+Page zoom is suppressed in three layers that `scripts/zoom-guard-sim-test.mjs`
+holds together; its failures say which layer broke.
 
-- `src/zoom-guard.ts` leaves `touchend` uncancelled. Cancelling it drops the
-  synthesized mouse sequence, so a quick second tap loses its click.
-- `html, body` keep `touch-action: pan-x pan-y`. `touch-action` intersects down
-  the tree, and hold-to-edit and the message bubbles depend on their `pan-y`
-  being a subset of it.
-- The 16px field floor under `pointer: coarse` keeps its `!important` and covers
-  every field at once. A focused field under 16px makes iOS zoom.
+- A press target grows by a centred 40px `::after` overlay under
+  `pointer: coarse`, never by resizing the box. Larger overlays on neighbouring
+  triggers meet, and a press lands on the wrong control (Archive catching a
+  press meant for the menu). The 8px between the loan search and app menu
+  triggers keeps theirs apart.
+- A surface you hold to edit (`.msg-bubble-holdable`, `.loi-terms-holdable`)
+  keeps `-webkit-touch-callout: none`, `-webkit-user-select: none` and its
+  `pan-y`. Without them a long press opens the OS callout and magnifier instead.
