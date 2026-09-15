@@ -1483,10 +1483,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
               /* A Humperdink arrival lands here with the loan on the clipboard,
                  and Teams won't let the tab read it (ADR-0012, checked
                  2026-09-14), so the box says the one key to press. CTRL, not ⌘:
-                 the team is on Windows. Gone once an import has landed, even one
-                 whose loan has no terms to put in the box, and empty on every
-                 other opening, the same openings the clipboard read skips. */
-              placeholder={humperdinkArrival && !editing && !reopened && !imported ? "Press CTRL-V now to import from Humperdink" : undefined}
+                 the team is on Windows. Only while the form is an LOI Check,
+                 because a paste imports nowhere else. Gone once an import has
+                 landed, even one whose loan has no terms to put in the box, and
+                 empty on every other opening, the same openings the clipboard
+                 read skips. */
+              placeholder={humperdinkArrival && !editing && !reopened && !imported && form.taskType === "LOI" ? "Press CTRL-V now to import from Humperdink" : undefined}
               value={form.notes}
               onChange={(e) => {
                 /* Clear a refusal the moment they start fixing it, so the box

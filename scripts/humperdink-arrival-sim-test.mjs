@@ -404,11 +404,12 @@ test("an arrival's request field says to press CTRL-V, and a plain New Task's do
   assert.match(render({ humperdinkArrival: true }), prompt);
   assert.doesNotMatch(render({}), prompt);
   assert.doesNotMatch(render({ humperdinkArrival: false }), prompt);
-  // Edit mode and a reopened draft never say it, and a landed import takes it
-  // away even when the loan had no terms to fill the box with (#436 review).
+  // Edit mode and a reopened draft never say it, a landed import takes it away
+  // even when the loan had no terms to fill the box with, and switching off LOI
+  // takes it away because a paste imports only on an LOI Check (#436 review).
   assert.match(
     FORM_SOURCE,
-    /placeholder=\{humperdinkArrival && !editing && !reopened && !imported \? "Press CTRL-V now to import from Humperdink" : undefined\}/
+    /placeholder=\{humperdinkArrival && !editing && !reopened && !imported && form\.taskType === "LOI" \? "Press CTRL-V now to import from Humperdink" : undefined\}/
   );
 });
 
