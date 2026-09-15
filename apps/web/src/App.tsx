@@ -141,15 +141,20 @@ const normalizeTheme = (theme?: string): HostTheme =>
    under us. Anything else pins the app and stops it following — which is the
    point of the control, and the reason it is not the default: a Teams tab that
    disagrees with Teams should be something you asked for. */
-type ThemeChoice = "auto" | HostTheme;
+type ThemeChoice = "auto" | AppTheme;
+/* The themes the app can draw. Indigo is a second dark palette (#441) that
+   only a person can pick: no host ever reports it, so it lives here and not in
+   HostTheme, and Match Teams on a dark host always means the amber Dark. */
+type AppTheme = HostTheme | "indigo";
 const THEME_KEY = "loan-tasks:theme";
-const THEME_CHOICES: ThemeChoice[] = ["auto", "light", "dark", "contrast"];
+const THEME_CHOICES: ThemeChoice[] = ["auto", "light", "dark", "indigo", "contrast"];
 /* `short` is what the menu's one-line track has room for; `full` stays the
    accessible name, so a screen reader still hears `Match Teams`. */
 const THEME_LABELS: Record<ThemeChoice, { short: string; full: string }> = {
   auto: { short: "Teams", full: "Match Teams" },
   light: { short: "Light", full: "Light" },
   dark: { short: "Dark", full: "Dark" },
+  indigo: { short: "Indigo", full: "Indigo" },
   contrast: { short: "Contrast", full: "High contrast" }
 };
 const readThemeChoice = (): ThemeChoice => {
@@ -161,7 +166,7 @@ const readThemeChoice = (): ThemeChoice => {
   }
 };
 
-const applyTheme = (theme: HostTheme): void => {
+const applyTheme = (theme: AppTheme): void => {
   document.documentElement.setAttribute("data-theme", theme);
 };
 

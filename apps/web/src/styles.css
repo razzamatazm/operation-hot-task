@@ -82,33 +82,100 @@
   --avatar-ink: #fff;
 }
 
-/* ── Dark theme (indigo ledger) ───────────────────────────── */
+/* ── Dark theme (deep navy, amber) ────────────────────────── */
+/* What Dark and Match Teams on a dark host draw. Indigo (below) replaced this
+   palette on 2026-09-05 (#308); it came back as the default dark on
+   2026-09-15 (#441) because people missed its amber accent buttons, and the
+   indigo one stayed as a choice. The values are the pre-#308 ones, restored
+   as they were.
+
+   This palette is warm on purpose: amber brand, tomato/orange/grass signals,
+   person chips from the whole wheel. Indigo is cool on purpose. The two dark
+   palettes disagree, so never "fix" one toward the other; a change that
+   belongs to both is made in both. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  /* 2026-09-05 palette replacement, settled via prototype/dark-palette-v2
-     (five whole palettes behind ?palette=a..e, then three treatments of the
-     winner's accent layer as a1/a2/a3). The deep-navy ground and its amber
-     "rubber-stamp" accent are gone; the indigo ramp below is the user's own
-     reference palette, and "A1 — Cool Signals" won the accent round.
+  --bg: #111318;
+  --bg-soft: #1a1d25;
+  --panel: #1e2129;
+  --ink: #e8e6e1;
+  --ink-secondary: #a09b91;
+  /* 2026-08-13 legibility pass, settled via prototype/dark-palette
+     (?palette=a/b/c): #706c63 (3.08:1, AA fail), then #8d887e (4.56:1, still
+     read as muddy brown), then #b3b5ba (7.84:1), neutral with no warm cast
+     and one step down from --ink instead of three. */
+  --muted: #b3b5ba;
+  /* Brightened from #2e313a (1.24:1) then again from #686b73 (3.02:1): a 1px
+     hairline at the 3:1 UI-component minimum still read as invisible in
+     practice; #989ca4 (5.85:1) is unambiguous at a glance. */
+  --line: #989ca4;
+  /* Brightened from #262930 (1.24:1 against --panel, the same "same colour as
+     its container" problem --line had) so task cards get a visible resting
+     border instead of relying on shadow alone. Stays under --line's 5.85:1
+     so cards read as one step down from the modal, not equal to it. */
+  --line-soft: #75787f;
+  /* The amber/gold "rubber-stamp ink" accent, which won an A/B/C prototype
+     vote over the SaaS blue (#6da3e0) it replaced. */
+  --brand: #c9903f;
+  --brand-hover: #dba566;
+  --brand-soft: #2c2216;
+  /* The accents are bright colours chosen to read as text on a dark panel;
+     used as button fills they need dark ink, not white. White on the amber
+     --brand was 2.78:1 (AA fail); #14171c is 8.6:1. */
+  --on-accent: #14171c;
+  --good: #5ec97e;
+  --good-bg: #1a2e22;
+  --warn: #e0b44a;
+  --warn-bg: #2a2418;
+  --hot: #e8944a;
+  --hot-bg: #2c2118;
+  --bad: #e66b6b;
+  --bad-bg: #2c1c1c;
+  --row-alt: rgba(255, 255, 255, 0.015);
+  --row-hover: rgba(255, 255, 255, 0.035);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --focus-ring: 0 0 0 2px rgba(201, 144, 63, 0.35);
+  --avatar-1: #e0b44a;
+  --avatar-2: #6da3e0;
+  --avatar-3: #4fc4b0;
+  --avatar-4: #b083c9;
+  --avatar-5: #e0805a;
+  --avatar-6: #9ac25a;
+  --avatar-7: #8fa3c9;
+  --avatar-8: #d97fb0;
+  --avatar-ink: #14171c;
+}
+
+/* ── Indigo theme (indigo ledger) ─────────────────────────── */
+:root[data-theme="indigo"] {
+  color-scheme: dark;
+  /* 2026-09-05 palette, settled via prototype/dark-palette-v2 (five whole
+     palettes behind ?palette=a..e, then three treatments of the winner's
+     accent layer as a1/a2/a3). It was the only dark theme from #308 until
+     #441 brought the amber one back as Dark; since then it is opt-in, picked
+     by name in the app menu and never reached through Match Teams. The indigo
+     ramp below is the user's own reference palette, and "A1, Cool Signals"
+     won the accent round.
 
      The rule that round settled, and the reason A1 beat plain A: the indigo
      frame carries one warm note and no more. The generic dark-theme accents
-     that were here — tomato red, orange, grass green — each read as
-     borrowed from another app once the ground went indigo. So every signal
-     but --warn is rotated to the cool side of its own hue: overdue is a
-     rose, --hot a coral, "good" a mint, and the eight person chips are
+     (tomato red, orange, grass green, which Dark above still uses) each read
+     as borrowed from another app once the ground went indigo. So every
+     signal but --warn is rotated to the cool side of its own hue: overdue is
+     a rose, --hot a coral, "good" a mint, and the eight person chips are
      drawn from the cool half of the wheel. --warn stays gold below, and is
-     the one exception — a new signal colour added here gets cooled first,
+     the one exception: a new signal colour added here gets cooled first,
      because the warm slot is taken.
 
-     The light theme is untouched and still the warm ledger. The two
-     disagree on purpose — see apps/web/CLAUDE.md. */
+     Light and Dark are both warm. This one disagrees with them on purpose. */
   --bg: #14143a;
   --bg-soft: #1a1a40;
   --panel: #23234f;
   --ink: #f5f5ff;
   --ink-secondary: #d3d3e6;
-  /* The legibility floors the previous dark theme fought for still hold, and
+  /* The legibility floors the amber Dark theme fought for still hold, and
      every value here was measured against --panel before it landed: body
      text at 4.5:1, hairlines at the 3:1 UI-component minimum. --muted is
      6.45:1 and one step down from --ink rather than three, which is what
@@ -144,8 +211,8 @@
   --focus-ring: 0 0 0 2px rgba(174, 174, 240, 0.45);
   /* All eight cool, for the reason in the block comment. The set still has
      to stay distinct from good/warn/hot/bad so a person's chip never reads
-     as urgency — which is tighter here than it was under the old warm
-     accents, since chips and signals now share the cool half of the wheel.
+     as urgency, which is tighter here than under Dark's warm accents, since
+     chips and signals share the cool half of the wheel.
      Initials on the chip carry --avatar-ink at 6.18:1 or better. */
   --avatar-1: #8f8ff0;
   --avatar-2: #6fb0e8;
@@ -562,7 +629,8 @@ h1, h2, h3, h4 {
 /* The warm 45% scrim was tuned to knock back a paper-white page. Over an
    already-dark app it barely registers, so the modal read as floating in the
    same plane as the list behind it rather than above it. */
-:root[data-theme="dark"] .form-overlay {
+:root[data-theme="dark"] .form-overlay,
+:root[data-theme="indigo"] .form-overlay {
   background: rgba(0, 0, 0, 0.66);
 }
 
@@ -604,7 +672,9 @@ h1, h2, h3, h4 {
   animation: fadeIn 0.12s ease-out;
 }
 :root[data-theme="dark"] .merge-confirm-overlay,
-:root[data-theme="dark"] .discard-confirm-overlay {
+:root[data-theme="dark"] .discard-confirm-overlay,
+:root[data-theme="indigo"] .merge-confirm-overlay,
+:root[data-theme="indigo"] .discard-confirm-overlay {
   background: rgba(0, 0, 0, 0.66);
 }
 
@@ -871,7 +941,7 @@ h1, h2, h3, h4 {
    no rule behind it.
 
    The chosen half speaks the app menu's choice voice (`.app-menu-choice-on`):
-   a solid fill on a hollow track, which is ink in light, lavender in dark and
+   a solid fill on a hollow track, which is ink in light, amber in dark, lavender in indigo and
    cyan in contrast, all from the tokens. Filled against empty is a shape, not
    a hue, so the state survives without colour. The fill goes through
    `--btn-bg` like every other button, so hover cannot bring the base brand
@@ -1387,7 +1457,8 @@ button.btn-good:hover {
 }
 /* --bg-soft on --bg is 1.1:1 in dark, so the chip lost its pill shape and
    the count read as loose text next to the heading. */
-:root[data-theme="dark"] .section-count {
+:root[data-theme="dark"] .section-count,
+:root[data-theme="indigo"] .section-count {
   background: color-mix(in srgb, var(--bg), var(--ink) 9%);
 }
 
@@ -3322,7 +3393,7 @@ button.btn-good:hover {
   vertical-align: middle;
   /* Two stops of the same token rather than a literal red. The halo was a
      hardcoded `rgba(220, 38, 38, …)` — a light-theme red pulsing around a dot
-     that is a rose in the dark theme and a pale red in contrast, because
+     that is a tomato in dark, a rose in indigo and a pale red in contrast, because
      `--bad` names a role and every theme answers it in its own hue. */
   --unread-halo: color-mix(in srgb, var(--bad) 55%, transparent);
   --unread-halo-out: color-mix(in srgb, var(--bad) 0%, transparent);
@@ -3436,11 +3507,14 @@ button.btn-good:hover {
    5-slot track looked empty and the control stopped looking clickable.
    The :not() guards matter — these selectors outrank the bare .poop-pick-on
    / .poop-slot-on rules below and would otherwise dim the picked slots too. */
-:root[data-theme="dark"] .poop-pick:not(.poop-pick-on) { opacity: 0.55; }
-:root[data-theme="dark"] .poop-pick:not(.poop-pick-on):hover { opacity: 0.85; }
+:root[data-theme="dark"] .poop-pick:not(.poop-pick-on),
+:root[data-theme="indigo"] .poop-pick:not(.poop-pick-on) { opacity: 0.55; }
+:root[data-theme="dark"] .poop-pick:not(.poop-pick-on):hover,
+:root[data-theme="indigo"] .poop-pick:not(.poop-pick-on):hover { opacity: 0.85; }
 /* Read-only ghost slots in the collapsed row start even fainter (0.2). They
    stay clearly subordinate to the filled slots — just no longer absent. */
-:root[data-theme="dark"] .poop-slot:not(.poop-slot-on) { opacity: 0.38; }
+:root[data-theme="dark"] .poop-slot:not(.poop-slot-on),
+:root[data-theme="indigo"] .poop-slot:not(.poop-slot-on) { opacity: 0.38; }
 
 .poop-pick-on,
 .poop-pick.poop-pick-on:hover {
