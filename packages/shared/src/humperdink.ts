@@ -542,8 +542,8 @@ const propertyLine = (property: HumperdinkProperty): string => {
 
 /* Split the imported note into its blocks, in reading order.
 
-   The layout is the desk's own (2026-09-15), headings and colons exactly as
-   they wrote them: the people, then the properties, then the terms. A block
+   The layout is the desk's own (2026-09-15), every heading ending in a colon:
+   the people, then the properties, then the terms. A block
    with no lines is dropped whole, which is all there is to "a loan with none
    of these produces no empty sections", because a term the loan doesn't have
    never reached the payload in the first place. Seller financing is one line
@@ -565,8 +565,8 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
   const properties = payload.properties ?? [];
 
   // The lender reads under Junior Financing, where Humperdink's own Lender box is.
-  block("Contacts", contacts.filter((contact) => !isLender(contact)).map(contactLine));
-  block("Properties", properties.map(propertyLine));
+  block("Contacts:",contacts.filter((contact) => !isLender(contact)).map(contactLine));
+  block("Properties:",properties.map(propertyLine));
 
   const tiers = (terms.rateTiers ?? []).map(rateTierText).filter(Boolean).join(" / ");
   block("Terms:", [
@@ -609,12 +609,12 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
     sections.push({ heading: "Seller Financing Permitted", lines: [] });
   }
 
-  block("Disbursement Options", [
+  block("Disbursement Options:", [
     labelled("Initial Advance", terms.initialAdvance),
     labelled("Draw Minimum", terms.drawMinimum),
     labelled("Increment", terms.drawIncrement)
   ]);
-  block("Interest Reserve", [
+  block("Interest Reserve:", [
     labelled("Amount", terms.interestReserveAmount),
     labelled("Months", terms.interestReserveMonths),
     labelled("Notes", terms.interestReserveNotes)
@@ -622,7 +622,7 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
 
   /* Release prices read here, with the reconveyance terms they belong to, and
      whether or not the panel's switch is on, so a price is never lost. */
-  block("Partial Reconveyance", [
+  block("Partial Reconveyance:", [
     terms.partialReconveyance,
     ...properties
       .filter((property) => property.releasePrice)

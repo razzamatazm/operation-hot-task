@@ -1197,11 +1197,11 @@ test("its note is its people, the core terms and its property, and nothing else"
   assert.equal(
     note,
     [
-      "Contacts",
+      "Contacts:",
       "Broker: Dan LuVisi - Market Capital Group - dluvisi@mcglend.com",
       "Borrower: Duda Adams",
       "",
-      "Properties",
+      "Properties:",
       "217 to 225 S. Harbor Boulevard, Santa Ana (Refinance)",
       "",
       "Terms:",
@@ -1308,17 +1308,17 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
     [
-      "Contacts",
-      "Properties",
+      "Contacts:",
+      "Properties:",
       "Terms:",
       "Extensions:",
       "Loan Term Notes:",
       "Junior Financing:",
       "Blended Totals:",
       "Seller Financing Permitted Amount: $50,000.00",
-      "Disbursement Options",
-      "Interest Reserve",
-      "Partial Reconveyance"
+      "Disbursement Options:",
+      "Interest Reserve:",
+      "Partial Reconveyance:"
     ]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
@@ -1464,7 +1464,7 @@ test("the blended figures read as their own block under the junior loan", async 
     withSwitches({ juniorFinancing: true })
   );
   const headings = note.split("\n\n").map((block) => block.split("\n")[0]);
-  assert.deepEqual(headings, ["Contacts", "Properties", "Terms:", "Junior Financing:", "Blended Totals:"]);
+  assert.deepEqual(headings, ["Contacts:", "Properties:", "Terms:", "Junior Financing:", "Blended Totals:"]);
 });
 
 /* ── The people and the properties (#197) ───────────────────
@@ -1564,7 +1564,7 @@ test("a silent borrower travels under its own name, after the borrowers", async 
     { type: "Borrower", name: "Marta Adams" },
     { type: "Silent Borrower", name: "Pat Quiet" }
   ]);
-  const contacts = humperdinkNoteSections(payload).find((section) => section.heading === "Contacts");
+  const contacts = humperdinkNoteSections(payload).find((section) => section.heading === "Contacts:");
   assert.deepEqual(contacts.lines, [
     "Broker: Dan LuVisi - Market Capital Group - dluvisi@mcglend.com",
     "Borrower: Duda Adams",
@@ -1596,7 +1596,7 @@ test("the parser reads a silent borrower and the note prints it as sent", () => 
   assert.equal(result.payload.contacts.length, 4);
   assert.match(
     humperdinkNoteText(result.payload),
-    /^Contacts\nBroker: Dan LuVisi\nBorrower: Duda Adams\nBorrower: Marta Adams\nSilent Borrower: Pat Quiet$/m
+    /^Contacts:\nBroker: Dan LuVisi\nBorrower: Duda Adams\nBorrower: Marta Adams\nSilent Borrower: Pat Quiet$/m
   );
 });
 
@@ -1609,8 +1609,8 @@ test("a refinanced property travels, with its transaction type", async () => {
     { address: "217 to 225 S. Harbor Boulevard", city: "Santa Ana", transactionType: "Refinance-Standard" }
   ]);
   assert.equal(
-    sectionOf(humperdinkNoteText(payload), "Properties"),
-    "Properties\n217 to 225 S. Harbor Boulevard, Santa Ana (Refinance)"
+    sectionOf(humperdinkNoteText(payload), "Properties:"),
+    "Properties:\n217 to 225 S. Harbor Boulevard, Santa Ana (Refinance)"
   );
 });
 
@@ -1624,7 +1624,7 @@ test("a property carries its street address, city, transaction type and purchase
 
 test("nothing else off the property row travels", async () => {
   const note = await scrapeNote(TERMS_FIELDS, withGrids({ propertyRows: [acquisitionRow()] }));
-  assert.equal(sectionOf(note, "Properties"), "Properties\n1400 Ocean Avenue, Long Beach (Acquisition) - PP: $850,000");
+  assert.equal(sectionOf(note, "Properties:"), "Properties:\n1400 Ocean Avenue, Long Beach (Acquisition) - PP: $850,000");
   for (const excluded of ["Apartment", "CA 90802", "Los Angeles"]) {
     assert.doesNotMatch(note, new RegExp(excluded), `${excluded} is not what an LOI check needs`);
   }
@@ -1679,7 +1679,7 @@ test("a property with no purchase price filled in leaves the price out", async (
     grids: withGrids({ propertyRows: [acquisitionRow({ price: "$0" })] })
   });
   assert.deepEqual(payload.properties, [{ address: "1400 Ocean Avenue", city: "Long Beach", transactionType: "Acquisition" }]);
-  assert.equal(sectionOf(humperdinkNoteText(payload), "Properties"), "Properties\n1400 Ocean Avenue, Long Beach (Acquisition)");
+  assert.equal(sectionOf(humperdinkNoteText(payload), "Properties:"), "Properties:\n1400 Ocean Avenue, Long Beach (Acquisition)");
 });
 
 /* AC: "Note sections read in a stable order alongside the terms from #196." */
@@ -1690,7 +1690,7 @@ test("the people lead the note and the properties follow them, always in that or
   );
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
-    ["Contacts", "Properties", "Terms:", "Loan Term Notes:"]
+    ["Contacts:", "Properties:", "Terms:", "Loan Term Notes:"]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
 });
@@ -1974,7 +1974,7 @@ test("an extension row travels as a line in its own block, right after Loan Term
   assert.deepEqual(terms.extensions, [{ startMonth: "1", endMonth: "6", rate: "8.90%", points: "1.00" }]);
 
   const note = await scrapeNote(withFields({ ...EXTENSION_ROW, txtLoanTermsNotes: "Rate locked 14 days." }), withGrids(), switches);
-  assert.deepEqual(headingsOf(note), ["Contacts", "Properties", "Terms:", "Extensions:", "Loan Term Notes:"]);
+  assert.deepEqual(headingsOf(note), ["Contacts:", "Properties:", "Terms:", "Extensions:", "Loan Term Notes:"]);
   assert.equal(sectionOf(note, "Extensions:"), "Extensions:\nMonths 1–6 at 8.90%, 1.00 points");
 });
 
@@ -2045,36 +2045,36 @@ const STALE_FIELDS = withFields({
 
 test("a switched-off panel sends nothing, whatever its inputs still hold", async () => {
   const note = await scrapeNote(STALE_FIELDS, withGrids(), SWITCHES_OFF);
-  assert.deepEqual(headingsOf(note), ["Contacts", "Properties", "Terms:"]);
+  assert.deepEqual(headingsOf(note), ["Contacts:", "Properties:", "Terms:"]);
   assert.doesNotMatch(note, /\$10,000|Permitted|Old extension note/);
 });
 
 test("the same inputs with every switch on all travel", async () => {
   const note = await scrapeNote(STALE_FIELDS, withGrids(), SWITCHES_ON);
   assert.deepEqual(headingsOf(note), [
-    "Contacts",
-    "Properties",
+    "Contacts:",
+    "Properties:",
     "Terms:",
     "Extensions:",
     "Junior Financing:",
     "Blended Totals:",
     "Seller Financing Permitted Amount: $500,000.00",
-    "Disbursement Options",
-    "Interest Reserve",
-    "Partial Reconveyance"
+    "Disbursement Options:",
+    "Interest Reserve:",
+    "Partial Reconveyance:"
   ]);
   assert.equal(
-    sectionOf(note, "Interest Reserve"),
-    "Interest Reserve\nAmount: $150,000.00\nMonths: 12\nNotes: Split over each month"
+    sectionOf(note, "Interest Reserve:"),
+    "Interest Reserve:\nAmount: $150,000.00\nMonths: 12\nNotes: Split over each month"
   );
 });
 
 test("one panel switched on travels while the rest stay behind", async () => {
   const note = await scrapeNote(STALE_FIELDS, withGrids(), withSwitches({ disbursement: true }));
-  assert.deepEqual(headingsOf(note), ["Contacts", "Properties", "Terms:", "Disbursement Options"]);
+  assert.deepEqual(headingsOf(note), ["Contacts:", "Properties:", "Terms:", "Disbursement Options:"]);
   assert.equal(
-    sectionOf(note, "Disbursement Options"),
-    "Disbursement Options\nInitial Advance: $1,000,000\nDraw Minimum: $10,000\nIncrement: $10,000"
+    sectionOf(note, "Disbursement Options:"),
+    "Disbursement Options:\nInitial Advance: $1,000,000\nDraw Minimum: $10,000\nIncrement: $10,000"
   );
 });
 
@@ -2121,7 +2121,7 @@ test("a Lender contact travels, and reads under Junior Financing rather than Con
     { type: "Lender", name: "RTI Properties" }
   ]);
   const note = humperdinkNoteText({ ...payload, terms: { juniorFinancingAmount: "$200,000.00" } });
-  assert.doesNotMatch(sectionOf(note, "Contacts"), /RTI Properties/);
+  assert.doesNotMatch(sectionOf(note, "Contacts:"), /RTI Properties/);
   assert.equal(sectionOf(note, "Junior Financing:"), "Junior Financing:\nLender: RTI Properties\nAmount: $200,000.00");
 });
 
@@ -2151,10 +2151,10 @@ test("a property's release price travels, as dollars", async () => {
     { address: OCEAN, city: "Long Beach", transactionType: "Acquisition", purchasePrice: "$850,000", releasePrice: "$2,950,000.00" }
   ]);
   const note = humperdinkNoteText(payload);
-  assert.equal(sectionOf(note, "Properties"), "Properties\n1400 Ocean Avenue, Long Beach (Acquisition) - PP: $850,000");
+  assert.equal(sectionOf(note, "Properties:"), "Properties:\n1400 Ocean Avenue, Long Beach (Acquisition) - PP: $850,000");
   assert.equal(
-    sectionOf(note, "Partial Reconveyance"),
-    "Partial Reconveyance\n1400 Ocean Avenue - Release Price $2,950,000.00",
+    sectionOf(note, "Partial Reconveyance:"),
+    "Partial Reconveyance:\n1400 Ocean Avenue - Release Price $2,950,000.00",
     "release prices read under Partial Reconveyance, even with that panel switched off"
   );
 });
@@ -2334,7 +2334,7 @@ test("the parser keeps a property's transaction type and release price", () => {
    release price. */
 test("a property from an older script still reads as one line", () => {
   const result = parseHumperdinkPayload(payloadText({ properties: [{ address: OCEAN, purchasePrice: "$850,000" }] }));
-  assert.equal(humperdinkNoteText(result.payload), "Properties\n1400 Ocean Avenue - PP: $850,000");
+  assert.equal(humperdinkNoteText(result.payload), "Properties:\n1400 Ocean Avenue - PP: $850,000");
 });
 
 /* Every property travelling changed what `properties` means, so the version
@@ -2406,12 +2406,12 @@ test("a fully loaded loan reads exactly the way the desk laid it out", () => {
   assert.equal(
     humperdinkNoteText(result.payload),
     [
-      "Contacts",
+      "Contacts:",
       "Broker: Pat Broker - Broker Company - broker@example.com",
       "Borrower: Jordan Borrower - Borrower Company - borrower@example.com",
       "Silent Borrower: Casey Silent",
       "",
-      "Properties",
+      "Properties:",
       "15632 El Prado Road, Chino (Acquisition) - PP: $5,300,000",
       "217 S. Harbor Boulevard, Santa Ana (Refinance)",
       "",
@@ -2445,17 +2445,17 @@ test("a fully loaded loan reads exactly the way the desk laid it out", () => {
       "",
       "Seller Financing Permitted Amount: $500,000.00",
       "",
-      "Disbursement Options",
+      "Disbursement Options:",
       "Initial Advance: $1,000,000",
       "Draw Minimum: $10,000",
       "Increment: $10,000",
       "",
-      "Interest Reserve",
+      "Interest Reserve:",
       "Amount: $150,000.00",
       "Months: 12",
       "Notes: Split over each month",
       "",
-      "Partial Reconveyance",
+      "Partial Reconveyance:",
       "125% of allocated loan amount",
       "15632 El Prado Road - Release Price $2,950,000.00",
       "217 S. Harbor Boulevard - Release Price $1,100,000.00"
@@ -2474,5 +2474,5 @@ test("a transaction type is shortened at its first dash, and only there", () => 
       ]
     })
   );
-  assert.equal(humperdinkNoteText(result.payload), "Properties\n1 A St (Acquisition with Refi Cross)\n2 B St (Refinance)");
+  assert.equal(humperdinkNoteText(result.payload), "Properties:\n1 A St (Acquisition with Refi Cross)\n2 B St (Refinance)");
 });
