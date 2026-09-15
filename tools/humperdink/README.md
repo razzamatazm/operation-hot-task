@@ -145,8 +145,10 @@ hover that says why in the Loan Terms header, or reading `Loading…` as the
 floating fallback. Each grid is found by its container id (`contenttableContactsGrid`,
 `contenttablePropertiesGrid`), and then **everything inside it is matched on
 text**: the columns by their header (`Type`, `Name`, `Address`, `Transaction`,
-`Purchase Price`) and the people by their contact type (`Broker`, `Borrower`,
-`Silent Borrower`, `Lender`, every row of each, grouped in that order).
+`Purchase Price`, `Company`, `Email`) and the people by their contact type
+(`Broker`, `Borrower`, `Silent Borrower`, `Lender`, every row of each, grouped
+in that order). Hot Task prints the lender under Junior Financing rather than
+with the other contacts.
 Nothing counts rows or columns from a fixed position — Humperdink's row ids are
 literally positional (`row0ContactsGrid`), so a scrape built on them would point
 at the wrong person the first time somebody adds a contact.

@@ -121,6 +121,7 @@ export interface HumperdinkTerms {
   drawIncrement?: string;
   interestReserveAmount?: string;
   interestReserveMonths?: string;
+  interestReserveNotes?: string;
   partialReconveyance?: string;
 }
 
@@ -137,6 +138,10 @@ export interface HumperdinkTerms {
 export interface HumperdinkContact {
   type: string;
   name: string;
+  /** Off the grid's Company column; absent when blank, or from a pre-2026-09-15 script. */
+  company?: string;
+  /** Off the grid's Email column; absent when blank, or from a pre-2026-09-15 script. */
+  email?: string;
 }
 
 /* One property on the loan (issues #197, #442).
@@ -147,6 +152,8 @@ export interface HumperdinkContact {
    existing debt, final value) is not what an LOI check needs. */
 export interface HumperdinkProperty {
   address: string;
+  /** The address cell's second line up to its first comma, e.g. `"Chino"`. */
+  city?: string;
   /** As Humperdink words it, e.g. `"Refinance-Standard"`. Absent from a pre-#442 script. */
   transactionType?: string;
   /** Absent when the desk hasn't filled one in. */
@@ -257,72 +264,51 @@ const MAX_EXTENSIONS = 12;
 const termValue = (value: unknown, cap = TERM_VALUE_CAP): string =>
   nonEmptyString(value).slice(0, cap);
 
-/* Every term, in the order it reads in the note.
+/* Every term field `readTerms` rebuilds off the wire, and which are prose.
 
-   One table, two readers: `readTerms` rebuilds the payload from it and
-   `humperdinkNoteSections` renders from it. Written once because the two
-   drifting apart is silent — a field added to `HumperdinkTerms` and to the
-   userscript but forgotten in the renderer would cross the wire and never
-   appear, and `tsc` has nothing to say about it.
+   Reading and rendering stopped sharing one table when the desk laid the note
+   out (2026-09-15): its shape (a loan amount with no label, the term and its
+   rate tiers on one line, seller financing as a single line) doesn't fit a
+   table of labels. The "reads exactly the way the desk laid it out" test holds
+   the two together instead: a field read here but forgotten in the renderer
+   turns it red.
 
-   `heading` groups consecutive entries into a block, so the order here IS the
-   order of the terms within the note. #197's contacts come before these and
-   its properties after, as whole blocks rather than among them. */
-interface TermFieldSpec {
-  field: Exclude<keyof HumperdinkTerms, "rateTiers" | "extensions">;
-  heading: string;
-  label: string;
-  /** Appended after the value, e.g. `Term: 24 months`. */
-  unit?: string;
-  /** Prose the desk typed: its own block, and it keeps its own newlines. */
-  prose?: true;
-  /** Left out of the note when the value is zero. */
-  hideZero?: true;
-}
-
-/* Total Value and LTV are deliberately absent: the desk doesn't use them on an
+   Total Value and LTV are deliberately absent: the desk doesn't use them on an
    LOI check. A payload from an older script that still carries them has them
    dropped by `readTerms`, which only reads what is listed here. */
+interface TermFieldSpec {
+  field: Exclude<keyof HumperdinkTerms, "rateTiers" | "extensions">;
+  /** Prose the desk typed: capped longer, and it keeps its own newlines. */
+  prose?: true;
+}
+
 const TERM_FIELDS: readonly TermFieldSpec[] = [
-  { field: "loanAmount", heading: "Loan Terms", label: "Loan Amount" },
-  { field: "termMonths", heading: "Loan Terms", label: "Term", unit: "months" },
-  /* The rate tiers render here, between Term and the fees — see
-     `RATE_TIER_AFTER` and the renderer below. */
-  { field: "originationFeePoints", heading: "Loan Terms", label: "Origination Fee", unit: "points" },
-  /* A loan with no broker says nothing about a broker fee, rather than
-     `Broker Fee: 0.0000 points`. */
-  { field: "brokerFeePoints", heading: "Loan Terms", label: "Broker Fee", unit: "points", hideZero: true },
-  { field: "evaluationFee", heading: "Loan Terms", label: "Evaluation Fee" },
-  /* Straight after the Loan Terms, so a term's length and its extensions read
-     together. The extension rows render ahead of these notes, in the same
-     block — see `EXTENSIONS_BEFORE`. */
-  { field: "extensionNotes", heading: "Extensions", label: "Extension Notes", prose: true },
-  { field: "loanTermNotes", heading: "Loan Term Notes", label: "Loan Term Notes", prose: true },
-  { field: "juniorFinancingPermitted", heading: "Junior Financing", label: "Junior Financing" },
-  { field: "juniorFinancingAmount", heading: "Junior Financing", label: "Amount" },
-  { field: "juniorFinancingRate", heading: "Junior Financing", label: "Rate" },
-  { field: "juniorFinancingPoints", heading: "Junior Financing", label: "Points" },
-  { field: "juniorFinancingFee", heading: "Junior Financing", label: "Fee" },
-  { field: "combinedLoanAndCltv", heading: "Blended Totals", label: "Total Loan / CLTV" },
-  { field: "blendedRate", heading: "Blended Totals", label: "Blended Rate" },
-  { field: "blendedPoints", heading: "Blended Totals", label: "Blended Points" },
-  { field: "blendedFee", heading: "Blended Totals", label: "Blended Fee" },
-  { field: "sellerFinancingPermitted", heading: "Seller Financing", label: "Seller Financing" },
-  { field: "sellerFinancingAmount", heading: "Seller Financing", label: "Amount" },
-  { field: "initialAdvance", heading: "Disbursement Options", label: "Initial Advance" },
-  { field: "drawMinimum", heading: "Disbursement Options", label: "Draw Minimum" },
-  { field: "drawIncrement", heading: "Disbursement Options", label: "Increment" },
-  { field: "interestReserveAmount", heading: "Interest Reserve", label: "Amount" },
-  { field: "interestReserveMonths", heading: "Interest Reserve", label: "Months" },
-  { field: "partialReconveyance", heading: "Partial Reconveyance", label: "Partial Reconveyance", prose: true }
+  { field: "loanAmount" },
+  { field: "termMonths" },
+  { field: "originationFeePoints" },
+  { field: "brokerFeePoints" },
+  { field: "evaluationFee" },
+  { field: "extensionNotes", prose: true },
+  { field: "loanTermNotes", prose: true },
+  { field: "juniorFinancingPermitted" },
+  { field: "juniorFinancingAmount" },
+  { field: "juniorFinancingRate" },
+  { field: "juniorFinancingPoints" },
+  { field: "juniorFinancingFee" },
+  { field: "combinedLoanAndCltv" },
+  { field: "blendedRate" },
+  { field: "blendedPoints" },
+  { field: "blendedFee" },
+  { field: "sellerFinancingPermitted" },
+  { field: "sellerFinancingAmount" },
+  { field: "initialAdvance" },
+  { field: "drawMinimum" },
+  { field: "drawIncrement" },
+  { field: "interestReserveAmount" },
+  { field: "interestReserveMonths" },
+  { field: "interestReserveNotes", prose: true },
+  { field: "partialReconveyance", prose: true }
 ];
-
-/** The rate tiers render straight after this field, as `Interest Rate` lines. */
-const RATE_TIER_AFTER: TermFieldSpec["field"] = "termMonths";
-const RATE_TIER_LABEL = "Interest Rate";
-
-/** The extension rows render straight before this field, in its block. */
-const EXTENSIONS_BEFORE: TermFieldSpec["field"] = "extensionNotes";
 
 const readExtensions = (value: unknown): HumperdinkExtension[] => {
   if (!Array.isArray(value)) return [];
@@ -391,7 +377,10 @@ const readContacts = (value: unknown): HumperdinkContact[] => {
     const type = termValue(entry.type);
     const name = termValue(entry.name);
     // A contact with no name is a row somebody started and abandoned.
-    if (type && name) contacts.push({ type, name });
+    if (!type || !name) continue;
+    const company = termValue(entry.company);
+    const email = termValue(entry.email);
+    contacts.push({ type, name, ...(company ? { company } : {}), ...(email ? { email } : {}) });
   }
   return contacts;
 };
@@ -403,11 +392,13 @@ const readProperties = (value: unknown): HumperdinkProperty[] => {
     if (!isRecord(entry)) continue;
     const address = termValue(entry.address);
     if (!address) continue;
+    const city = termValue(entry.city);
     const transactionType = termValue(entry.transactionType);
     const purchasePrice = termValue(entry.purchasePrice);
     const releasePrice = termValue(entry.releasePrice);
     properties.push({
       address,
+      ...(city ? { city } : {}),
       ...(transactionType ? { transactionType } : {}),
       ...(purchasePrice ? { purchasePrice } : {}),
       ...(releasePrice ? { releasePrice } : {})
@@ -503,80 +494,140 @@ export interface HumperdinkNoteSection {
   lines: string[];
 }
 
-/** The two blocks #197 adds: contacts before the terms, properties after. */
-const CONTACTS_HEADING = "Contacts";
-const PROPERTIES_HEADING = "Properties";
-
 /** `"0.0000"`, `"$0.00"`, `"0%"` — a displayed figure that means zero. */
 const isZero = (value: string): boolean => {
   const digits = value.replace(/[$,%\s]/g, "");
   return digits !== "" && Number(digits) === 0;
 };
 
-/** One rate tier as a line: `Months 1–12 at 7.90%`. */
-const rateTierLine = (tier: HumperdinkRateTier): string => {
-  const span = tier.startMonth && tier.endMonth ? `Months ${tier.startMonth}–${tier.endMonth}` : "Months";
-  return tier.rate ? `${span} at ${tier.rate}` : span;
+/** Humperdink shows fee points to four places (`1.0000`); the desk reads three. */
+const threePlaces = (value: string): string => {
+  const number = Number(value.replace(/[,\s]/g, ""));
+  return Number.isFinite(number) ? number.toFixed(3) : value;
 };
 
-/** One extension row as a line: `Months 1–6 at 8.90%, 1.00 points`. */
-const extensionLine = (extension: HumperdinkExtension): string =>
-  extension.points && !isZero(extension.points)
-    ? `${rateTierLine(extension)}, ${extension.points} points`
-    : rateTierLine(extension);
+/** A month span, `1–6`, or whichever end is known. */
+const monthSpan = (start: string, end: string): string => (start && end ? `${start}–${end}` : start || end);
 
-/** One property as a line:
-    `15632 El Prado Road (Acquisition-Standard), Purchase Price $5,300,000, Release Price $2,950,000.00`. */
-const propertyLine = (property: HumperdinkProperty): string =>
-  [
-    property.transactionType ? `${property.address} (${property.transactionType})` : property.address,
-    ...(property.purchasePrice ? [`Purchase Price ${property.purchasePrice}`] : []),
-    ...(property.releasePrice ? [`Release Price ${property.releasePrice}`] : [])
-  ].join(", ");
+/** One rate tier: `1–6 at 7.90%`. */
+const rateTierText = (tier: HumperdinkRateTier): string => {
+  const span = monthSpan(tier.startMonth, tier.endMonth);
+  if (!tier.rate) return span;
+  return span ? `${span} at ${tier.rate}` : tier.rate;
+};
+
+/** One extension row: `Months 13–18 at 8.90%, 1.00 points`. */
+const extensionLine = (extension: HumperdinkExtension): string => {
+  const span = monthSpan(extension.startMonth, extension.endMonth);
+  const head = [span ? `Months ${span}` : "Months", extension.rate ? `at ${extension.rate}` : ""].filter(Boolean).join(" ");
+  return extension.points && !isZero(extension.points) ? `${head}, ${extension.points} points` : head;
+};
+
+const isLender = (contact: HumperdinkContact): boolean => contact.type.toLowerCase() === "lender";
+
+/** `Broker: Pat Broker - Broker Company - broker@example.com`, blanks left out. */
+const contactLine = (contact: HumperdinkContact): string =>
+  `${contact.type}: ${[contact.name, contact.company, contact.email].filter(Boolean).join(" - ")}`;
+
+/** `Acquisition-Standard` reads `Acquisition`: everything from the first dash goes. */
+const shortTransaction = (transactionType: string): string => (transactionType.split("-")[0] ?? "").trim();
+
+/** `15632 El Prado Road, Chino (Acquisition) - PP: $5,300,000`. */
+const propertyLine = (property: HumperdinkProperty): string => {
+  const place = [property.address, property.city].filter(Boolean).join(", ");
+  const transaction = property.transactionType ? ` (${shortTransaction(property.transactionType)})` : "";
+  const price = property.purchasePrice ? ` - PP: ${property.purchasePrice}` : "";
+  return `${place}${transaction}${price}`;
+};
 
 /* Split the imported note into its blocks, in reading order.
 
-   Walks `TERM_FIELDS` once, gathering consecutive entries that share a heading.
-   A block that gathered no lines is dropped whole — that is all there is to "a
-   loan with none of these produces no empty sections", because a term the loan
-   doesn't have never reached the payload in the first place.
+   The layout is the desk's own (2026-09-15), headings and colons exactly as
+   they wrote them: the people, then the properties, then the terms. A block
+   with no lines is dropped whole, which is all there is to "a loan with none
+   of these produces no empty sections", because a term the loan doesn't have
+   never reached the payload in the first place. Seller financing is one line
+   with no block under it, so it is a heading with no lines.
 
-   Exported so #197's sections sit in the same list and so tests can assert the
-   order without pattern-matching a wall of text. */
+   Exported so tests can assert the order without pattern-matching a wall of
+   text. */
 export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNoteSection[] => {
   const sections: HumperdinkNoteSection[] = [];
-  const push = (heading: string, text: string): void => {
-    const open = sections[sections.length - 1];
-    if (open && open.heading === heading) open.lines.push(text);
-    else sections.push({ heading, lines: [text] });
+  const block = (heading: string, lines: readonly (string | false | undefined)[]): void => {
+    const kept = lines.filter((line): line is string => Boolean(line));
+    if (kept.length > 0) sections.push({ heading, lines: kept });
   };
+  const labelled = (label: string, value: string | undefined): string | undefined =>
+    value ? `${label}: ${value}` : undefined;
 
-  /* Always the same order — the people, then the terms, then the properties.
-     The broker and borrower lead because they are the first thing the checker
-     looks for, and a note whose blocks moved around between two loans would be
-     unreadable side by side. */
-  for (const contact of payload.contacts ?? []) push(CONTACTS_HEADING, `${contact.type}: ${contact.name}`);
+  const terms = payload.terms ?? {};
+  const contacts = payload.contacts ?? [];
+  const properties = payload.properties ?? [];
 
-  const terms = payload.terms;
-  if (terms) {
-    for (const spec of TERM_FIELDS) {
-      if (spec.field === EXTENSIONS_BEFORE) {
-        for (const extension of terms.extensions ?? []) push(spec.heading, extensionLine(extension));
-      }
-      const raw = terms[spec.field];
-      const value = raw && spec.hideZero && isZero(raw) ? "" : raw;
-      /* Prose gets its own bare block rather than a `Label: …` line: it is what
-         the desk typed and it carries its own newlines. */
-      if (value) push(spec.heading, spec.prose ? value : `${spec.label}: ${value}${spec.unit ? ` ${spec.unit}` : ""}`);
-      if (spec.field === RATE_TIER_AFTER) {
-        for (const tier of terms.rateTiers ?? []) push(spec.heading, `${RATE_TIER_LABEL}: ${rateTierLine(tier)}`);
-      }
-    }
+  // The lender reads under Junior Financing, where Humperdink's own Lender box is.
+  block("Contacts", contacts.filter((contact) => !isLender(contact)).map(contactLine));
+  block("Properties", properties.map(propertyLine));
+
+  const tiers = (terms.rateTiers ?? []).map(rateTierText).filter(Boolean).join(" / ");
+  block("Terms:", [
+    terms.loanAmount,
+    [terms.termMonths ? `${terms.termMonths} months` : "", tiers].filter(Boolean).join(" - "),
+    terms.originationFeePoints && `Origination: ${threePlaces(terms.originationFeePoints)} points`,
+    // A loan with no broker says nothing about a broker fee.
+    terms.brokerFeePoints && !isZero(terms.brokerFeePoints) && `Broker: ${threePlaces(terms.brokerFeePoints)} points`,
+    labelled("Eval", terms.evaluationFee)
+  ]);
+
+  block("Extensions:", [...(terms.extensions ?? []).map(extensionLine), terms.extensionNotes]);
+  block("Loan Term Notes:", [terms.loanTermNotes]);
+
+  const juniorFigures = [
+    labelled("Amount", terms.juniorFinancingAmount),
+    labelled("Rate", terms.juniorFinancingRate),
+    labelled("Points", terms.juniorFinancingPoints),
+    labelled("Fee", terms.juniorFinancingFee)
+  ];
+  const hasJuniorFigures = juniorFigures.some(Boolean);
+  if (hasJuniorFigures || terms.juniorFinancingPermitted) {
+    block("Junior Financing:", [
+      ...contacts.filter(isLender).map((lender) => `Lender: ${lender.company || lender.name}`),
+      ...juniorFigures,
+      !hasJuniorFigures && terms.juniorFinancingPermitted
+    ]);
   }
 
-  for (const property of payload.properties ?? []) {
-    push(PROPERTIES_HEADING, propertyLine(property));
+  block("Blended Totals:", [
+    labelled("Total Loan / CLTV", terms.combinedLoanAndCltv),
+    labelled("Blended Rate", terms.blendedRate),
+    labelled("Blended Points", terms.blendedPoints),
+    labelled("Blended Fee", terms.blendedFee)
+  ]);
+
+  if (terms.sellerFinancingAmount) {
+    sections.push({ heading: `Seller Financing Permitted Amount: ${terms.sellerFinancingAmount}`, lines: [] });
+  } else if (terms.sellerFinancingPermitted) {
+    sections.push({ heading: "Seller Financing Permitted", lines: [] });
   }
+
+  block("Disbursement Options", [
+    labelled("Initial Advance", terms.initialAdvance),
+    labelled("Draw Minimum", terms.drawMinimum),
+    labelled("Increment", terms.drawIncrement)
+  ]);
+  block("Interest Reserve", [
+    labelled("Amount", terms.interestReserveAmount),
+    labelled("Months", terms.interestReserveMonths),
+    labelled("Notes", terms.interestReserveNotes)
+  ]);
+
+  /* Release prices read here, with the reconveyance terms they belong to, and
+     whether or not the panel's switch is on, so a price is never lost. */
+  block("Partial Reconveyance", [
+    terms.partialReconveyance,
+    ...properties
+      .filter((property) => property.releasePrice)
+      .map((property) => `${property.address} - Release Price ${property.releasePrice}`)
+  ]);
 
   return sections;
 };

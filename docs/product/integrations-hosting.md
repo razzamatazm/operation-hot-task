@@ -40,8 +40,13 @@
   during the press. **A conditional panel travels only while its on/off switch
   is on** (#442): Humperdink leaves a switched-off panel's figures in place, so
   the switch, not the figures, says whether the loan uses it. Junior or seller
-  financing switched on with nothing filled in says `Permitted`. Extensions sit
-  in their own block right after the Loan Terms. Because the link is the canonical key for a loan
+  financing switched on with nothing filled in says `Permitted`. The note is laid
+  out the way the desk asked for it (2026-09-15): contacts with company and
+  email, then properties with city, short transaction type and `PP:`, then the
+  terms (`Terms:`, `Extensions:`, `Loan Term Notes:`, `Junior Financing:` with
+  the lender, `Blended Totals:`, a one-line seller financing, Disbursement
+  Options, Interest Reserve with its notes, and Partial Reconveyance followed by
+  each property's release price). A sim test pins that layout line for line. Because the link is the canonical key for a loan
   ([ADR-0001](../adr/0001-loan-entity.md)), the created task joins the loan
   that URL already names rather than minting a duplicate.
 

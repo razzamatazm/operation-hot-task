@@ -91,7 +91,8 @@ const TERMS_FIELDS = {
   txtpartialReconveyance: "",
   /* The extension notes box sits on every loan, used or not (#442). Its rows
      don't: a loan with no extensions has no row elements at all. */
-  extensionstextarea: ""
+  extensionstextarea: "",
+  txtarea_InterestRateNotes: ""
 };
 
 /** The same page with some fields overridden; `null` removes the element. */
@@ -150,6 +151,9 @@ const CONTACT_ROWS = [
   ["", "", "Escrow", "Somebody At Escrow", "First American", "", "", "", ""]
 ];
 
+/** The saved page's broker as the scrape carries him: name, company and email. */
+const BROKER = { type: "Broker", name: "Dan LuVisi", company: "Market Capital Group", email: "dluvisi@mcglend.com" };
+
 const PROPERTY_HEADERS = [
   "",
   "Parcel",
@@ -185,6 +189,16 @@ const wholeAddressOf = (html) =>
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
+
+/** A note's block headings, in order. */
+function headingsOf(note) {
+  return note.split("\n\n").map((block) => block.split("\n")[0]);
+}
+
+/** One block of a note, found by its first line, or undefined. */
+function sectionOf(note, heading) {
+  return note.split("\n\n").find((block) => block.split("\n")[0] === heading);
+}
 
 /** A page whose grids and rows can be swapped out per test. */
 const withGrids = (over = {}) => ({
@@ -1184,20 +1198,18 @@ test("its note is its people, the core terms and its property, and nothing else"
     note,
     [
       "Contacts",
-      "Broker: Dan LuVisi",
+      "Broker: Dan LuVisi - Market Capital Group - dluvisi@mcglend.com",
       "Borrower: Duda Adams",
       "",
-      "Loan Terms",
-      "Loan Amount: $1,300,000",
-      "Term: 24 months",
-      "Interest Rate: Months 1–12 at 7.90%",
-      "Interest Rate: Months 13–24 at 8.40%",
-      "Origination Fee: 2.0000 points",
-      "Broker Fee: 2.0000 points",
-      "Evaluation Fee: $1,750.00",
-      "",
       "Properties",
-      "217 to 225 S. Harbor Boulevard (Refinance-Standard)"
+      "217 to 225 S. Harbor Boulevard, Santa Ana (Refinance)",
+      "",
+      "Terms:",
+      "$1,300,000",
+      "24 months - 1–12 at 7.90% / 13–24 at 8.40%",
+      "Origination: 2.000 points",
+      "Broker: 2.000 points",
+      "Eval: $1,750.00"
     ].join("\n")
   );
 });
@@ -1297,16 +1309,16 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
     note.split("\n\n").map((block) => block.split("\n")[0]),
     [
       "Contacts",
-      "Loan Terms",
-      "Extensions",
-      "Loan Term Notes",
-      "Junior Financing",
-      "Blended Totals",
-      "Seller Financing",
+      "Properties",
+      "Terms:",
+      "Extensions:",
+      "Loan Term Notes:",
+      "Junior Financing:",
+      "Blended Totals:",
+      "Seller Financing Permitted Amount: $50,000.00",
       "Disbursement Options",
       "Interest Reserve",
-      "Partial Reconveyance",
-      "Properties"
+      "Partial Reconveyance"
     ]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
@@ -1420,7 +1432,7 @@ test("an all-empty rate row is dropped rather than rendered as a bare heading", 
 
 test("a rate row with no rate still says which months it covers", () => {
   const result = withTerms({ rateTiers: [{ startMonth: "1", endMonth: "12", rate: "" }] });
-  assert.equal(humperdinkNoteText(result.payload), "Loan Terms\nInterest Rate: Months 1–12");
+  assert.equal(humperdinkNoteText(result.payload), "Terms:\n1–12");
 });
 
 /* A zero in the CORE set is a loan term, not an unused panel, so it still says
@@ -1428,19 +1440,19 @@ test("a rate row with no rate still says which months it covers", () => {
    one. */
 test("a zero in the core terms is a real term and says so", async () => {
   const note = await scrapeNote(withFields({ OriginationFeePoints: "0.0000", txtEvaluation: "$0.00" }));
-  assert.match(note, /Origination Fee: 0\.0000 points/);
-  assert.match(note, /Evaluation Fee: \$0\.00/);
+  assert.match(note, /Origination: 0\.000 points/);
+  assert.match(note, /Eval: \$0\.00/);
 });
 
 test("a zero broker fee is left out of the note", async () => {
   const note = await scrapeNote(withFields({ BrokerFeePoints: "0.0000" }));
-  assert.doesNotMatch(note, /Broker Fee/);
-  assert.match(note, /Origination Fee: 2\.0000 points\nEvaluation Fee/);
+  assert.doesNotMatch(note, /Broker: [\d.]+ points/);
+  assert.match(note, /Origination: 2\.000 points\nEval/);
 });
 
 test("a broker fee that isn't zero still shows", async () => {
   const note = await scrapeNote(withFields({ BrokerFeePoints: "1.5000" }));
-  assert.match(note, /Broker Fee: 1\.5000 points/);
+  assert.match(note, /Broker: 1\.500 points/);
 });
 
 /* #196 lists the combined/blended figures as their own conditional group, and
@@ -1452,7 +1464,7 @@ test("the blended figures read as their own block under the junior loan", async 
     withSwitches({ juniorFinancing: true })
   );
   const headings = note.split("\n\n").map((block) => block.split("\n")[0]);
-  assert.deepEqual(headings, ["Contacts", "Loan Terms", "Junior Financing", "Blended Totals", "Properties"]);
+  assert.deepEqual(headings, ["Contacts", "Properties", "Terms:", "Junior Financing:", "Blended Totals:"]);
 });
 
 /* ── The people and the properties (#197) ───────────────────
@@ -1485,7 +1497,7 @@ const scrapePayload = async (over = {}) => {
 test("the broker and the borrower travel, matched on contact type", async () => {
   const payload = await scrapePayload();
   assert.deepEqual(payload.contacts, [
-    { type: "Broker", name: "Dan LuVisi" },
+    BROKER,
     { type: "Borrower", name: "Duda Adams" }
   ]);
 });
@@ -1497,7 +1509,7 @@ test("shuffling the contact rows changes nothing about the note", async () => {
   const shuffled = [CONTACT_ROWS[2], CONTACT_ROWS[1], CONTACT_ROWS[0]];
   const payload = await scrapePayload({ grids: withGrids({ contactRows: shuffled }) });
   assert.deepEqual(payload.contacts, [
-    { type: "Broker", name: "Dan LuVisi" },
+    BROKER,
     { type: "Borrower", name: "Duda Adams" }
   ]);
 });
@@ -1509,7 +1521,7 @@ test("an inserted column doesn't shift the scrape onto the wrong cell", async ()
   const rows = CONTACT_ROWS.map((row) => ["A+", ...row]);
   const payload = await scrapePayload({ grids: withGrids({ contactHeaders: headers, contactRows: rows }) });
   assert.deepEqual(payload.contacts, [
-    { type: "Broker", name: "Dan LuVisi" },
+    BROKER,
     { type: "Borrower", name: "Duda Adams" }
   ]);
 });
@@ -1524,7 +1536,7 @@ test("a loan with two borrowers carries both, under the borrower label", async (
   const rows = [...CONTACT_ROWS, ["", "", "Borrower", "Marta Adams", "", "", "", "", ""]];
   const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
   assert.deepEqual(payload.contacts, [
-    { type: "Broker", name: "Dan LuVisi" },
+    BROKER,
     { type: "Borrower", name: "Duda Adams" },
     { type: "Borrower", name: "Marta Adams" }
   ]);
@@ -1547,14 +1559,14 @@ test("a silent borrower travels under its own name, after the borrowers", async 
   ];
   const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
   assert.deepEqual(payload.contacts, [
-    { type: "Broker", name: "Dan LuVisi" },
+    BROKER,
     { type: "Borrower", name: "Duda Adams" },
     { type: "Borrower", name: "Marta Adams" },
     { type: "Silent Borrower", name: "Pat Quiet" }
   ]);
   const contacts = humperdinkNoteSections(payload).find((section) => section.heading === "Contacts");
   assert.deepEqual(contacts.lines, [
-    "Broker: Dan LuVisi",
+    "Broker: Dan LuVisi - Market Capital Group - dluvisi@mcglend.com",
     "Borrower: Duda Adams",
     "Borrower: Marta Adams",
     "Silent Borrower: Pat Quiet"
@@ -1594,23 +1606,26 @@ test("the parser reads a silent borrower and the note prints it as sent", () => 
 test("a refinanced property travels, with its transaction type", async () => {
   const payload = await scrapePayload();
   assert.deepEqual(payload.properties, [
-    { address: "217 to 225 S. Harbor Boulevard", transactionType: "Refinance-Standard" }
+    { address: "217 to 225 S. Harbor Boulevard", city: "Santa Ana", transactionType: "Refinance-Standard" }
   ]);
-  assert.match(humperdinkNoteText(payload), /Properties\n217 to 225 S\. Harbor Boulevard \(Refinance-Standard\)$/);
+  assert.equal(
+    sectionOf(humperdinkNoteText(payload), "Properties"),
+    "Properties\n217 to 225 S. Harbor Boulevard, Santa Ana (Refinance)"
+  );
 });
 
 /* Humperdink packs the whole address into one `<br/>`-split cell. */
-test("a property carries its street address, its transaction type and its purchase price", async () => {
+test("a property carries its street address, city, transaction type and purchase price", async () => {
   const payload = await scrapePayload({ grids: withGrids({ propertyRows: [acquisitionRow()] }) });
   assert.deepEqual(payload.properties, [
-    { address: "1400 Ocean Avenue", transactionType: "Acquisition", purchasePrice: "$850,000" }
+    { address: "1400 Ocean Avenue", city: "Long Beach", transactionType: "Acquisition", purchasePrice: "$850,000" }
   ]);
 });
 
 test("nothing else off the property row travels", async () => {
   const note = await scrapeNote(TERMS_FIELDS, withGrids({ propertyRows: [acquisitionRow()] }));
-  assert.equal(note.split("\n\n").pop(), "Properties\n1400 Ocean Avenue (Acquisition), Purchase Price $850,000");
-  for (const excluded of ["Apartment", "Long Beach", "90802", "Los Angeles"]) {
+  assert.equal(sectionOf(note, "Properties"), "Properties\n1400 Ocean Avenue, Long Beach (Acquisition) - PP: $850,000");
+  for (const excluded of ["Apartment", "CA 90802", "Los Angeles"]) {
     assert.doesNotMatch(note, new RegExp(excluded), `${excluded} is not what an LOI check needs`);
   }
 });
@@ -1636,7 +1651,7 @@ test("the loan-level scenario type changes nothing about the properties", async 
     });
     assert.deepEqual(
       payload.properties,
-      [{ address: "1400 Ocean Avenue", transactionType: "Acquisition", purchasePrice: "$850,000" }],
+      [{ address: "1400 Ocean Avenue", city: "Long Beach", transactionType: "Acquisition", purchasePrice: "$850,000" }],
       scenario
     );
   }
@@ -1653,9 +1668,9 @@ test("a mixed loan carries every property, in grid order", async () => {
     })
   });
   assert.deepEqual(payload.properties, [
-    { address: "217 to 225 S. Harbor Boulevard", transactionType: "Refinance-Standard" },
-    { address: "1400 Ocean Avenue", transactionType: "Acquisition", purchasePrice: "$850,000" },
-    { address: "88 Palm Court", transactionType: "Acquisition", purchasePrice: "$1,200,000" }
+    { address: "217 to 225 S. Harbor Boulevard", city: "Santa Ana", transactionType: "Refinance-Standard" },
+    { address: "1400 Ocean Avenue", city: "Long Beach", transactionType: "Acquisition", purchasePrice: "$850,000" },
+    { address: "88 Palm Court", city: "Irvine", transactionType: "Acquisition", purchasePrice: "$1,200,000" }
   ]);
 });
 
@@ -1663,19 +1678,19 @@ test("a property with no purchase price filled in leaves the price out", async (
   const payload = await scrapePayload({
     grids: withGrids({ propertyRows: [acquisitionRow({ price: "$0" })] })
   });
-  assert.deepEqual(payload.properties, [{ address: "1400 Ocean Avenue", transactionType: "Acquisition" }]);
-  assert.match(humperdinkNoteText(payload), /Properties\n1400 Ocean Avenue \(Acquisition\)$/);
+  assert.deepEqual(payload.properties, [{ address: "1400 Ocean Avenue", city: "Long Beach", transactionType: "Acquisition" }]);
+  assert.equal(sectionOf(humperdinkNoteText(payload), "Properties"), "Properties\n1400 Ocean Avenue, Long Beach (Acquisition)");
 });
 
 /* AC: "Note sections read in a stable order alongside the terms from #196." */
-test("the people lead the note and the properties close it, always in that order", async () => {
+test("the people lead the note and the properties follow them, always in that order", async () => {
   const note = await scrapeNote(
     withFields({ txtLoanTermsNotes: "Rate locked 14 days." }),
     withGrids({ propertyRows: [acquisitionRow()] })
   );
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
-    ["Contacts", "Loan Terms", "Loan Term Notes", "Properties"]
+    ["Contacts", "Properties", "Terms:", "Loan Term Notes:"]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
 });
@@ -1952,8 +1967,6 @@ const EXTENSION_ROW = {
   ExtensionPoints1: "1.00"
 };
 
-const headingsOf = (note) => note.split("\n\n").map((block) => block.split("\n")[0]);
-const sectionOf = (note, heading) => note.split("\n\n").find((block) => block.split("\n")[0] === heading);
 
 test("an extension row travels as a line in its own block, right after Loan Terms", async () => {
   const switches = withSwitches({ extensions: true });
@@ -1961,8 +1974,8 @@ test("an extension row travels as a line in its own block, right after Loan Term
   assert.deepEqual(terms.extensions, [{ startMonth: "1", endMonth: "6", rate: "8.90%", points: "1.00" }]);
 
   const note = await scrapeNote(withFields({ ...EXTENSION_ROW, txtLoanTermsNotes: "Rate locked 14 days." }), withGrids(), switches);
-  assert.deepEqual(headingsOf(note), ["Contacts", "Loan Terms", "Extensions", "Loan Term Notes", "Properties"]);
-  assert.equal(sectionOf(note, "Extensions"), "Extensions\nMonths 1–6 at 8.90%, 1.00 points");
+  assert.deepEqual(headingsOf(note), ["Contacts", "Properties", "Terms:", "Extensions:", "Loan Term Notes:"]);
+  assert.equal(sectionOf(note, "Extensions:"), "Extensions:\nMonths 1–6 at 8.90%, 1.00 points");
 });
 
 test("every extension row travels in row order, a missing % is added and zero points are left off", async () => {
@@ -1977,7 +1990,7 @@ test("every extension row travels in row order, a missing % is added and zero po
     withGrids(),
     withSwitches({ extensions: true })
   );
-  assert.equal(sectionOf(note, "Extensions"), "Extensions\nMonths 1–6 at 8.90%, 1.00 points\nMonths 7–12 at 9.40%");
+  assert.equal(sectionOf(note, "Extensions:"), "Extensions:\nMonths 1–6 at 8.90%, 1.00 points\nMonths 7–12 at 9.40%");
 });
 
 test("the extension notes follow the extension lines", async () => {
@@ -1987,8 +2000,8 @@ test("the extension notes follow the extension lines", async () => {
     withSwitches({ extensions: true })
   );
   assert.equal(
-    sectionOf(note, "Extensions"),
-    "Extensions\nMonths 1–6 at 8.90%, 1.00 points\nFee due at each extension."
+    sectionOf(note, "Extensions:"),
+    "Extensions:\nMonths 1–6 at 8.90%, 1.00 points\nFee due at each extension."
   );
 });
 
@@ -1997,7 +2010,7 @@ test("the extension notes follow the extension lines", async () => {
 test("a loan with no extension rows exports cleanly, with no Extensions block either way its switch sits", async () => {
   for (const extensions of [true, false]) {
     const note = await scrapeNote(TERMS_FIELDS, withGrids(), withSwitches({ extensions }));
-    assert.equal(sectionOf(note, "Extensions"), undefined, `switch ${extensions ? "on" : "off"}`);
+    assert.equal(sectionOf(note, "Extensions:"), undefined,`switch ${extensions ? "on" : "off"}`);
   }
 });
 
@@ -2026,12 +2039,13 @@ const STALE_FIELDS = withFields({
   DrawIncrementAmount: "$10,000",
   interestReserveAmount: "$150,000.00",
   interestReserveMonths: "12",
-  txtpartialReconveyance: "125% of allocated loan amount"
+  txtpartialReconveyance: "125% of allocated loan amount",
+  txtarea_InterestRateNotes: "Split over each month"
 });
 
 test("a switched-off panel sends nothing, whatever its inputs still hold", async () => {
   const note = await scrapeNote(STALE_FIELDS, withGrids(), SWITCHES_OFF);
-  assert.deepEqual(headingsOf(note), ["Contacts", "Loan Terms", "Properties"]);
+  assert.deepEqual(headingsOf(note), ["Contacts", "Properties", "Terms:"]);
   assert.doesNotMatch(note, /\$10,000|Permitted|Old extension note/);
 });
 
@@ -2039,21 +2053,25 @@ test("the same inputs with every switch on all travel", async () => {
   const note = await scrapeNote(STALE_FIELDS, withGrids(), SWITCHES_ON);
   assert.deepEqual(headingsOf(note), [
     "Contacts",
-    "Loan Terms",
-    "Extensions",
-    "Junior Financing",
-    "Blended Totals",
-    "Seller Financing",
+    "Properties",
+    "Terms:",
+    "Extensions:",
+    "Junior Financing:",
+    "Blended Totals:",
+    "Seller Financing Permitted Amount: $500,000.00",
     "Disbursement Options",
     "Interest Reserve",
-    "Partial Reconveyance",
-    "Properties"
+    "Partial Reconveyance"
   ]);
+  assert.equal(
+    sectionOf(note, "Interest Reserve"),
+    "Interest Reserve\nAmount: $150,000.00\nMonths: 12\nNotes: Split over each month"
+  );
 });
 
 test("one panel switched on travels while the rest stay behind", async () => {
   const note = await scrapeNote(STALE_FIELDS, withGrids(), withSwitches({ disbursement: true }));
-  assert.deepEqual(headingsOf(note), ["Contacts", "Loan Terms", "Disbursement Options", "Properties"]);
+  assert.deepEqual(headingsOf(note), ["Contacts", "Properties", "Terms:", "Disbursement Options"]);
   assert.equal(
     sectionOf(note, "Disbursement Options"),
     "Disbursement Options\nInitial Advance: $1,000,000\nDraw Minimum: $10,000\nIncrement: $10,000"
@@ -2073,9 +2091,9 @@ test("a page missing a panel switch reports it by id and copies nothing", async 
 
 test("financing switched on with nothing filled in says Permitted, and nothing more", async () => {
   const note = await scrapeNote(TERMS_FIELDS, withGrids(), withSwitches({ juniorFinancing: true, sellerFinancing: true }));
-  assert.equal(sectionOf(note, "Junior Financing"), "Junior Financing\nJunior Financing: Permitted");
-  assert.equal(sectionOf(note, "Seller Financing"), "Seller Financing\nSeller Financing: Permitted");
-  assert.equal(sectionOf(note, "Blended Totals"), undefined, "the blended figures still need a junior loan");
+  assert.equal(sectionOf(note, "Junior Financing:"), "Junior Financing:\nPermitted");
+  assert.equal(sectionOf(note, "Seller Financing Permitted"), "Seller Financing Permitted");
+  assert.equal(sectionOf(note, "Blended Totals:"), undefined, "the blended figures still need a junior loan");
 });
 
 test("financing with figures shows the figures, not Permitted", async () => {
@@ -2084,10 +2102,12 @@ test("financing with figures shows the figures, not Permitted", async () => {
     withGrids(),
     withSwitches({ sellerFinancing: true })
   );
-  assert.equal(sectionOf(note, "Seller Financing"), "Seller Financing\nAmount: $500,000.00");
+  assert.deepEqual(headingsOf(note).filter((heading) => /Seller/.test(heading)), [
+    "Seller Financing Permitted Amount: $500,000.00"
+  ]);
 });
 
-test("a Lender contact travels, after the borrowers", async () => {
+test("a Lender contact travels, and reads under Junior Financing rather than Contacts", async () => {
   const rows = [
     ["", "", "Lender", "RTI Properties", "", "", "", "", ""],
     ...CONTACT_ROWS,
@@ -2095,12 +2115,29 @@ test("a Lender contact travels, after the borrowers", async () => {
   ];
   const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
   assert.deepEqual(payload.contacts, [
-    { type: "Broker", name: "Dan LuVisi" },
+    BROKER,
     { type: "Borrower", name: "Duda Adams" },
     { type: "Silent Borrower", name: "Pat Quiet" },
     { type: "Lender", name: "RTI Properties" }
   ]);
-  assert.equal(sectionOf(humperdinkNoteText(payload), "Contacts").split("\n").pop(), "Lender: RTI Properties");
+  const note = humperdinkNoteText({ ...payload, terms: { juniorFinancingAmount: "$200,000.00" } });
+  assert.doesNotMatch(sectionOf(note, "Contacts"), /RTI Properties/);
+  assert.equal(sectionOf(note, "Junior Financing:"), "Junior Financing:\nLender: RTI Properties\nAmount: $200,000.00");
+});
+
+/* A lender contact with a company reads as the company: that is what
+   Humperdink's own Lender box in the Junior Financing panel shows. */
+test("a lender with a company reads as the company", () => {
+  const result = parseHumperdinkPayload(
+    payloadText({
+      contacts: [{ type: "Lender", name: "Sam Lender", company: "RTI Properties", email: "sam@rti.example" }],
+      terms: { juniorFinancingAmount: "$200,000.00" }
+    })
+  );
+  assert.equal(
+    sectionOf(humperdinkNoteText(result.payload), "Junior Financing:"),
+    "Junior Financing:\nLender: RTI Properties\nAmount: $200,000.00"
+  );
 });
 
 const OCEAN = "1400 Ocean Avenue";
@@ -2111,11 +2148,14 @@ test("a property's release price travels, as dollars", async () => {
     releasePrices: { [OCEAN]: "2950000.00" }
   });
   assert.deepEqual(payload.properties, [
-    { address: OCEAN, transactionType: "Acquisition", purchasePrice: "$850,000", releasePrice: "$2,950,000.00" }
+    { address: OCEAN, city: "Long Beach", transactionType: "Acquisition", purchasePrice: "$850,000", releasePrice: "$2,950,000.00" }
   ]);
+  const note = humperdinkNoteText(payload);
+  assert.equal(sectionOf(note, "Properties"), "Properties\n1400 Ocean Avenue, Long Beach (Acquisition) - PP: $850,000");
   assert.equal(
-    sectionOf(humperdinkNoteText(payload), "Properties"),
-    "Properties\n1400 Ocean Avenue (Acquisition), Purchase Price $850,000, Release Price $2,950,000.00"
+    sectionOf(note, "Partial Reconveyance"),
+    "Partial Reconveyance\n1400 Ocean Avenue - Release Price $2,950,000.00",
+    "release prices read under Partial Reconveyance, even with that panel switched off"
   );
 });
 
@@ -2276,7 +2316,7 @@ test("the parser rebuilds extension rows, drops empty ones and caps a runaway ta
 
 test("extension notes alone still make an Extensions block", () => {
   const result = withTerms({ extensionNotes: "Two six-month options." });
-  assert.equal(humperdinkNoteText(result.payload), "Extensions\nTwo six-month options.");
+  assert.equal(humperdinkNoteText(result.payload), "Extensions:\nTwo six-month options.");
 });
 
 test("the parser keeps a property's transaction type and release price", () => {
@@ -2294,7 +2334,7 @@ test("the parser keeps a property's transaction type and release price", () => {
    release price. */
 test("a property from an older script still reads as one line", () => {
   const result = parseHumperdinkPayload(payloadText({ properties: [{ address: OCEAN, purchasePrice: "$850,000" }] }));
-  assert.equal(humperdinkNoteText(result.payload), "Properties\n1400 Ocean Avenue, Purchase Price $850,000");
+  assert.equal(humperdinkNoteText(result.payload), "Properties\n1400 Ocean Avenue - PP: $850,000");
 });
 
 /* Every property travelling changed what `properties` means, so the version
@@ -2310,4 +2350,129 @@ test("the payload is version 2, and a version 1 export from an older script stil
   assert.equal(result.ok, true, result.error);
   assert.equal(result.payload.version, 1);
   assert.equal(result.payload.properties.length, 1);
+});
+
+/* ── The note's layout, as the desk asked for it (2026-09-15) ── */
+
+test("a fully loaded loan reads exactly the way the desk laid it out", () => {
+  const result = parseHumperdinkPayload(
+    payloadText({
+      contacts: [
+        { type: "Broker", name: "Pat Broker", company: "Broker Company", email: "broker@example.com" },
+        { type: "Borrower", name: "Jordan Borrower", company: "Borrower Company", email: "borrower@example.com" },
+        { type: "Silent Borrower", name: "Casey Silent" },
+        { type: "Lender", name: "RTI Properties" }
+      ],
+      properties: [
+        { address: "15632 El Prado Road", city: "Chino", transactionType: "Acquisition-Standard", purchasePrice: "$5,300,000", releasePrice: "$2,950,000.00" },
+        { address: "217 S. Harbor Boulevard", city: "Santa Ana", transactionType: "Refinance-Standard", releasePrice: "$1,100,000.00" }
+      ],
+      terms: {
+        loanAmount: "$2,750,000",
+        termMonths: "12",
+        rateTiers: [
+          { startMonth: "1", endMonth: "6", rate: "7.90%" },
+          { startMonth: "7", endMonth: "12", rate: "8.40%" }
+        ],
+        originationFeePoints: "1.0000",
+        brokerFeePoints: "1.0000",
+        evaluationFee: "$1,750.00",
+        extensions: [
+          { startMonth: "13", endMonth: "18", rate: "8.90%", points: "1.00" },
+          { startMonth: "19", endMonth: "24", rate: "9.40%", points: "1.00" }
+        ],
+        extensionNotes: "Extension fee due at start of each extension.",
+        loanTermNotes: "Rate locked 14 days.",
+        juniorFinancingAmount: "$200,000.00",
+        juniorFinancingRate: "9.90%",
+        juniorFinancingPoints: "1",
+        juniorFinancingFee: "$2,000.00",
+        combinedLoanAndCltv: "$2,950,000.00  /  62.21%",
+        blendedRate: "8.04%",
+        blendedPoints: "1.0000",
+        blendedFee: "$29,500.00",
+        sellerFinancingAmount: "$500,000.00",
+        initialAdvance: "$1,000,000",
+        drawMinimum: "$10,000",
+        drawIncrement: "$10,000",
+        interestReserveAmount: "$150,000.00",
+        interestReserveMonths: "12",
+        interestReserveNotes: "Split over each month",
+        partialReconveyance: "125% of allocated loan amount"
+      }
+    })
+  );
+  assert.equal(result.ok, true, result.error);
+  assert.equal(
+    humperdinkNoteText(result.payload),
+    [
+      "Contacts",
+      "Broker: Pat Broker - Broker Company - broker@example.com",
+      "Borrower: Jordan Borrower - Borrower Company - borrower@example.com",
+      "Silent Borrower: Casey Silent",
+      "",
+      "Properties",
+      "15632 El Prado Road, Chino (Acquisition) - PP: $5,300,000",
+      "217 S. Harbor Boulevard, Santa Ana (Refinance)",
+      "",
+      "Terms:",
+      "$2,750,000",
+      "12 months - 1–6 at 7.90% / 7–12 at 8.40%",
+      "Origination: 1.000 points",
+      "Broker: 1.000 points",
+      "Eval: $1,750.00",
+      "",
+      "Extensions:",
+      "Months 13–18 at 8.90%, 1.00 points",
+      "Months 19–24 at 9.40%, 1.00 points",
+      "Extension fee due at start of each extension.",
+      "",
+      "Loan Term Notes:",
+      "Rate locked 14 days.",
+      "",
+      "Junior Financing:",
+      "Lender: RTI Properties",
+      "Amount: $200,000.00",
+      "Rate: 9.90%",
+      "Points: 1",
+      "Fee: $2,000.00",
+      "",
+      "Blended Totals:",
+      "Total Loan / CLTV: $2,950,000.00  /  62.21%",
+      "Blended Rate: 8.04%",
+      "Blended Points: 1.0000",
+      "Blended Fee: $29,500.00",
+      "",
+      "Seller Financing Permitted Amount: $500,000.00",
+      "",
+      "Disbursement Options",
+      "Initial Advance: $1,000,000",
+      "Draw Minimum: $10,000",
+      "Increment: $10,000",
+      "",
+      "Interest Reserve",
+      "Amount: $150,000.00",
+      "Months: 12",
+      "Notes: Split over each month",
+      "",
+      "Partial Reconveyance",
+      "125% of allocated loan amount",
+      "15632 El Prado Road - Release Price $2,950,000.00",
+      "217 S. Harbor Boulevard - Release Price $1,100,000.00"
+    ].join("\n")
+  );
+});
+
+/* A transaction type with no dash, like `Acquisition with Refi Cross`, is
+   already short and reads whole. */
+test("a transaction type is shortened at its first dash, and only there", () => {
+  const result = parseHumperdinkPayload(
+    payloadText({
+      properties: [
+        { address: "1 A St", transactionType: "Acquisition with Refi Cross" },
+        { address: "2 B St", transactionType: "Refinance-Cash Out" }
+      ]
+    })
+  );
+  assert.equal(humperdinkNoteText(result.payload), "Properties\n1 A St (Acquisition with Refi Cross)\n2 B St (Refinance)");
 });

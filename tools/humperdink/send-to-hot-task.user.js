@@ -161,7 +161,8 @@
   };
   var INTEREST_RESERVE_TERM_IDS = {
     interestReserveAmount: "interestReserveAmount",
-    interestReserveMonths: "interestReserveMonths"
+    interestReserveMonths: "interestReserveMonths",
+    interestReserveNotes: "txtarea_InterestRateNotes"
   };
   var RECONVEYANCE_TERM_IDS = { partialReconveyance: "txtpartialReconveyance" };
 
@@ -444,6 +445,12 @@
     return normalise(markupText(head)).replace(/,+$/, "");
   }
 
+  /* The city: the address cell's second line, up to its first comma. */
+  function cityFromMarkup(markup) {
+    var lines = String(markup == null ? "" : markup).split(/<br\s*\/?>/i);
+    return lines.length > 1 ? normalise(markupText(lines[1]).split(",")[0]) : "";
+  }
+
   function streetAddress(cell) {
     if (!cell) return "";
     var markup = cell.innerHTML == null ? "" : String(cell.innerHTML);
@@ -520,9 +527,10 @@
     return { ok: true, rows: read, at: indexes };
   }
 
-  /* Broker and borrower, matched on the contact type text. */
+  /* The people an LOI check needs, matched on the contact type text, each with
+     their company and email when the grid has them. */
   function collectContacts(doc) {
-    var grid = readGrid(doc, CONTACTS_GRID, { type: "Type", name: "Name" });
+    var grid = readGrid(doc, CONTACTS_GRID, { type: "Type", name: "Name", company: "Company", email: "Email" });
     if (!grid.ok) return grid;
     var contacts = [];
     for (var t = 0; t < CONTACT_TYPES.length; t += 1) {
@@ -531,7 +539,13 @@
         var cells = grid.rows[i];
         if (elementText(cells[grid.at.type]).toLowerCase() !== wanted) continue;
         var name = elementText(cells[grid.at.name]);
-        if (name) contacts.push({ type: CONTACT_TYPES[t], name: name });
+        if (!name) continue;
+        var contact = { type: CONTACT_TYPES[t], name: name };
+        var company = elementText(cells[grid.at.company]);
+        if (company) contact.company = company;
+        var email = elementText(cells[grid.at.email]);
+        if (email) contact.email = email;
+        contacts.push(contact);
       }
     }
     return { ok: true, contacts: contacts };
@@ -663,6 +677,8 @@
       }
       taken[key] = nth + 1;
       var property = { address: address };
+      var city = cell && cell.innerHTML ? cityFromMarkup(cell.innerHTML) : "";
+      if (city) property.city = city;
       var transaction = elementText(cells[grid.at.transaction]);
       if (transaction) property.transactionType = transaction;
       // A $0 purchase price is one nobody has filled in yet, not a free house.
