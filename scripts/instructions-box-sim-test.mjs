@@ -238,8 +238,8 @@ test("the box caps its height and scrolls inside itself", () => {
 });
 
 test("the four new boxes render in the body face, not the fixed-width one", () => {
-  /* The mono exception is the LOI's *term sheet input* and nothing else
-     (`apps/web/CLAUDE.md`): tabular matter whose columns only line up in a
+  /* The mono exception is the LOI's *term sheet input* and nothing else:
+     tabular matter whose columns only line up in a
      fixed-width font. The card's box has always been body-face for everybody,
      and widening it to five types must not drag the exception along. */
   assert.ok(
