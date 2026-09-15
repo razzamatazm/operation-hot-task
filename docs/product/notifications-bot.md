@@ -60,17 +60,15 @@
     button is a link, and the claim happens where the user's own token already
     is. Claiming without opening is the rarer path and has no button of its
     own.
-    - **The claim intent rides inside `subEntityId`** as `claim:<taskId>`,
-      because `subEntityId` is the only context value Teams desktop delivers
-      to the tab; the separate `claimOnOpen` field #180 used never arrived
-      (#443). Only `withClaimIntent`, called only by the channel card, writes
-      it. The plain Open button, the DM cards, the activity feed and the web
-      app's "Copy link" produce the view-only URL they always did. A copied
-      Claim & Open link can claim for whoever opens it, which the owner
-      accepted: the server still refuses a claimed task or the creator's own
-      (ADR-0003), and a refusal is a toast. `withClaimIntent` derives the claim
-      twin from a link already recorded, so both buttons point where the card
-      has always pointed even across a config change.
+    - **The claim intent is opt-in and lives in its own field**
+      (`claimOnOpen: true`) inside the link's `context` JSON, beside
+      `subEntityId` — never a prefix or sentinel on the task id. Every other
+      caller of `teamsTaskDeepLink` (the plain Open button, the DM cards, the
+      activity feed, the web app's "Copy link") produces the byte-identical
+      view-only URL it always did, so a link pasted into a chat can never claim
+      a task for whoever opens it. `withClaimIntent` derives the claim twin from
+      a link already recorded, so both buttons point where the card has always
+      pointed even across a config change.
     - **The claim never blocks the navigation.** The tab opens on the task
       expanded either way, and it goes through the same claim call every other
       claim in the web app does. A refusal is a toast beside it carrying the
