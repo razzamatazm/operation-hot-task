@@ -56,6 +56,16 @@ export interface HumperdinkRateTier {
   rate: string;
 }
 
+/** One row of Humperdink's extensions table (#442): a month range at a rate,
+    for a fee in points. A loan has none, one or several. */
+export interface HumperdinkExtension {
+  startMonth: string;
+  endMonth: string;
+  rate: string;
+  /** "" when the row carries no fee. */
+  points: string;
+}
+
 /* The loan's terms, exactly as Humperdink displays them (issue #196).
 
    Every field is a **display string**, not a number — `"$1,300,000"`,
@@ -71,8 +81,9 @@ export interface HumperdinkRateTier {
 
    The excluded set from #196 is enforced by this type having no home for it:
    loan-amount-requested, term-requested, reason for loan, exit strategy,
-   borrower real estate experience, red flags, lender, status and closing date
-   are deliberately absent. */
+   borrower real estate experience, red flags, the loan-level lender, status and
+   closing date are deliberately absent. (A contact whose type is Lender does
+   travel, since #442, but as a contact.) */
 export interface HumperdinkTerms {
   /* Core: the terms panel's headline figures. */
   loanAmount?: string;
@@ -83,7 +94,11 @@ export interface HumperdinkTerms {
   evaluationFee?: string;
   loanTermNotes?: string;
 
-  /* Conditional: panels Humperdink keeps collapsed until a loan uses them. */
+  /* Conditional: panels with an on/off switch, sent only while it's on (#442). */
+  extensions?: HumperdinkExtension[];
+  extensionNotes?: string;
+  /** `"Permitted"` when the switch is on and no junior figure is filled in. */
+  juniorFinancingPermitted?: string;
   juniorFinancingAmount?: string;
   juniorFinancingRate?: string;
   juniorFinancingPoints?: string;
@@ -93,6 +108,8 @@ export interface HumperdinkTerms {
   blendedRate?: string;
   blendedPoints?: string;
   blendedFee?: string;
+  /** `"Permitted"` when the switch is on and no amount is filled in. */
+  sellerFinancingPermitted?: string;
   sellerFinancingAmount?: string;
   initialAdvance?: string;
   drawMinimum?: string;
@@ -105,7 +122,8 @@ export interface HumperdinkTerms {
 /* One person off Humperdink's contact grid (issue #197).
 
    `type` is the contact type text as the grid displays it — `"Broker"`,
-   `"Borrower"`, `"Silent Borrower"` — and it is what the scrape matched on.
+   `"Borrower"`, `"Silent Borrower"`, `"Lender"` — and it is what the scrape
+   matched on.
    It is kept as text, not a closed union: the userscript decides which types
    travel, and the note prints whatever it sent under its own name, so a type
    added there needs nothing here. Humperdink's row ids are positional
@@ -116,16 +134,20 @@ export interface HumperdinkContact {
   name: string;
 }
 
-/* One property the loan is acquiring (issue #197).
+/* One property on the loan (issues #197, #442).
 
-   Street address only, and the purchase price that goes with it. There is no
-   loan-level purchase price in Humperdink — it exists per property — and the
-   rest of the property grid (parcel, property type, existing debt, final value)
-   is not what an LOI check needs. */
+   Street address, transaction type, and the purchase and release prices that
+   go with it. There is no loan-level purchase price in Humperdink — it exists
+   per property — and the rest of the property grid (parcel, property type,
+   existing debt, final value) is not what an LOI check needs. */
 export interface HumperdinkProperty {
   address: string;
+  /** As Humperdink words it, e.g. `"Refinance-Standard"`. Absent from a pre-#442 script. */
+  transactionType?: string;
   /** Absent when the desk hasn't filled one in. */
   purchasePrice?: string;
+  /** Off the property's details, as dollars. Absent when none is set, or from a pre-#442 script. */
+  releasePrice?: string;
 }
 
 export interface HumperdinkPayload {
@@ -147,16 +169,15 @@ export interface HumperdinkPayload {
    */
   terms?: HumperdinkTerms;
   /**
-   * The loan's brokers, borrowers and silent borrowers (#197), grouped in that
-   * order, every one of each. Only those types travel; the rest of
+   * The loan's brokers, borrowers, silent borrowers (#197) and lenders (#442),
+   * grouped in that order, every one of each. Only those types travel; the rest of
    * Humperdink's contact grid stays there. The note prints them in the order
    * they arrive.
    */
   contacts?: HumperdinkContact[];
   /**
-   * The properties this loan is ACQUIRING (#197). A property being refinanced
-   * contributes nothing, so an all-refinance loan carries an empty list and
-   * gets no property block in its note.
+   * Every property on the loan, whatever its transaction (#442). A payload
+   * from a pre-#442 script carries only the ones being acquired (#197).
    */
   properties?: HumperdinkProperty[];
 }
@@ -220,10 +241,13 @@ const nonEmptyString = (value: unknown): string =>
     someone's essay pasted into the wrong box, and the note has to stay
     readable. Free-text fields get `FREE_TEXT_CAP` instead. */
 const TERM_VALUE_CAP = 300;
-/** Humperdink's own `maxlength` on its two term textareas. */
+/** Humperdink's own `maxlength` on its Loan Terms textareas. The extension
+    notes box gets the same. */
 const FREE_TEXT_CAP = 1000;
 /** Humperdink's rate table has an Add button and no ceiling. This one does. */
 const MAX_RATE_TIERS = 12;
+/** The same for its extensions table. */
+const MAX_EXTENSIONS = 12;
 
 const termValue = (value: unknown, cap = TERM_VALUE_CAP): string =>
   nonEmptyString(value).slice(0, cap);
@@ -240,7 +264,7 @@ const termValue = (value: unknown, cap = TERM_VALUE_CAP): string =>
    order of the terms within the note. #197's contacts come before these and
    its properties after, as whole blocks rather than among them. */
 interface TermFieldSpec {
-  field: Exclude<keyof HumperdinkTerms, "rateTiers">;
+  field: Exclude<keyof HumperdinkTerms, "rateTiers" | "extensions">;
   heading: string;
   label: string;
   /** Appended after the value, e.g. `Term: 24 months`. */
@@ -264,7 +288,12 @@ const TERM_FIELDS: readonly TermFieldSpec[] = [
      `Broker Fee: 0.0000 points`. */
   { field: "brokerFeePoints", heading: "Loan Terms", label: "Broker Fee", unit: "points", hideZero: true },
   { field: "evaluationFee", heading: "Loan Terms", label: "Evaluation Fee" },
+  /* Straight after the Loan Terms, so a term's length and its extensions read
+     together. The extension rows render ahead of these notes, in the same
+     block — see `EXTENSIONS_BEFORE`. */
+  { field: "extensionNotes", heading: "Extensions", label: "Extension Notes", prose: true },
   { field: "loanTermNotes", heading: "Loan Term Notes", label: "Loan Term Notes", prose: true },
+  { field: "juniorFinancingPermitted", heading: "Junior Financing", label: "Junior Financing" },
   { field: "juniorFinancingAmount", heading: "Junior Financing", label: "Amount" },
   { field: "juniorFinancingRate", heading: "Junior Financing", label: "Rate" },
   { field: "juniorFinancingPoints", heading: "Junior Financing", label: "Points" },
@@ -273,6 +302,7 @@ const TERM_FIELDS: readonly TermFieldSpec[] = [
   { field: "blendedRate", heading: "Blended Totals", label: "Blended Rate" },
   { field: "blendedPoints", heading: "Blended Totals", label: "Blended Points" },
   { field: "blendedFee", heading: "Blended Totals", label: "Blended Fee" },
+  { field: "sellerFinancingPermitted", heading: "Seller Financing", label: "Seller Financing" },
   { field: "sellerFinancingAmount", heading: "Seller Financing", label: "Amount" },
   { field: "initialAdvance", heading: "Disbursement Options", label: "Initial Advance" },
   { field: "drawMinimum", heading: "Disbursement Options", label: "Draw Minimum" },
@@ -285,6 +315,26 @@ const TERM_FIELDS: readonly TermFieldSpec[] = [
 /** The rate tiers render straight after this field, as `Interest Rate` lines. */
 const RATE_TIER_AFTER: TermFieldSpec["field"] = "termMonths";
 const RATE_TIER_LABEL = "Interest Rate";
+
+/** The extension rows render straight before this field, in its block. */
+const EXTENSIONS_BEFORE: TermFieldSpec["field"] = "extensionNotes";
+
+const readExtensions = (value: unknown): HumperdinkExtension[] => {
+  if (!Array.isArray(value)) return [];
+  const extensions: HumperdinkExtension[] = [];
+  for (const entry of value) {
+    if (extensions.length >= MAX_EXTENSIONS) break;
+    if (!isRecord(entry)) continue;
+    const extension = {
+      startMonth: termValue(entry.startMonth),
+      endMonth: termValue(entry.endMonth),
+      rate: termValue(entry.rate),
+      points: termValue(entry.points)
+    };
+    if (extension.startMonth || extension.endMonth || extension.rate || extension.points) extensions.push(extension);
+  }
+  return extensions;
+};
 
 const readRateTiers = (value: unknown): HumperdinkRateTier[] => {
   if (!Array.isArray(value)) return [];
@@ -316,6 +366,8 @@ const readTerms = (value: unknown): HumperdinkTerms | undefined => {
   }
   const rateTiers = readRateTiers(value.rateTiers);
   if (rateTiers.length > 0) terms.rateTiers = rateTiers;
+  const extensions = readExtensions(value.extensions);
+  if (extensions.length > 0) terms.extensions = extensions;
   return Object.keys(terms).length > 0 ? terms : undefined;
 };
 
@@ -346,8 +398,15 @@ const readProperties = (value: unknown): HumperdinkProperty[] => {
     if (!isRecord(entry)) continue;
     const address = termValue(entry.address);
     if (!address) continue;
+    const transactionType = termValue(entry.transactionType);
     const purchasePrice = termValue(entry.purchasePrice);
-    properties.push(purchasePrice ? { address, purchasePrice } : { address });
+    const releasePrice = termValue(entry.releasePrice);
+    properties.push({
+      address,
+      ...(transactionType ? { transactionType } : {}),
+      ...(purchasePrice ? { purchasePrice } : {}),
+      ...(releasePrice ? { releasePrice } : {})
+    });
   }
   return properties;
 };
@@ -441,7 +500,7 @@ export interface HumperdinkNoteSection {
 
 /** The two blocks #197 adds: contacts before the terms, properties after. */
 const CONTACTS_HEADING = "Contacts";
-const PROPERTIES_HEADING = "Properties Acquired";
+const PROPERTIES_HEADING = "Properties";
 
 /** `"0.0000"`, `"$0.00"`, `"0%"` — a displayed figure that means zero. */
 const isZero = (value: string): boolean => {
@@ -454,6 +513,21 @@ const rateTierLine = (tier: HumperdinkRateTier): string => {
   const span = tier.startMonth && tier.endMonth ? `Months ${tier.startMonth}–${tier.endMonth}` : "Months";
   return tier.rate ? `${span} at ${tier.rate}` : span;
 };
+
+/** One extension row as a line: `Months 1–6 at 8.90%, 1.00 points`. */
+const extensionLine = (extension: HumperdinkExtension): string =>
+  extension.points && !isZero(extension.points)
+    ? `${rateTierLine(extension)}, ${extension.points} points`
+    : rateTierLine(extension);
+
+/** One property as a line:
+    `15632 El Prado Road (Acquisition-Standard), Purchase Price $5,300,000, Release Price $2,950,000.00`. */
+const propertyLine = (property: HumperdinkProperty): string =>
+  [
+    property.transactionType ? `${property.address} (${property.transactionType})` : property.address,
+    ...(property.purchasePrice ? [`Purchase Price ${property.purchasePrice}`] : []),
+    ...(property.releasePrice ? [`Release Price ${property.releasePrice}`] : [])
+  ].join(", ");
 
 /* Split the imported note into its blocks, in reading order.
 
@@ -481,6 +555,9 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
   const terms = payload.terms;
   if (terms) {
     for (const spec of TERM_FIELDS) {
+      if (spec.field === EXTENSIONS_BEFORE) {
+        for (const extension of terms.extensions ?? []) push(spec.heading, extensionLine(extension));
+      }
       const raw = terms[spec.field];
       const value = raw && spec.hideZero && isZero(raw) ? "" : raw;
       /* Prose gets its own bare block rather than a `Label: …` line: it is what
@@ -493,7 +570,7 @@ export const humperdinkNoteSections = (payload: HumperdinkPayload): HumperdinkNo
   }
 
   for (const property of payload.properties ?? []) {
-    push(PROPERTIES_HEADING, property.purchasePrice ? `${property.address} — ${property.purchasePrice}` : property.address);
+    push(PROPERTIES_HEADING, propertyLine(property));
   }
 
   return sections;

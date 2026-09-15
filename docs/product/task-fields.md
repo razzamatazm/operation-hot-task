@@ -448,8 +448,9 @@ is gone seven days after it was last written.
   and the arrival's clipboard fill is meant to make it unnecessary). Pasting
   what the **Send to Hot Task** userscript's **Export to HT** button copied off
   a Humperdink loan page into any field on the form is the import (#409):
-  Folder Name, the Humperdink Link and the loan's terms, brokers, borrowers,
-  silent borrowers and acquired properties fill in, and the pasted text lands
+  Folder Name, the Humperdink Link and the loan's terms, extensions, brokers,
+  borrowers, silent borrowers, lenders and properties (with release prices)
+  fill in, and the pasted text lands
   nowhere. A paste made with no field selected reaches nothing. An export Hot
   Task recognises but can't read (from a newer script, or missing the loan
   name or link) is refused with a toast saying why, and nothing lands. Any other

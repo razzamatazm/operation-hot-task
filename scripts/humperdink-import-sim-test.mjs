@@ -88,7 +88,10 @@ const TERMS_FIELDS = {
   DrawIncrementAmount: "",
   interestReserveAmount: "",
   interestReserveMonths: "",
-  txtpartialReconveyance: ""
+  txtpartialReconveyance: "",
+  /* The extension notes box sits on every loan, used or not (#442). Its rows
+     don't: a loan with no extensions has no row elements at all. */
+  extensionstextarea: ""
 };
 
 /** The same page with some fields overridden; `null` removes the element. */
@@ -97,6 +100,38 @@ const withFields = (over = {}) => {
   for (const [id, value] of Object.entries(fields)) if (value === null) delete fields[id];
   return fields;
 };
+
+/* ── The panel switches (#442) ──────────────────────────────
+
+   Each conditional panel has an on/off switch in its header. Humperdink keeps
+   the panel's inputs on the page, figures and all, whichever way the switch is
+   set, so the switch is the only thing that says whether the loan uses it.
+   Seen live on 2026-09-15: with Disbursement Options switched off, Draw
+   Minimum and Increment still held `$10,000`. A switch is on when its
+   `.toggle-on` child also carries `active`.
+
+   The saved page's loan uses none of the panels, so they default to off. */
+const SWITCH_IDS = {
+  extensions: "toggleExtensions",
+  juniorFinancing: "toggleJuniorFinancePermit",
+  sellerFinancing: "toggleSellerFinancingPermit",
+  disbursement: "toggleHoldBack",
+  interestReserve: "toggleInterestReserve",
+  partialReconveyance: "toggleReconveyance"
+};
+
+/** Every switch off, with some flipped; `null` removes that switch's element. */
+const withSwitches = (over = {}) => {
+  const switches = Object.fromEntries(Object.values(SWITCH_IDS).map((id) => [id, false]));
+  for (const [panel, on] of Object.entries(over)) {
+    if (on === null) delete switches[SWITCH_IDS[panel]];
+    else switches[SWITCH_IDS[panel]] = on;
+  }
+  return switches;
+};
+
+const SWITCHES_OFF = withSwitches();
+const SWITCHES_ON = withSwitches(Object.fromEntries(Object.keys(SWITCH_IDS).map((panel) => [panel, true])));
 
 /* ── The contact and property grids (#197) ───────────────
 
@@ -134,6 +169,15 @@ const PROPERTY_ROWS = [
   ["", "1", HARBOR_ADDRESS, "Refinance-Standard", "Apartment", "$0", "", "$0", "$3,260,267", "$1,300,000"]
 ];
 
+/** The street line of a grid address cell, the way the scrape takes it. */
+const streetOf = (html) =>
+  String(html)
+    .split(/<br\s*\/?>/i)[0]
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/,+$/, "");
+
 /** A page whose grids and rows can be swapped out per test. */
 const withGrids = (over = {}) => ({
   contactHeaders: CONTACT_HEADERS,
@@ -158,7 +202,15 @@ const runUserscript = ({
   href,
   clipboard = "ok",
   fields = TERMS_FIELDS,
+  switches = SWITCHES_OFF,
   grids = withGrids(),
+  /* Each property's release price, by street address, the way its property
+     details partial carries it: a bare number in the input's `value`, or "". */
+  releasePrices = {},
+  /* How Humperdink answers the property details fetch: "ok", "fail" (an error
+     status), "hang" (never answers) or "no-input" (a page with no release
+     price field). */
+  releaseFetch = "ok",
   /* Whether the page carries the LOI button the control mounts beside. The real
      page does; `false` is a Humperdink release that moved it, where the control
      gives up looking and takes the corner as a floating button. */
@@ -222,6 +274,68 @@ const runUserscript = ({
     columntablePropertiesGrid: () => gridElement("columnheader", page.propertyHeaders),
     contenttablePropertiesGrid: () => gridElement("row", page.propertyRows)
   };
+
+  /* A panel switch: a `.toggle-on` child that carries `active` when it's on. */
+  const switchElement = (id, on) => ({
+    id,
+    querySelector: (selector) => (selector === ".toggle-on" ? { className: on ? "toggle-on active" : "toggle-on" } : null)
+  });
+
+  /* The properties grid's own row data, which is where a property's ids live;
+     the painted cells don't carry them. Read through the page's jQuery, the
+     way Humperdink's own OpenProperty reads it. */
+  const propertyData = () =>
+    (page.propertyRows ?? []).map((cells, i) => ({
+      Address: cells[2],
+      TransactionType: cells[3],
+      FKPropertyID: 7000 + i,
+      PKLoanPropertyDetailID: 9000 + i
+    }));
+  const jQuery = (selector) => ({
+    jqxGrid(method) {
+      if (selector !== "#PropertiesGrid" || method !== "getrows") {
+        throw new Error(`the fake jQuery doesn't support ${selector} ${method}`);
+      }
+      return propertyData();
+    }
+  });
+
+  /* Humperdink's property details partial, one GET per property. */
+  const fetched = [];
+  const fetch = (href, init = {}) => {
+    fetched.push({ href: String(href), credentials: init.credentials });
+    if (releaseFetch === "hang") return new Promise(() => {});
+    if (releaseFetch === "fail") return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve("") });
+    const query = new URL(String(href), url.origin).searchParams;
+    const row = propertyData().find(
+      (r) =>
+        String(r.FKPropertyID) === query.get("pkpropertyid") &&
+        String(r.PKLoanPropertyDetailID) === query.get("pkloanspropertydetails")
+    );
+    const html =
+      row && releaseFetch !== "no-input"
+        ? `<input class="font16 form-control" id="txtReleasePrice" name="LoansPropertyDetails.PropertyReleasePrice" type="text" value="${releasePrices[streetOf(row.Address)] ?? ""}">`
+        : "<div>no release price here</div>";
+    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(html) });
+  };
+
+  /* Just enough of a parser to find one input and read its attributes. */
+  class DOMParser {
+    parseFromString(html) {
+      return {
+        getElementById(id) {
+          const tag = new RegExp(`<input[^>]*\\sid="${id}"[^>]*>`).exec(html);
+          if (!tag) return null;
+          return {
+            getAttribute(name) {
+              const found = new RegExp(`\\s${name}="([^"]*)"`).exec(tag[0]);
+              return found ? found[1] : null;
+            }
+          };
+        }
+      };
+    }
+  }
 
   const createElement = (tag) => {
     const el = {
@@ -359,6 +473,7 @@ const runUserscript = ({
     getElementById: (id) =>
       created.find((el) => el.mounted && el.id === id) ??
       (anchor && id === loiButton.id ? loiButton : null) ??
+      (Object.prototype.hasOwnProperty.call(switches, id) ? switchElement(id, switches[id]) : null) ??
       (Object.prototype.hasOwnProperty.call(fields, id) ? { id, value: fields[id] } : null) ??
       (Object.prototype.hasOwnProperty.call(GRID_ELEMENTS, id) ? GRID_ELEMENTS[id]() : null),
     body: {
@@ -458,7 +573,10 @@ const runUserscript = ({
     MutationObserver,
     innerWidth: 1280,
     console,
-    URL
+    URL,
+    jQuery,
+    fetch,
+    DOMParser
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
@@ -468,6 +586,7 @@ const runUserscript = ({
     copied,
     opened,
     navigated,
+    fetched,
     /* The control on the page: inline beside the LOI button, or the floating
        fallback once the script gives up on the header. A getter, because the
        fallback arrives after the script has returned. */
@@ -506,8 +625,15 @@ const runUserscript = ({
     loadGrids(next) {
       page = { ...page, ...next };
     },
+    /* Let what the control already has in flight land. The release-price
+       fetches it starts once the properties are in answer on promises here,
+       with no timer, so one turn of the event loop is enough. */
+    async settled() {
+      await new Promise((resolve) => setImmediate(resolve));
+    },
     /* Let the click handler's clipboard promise settle before we read the label. */
     async press() {
+      await this.settled();
       mountedButton.click();
       await Promise.resolve();
       await Promise.resolve();
@@ -518,8 +644,9 @@ const runUserscript = ({
 
 /* ── The control on the Humperdink page ─────────────────── */
 
-test("the script mounts its Export to HT control beside the LOI button in the Loan Terms header", () => {
+test("the script mounts its Export to HT control beside the LOI button in the Loan Terms header", async () => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
+  await page.settled();
   assert.ok(page.button, "a control went into the header");
   assert.equal(page.button.tagName, "DIV", "shaped like Humperdink's own header buttons");
   assert.equal(page.button.attributes.role, "button");
@@ -946,8 +1073,8 @@ test("unknown fields at a supported version are ignored, not fatal", () => {
    that renames one of them turns up here as a red test, not as a note with a
    quiet hole in it. */
 
-const scrapeTerms = async (fields) => {
-  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields });
+const scrapeTerms = async (fields, switches = SWITCHES_OFF) => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields, switches });
   await page.press();
   assert.equal(page.copied.length, 1, page.said);
   const result = parseHumperdinkPayload(page.copied[0]);
@@ -955,9 +1082,10 @@ const scrapeTerms = async (fields) => {
   return result.payload.terms ?? {};
 };
 
-const scrapeNote = async (fields, grids = withGrids()) => {
-  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields, grids });
+const scrapeNote = async (fields, grids = withGrids(), switches = SWITCHES_OFF) => {
+  const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL, fields, grids, switches });
   await page.press();
+  assert.equal(page.copied.length, 1, page.said);
   const result = parseHumperdinkPayload(page.copied[0]);
   assert.equal(result.ok, true, result.error);
   return humperdinkNoteText(result.payload);
@@ -1018,15 +1146,20 @@ test("a loan using none of the conditional panels carries none of them", async (
     "drawIncrement",
     "interestReserveAmount",
     "interestReserveMonths",
-    "partialReconveyance"
+    "partialReconveyance",
+    "extensions",
+    "extensionNotes",
+    "juniorFinancingPermitted",
+    "sellerFinancingPermitted"
   ]) {
     assert.equal(absent in terms, false, `${absent} should not travel on a loan that doesn't use it`);
   }
 });
 
 /* The whole note the saved loan produces: its two contacts first, then the core
-   terms, and no property block because its one property is a refinance. */
-test("its note is its people and the core terms, and nothing else", async () => {
+   terms, then its one property, which it refinances and has no purchase price
+   for. */
+test("its note is its people, the core terms and its property, and nothing else", async () => {
   const note = await scrapeNote(TERMS_FIELDS);
   assert.equal(
     note,
@@ -1042,7 +1175,10 @@ test("its note is its people and the core terms, and nothing else", async () => 
       "Interest Rate: Months 13–24 at 8.40%",
       "Origination Fee: 2.0000 points",
       "Broker Fee: 2.0000 points",
-      "Evaluation Fee: $1,750.00"
+      "Evaluation Fee: $1,750.00",
+      "",
+      "Properties",
+      "217 to 225 S. Harbor Boulevard (Refinance-Standard)"
     ].join("\n")
   );
 });
@@ -1064,7 +1200,8 @@ test("Total Value and LTV from an older script are dropped", () => {
    Financing heading is exactly the empty label #196 rules out. */
 test("a zero in an unused panel is not a value", async () => {
   const terms = await scrapeTerms(
-    withFields({ SecondTDRate: "0.00%", SellerFinancingAmount: "$0.00", interestReserveMonths: "0" })
+    withFields({ SecondTDRate: "0.00%", SellerFinancingAmount: "$0.00", interestReserveMonths: "0" }),
+    SWITCHES_ON
   );
   assert.equal("juniorFinancingRate" in terms, false);
   assert.equal("sellerFinancingAmount" in terms, false);
@@ -1073,7 +1210,8 @@ test("a zero in an unused panel is not a value", async () => {
 
 test("junior financing travels when the loan has some, and brings the blended figures", async () => {
   const terms = await scrapeTerms(
-    withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%", SecondTDFeePoints: "1.0000" })
+    withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%", SecondTDFeePoints: "1.0000" }),
+    withSwitches({ juniorFinancing: true })
   );
   assert.equal(terms.juniorFinancingAmount, "$200,000.00");
   assert.equal(terms.juniorFinancingRate, "10.00%");
@@ -1102,7 +1240,8 @@ test("the other conditional panels travel when they hold values", async () => {
       interestReserveAmount: "$40,000.00",
       interestReserveMonths: "6",
       txtpartialReconveyance: "Release lot 4 at $300k paydown."
-    })
+    }),
+    SWITCHES_ON
   );
   assert.equal(terms.sellerFinancingAmount, "$50,000.00");
   assert.equal(terms.initialAdvance, "$900,000.00");
@@ -1120,6 +1259,10 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
   const note = await scrapeNote(
     withFields({
       txtLoanTermsNotes: "Rate locked 14 days.",
+      ExtensionMonthStart1: "1",
+      ExtensionMonthEnd1: "6",
+      ExtensionRate1: "8.90%",
+      ExtensionPoints1: "1.00",
       JuniorFinancingAmount: "$200,000.00",
       SecondTDRate: "10.00%",
       SellerFinancingAmount: "$50,000.00",
@@ -1127,20 +1270,24 @@ test("a fully-loaded loan renders every section in a stable order", async () => 
       interestReserveAmount: "$40,000.00",
       interestReserveMonths: "6",
       txtpartialReconveyance: "Release lot 4 at $300k paydown."
-    })
+    }),
+    withGrids(),
+    SWITCHES_ON
   );
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
     [
       "Contacts",
       "Loan Terms",
+      "Extensions",
       "Loan Term Notes",
       "Junior Financing",
       "Blended Totals",
       "Seller Financing",
       "Disbursement Options",
       "Interest Reserve",
-      "Partial Reconveyance"
+      "Partial Reconveyance",
+      "Properties"
     ]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
@@ -1192,7 +1339,7 @@ test("the excluded fields never reach the note", async () => {
     withFields({
       LoanAmountRequested: "$1,500,000",
       TermRequested: "36",
-      txtReasonForLoan: "Refinance",
+      txtReasonForLoan: "Buy out a partner",
       txtExitStrategy: "Sale",
       txtBorrowerExperience: "12 deals",
       txtRedFlags: "None",
@@ -1201,7 +1348,8 @@ test("the excluded fields never reach the note", async () => {
       comboClosingDate: "2026-01-15"
     })
   );
-  for (const excluded of ["$1,500,000", "Refinance", "Sale", "12 deals", "Lone Oak", "Approved", "2026-01-15"]) {
+  // The loan-level Lender field stays behind; a Lender contact is another matter (#442).
+  for (const excluded of ["$1,500,000", "Buy out a partner", "Sale", "12 deals", "Lone Oak", "Approved", "2026-01-15"]) {
     assert.doesNotMatch(note, new RegExp(excluded.replace(/[$.*+?^{}()|[\]\\]/g, "\\$&")), `${excluded} is excluded`);
   }
 });
@@ -1279,9 +1427,13 @@ test("a broker fee that isn't zero still shows", async () => {
 /* #196 lists the combined/blended figures as their own conditional group, and
    they only mean anything next to a junior loan. */
 test("the blended figures read as their own block under the junior loan", async () => {
-  const note = await scrapeNote(withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%" }));
+  const note = await scrapeNote(
+    withFields({ JuniorFinancingAmount: "$200,000.00", SecondTDRate: "10.00%" }),
+    withGrids(),
+    withSwitches({ juniorFinancing: true })
+  );
   const headings = note.split("\n\n").map((block) => block.split("\n")[0]);
-  assert.deepEqual(headings, ["Contacts", "Loan Terms", "Junior Financing", "Blended Totals"]);
+  assert.deepEqual(headings, ["Contacts", "Loan Terms", "Junior Financing", "Blended Totals", "Properties"]);
 });
 
 /* ── The people and the properties (#197) ───────────────────
@@ -1417,57 +1569,61 @@ test("the parser reads a silent borrower and the note prints it as sent", () => 
   );
 });
 
-/* AC: "A loan with no acquisitions produces no property section." The saved
-   loan refinances its one property. */
-test("a refinanced property contributes nothing", async () => {
+/* #442: the desk writes loans on refinances as well as acquisitions, so every
+   property on the loan travels, not only #197's acquisitions. The saved loan
+   refinances its one property. */
+test("a refinanced property travels, with its transaction type", async () => {
   const payload = await scrapePayload();
-  assert.equal("properties" in payload, false);
-  assert.doesNotMatch(humperdinkNoteText(payload), /Properties Acquired/);
-  assert.doesNotMatch(humperdinkNoteText(payload), /Harbor Boulevard/);
+  assert.deepEqual(payload.properties, [
+    { address: "217 to 225 S. Harbor Boulevard", transactionType: "Refinance-Standard" }
+  ]);
+  assert.match(humperdinkNoteText(payload), /Properties\n217 to 225 S\. Harbor Boulevard \(Refinance-Standard\)$/);
 });
 
-/* AC: "only their street address and purchase price". Humperdink packs the
-   whole address into one `<br/>`-split cell. */
-test("an acquired property carries its street address and its purchase price", async () => {
+/* Humperdink packs the whole address into one `<br/>`-split cell. */
+test("a property carries its street address, its transaction type and its purchase price", async () => {
   const payload = await scrapePayload({ grids: withGrids({ propertyRows: [acquisitionRow()] }) });
   assert.deepEqual(payload.properties, [
-    { address: "1400 Ocean Avenue", purchasePrice: "$850,000" }
+    { address: "1400 Ocean Avenue", transactionType: "Acquisition", purchasePrice: "$850,000" }
   ]);
 });
 
 test("nothing else off the property row travels", async () => {
   const note = await scrapeNote(TERMS_FIELDS, withGrids({ propertyRows: [acquisitionRow()] }));
-  assert.equal(note.split("\n\n").pop(), "Properties Acquired\n1400 Ocean Avenue — $850,000");
+  assert.equal(note.split("\n\n").pop(), "Properties\n1400 Ocean Avenue (Acquisition), Purchase Price $850,000");
   for (const excluded of ["Apartment", "Long Beach", "90802", "Los Angeles"]) {
     assert.doesNotMatch(note, new RegExp(excluded), `${excluded} is not what an LOI check needs`);
   }
 });
 
-test("an acquisition of any kind counts", async () => {
-  for (const transaction of ["Acquisition", "Acquisition with Refi Cross", "Purchase-Standard"]) {
+test("a property travels whatever its transaction type", async () => {
+  for (const transaction of ["Acquisition", "Acquisition with Refi Cross", "Purchase-Standard", "Refinance-Standard"]) {
     const payload = await scrapePayload({
       grids: withGrids({ propertyRows: [acquisitionRow({ transaction })] })
     });
     assert.equal(payload.properties.length, 1, transaction);
+    assert.equal(payload.properties[0].transactionType, transaction);
   }
 });
 
-/* AC: "A loan where the loan-level scenario and the per-property transaction
-   disagree follows the per-property signal." One loan can buy some properties
-   and refinance others, so `comboLoanScenarioType` is never consulted — this
-   asserts that by contradicting it in both directions. */
-test("the per-property transaction wins over the loan-level scenario type", async () => {
-  const bought = await scrapePayload({
-    fields: withFields({ comboLoanScenarioType: "Refinance" }),
-    grids: withGrids({ propertyRows: [acquisitionRow()] })
-  });
-  assert.deepEqual(bought.properties, [{ address: "1400 Ocean Avenue", purchasePrice: "$850,000" }]);
-
-  const refinanced = await scrapePayload({ fields: withFields({ comboLoanScenarioType: "Acquisition" }) });
-  assert.equal("properties" in refinanced, false);
+/* One loan can buy some properties and refinance others, so the loan-level
+   `comboLoanScenarioType` is never consulted. Contradicting it either way
+   changes nothing. */
+test("the loan-level scenario type changes nothing about the properties", async () => {
+  for (const scenario of ["Refinance", "Acquisition"]) {
+    const payload = await scrapePayload({
+      fields: withFields({ comboLoanScenarioType: scenario }),
+      grids: withGrids({ propertyRows: [acquisitionRow()] })
+    });
+    assert.deepEqual(
+      payload.properties,
+      [{ address: "1400 Ocean Avenue", transactionType: "Acquisition", purchasePrice: "$850,000" }],
+      scenario
+    );
+  }
 });
 
-test("a mixed loan carries only the properties it is buying", async () => {
+test("a mixed loan carries every property, in grid order", async () => {
   const payload = await scrapePayload({
     grids: withGrids({
       propertyRows: [
@@ -1478,17 +1634,18 @@ test("a mixed loan carries only the properties it is buying", async () => {
     })
   });
   assert.deepEqual(payload.properties, [
-    { address: "1400 Ocean Avenue", purchasePrice: "$850,000" },
-    { address: "88 Palm Court", purchasePrice: "$1,200,000" }
+    { address: "217 to 225 S. Harbor Boulevard", transactionType: "Refinance-Standard" },
+    { address: "1400 Ocean Avenue", transactionType: "Acquisition", purchasePrice: "$850,000" },
+    { address: "88 Palm Court", transactionType: "Acquisition", purchasePrice: "$1,200,000" }
   ]);
 });
 
-test("an acquisition with no purchase price filled in carries the address alone", async () => {
+test("a property with no purchase price filled in leaves the price out", async () => {
   const payload = await scrapePayload({
     grids: withGrids({ propertyRows: [acquisitionRow({ price: "$0" })] })
   });
-  assert.deepEqual(payload.properties, [{ address: "1400 Ocean Avenue" }]);
-  assert.match(humperdinkNoteText(payload), /Properties Acquired\n1400 Ocean Avenue$/);
+  assert.deepEqual(payload.properties, [{ address: "1400 Ocean Avenue", transactionType: "Acquisition" }]);
+  assert.match(humperdinkNoteText(payload), /Properties\n1400 Ocean Avenue \(Acquisition\)$/);
 });
 
 /* AC: "Note sections read in a stable order alongside the terms from #196." */
@@ -1499,7 +1656,7 @@ test("the people lead the note and the properties close it, always in that order
   );
   assert.deepEqual(
     note.split("\n\n").map((block) => block.split("\n")[0]),
-    ["Contacts", "Loan Terms", "Loan Term Notes", "Properties Acquired"]
+    ["Contacts", "Loan Terms", "Loan Term Notes", "Properties"]
   );
   assert.doesNotMatch(note, /[*_#|`]/, "no markdown syntax — the field renders it literally");
 });
@@ -1518,9 +1675,11 @@ test("the control reads Loading until both grids have painted", async () => {
   await page.press();
   assert.deepEqual(page.copied, []);
   assert.match(page.said, /Still loading/);
+  assert.deepEqual(page.fetched, [], "no property to fetch a release price for yet");
 
   page.loadGrids({ contactRows: CONTACT_ROWS, propertyRows: PROPERTY_ROWS });
   await settle();
+  assert.equal(page.fetched.length, 1, "the release price is fetched once the property is in");
   await page.press();
   assert.equal(page.copied.length, 1);
   assert.equal(parseHumperdinkPayload(page.copied[0]).ok, true);
@@ -1537,8 +1696,9 @@ test("one grid arriving is not both", async () => {
   assert.equal(page.loading, true);
 });
 
-test("a page whose grids are already painted never says Loading", () => {
+test("a page whose grids are already painted stops saying Loading as soon as its release prices land", async () => {
   const page = runUserscript({ title: "Adams - Harbor - Details", href: LOAN_URL });
+  await page.settled();
   assert.equal(page.loading, false);
   assert.equal(page.button.style.opacity, "", "not dimmed");
   assert.equal(page.button.textContent, "Export to HT");
@@ -1758,4 +1918,302 @@ test("a press while the grids are still loading copies nothing", async () => {
   assert.deepEqual(page.copied, []);
   assert.match(page.said, /Still loading/);
   assert.deepEqual(page.navigated, [], "and opens nothing");
+});
+
+/* ── Extensions, switches, the lender, release prices (#442) ──
+
+   The ids, the switch markup and the values below were read off a live loan
+   on 2026-09-15, once filled in and once with every panel switched off and
+   emptied. */
+
+const EXTENSION_ROW = {
+  ExtensionMonthStart1: "1",
+  ExtensionMonthEnd1: "6",
+  ExtensionRate1: "8.90%",
+  ExtensionPoints1: "1.00"
+};
+
+const headingsOf = (note) => note.split("\n\n").map((block) => block.split("\n")[0]);
+const sectionOf = (note, heading) => note.split("\n\n").find((block) => block.split("\n")[0] === heading);
+
+test("an extension row travels as a line in its own block, right after Loan Terms", async () => {
+  const switches = withSwitches({ extensions: true });
+  const terms = await scrapeTerms(withFields(EXTENSION_ROW), switches);
+  assert.deepEqual(terms.extensions, [{ startMonth: "1", endMonth: "6", rate: "8.90%", points: "1.00" }]);
+
+  const note = await scrapeNote(withFields({ ...EXTENSION_ROW, txtLoanTermsNotes: "Rate locked 14 days." }), withGrids(), switches);
+  assert.deepEqual(headingsOf(note), ["Contacts", "Loan Terms", "Extensions", "Loan Term Notes", "Properties"]);
+  assert.equal(sectionOf(note, "Extensions"), "Extensions\nMonths 1–6 at 8.90%, 1.00 points");
+});
+
+test("every extension row travels in row order, a missing % is added and zero points are left off", async () => {
+  const note = await scrapeNote(
+    withFields({
+      ...EXTENSION_ROW,
+      ExtensionMonthStart2: "7",
+      ExtensionMonthEnd2: "12",
+      ExtensionRate2: "9.40",
+      ExtensionPoints2: "0.00"
+    }),
+    withGrids(),
+    withSwitches({ extensions: true })
+  );
+  assert.equal(sectionOf(note, "Extensions"), "Extensions\nMonths 1–6 at 8.90%, 1.00 points\nMonths 7–12 at 9.40%");
+});
+
+test("the extension notes follow the extension lines", async () => {
+  const note = await scrapeNote(
+    withFields({ ...EXTENSION_ROW, extensionstextarea: "Fee due at each extension." }),
+    withGrids(),
+    withSwitches({ extensions: true })
+  );
+  assert.equal(
+    sectionOf(note, "Extensions"),
+    "Extensions\nMonths 1–6 at 8.90%, 1.00 points\nFee due at each extension."
+  );
+});
+
+/* A loan with no extensions has no row elements at all, so a missing row 1 is
+   an ordinary loan, not a Humperdink change. */
+test("a loan with no extension rows exports cleanly, with no Extensions block either way its switch sits", async () => {
+  for (const extensions of [true, false]) {
+    const note = await scrapeNote(TERMS_FIELDS, withGrids(), withSwitches({ extensions }));
+    assert.equal(sectionOf(note, "Extensions"), undefined, `switch ${extensions ? "on" : "off"}`);
+  }
+});
+
+test("a page missing the extension notes box reports it and copies nothing", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    fields: withFields({ extensionstextarea: null })
+  });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /extensionstextarea/);
+});
+
+/* The live off state: every panel switched off, figures still in its inputs. */
+const STALE_FIELDS = withFields({
+  ...EXTENSION_ROW,
+  extensionstextarea: "Old extension note.",
+  JuniorFinancingAmount: "$200,000.00",
+  SecondTDRate: "9.90%",
+  SecondTDFeePoints: "1",
+  SecondTDFeeAmount: "$2,000.00",
+  SellerFinancingAmount: "$500,000.00",
+  InitialDisbursed: "$1,000,000",
+  DrawMinimumAmount: "$10,000",
+  DrawIncrementAmount: "$10,000",
+  interestReserveAmount: "$150,000.00",
+  interestReserveMonths: "12",
+  txtpartialReconveyance: "125% of allocated loan amount"
+});
+
+test("a switched-off panel sends nothing, whatever its inputs still hold", async () => {
+  const note = await scrapeNote(STALE_FIELDS, withGrids(), SWITCHES_OFF);
+  assert.deepEqual(headingsOf(note), ["Contacts", "Loan Terms", "Properties"]);
+  assert.doesNotMatch(note, /\$10,000|Permitted|Old extension note/);
+});
+
+test("the same inputs with every switch on all travel", async () => {
+  const note = await scrapeNote(STALE_FIELDS, withGrids(), SWITCHES_ON);
+  assert.deepEqual(headingsOf(note), [
+    "Contacts",
+    "Loan Terms",
+    "Extensions",
+    "Junior Financing",
+    "Blended Totals",
+    "Seller Financing",
+    "Disbursement Options",
+    "Interest Reserve",
+    "Partial Reconveyance",
+    "Properties"
+  ]);
+});
+
+test("one panel switched on travels while the rest stay behind", async () => {
+  const note = await scrapeNote(STALE_FIELDS, withGrids(), withSwitches({ disbursement: true }));
+  assert.deepEqual(headingsOf(note), ["Contacts", "Loan Terms", "Disbursement Options", "Properties"]);
+  assert.equal(
+    sectionOf(note, "Disbursement Options"),
+    "Disbursement Options\nInitial Advance: $1,000,000\nDraw Minimum: $10,000\nIncrement: $10,000"
+  );
+});
+
+test("a page missing a panel switch reports it by id and copies nothing", async () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    switches: withSwitches({ disbursement: null })
+  });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /toggleHoldBack/);
+});
+
+test("financing switched on with nothing filled in says Permitted, and nothing more", async () => {
+  const note = await scrapeNote(TERMS_FIELDS, withGrids(), withSwitches({ juniorFinancing: true, sellerFinancing: true }));
+  assert.equal(sectionOf(note, "Junior Financing"), "Junior Financing\nJunior Financing: Permitted");
+  assert.equal(sectionOf(note, "Seller Financing"), "Seller Financing\nSeller Financing: Permitted");
+  assert.equal(sectionOf(note, "Blended Totals"), undefined, "the blended figures still need a junior loan");
+});
+
+test("financing with figures shows the figures, not Permitted", async () => {
+  const note = await scrapeNote(
+    withFields({ SellerFinancingAmount: "$500,000.00" }),
+    withGrids(),
+    withSwitches({ sellerFinancing: true })
+  );
+  assert.equal(sectionOf(note, "Seller Financing"), "Seller Financing\nAmount: $500,000.00");
+});
+
+test("a Lender contact travels, after the borrowers", async () => {
+  const rows = [
+    ["", "", "Lender", "RTI Properties", "", "", "", "", ""],
+    ...CONTACT_ROWS,
+    ["", "", "Silent Borrower", "Pat Quiet", "", "", "", "", ""]
+  ];
+  const payload = await scrapePayload({ grids: withGrids({ contactRows: rows }) });
+  assert.deepEqual(payload.contacts, [
+    { type: "Broker", name: "Dan LuVisi" },
+    { type: "Borrower", name: "Duda Adams" },
+    { type: "Silent Borrower", name: "Pat Quiet" },
+    { type: "Lender", name: "RTI Properties" }
+  ]);
+  assert.equal(sectionOf(humperdinkNoteText(payload), "Contacts").split("\n").pop(), "Lender: RTI Properties");
+});
+
+const OCEAN = "1400 Ocean Avenue";
+
+test("a property's release price travels, as dollars", async () => {
+  const payload = await scrapePayload({
+    grids: withGrids({ propertyRows: [acquisitionRow()] }),
+    releasePrices: { [OCEAN]: "2950000.00" }
+  });
+  assert.deepEqual(payload.properties, [
+    { address: OCEAN, transactionType: "Acquisition", purchasePrice: "$850,000", releasePrice: "$2,950,000.00" }
+  ]);
+  assert.equal(
+    sectionOf(humperdinkNoteText(payload), "Properties"),
+    "Properties\n1400 Ocean Avenue (Acquisition), Purchase Price $850,000, Release Price $2,950,000.00"
+  );
+});
+
+test("a blank or zero release price is left out", async () => {
+  for (const price of ["", "0.00"]) {
+    const payload = await scrapePayload({
+      grids: withGrids({ propertyRows: [acquisitionRow()] }),
+      releasePrices: { [OCEAN]: price }
+    });
+    assert.equal("releasePrice" in payload.properties[0], false, JSON.stringify(price));
+  }
+});
+
+test("each property gets its own release price", async () => {
+  const payload = await scrapePayload({
+    grids: withGrids({
+      propertyRows: [acquisitionRow(), acquisitionRow({ address: "88 Palm Court, <br>Irvine, CA 92602", price: "$1,200,000" })]
+    }),
+    releasePrices: { [OCEAN]: "2950000.00", "88 Palm Court": "1100000" }
+  });
+  assert.deepEqual(
+    payload.properties.map((property) => property.releasePrice),
+    ["$2,950,000.00", "$1,100,000"]
+  );
+});
+
+/* A clipboard write and the Teams launch both have to happen inside the press,
+   so the network is done with before anyone presses. */
+test("release prices are fetched once, as the page loads, and never during the press", async () => {
+  const page = goodPage({ grids: withGrids({ propertyRows: [acquisitionRow()] }), releasePrices: { [OCEAN]: "2950000.00" } });
+  await page.settled();
+  assert.equal(page.loading, false);
+  assert.equal(page.fetched.length, 1);
+  const [request] = page.fetched;
+  assert.match(request.href, /^\/Loans\/NewPropertyPartial\?/);
+  const query = new URL(request.href, LOAN_URL).searchParams;
+  assert.equal(query.get("isNewProperty"), "false");
+  assert.equal(query.get("pkpropertyid"), "7000");
+  assert.equal(query.get("pkloanspropertydetails"), "9000");
+  assert.equal(request.credentials, "same-origin");
+
+  await page.press();
+  assert.equal(page.fetched.length, 1, "the press copies what already loaded");
+  assert.equal(page.copied.length, 1);
+  assert.equal(page.navigated[0].copiesBefore, 1);
+});
+
+test("the control reads Loading until the release prices land", async () => {
+  const page = goodPage({ releaseFetch: "hang" });
+  await page.settled();
+  assert.equal(page.loading, true);
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /Still loading/);
+  assert.deepEqual(page.navigated, []);
+});
+
+test("release prices that never land are reported once the control gives up waiting", async () => {
+  const page = goodPage({ releaseFetch: "hang", clockScale: 200 });
+  await settle();
+  assert.equal(page.loading, false);
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /release prices \(they hadn't finished loading\)/);
+});
+
+test("a release-price fetch Humperdink refuses is reported and nothing is copied", async () => {
+  const page = goodPage({ releaseFetch: "fail" });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /release price for 217 to 225 S\. Harbor Boulevard \(Humperdink answered 500\)/);
+});
+
+test("property details with no release price field are reported by id", async () => {
+  const page = goodPage({ releaseFetch: "no-input" });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /txtReleasePrice/);
+});
+
+test("a property added after the page loaded is reported, not exported without its release price", async () => {
+  const page = goodPage();
+  await page.settled();
+  page.loadGrids({ propertyRows: [...PROPERTY_ROWS, acquisitionRow()] });
+  await page.press();
+  assert.deepEqual(page.copied, []);
+  assert.match(page.said, /release price for 1400 Ocean Avenue/);
+});
+
+/* ── What the parser will accept for #442 ── */
+
+test("the parser rebuilds extension rows, drops empty ones and caps a runaway table", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ startMonth: String(i + 1), endMonth: "x", rate: "1%", points: "1" }));
+  const result = withTerms({ extensions: [{ startMonth: "", endMonth: "", rate: "", points: "" }, ...rows, "not a row", null] });
+  assert.equal(result.payload.terms.extensions.length, 12);
+  assert.deepEqual(result.payload.terms.extensions[0], { startMonth: "1", endMonth: "x", rate: "1%", points: "1" });
+});
+
+test("extension notes alone still make an Extensions block", () => {
+  const result = withTerms({ extensionNotes: "Two six-month options." });
+  assert.equal(humperdinkNoteText(result.payload), "Extensions\nTwo six-month options.");
+});
+
+test("the parser keeps a property's transaction type and release price", () => {
+  const result = parseHumperdinkPayload(
+    payloadText({
+      properties: [{ address: "12 Elm St", transactionType: "Refinance-Standard", releasePrice: "$1", purchasePrice: 7 }]
+    })
+  );
+  assert.deepEqual(result.payload.properties, [
+    { address: "12 Elm St", transactionType: "Refinance-Standard", releasePrice: "$1" }
+  ]);
+});
+
+/* An older script sends acquisitions with neither a transaction type nor a
+   release price. */
+test("a property from an older script still reads as one line", () => {
+  const result = parseHumperdinkPayload(payloadText({ properties: [{ address: OCEAN, purchasePrice: "$850,000" }] }));
+  assert.equal(humperdinkNoteText(result.payload), "Properties\n1400 Ocean Avenue, Purchase Price $850,000");
 });
