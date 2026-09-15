@@ -13,9 +13,11 @@
  * DM cards, the activity feed and the web app's "Copy link", and a link that
  * claims a task for whoever opens it would be a bug with a blast radius. So:
  *
- *   1. Every existing caller's URL is byte-identical to what it was. The claim
- *      intent is opt-in, in its own field inside the context JSON, never a
- *      prefix or sentinel on subEntityId.
+ *   1. Every existing caller's URL is byte-identical to what it was. Only
+ *      withClaimIntent, which only the channel card calls, writes the claim.
+ *      It rides inside subEntityId as `claim:<taskId>`, the one context value
+ *      Teams desktop delivers to the tab (#443); the separate claimOnOpen
+ *      field it used to be never arrived.
  *   2. The card's two buttons carry different URLs: only "Claim & Open" has
  *      the intent.
  *   3. The reader is strict — anything it can't positively identify as the
@@ -31,7 +33,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { claimRefusalMessage, readClaimIntent, teamsTaskDeepLink, withClaimIntent } from "../packages/shared/dist/index.js";
+import {
+  CLAIM_ARRIVAL_PREFIX,
+  claimRefusalMessage,
+  readClaimIntent,
+  readTeamsArrival,
+  teamsTaskDeepLink,
+  withClaimIntent
+} from "../packages/shared/dist/index.js";
 import { TeamsBotClient } from "../apps/server/dist/bot.js";
 
 let passed = 0;
@@ -61,21 +70,24 @@ await check("a view-only link is byte-identical to the one built before the opti
   );
   assert.equal(teamsTaskDeepLink("app-id"), "https://teams.microsoft.com/l/entity/app-id/loan-tasks-home");
   assert.equal(teamsTaskDeepLink(undefined, "task-1"), undefined);
-  // Explicitly off is the same as never asked.
-  assert.equal(teamsTaskDeepLink("app-id", "task-1", { claim: false }), teamsTaskDeepLink("app-id", "task-1"));
+  // The builder has no way to ask for a claim: only withClaimIntent writes one.
+  assert.equal(teamsTaskDeepLink("app-id", "task-1", { claim: true }), teamsTaskDeepLink("app-id", "task-1"));
 });
 
-await check("the claim intent is its own field beside subEntityId, never a prefix on it", () => {
-  const url = teamsTaskDeepLink("app-id", "task-1", { claim: true });
-  const context = contextOf(url);
-  assert.equal(context.subEntityId, "task-1", "the task id is still a bare task id");
-  assert.equal(context.claimOnOpen, true);
+await check("the claim intent rides inside subEntityId, the one value Teams desktop delivers", () => {
+  assert.equal(CLAIM_ARRIVAL_PREFIX, "claim:");
+  const context = contextOf(withClaimIntent(teamsTaskDeepLink("app-id", "task-1")));
+  assert.deepEqual(context, { subEntityId: "claim:task-1" }, "no field beside it that Teams would drop");
 });
 
 await check("withClaimIntent turns a recorded link into its claim twin and nothing else", () => {
   const viewOnly = teamsTaskDeepLink("app-id", "task-1", { label: "Smith-1042", webUrl: "https://hot.example" });
   const claim = withClaimIntent(viewOnly);
-  assert.deepEqual(contextOf(claim), { subEntityId: "task-1", claimOnOpen: true });
+  assert.equal(
+    claim,
+    "https://teams.microsoft.com/l/entity/app-id/loan-tasks-home?context=%7B%22subEntityId%22%3A%22claim%3Atask-1%22%7D&label=Smith-1042&webUrl=https%3A%2F%2Fhot.example"
+  );
+  assert.deepEqual(contextOf(claim), { subEntityId: "claim:task-1" });
 
   const params = new URLSearchParams(claim.split("?", 2)[1]);
   assert.equal(params.get("label"), "Smith-1042", "the rest of the link rides along untouched");
@@ -86,6 +98,11 @@ await check("withClaimIntent turns a recorded link into its claim twin and nothi
   assert.equal(withClaimIntent(undefined), undefined);
   assert.equal(withClaimIntent(teamsTaskDeepLink("app-id")), undefined);
   assert.equal(withClaimIntent("https://teams.microsoft.com/l/entity/app-id/loan-tasks-home?context=not-json"), undefined);
+  // A link from before #443 comes out in the new shape, not with both.
+  const legacy = `https://teams.microsoft.com/l/entity/app-id/loan-tasks-home?context=${encodeURIComponent(JSON.stringify({ subEntityId: "task-1", claimOnOpen: true }))}`;
+  assert.deepEqual(contextOf(withClaimIntent(legacy)), { subEntityId: "claim:task-1" });
+  // Twice is the same as once.
+  assert.equal(withClaimIntent(claim), claim);
 });
 
 await check("a folder name with a space encodes the same way in both twins", () => {
@@ -132,6 +149,19 @@ await check("a refusal names which no it is", () => {
     claimRefusalMessage({ ...task, status: "CLAIMED", assignee: { id: checker.id, displayName: checker.displayName } }, checker),
     "Casey Checker already has this task"
   );
+});
+
+await check("a Claim & Open arrival reads back as the bare task, claimed, off both context shapes", () => {
+  const claimed = { kind: "task", taskId: "task-1", claim: true };
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: "claim:task-1" } }), claimed);
+  assert.deepEqual(readTeamsArrival({ subEntityId: "claim:task-1" }), claimed);
+  assert.equal(readClaimIntent({ page: { subPageId: "claim:task-1" } }), true);
+  assert.equal(readClaimIntent({ subEntityId: "claim:task-1" }), true);
+  // A card posted before #443 keeps its old URL until it is next edited.
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: "task-1", claimOnOpen: true } }), claimed);
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: "task-1" } }), { kind: "task", taskId: "task-1", claim: false });
+  // A prefix naming nothing is no arrival rather than a task called "".
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: "claim:" } }), { kind: "none" });
 });
 
 await check("the reader treats anything it can't positively identify as view-only", () => {
@@ -186,8 +216,9 @@ await check("the claimable card offers Claim & Open and Open in Hot Task, and on
   const card = cardOf(posted[0]);
   assert.deepEqual(actionTitles(card), ["Claim & Open", "Open in Hot Task"], "no bare Claim remains");
   assert.equal(card.actions[0].type, "Action.OpenUrl", "the combined button navigates; Execute could not");
-  assert.equal(contextOf(urlFor(card, "Claim & Open")).claimOnOpen, true);
+  assert.deepEqual(contextOf(urlFor(card, "Claim & Open")), { subEntityId: "claim:task-1" });
   assert.equal(urlFor(card, "Open in Hot Task"), OPEN_URL, "the plain button is the recorded view-only link, unchanged");
+  assert.equal(contextOf(urlFor(card, "Open in Hot Task")).subEntityId, "task-1", "and it never claims");
 });
 
 await check("with no deep link the card keeps the one-tap Claim it always had", async () => {

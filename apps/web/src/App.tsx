@@ -4074,10 +4074,11 @@ export const App = () => {
         const arrival = readTeamsArrival(context);
 
         /* Deep link from a bot card → focus that task once it loads.
-           "Claim & Open" adds an explicit opt-in field beside subEntityId in
-           the link's context; every other link this app builds or the bot
-           sends carries no such field and stays view-only, so a link pasted
-           into a chat never claims a task for whoever opens it (#180). */
+           "Claim & Open" prefixes the task id with `claim:` (#443), and the
+           arrival hands back the bare id with `claim` set. Only the channel
+           card builds that link; every other link stays view-only. A copied
+           Claim & Open link can claim for whoever opens it, and the server
+           refuses a claimed task or the creator's own. */
         if (arrival.kind === "task") {
           setFocusTaskId(arrival.taskId);
           if (arrival.claim) setClaimOnArrivalId(arrival.taskId);
