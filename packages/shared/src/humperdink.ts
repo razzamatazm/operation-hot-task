@@ -23,6 +23,11 @@
      ignores fields it doesn't know, and a filler skips fields that aren't
      there. Issues #196 and #197 extend the payload this way — nothing here
      bumps for them.
+   - **#442 went to version 2.** Besides adding fields, it gave `properties` a
+     new meaning: every property on the loan, not only the ones being
+     acquired. A version 1 app would have read that without complaint and
+     printed refinances under "Properties Acquired". A version 1 payload from a
+     script that hasn't updated yet still reads here.
    - **Bump only on a break** — a field removed, renamed, or given a new
      meaning. `SUPPORTED_PAYLOAD_VERSION` then rises with it, and a payload
      above it is rejected with "update Hot Task", not silently half-read.
@@ -35,10 +40,10 @@
 export const HUMPERDINK_PAYLOAD_KIND = "hot-task-humperdink";
 
 /** The version the userscript in this repo writes. */
-export const HUMPERDINK_PAYLOAD_VERSION = 1;
+export const HUMPERDINK_PAYLOAD_VERSION = 2;
 
 /** The highest version this app can read. See the versioning rules above. */
-export const SUPPORTED_HUMPERDINK_PAYLOAD_VERSION = 1;
+export const SUPPORTED_HUMPERDINK_PAYLOAD_VERSION = 2;
 
 /** Every Humperdink loan details URL has the path `/Loans/Details/<id>`.
     Anchored on purpose — an unanchored match calls

@@ -163,10 +163,13 @@ that row data through the page's jQuery and fetches each property's details in
 the background, reading the `txtReleasePrice` input's value. It does this while
 it is still dimmed, never during the press: copying and opening Teams both have
 to happen inside the press, and a press that waited on the network would lose
-that. The price is therefore the one there when the page loaded; if you edit a
-release price, or add a property, reload the loan before exporting. A fetch that
-fails, or details with no release price field, are reported and nothing is
-copied.
+that. Moving the pointer onto the button fetches them again in the background,
+so a release price edited, or a property added, since the page loaded is
+normally in before the press; a property the last finished fetch didn't include
+is refused with "try again in a moment". Prices are matched to properties on the
+whole address, so two properties on one street in different towns keep their
+own. A fetch that fails, or details with no release price field, are reported
+and nothing is copied.
 
 A grid that is still empty when the control gives up waiting is **refused**, not
 imported as an absence. Humperdink offers no "loaded, and there are none"

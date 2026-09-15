@@ -47,7 +47,7 @@
 
   /* Contract — keep in sync with packages/shared/src/humperdink.ts. */
   var PAYLOAD_KIND = "hot-task-humperdink";
-  var PAYLOAD_VERSION = 1;
+  var PAYLOAD_VERSION = 2;
   var TITLE_SUFFIX = " - details";
   var LOAN_DETAILS_PATH = /^\/Loans\/Details\/[^/]+\/?$/i;
 
@@ -424,15 +424,37 @@
      into street / city-state-zip / county. #197 wants the street line only.
      The grid's row data holds the same markup, which is how a release price
      finds its way back to its row. */
+  /* Markup's text: tags dropped, and the few entities an address carries
+     (`&amp;` above all) turned back into characters. */
+  function markupText(markup) {
+    return String(markup == null ? "" : markup)
+      .replace(/<[^>]*>/g, "")
+      .replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi, function (whole, name) {
+        var lower = name.toLowerCase();
+        if (lower.charAt(0) !== "#") {
+          return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }[lower];
+        }
+        var code = lower.charAt(1) === "x" ? parseInt(lower.slice(2), 16) : parseInt(lower.slice(1), 10);
+        return isNaN(code) ? whole : String.fromCharCode(code);
+      });
+  }
+
   function streetFromMarkup(markup) {
-    var head = String(markup == null ? "" : markup).split(/<br\s*\/?>/i)[0].replace(/<[^>]*>/g, "");
-    return normalise(head).replace(/,+$/, "");
+    var head = String(markup == null ? "" : markup).split(/<br\s*\/?>/i)[0];
+    return normalise(markupText(head)).replace(/,+$/, "");
   }
 
   function streetAddress(cell) {
     if (!cell) return "";
     var markup = cell.innerHTML == null ? "" : String(cell.innerHTML);
     return markup ? streetFromMarkup(markup) : elementText(cell).replace(/,+$/, "");
+  }
+
+  /* The whole address as a matching key. The painted cell and the grid's row
+     data carry the same address, one as rendered HTML and one as the string
+     behind it, so line breaks, tags, entities, spacing and case are set aside. */
+  function addressKey(markup) {
+    return normalise(markupText(String(markup == null ? "" : markup).replace(/<br\s*\/?>/gi, " "))).toLowerCase();
   }
 
   function own(object, key) {
@@ -527,8 +549,9 @@
      Fetched while the control waits for the grids, never on the press: a
      clipboard write and the Teams launch both have to happen inside the press
      that asked for them, and a press that first waited on the network has lost
-     that. So the price is the one there when the page loaded; an edit since
-     then needs a reload, like anything else changed under an open page. */
+     that. They are fetched again whenever the pointer reaches the control (see
+     `refreshReleasePrices`), so an edit since the page loaded is normally in
+     before the press. */
   var PROPERTY_DETAILS_PATH = "/Loans/NewPropertyPartial";
   var RELEASE_PRICE_ID = "txtReleasePrice";
 
@@ -574,8 +597,8 @@
       });
   }
 
-  /* Every property's release price, listed by street address in grid order,
-     or the first thing that went wrong. Never rejects. */
+  /* Every property's release price, listed by whole address in the grid data's
+     order, or the first thing that went wrong. Never rejects. */
   function loadReleasePrices() {
     var rows = propertyGridData();
     if (!rows) {
@@ -590,13 +613,13 @@
       })
     ).then(
       function (prices) {
-        var byStreet = {};
+        var byAddress = {};
         for (var i = 0; i < rows.length; i += 1) {
-          var street = streetFromMarkup(rows[i].Address);
-          if (!own(byStreet, street)) byStreet[street] = [];
-          byStreet[street].push(prices[i]);
+          var key = addressKey(rows[i].Address);
+          if (!own(byAddress, key)) byAddress[key] = [];
+          byAddress[key].push(prices[i]);
         }
-        return { state: "ready", byStreet: byStreet };
+        return { state: "ready", byAddress: byAddress };
       },
       function (err) {
         return { state: "failed", error: err && err.message ? err.message : "the release prices" };
@@ -624,14 +647,21 @@
       var cells = grid.rows[i];
       var address = streetAddress(cells[grid.at.address]);
       if (!address) continue;
-      /* Matched on street address, taking a second property at the same street
-         in grid order. One painted since the page loaded has no price here. */
-      var loaded = own(releases.byStreet, address) ? releases.byStreet[address] : [];
-      var nth = own(taken, address) ? taken[address] : 0;
+      /* Matched on the whole address, so two properties on one street in
+         different towns keep their own prices however the grid is sorted; two
+         at the very same address take theirs in order. A property with no price
+         here was painted after the last fetch finished. */
+      var cell = cells[grid.at.address];
+      var key = addressKey(cell && cell.innerHTML ? cell.innerHTML : elementText(cell));
+      var loaded = own(releases.byAddress, key) ? releases.byAddress[key] : [];
+      var nth = own(taken, key) ? taken[key] : 0;
       if (nth >= loaded.length) {
-        return { ok: false, error: "the release price for " + address + " (it wasn't on the page when it loaded, so reload it)" };
+        return {
+          ok: false,
+          error: "the release price for " + address + " (it hadn't loaded yet; try again in a moment, or reload the page)"
+        };
       }
-      taken[address] = nth + 1;
+      taken[key] = nth + 1;
       var property = { address: address };
       var transaction = elementText(cells[grid.at.transaction]);
       if (transaction) property.transactionType = transaction;
@@ -936,6 +966,7 @@
     var loading = true;
     var releases = { state: "waiting" };
     var releasesStarted = false;
+    var refreshing = false;
     var resetTimer = 0;
 
     function setLabel(text) {
@@ -1014,6 +1045,8 @@
       var anchor = document.getElementById(ANCHOR_ID);
       if (!anchor || !anchor.closest(".loanpanelheader")) return false;
       control = createInlineControl(anchor);
+      control.addEventListener("mouseenter", refreshReleasePrices);
+      control.addEventListener("focus", refreshReleasePrices);
       control.addEventListener("click", function (event) {
         event.preventDefault();
         /* The control wears LOI's classes, so a Humperdink handler listening
@@ -1031,6 +1064,8 @@
     function placeFloating() {
       if (document.getElementById(BUTTON_ID)) return;
       control = createFloatingControl();
+      control.addEventListener("mouseenter", refreshReleasePrices);
+      control.addEventListener("focus", refreshReleasePrices);
       control.addEventListener("click", onPress);
       document.body.appendChild(control);
       inline = false;
@@ -1052,6 +1087,20 @@
       loadReleasePrices().then(function (state) {
         releases = state;
         if (gridsSettled(document)) finishLoading();
+      });
+    }
+
+    /* The pointer reaching the control fetches the release prices again in the
+       background, so a price edited in Humperdink's property window since the
+       page loaded, or a property added, is normally in before the press lands.
+       The press itself never waits: it copies what the last finished fetch
+       found, and refuses a property that fetch didn't include. */
+    function refreshReleasePrices() {
+      if (!releasesStarted || refreshing || releases.state === "waiting") return;
+      refreshing = true;
+      loadReleasePrices().then(function (state) {
+        releases = state;
+        refreshing = false;
       });
     }
 
@@ -1077,11 +1126,12 @@
       var waitedMs = 0;
       setTimeout(function tick() {
         waitedMs += POLL_MS;
-        if (!loading) return;
-        if (loadSettled() || waitedMs >= LOAD_CEILING_MS) {
-          finishLoading();
-          return;
-        }
+        var settled = loadSettled();
+        if (settled || waitedMs >= LOAD_CEILING_MS) finishLoading();
+        /* Past the ceiling the control is pressable, but a properties grid that
+           lands late still needs its release prices fetched, so keep watching
+           for it until that has started. */
+        if (settled || (!loading && releasesStarted)) return;
         setTimeout(tick, POLL_MS);
       }, POLL_MS);
     }

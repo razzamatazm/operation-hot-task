@@ -178,6 +178,14 @@ const streetOf = (html) =>
     .trim()
     .replace(/,+$/, "");
 
+/** The whole address on one line, for telling two properties on one street apart. */
+const wholeAddressOf = (html) =>
+  String(html)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 /** A page whose grids and rows can be swapped out per test. */
 const withGrids = (over = {}) => ({
   contactHeaders: CONTACT_HEADERS,
@@ -211,6 +219,9 @@ const runUserscript = ({
      status), "hang" (never answers) or "no-input" (a page with no release
      price field). */
   releaseFetch = "ok",
+  /* "painted", or "reversed" for grid row data held in a different order from
+     the rows the grid painted, as a sorted grid would. */
+  propertyDataOrder = "painted",
   /* Whether the page carries the LOI button the control mounts beside. The real
      page does; `false` is a Humperdink release that moved it, where the control
      gives up looking and takes the corner as a floating button. */
@@ -284,13 +295,17 @@ const runUserscript = ({
   /* The properties grid's own row data, which is where a property's ids live;
      the painted cells don't carry them. Read through the page's jQuery, the
      way Humperdink's own OpenProperty reads it. */
-  const propertyData = () =>
-    (page.propertyRows ?? []).map((cells, i) => ({
-      Address: cells[2],
+  /* The data holds the address unescaped where the painted cell's HTML escapes
+     it (`&` against `&amp;`). */
+  const propertyData = () => {
+    const rows = (page.propertyRows ?? []).map((cells, i) => ({
+      Address: String(cells[2]).replace(/&amp;/g, "&"),
       TransactionType: cells[3],
       FKPropertyID: 7000 + i,
       PKLoanPropertyDetailID: 9000 + i
     }));
+    return propertyDataOrder === "reversed" ? rows.reverse() : rows;
+  };
   const jQuery = (selector) => ({
     jqxGrid(method) {
       if (selector !== "#PropertiesGrid" || method !== "getrows") {
@@ -314,7 +329,7 @@ const runUserscript = ({
     );
     const html =
       row && releaseFetch !== "no-input"
-        ? `<input class="font16 form-control" id="txtReleasePrice" name="LoansPropertyDetails.PropertyReleasePrice" type="text" value="${releasePrices[streetOf(row.Address)] ?? ""}">`
+        ? `<input class="font16 form-control" id="txtReleasePrice" name="LoansPropertyDetails.PropertyReleasePrice" type="text" value="${releasePrices[wholeAddressOf(row.Address)] ?? releasePrices[streetOf(row.Address)] ?? ""}">`
         : "<div>no release price here</div>";
     return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(html) });
   };
@@ -631,6 +646,10 @@ const runUserscript = ({
     async settled() {
       await new Promise((resolve) => setImmediate(resolve));
     },
+    /* The pointer reaching the control, which re-fetches the release prices. */
+    hover() {
+      for (const fn of mountedButton.listeners.mouseenter ?? []) fn({});
+    },
     /* Let the click handler's clipboard promise settle before we read the label. */
     async press() {
       await this.settled();
@@ -926,7 +945,7 @@ test("a good payload parses", () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.payload, {
     kind: HUMPERDINK_PAYLOAD_KIND,
-    version: 1,
+    version: 2,
     loanName: "Adams - Harbor",
     loanUrl: LOAN_URL
   });
@@ -2186,6 +2205,66 @@ test("a property added after the page loaded is reported, not exported without i
   assert.match(page.said, /release price for 1400 Ocean Avenue/);
 });
 
+/* An edit made in Humperdink's property window after the page loaded, or a
+   property added, is picked up when the pointer reaches the control, and the
+   press still never waits on the network. */
+test("hovering the control re-fetches the release prices, so a later edit or a new property exports", async () => {
+  const prices = { [OCEAN]: "900000" };
+  const page = goodPage({ grids: withGrids({ propertyRows: [acquisitionRow()] }), releasePrices: prices });
+  await page.settled();
+  prices[OCEAN] = "950000";
+  prices["88 Palm Court"] = "400000";
+  page.loadGrids({ propertyRows: [acquisitionRow(), acquisitionRow({ address: "88 Palm Court, <br>Irvine, CA 92602" })] });
+  page.hover();
+  await page.press();
+  assert.equal(page.copied.length, 1, page.said);
+  assert.deepEqual(
+    JSON.parse(page.copied[0]).properties.map((property) => property.releasePrice),
+    ["$950,000", "$400,000"]
+  );
+  assert.equal(page.fetched.length, 3, "one on load, two on the hover");
+});
+
+/* Grids that land after the twenty-second ceiling used to be read on the press;
+   their release prices must still get fetched. */
+test("grids that land after the control stopped waiting still get their release prices, and export", async () => {
+  const page = goodPage({ grids: withGrids({ contactRows: [], propertyRows: [] }), clockScale: 200 });
+  await settle();
+  assert.equal(page.loading, false, "it gave up waiting");
+  page.loadGrids({ contactRows: CONTACT_ROWS, propertyRows: [acquisitionRow()] });
+  await settle();
+  assert.equal(page.fetched.length, 1);
+  await page.press();
+  assert.equal(page.copied.length, 1, page.said);
+});
+
+test("two properties on one street in different towns keep their own release prices, whatever order the grid data is in", async () => {
+  const payload = await scrapePayload({
+    grids: withGrids({
+      propertyRows: [
+        acquisitionRow({ address: "100 Main Street, <br>Irvine, CA 92602" }),
+        acquisitionRow({ address: "100 Main Street, <br>Tustin, CA 92780" })
+      ]
+    }),
+    releasePrices: { "100 Main Street, Irvine, CA 92602": "1000000", "100 Main Street, Tustin, CA 92780": "2000000" },
+    propertyDataOrder: "reversed"
+  });
+  assert.deepEqual(
+    payload.properties.map((property) => property.releasePrice),
+    ["$1,000,000", "$2,000,000"]
+  );
+});
+
+/* The painted cell escapes `&` and the grid's data doesn't. */
+test("an address with an ampersand reads as one and still finds its release price", async () => {
+  const payload = await scrapePayload({
+    grids: withGrids({ propertyRows: [acquisitionRow({ address: "12 Oak &amp; Elm Street, <br>Irvine, CA 92602" })] }),
+    releasePrices: { "12 Oak & Elm Street": "750000" }
+  });
+  assert.equal(payload.properties[0].address, "12 Oak & Elm Street");
+  assert.equal(payload.properties[0].releasePrice, "$750,000");
+});
+
 /* ── What the parser will accept for #442 ── */
 
 test("the parser rebuilds extension rows, drops empty ones and caps a runaway table", () => {
@@ -2216,4 +2295,19 @@ test("the parser keeps a property's transaction type and release price", () => {
 test("a property from an older script still reads as one line", () => {
   const result = parseHumperdinkPayload(payloadText({ properties: [{ address: OCEAN, purchasePrice: "$850,000" }] }));
   assert.equal(humperdinkNoteText(result.payload), "Properties\n1400 Ocean Avenue, Purchase Price $850,000");
+});
+
+/* Every property travelling changed what `properties` means, so the version
+   went to 2: an app that only reads 1 refuses the export and says to update,
+   rather than printing refinances as acquisitions. A version 1 export from a
+   script that hasn't updated yet still reads. */
+test("the payload is version 2, and a version 1 export from an older script still reads", () => {
+  assert.equal(HUMPERDINK_PAYLOAD_VERSION, 2);
+  assert.equal(SUPPORTED_HUMPERDINK_PAYLOAD_VERSION, 2);
+  const result = parseHumperdinkPayload(
+    payloadText({ version: 1, properties: [{ address: OCEAN, purchasePrice: "$850,000" }] })
+  );
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.payload.version, 1);
+  assert.equal(result.payload.properties.length, 1);
 });
