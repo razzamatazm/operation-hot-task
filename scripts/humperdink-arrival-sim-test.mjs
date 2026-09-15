@@ -35,6 +35,7 @@ import {
   HOT_TASK_ENTITY_ID,
   HUMPERDINK_ARRIVAL_ID,
   humperdinkArrivalLink,
+  isHumperdinkArrival,
   readClaimIntent,
   readTeamsArrival,
   teamsTaskDeepLink,
@@ -93,6 +94,27 @@ test("a padded app id is trimmed, the way the task link trims it", () => {
   assert.equal(humperdinkArrivalLink(`  ${APP_ID} `), humperdinkArrivalLink(APP_ID));
 });
 
+/* Teams desktop ignores a deep link identical to the page it is showing, so the
+   userscript tags every press and two presses are two links. */
+test("a press tag goes after the sentinel, and different tags make different links", () => {
+  assert.deepEqual(contextOf(humperdinkArrivalLink(APP_ID, "mf3k9x2a")), { subEntityId: "new:humperdink:mf3k9x2a" });
+  assert.notEqual(humperdinkArrivalLink(APP_ID, "a1"), humperdinkArrivalLink(APP_ID, "a2"));
+});
+
+test("a tag that isn't letters and digits is left off, so nothing else can ride in the link", () => {
+  for (const tag of ["", "   ", "Adams - Harbor", "a:b", "x&label=y", "%7B"]) {
+    assert.equal(humperdinkArrivalLink(APP_ID, tag), humperdinkArrivalLink(APP_ID), JSON.stringify(tag));
+  }
+});
+
+test("the sentinel with or without a tag is an arrival, and nothing else is", () => {
+  assert.equal(isHumperdinkArrival(HUMPERDINK_ARRIVAL_ID), true);
+  assert.equal(isHumperdinkArrival("new:humperdink:mf3k9x2a"), true);
+  for (const value of ["new:humperdinkx", "new:humperdink-1", "new:", TASK_ID, "", undefined, null, 7]) {
+    assert.equal(isHumperdinkArrival(value), false, String(value));
+  }
+});
+
 /* ── Every other link stays exactly as it was ───────────── */
 
 test("a task link is unchanged", () => {
@@ -146,12 +168,16 @@ test("no link the rest of the app builds carries the sentinel", () => {
    handing it this one. It refuses to turn a task link into an arrival link
    rather than trusting every caller not to. */
 test("the task link builder won't emit the sentinel even when handed it as a task id", () => {
-  const url = teamsTaskDeepLink(APP_ID, HUMPERDINK_ARRIVAL_ID, { label: "x", claim: true });
-  assert.ok(!decodeURIComponent(url).includes(HUMPERDINK_ARRIVAL_ID));
+  for (const taskId of [HUMPERDINK_ARRIVAL_ID, "new:humperdink:mf3k9x2a"]) {
+    const url = teamsTaskDeepLink(APP_ID, taskId, { label: "x", claim: true });
+    assert.ok(!decodeURIComponent(url).includes(HUMPERDINK_ARRIVAL_ID), taskId);
+  }
 });
 
 test("the claim twin of an arrival link is no link at all", () => {
-  assert.equal(withClaimIntent(`${BASE}?context=${encodeURIComponent(JSON.stringify({ subEntityId: HUMPERDINK_ARRIVAL_ID }))}`), undefined);
+  for (const subEntityId of [HUMPERDINK_ARRIVAL_ID, "new:humperdink:mf3k9x2a"]) {
+    assert.equal(withClaimIntent(`${BASE}?context=${encodeURIComponent(JSON.stringify({ subEntityId }))}`), undefined, subEntityId);
+  }
 });
 
 /* ── Reading the arrival back ───────────────────────────── */
@@ -164,11 +190,17 @@ test("the sentinel reads back off the flat v1 context shape", () => {
   assert.deepEqual(readTeamsArrival({ subEntityId: HUMPERDINK_ARRIVAL_ID }), { kind: "humperdink" });
 });
 
+test("a tagged press reads back as a Humperdink arrival off both context shapes", () => {
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: "new:humperdink:mf3k9x2a" } }), { kind: "humperdink" });
+  assert.deepEqual(readTeamsArrival({ subEntityId: "new:humperdink:mf3k9x2a" }), { kind: "humperdink" });
+});
+
 test("a Humperdink arrival never focuses a task and never claims one, even with a claim intent on it", () => {
   for (const context of [
     { page: { subPageId: HUMPERDINK_ARRIVAL_ID, claimOnOpen: true } },
     { subEntityId: HUMPERDINK_ARRIVAL_ID, claimOnOpen: true },
-    { page: { subPageId: HUMPERDINK_ARRIVAL_ID }, claimOnOpen: true }
+    { page: { subPageId: HUMPERDINK_ARRIVAL_ID }, claimOnOpen: true },
+    { page: { subPageId: "new:humperdink:mf3k9x2a", claimOnOpen: true } }
   ]) {
     const arrival = readTeamsArrival(context);
     assert.deepEqual(arrival, { kind: "humperdink" });
@@ -273,6 +305,7 @@ test("the deep link module exports the arrival and nothing of the old create-for
     "HOT_TASK_ENTITY_ID",
     "HUMPERDINK_ARRIVAL_ID",
     "humperdinkArrivalLink",
+    "isHumperdinkArrival",
     "readClaimIntent",
     "readTeamsArrival",
     "teamsTaskDeepLink",
@@ -362,6 +395,15 @@ test("the request field takes focus on an arrival, and on no other opening, so �
   const effect = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!humperdinkArrival\) return;([\s\S]*?)\}, \[\]\);/)?.[1];
   assert.ok(effect, "a mount effect gated on the arrival");
   assert.match(effect, /notesRef\.current\?\.focus\(\)/);
+});
+
+/* Teams won't let the tab read the clipboard, so the arrival's request field
+   says which key to press, and no other opening says it. */
+test("an arrival's request field says to press CTRL-V, and a plain New Task's doesn't", () => {
+  const prompt = /placeholder="Press CTRL-V now to import from Humperdink"/;
+  assert.match(render({ humperdinkArrival: true }), prompt);
+  assert.doesNotMatch(render({}), prompt);
+  assert.doesNotMatch(render({ humperdinkArrival: false }), prompt);
 });
 
 test("the arrival's ⌘V goes through the form's own paste import", () => {

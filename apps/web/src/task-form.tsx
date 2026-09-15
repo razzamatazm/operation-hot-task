@@ -1480,6 +1480,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
                  edit mode class below doesn't have to out-specify a rule aimed at
                  every textarea on the form. */
               rows={editing ? 8 : 3}
+              /* A Humperdink arrival lands here with the loan on the clipboard,
+                 and Teams won't let the tab read it (ADR-0012, checked
+                 2026-09-14), so the box says the one key to press. CTRL, not ⌘:
+                 the team is on Windows. Empty on every other opening. */
+              placeholder={humperdinkArrival && !editing ? "Press CTRL-V now to import from Humperdink" : undefined}
               value={form.notes}
               onChange={(e) => {
                 /* Clear a refusal the moment they start fixing it, so the box

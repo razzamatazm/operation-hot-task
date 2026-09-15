@@ -321,9 +321,13 @@ nothing; on an arrival, focus already sits in the request field. A good import s
 `role="status"` line in the footer, mounted while an LOI Check is being filed.
 
 **A Humperdink arrival link opens it** (#412). A Teams deep link whose
-`subEntityId` is the shared sentinel `new:humperdink` opens the create form as
+`subEntityId` is the shared sentinel `new:humperdink`, alone or with a per-press
+tag after a colon (`isHumperdinkArrival`), opens the create form as
 a new LOI Check with focus in the request field (`humperdinkArrival` on
-`TaskForm`), so ⌘V lands inside the form and imports straight away. App reads the link through shared `readTeamsArrival`,
+`TaskForm`), so ⌘V lands inside the form and imports straight away. On an
+arrival, and nowhere else, that field's placeholder reads `Press CTRL-V now to
+import from Humperdink` (CTRL because the team is on Windows), since Teams
+desktop never lets the tab read the clipboard itself (ADR-0012). App reads the link through shared `readTeamsArrival`,
 so the sentinel never becomes a task to focus or claim. It never opens on the
 autosave, and never overwrites it (#413, ADR-0011 rule 5). Before the form
 opens, App moves an autosave worth keeping to Task Drafts through Save for

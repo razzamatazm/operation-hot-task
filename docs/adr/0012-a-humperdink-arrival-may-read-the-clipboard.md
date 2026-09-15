@@ -12,6 +12,23 @@ reason, and anything else pastes as normal, silently. On an arrival focus sits i
 request field instead of the box, so ⌘V is still the fallback. The guard in
 rule 3 is unchanged: only a payload the parser accepts fills anything.
 
+**Checked 2026-09-14: the read never succeeds on Teams desktop for macOS**
+(Teams 26246.1702, debugged live with its web view debugging port). Teams says
+it supports the clipboard, then answers every read with error 500. The cause is
+in Teams: it runs the browser's clipboard read in a hidden Teams window that
+never has focus, and the browser refuses a read from an unfocused page
+("Document is not focused"). Focus, timing and permission on Hot Task's side
+make no difference. Reading the browser clipboard directly from the tab is no
+way round it either. Teams embeds the tab in a frame allowed `clipboard-write`
+and not `clipboard-read`, and a direct read with the tab focused fails with
+"blocked because of a permissions policy". Microsoft's suggested workaround of
+using the browser's clipboard API applies to writing, which that frame allows,
+not to reading. The old `document.execCommand("paste")` is off too: in the
+focused tab with a text box focused, the browser reports it unsupported, it
+returns false, and nothing is pasted. So on Teams desktop an arrival is always one ⌘V away. The read stays
+in, because it is harmless when it fails and starts working if Teams fixes this.
+Microsoft has also deprecated the teams-js clipboard capability.
+
 ## Context
 
 Humperdink has no API, so a loan crosses into Hot Task on the clipboard. The
