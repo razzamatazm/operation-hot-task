@@ -14,7 +14,7 @@
    - The sentinel link builder emits the `msteams:` form, whose context is
      exactly `{"subEntityId":"<sentinel>"}`.
    - Every link the rest of the app builds (Copy link, bot cards, activity feed,
-     Claim & Open) is byte-for-byte what it was, and none carries the sentinel.
+     Claim & Open) is the shape it should be, and none carries the sentinel.
    - `readTeamsArrival` tells the tab which arrival it got. The sentinel never
      comes back as a task to focus, and a claim intent riding on it is ignored.
 
@@ -32,6 +32,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  CLAIM_ARRIVAL_PREFIX,
   HOT_TASK_ENTITY_ID,
   HUMPERDINK_ARRIVAL_ID,
   humperdinkArrivalLink,
@@ -137,14 +138,14 @@ test("the plain tab link is still the bare entity url", () => {
   assert.equal(teamsTaskDeepLink(APP_ID), BASE);
 });
 
-test("a Claim & Open link is unchanged", () => {
-  const url = teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor", claim: true });
+/* #443: the claim rides inside subEntityId, because a field beside it never
+   reaches the tab on Teams desktop. */
+test("a Claim & Open link carries the claim as a prefix on the task id, and nothing beside it", () => {
   assert.equal(
-    url,
-    `${BASE}?context=${encodeURIComponent(JSON.stringify({ subEntityId: TASK_ID, claimOnOpen: true }))}` +
+    withClaimIntent(teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor" })),
+    `${BASE}?context=${encodeURIComponent(JSON.stringify({ subEntityId: `${CLAIM_ARRIVAL_PREFIX}${TASK_ID}` }))}` +
       `&label=${encodeURIComponent("Adams - Harbor")}`
   );
-  assert.equal(withClaimIntent(teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor" })), url);
 });
 
 test("no link the rest of the app builds carries the sentinel", () => {
@@ -153,9 +154,8 @@ test("no link the rest of the app builds carries the sentinel", () => {
     teamsTaskDeepLink(APP_ID, TASK_ID),
     teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor" }),
     teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor", webUrl: "https://hot.example.com" }),
-    teamsTaskDeepLink(APP_ID, TASK_ID, { claim: true }),
-    teamsTaskDeepLink(APP_ID, undefined, { claim: true, webUrl: "https://hot.example.com" }),
-    withClaimIntent(teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor" }))
+    withClaimIntent(teamsTaskDeepLink(APP_ID, TASK_ID, { label: "Adams - Harbor" })),
+    withClaimIntent(teamsTaskDeepLink(APP_ID, TASK_ID, { webUrl: "https://hot.example.com" }))
   ];
   for (const url of links) {
     assert.ok(url, "every one of these builds");
@@ -164,13 +164,27 @@ test("no link the rest of the app builds carries the sentinel", () => {
   }
 });
 
+/* Open in Hot Task, Copy link, the activity feed and the DM cards all come off
+   the plain builder. Only the channel card's Claim & Open asks withClaimIntent. */
+test("no link but Claim & Open carries a claim of either shape", () => {
+  for (const url of [
+    teamsTaskDeepLink(APP_ID, TASK_ID),
+    teamsTaskDeepLink(APP_ID, TASK_ID, { label: "claim: Adams", webUrl: "https://hot.example.com" }),
+    teamsTaskDeepLink(APP_ID, TASK_ID, { claim: true })
+  ]) {
+    assert.deepEqual(contextOf(url), { subEntityId: TASK_ID }, url);
+    assert.equal(readTeamsArrival({ page: { subPageId: contextOf(url).subEntityId } }).claim, false);
+  }
+});
+
 /* The builder is handed task ids by its callers and nothing stops a caller
    handing it this one. It refuses to turn a task link into an arrival link
    rather than trusting every caller not to. */
 test("the task link builder won't emit the sentinel even when handed it as a task id", () => {
   for (const taskId of [HUMPERDINK_ARRIVAL_ID, "new:humperdink:mf3k9x2a"]) {
-    const url = teamsTaskDeepLink(APP_ID, taskId, { label: "x", claim: true });
+    const url = teamsTaskDeepLink(APP_ID, taskId, { label: "x" });
     assert.ok(!decodeURIComponent(url).includes(HUMPERDINK_ARRIVAL_ID), taskId);
+    assert.equal(withClaimIntent(url), undefined, taskId);
   }
 });
 
@@ -200,7 +214,9 @@ test("a Humperdink arrival never focuses a task and never claims one, even with 
     { page: { subPageId: HUMPERDINK_ARRIVAL_ID, claimOnOpen: true } },
     { subEntityId: HUMPERDINK_ARRIVAL_ID, claimOnOpen: true },
     { page: { subPageId: HUMPERDINK_ARRIVAL_ID }, claimOnOpen: true },
-    { page: { subPageId: "new:humperdink:mf3k9x2a", claimOnOpen: true } }
+    { page: { subPageId: "new:humperdink:mf3k9x2a", claimOnOpen: true } },
+    { page: { subPageId: `${CLAIM_ARRIVAL_PREFIX}${HUMPERDINK_ARRIVAL_ID}` } },
+    { subEntityId: `${CLAIM_ARRIVAL_PREFIX}new:humperdink:mf3k9x2a` }
   ]) {
     const arrival = readTeamsArrival(context);
     assert.deepEqual(arrival, { kind: "humperdink" });
@@ -214,9 +230,13 @@ test("a task link reads back as that task, view-only", () => {
   assert.deepEqual(readTeamsArrival({ subEntityId: TASK_ID }), { kind: "task", taskId: TASK_ID, claim: false });
 });
 
-test("a Claim & Open link reads back as that task with the claim", () => {
-  assert.deepEqual(readTeamsArrival({ page: { subPageId: TASK_ID, claimOnOpen: true } }), { kind: "task", taskId: TASK_ID, claim: true });
-  // The claim reader it defers to is unchanged.
+test("a Claim & Open link reads back as the bare task with the claim", () => {
+  const claimed = { kind: "task", taskId: TASK_ID, claim: true };
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: `${CLAIM_ARRIVAL_PREFIX}${TASK_ID}` } }), claimed);
+  assert.deepEqual(readTeamsArrival({ subEntityId: `${CLAIM_ARRIVAL_PREFIX}${TASK_ID}` }), claimed);
+  assert.equal(readClaimIntent({ page: { subPageId: `${CLAIM_ARRIVAL_PREFIX}${TASK_ID}` } }), true);
+  // A card posted before #443 still claims.
+  assert.deepEqual(readTeamsArrival({ page: { subPageId: TASK_ID, claimOnOpen: true } }), claimed);
   assert.equal(readClaimIntent({ page: { subPageId: TASK_ID, claimOnOpen: true } }), true);
 });
 
@@ -229,7 +249,16 @@ test("the v2 shape wins over the v1 one, as the tab always read it", () => {
 });
 
 test("every other way into Hot Task is no arrival", () => {
-  for (const context of [{ page: {} }, {}, { app: { theme: "dark" } }, undefined, null, "new:humperdink", { page: { subPageId: "" } }]) {
+  for (const context of [
+    { page: {} },
+    {},
+    { app: { theme: "dark" } },
+    undefined,
+    null,
+    "new:humperdink",
+    { page: { subPageId: "" } },
+    { page: { subPageId: CLAIM_ARRIVAL_PREFIX } }
+  ]) {
     assert.deepEqual(readTeamsArrival(context), { kind: "none" }, JSON.stringify(context));
   }
 });
@@ -301,6 +330,7 @@ test("App hands the create form the arrival, and every other way in clears it", 
 test("the deep link module exports the arrival and nothing of the old create-form intent", async () => {
   const deepLink = await import("../packages/shared/src/deep-link.ts");
   assert.deepEqual(Object.keys(deepLink).sort(), [
+    "CLAIM_ARRIVAL_PREFIX",
     "CLAIM_INTENT_FIELD",
     "HOT_TASK_ENTITY_ID",
     "HUMPERDINK_ARRIVAL_ID",

@@ -12,15 +12,26 @@
    the personal tab. */
 export const HOT_TASK_ENTITY_ID = "loan-tasks-home";
 
-/* The field that carries "claim this on arrival" inside the link's `context`
-   JSON, beside `subEntityId` (#180).
+/* The prefix that makes a task id a claim (#443): `claim:<taskId>` in
+   `subEntityId` means "focus this task and claim it on arrival". Only the
+   channel card's Claim & Open builds one, through `withClaimIntent`.
 
-   Its own field rather than a `claim:<taskId>` prefix on `subEntityId`,
-   because every surface shares this builder — including the web app's "Copy
-   link" — and a prefix scheme would turn a pasted link into something that
-   claims a task for whoever opens it. The intent is opt-in: a caller has to
-   ask for it, and one that doesn't emits the byte-identical view-only URL it
-   always did. */
+   Inside `subEntityId` because that is the one context value proven to reach
+   the tab on Teams desktop (see the Humperdink sentinel below). #180 kept the
+   intent in a field of its own beside it, so that a copied link could never
+   claim for whoever opens it, and that field never arrived: every Claim & Open
+   tap opened the task view-only. The owner took the trade on 2026-09-15. A
+   copied Claim & Open link may claim for whoever opens it, because only the
+   channel card builds one, the server still refuses anything but an unclaimed
+   task that isn't the opener's own (ADR-0003), and a refusal shows a toast.
+
+   Task ids are UUIDs and the Humperdink sentinel starts `new:`, so the prefix
+   collides with neither. */
+export const CLAIM_ARRIVAL_PREFIX = "claim:";
+
+/* The field #180's links carried the claim in, beside `subEntityId`. Nothing
+   writes it now. It is still read, because a card already posted keeps its old
+   URL until it is next edited. */
 export const CLAIM_INTENT_FIELD = "claimOnOpen";
 
 /* The `subEntityId` a Humperdink arrival carries (#412): somebody pressed Send
@@ -38,8 +49,7 @@ export const CLAIM_INTENT_FIELD = "claimOnOpen";
    for whoever clicks it. That was the reason #198 refused a sentinel, and it is
    harmless: the form only fills from the clicker's own clipboard, only a valid
    Send to Hot Task payload fills it, and nothing is filed until they press
-   Create. What must never happen is the claim scheme's failure, a link that
-   acts for someone, and this one doesn't act.
+   Create.
 
    The link carries nothing but this and a press tag (below). Teams writes every
    deep link it receives into its local log, so no loan data goes in the URL. */
@@ -70,10 +80,6 @@ export interface TeamsTaskDeepLinkOptions {
      origin; the server passes APP_BASE_URL when it is configured. Omitted
      entirely when unset — Teams then just opens its own client. */
   webUrl?: string;
-  /* Opt in to the claim intent above. Off everywhere but the channel card's
-     "Claim & Open" button. Ignored without a `taskId` — there is nothing to
-     claim. */
-  claim?: boolean;
 }
 
 /* Build the deep link, or return undefined when we have no app id.
@@ -85,8 +91,9 @@ export interface TeamsTaskDeepLinkOptions {
    `taskId` is optional: with one, the link focuses that task (teams-js
    surfaces `subEntityId` as `page.subPageId`, which the web app reads to
    expand + scroll to the card); without one, it opens the tab plain. The
-   Humperdink sentinel is never a task id here: handed it, the builder names no
-   task, so a task link can't turn into an arrival link. */
+   Humperdink sentinel and a claim-prefixed id are never a task id here: handed
+   either, the builder names no task, so a task link can't turn into an arrival
+   link or a claim link. */
 export const teamsTaskDeepLink = (
   appId: string | null | undefined,
   taskId?: string,
@@ -98,17 +105,8 @@ export const teamsTaskDeepLink = (
   }
 
   const params: string[] = [];
-  /* `subEntityId` first and alone unless the claim was asked for, so every
-     existing caller's URL is byte-for-byte what it was. */
-  const context: Record<string, unknown> = {};
-  if (taskId && !isHumperdinkArrival(taskId)) {
-    context.subEntityId = taskId;
-    if (options.claim) {
-      context[CLAIM_INTENT_FIELD] = true;
-    }
-  }
-  if (Object.keys(context).length > 0) {
-    params.push(`context=${encodeURIComponent(JSON.stringify(context))}`);
+  if (taskId && !isHumperdinkArrival(taskId) && !taskId.startsWith(CLAIM_ARRIVAL_PREFIX)) {
+    params.push(`context=${encodeURIComponent(JSON.stringify({ subEntityId: taskId }))}`);
   }
   if (options.label?.trim()) {
     params.push(`label=${encodeURIComponent(options.label.trim())}`);
@@ -151,7 +149,11 @@ export const humperdinkArrivalLink = (appId: string | null | undefined, press?: 
    Returns undefined when there is nothing to claim: no link, a link that names
    no task, or a Humperdink arrival link, which names no task either. The caller
    then omits the affordance rather than offering a button that lands on the
-   plain tab. */
+   plain tab.
+
+   The context comes out as the prefixed task id alone. A link from before #443
+   loses its `claimOnOpen` field rather than carrying both, and a link already
+   prefixed comes back unchanged. */
 export const withClaimIntent = (url: string | undefined): string | undefined => {
   if (!url) {
     return undefined;
@@ -181,28 +183,42 @@ export const withClaimIntent = (url: string | undefined): string | undefined => 
     } catch {
       return undefined;
     }
-    if (!context.subEntityId || isHumperdinkArrival(context.subEntityId)) {
+    const taskId = typeof context.subEntityId === "string" ? stripClaimPrefix(context.subEntityId) : "";
+    if (!taskId || isHumperdinkArrival(taskId)) {
       return undefined;
     }
     seenContext = true;
-    rewritten.push(`context=${encodeURIComponent(JSON.stringify({ ...context, [CLAIM_INTENT_FIELD]: true }))}`);
+    rewritten.push(`context=${encodeURIComponent(JSON.stringify({ subEntityId: `${CLAIM_ARRIVAL_PREFIX}${taskId}` }))}`);
   }
   return seenContext ? `${base}?${rewritten.join("&")}` : undefined;
 };
 
-/* Read the claim intent back off whatever the host handed the tab.
+const stripClaimPrefix = (value: string): string =>
+  value.startsWith(CLAIM_ARRIVAL_PREFIX) ? value.slice(CLAIM_ARRIVAL_PREFIX.length) : value;
 
-   teams-js v2 surfaces the link's `subEntityId` as `page.subPageId` and the v1
-   shape put it at the top level; hosts differ on where the rest of the context
-   JSON lands, so this looks in both rather than trusting one shape. Anything it
-   can't find reads as no intent, which is the safe default — a link that fails
-   to announce itself opens the task view-only rather than claiming it. */
+type HostContext = { page?: Record<string, unknown> } & Record<string, unknown>;
+
+/* The link's `subEntityId` as the host handed it back: `page.subPageId`
+   (teams-js v2) or top-level `subEntityId` (v1), the v2 one first, which is the
+   order the tab always read them in. */
+const arrivalValue = (shape: HostContext): unknown => shape.page?.subPageId ?? shape.subEntityId;
+
+/* Read the claim intent back off whatever the host handed the tab: the prefix
+   on the arrival value, or, for a link from before #443, the old field at the
+   top level or under `page`. Anything it can't find reads as no intent, which
+   is the safe default — a link that fails to announce itself opens the task
+   view-only rather than claiming it. */
 export const readClaimIntent = (context: unknown): boolean => {
   if (!context || typeof context !== "object") {
     return false;
   }
-  const shape = context as { page?: Record<string, unknown> } & Record<string, unknown>;
-  return shape[CLAIM_INTENT_FIELD] === true || shape.page?.[CLAIM_INTENT_FIELD] === true;
+  const shape = context as HostContext;
+  const value = arrivalValue(shape);
+  return (
+    (typeof value === "string" && value.startsWith(CLAIM_ARRIVAL_PREFIX)) ||
+    shape[CLAIM_INTENT_FIELD] === true ||
+    shape.page?.[CLAIM_INTENT_FIELD] === true
+  );
 };
 
 /* Which way somebody arrived at the tab. */
@@ -217,23 +233,26 @@ export type TeamsArrival =
 /* Read the arrival off whatever the host handed the tab, once, so the tab has
    one answer to branch on (#412).
 
-   The value is `page.subPageId` (teams-js v2) or top-level `subEntityId` (v1),
-   the v2 one first, which is the order the tab always read them in. The
-   Humperdink sentinel is checked before anything treats the value as a task, so
-   it never becomes a task to focus, and a claim intent riding beside it is
-   ignored rather than claiming a task called `new:humperdink`. Anything that
-   isn't a non-empty string is no arrival. */
+   A claim prefix comes off before anything else looks at the value, so the tab
+   focuses and claims the bare task id. The Humperdink sentinel is checked
+   before anything treats the value as a task, so it never becomes a task to
+   focus, and a claim riding on or beside it is ignored rather than claiming a
+   task called `new:humperdink`. Anything that isn't a non-empty string, prefix
+   aside, is no arrival. */
 export const readTeamsArrival = (context: unknown): TeamsArrival => {
   if (!context || typeof context !== "object") {
     return { kind: "none" };
   }
-  const shape = context as { page?: Record<string, unknown> } & Record<string, unknown>;
-  const value = shape.page?.subPageId ?? shape.subEntityId;
-  if (typeof value !== "string" || !value) {
+  const value = arrivalValue(context as HostContext);
+  if (typeof value !== "string") {
     return { kind: "none" };
   }
-  if (isHumperdinkArrival(value)) {
+  const taskId = stripClaimPrefix(value);
+  if (isHumperdinkArrival(taskId)) {
     return { kind: "humperdink" };
   }
-  return { kind: "task", taskId: value, claim: readClaimIntent(context) };
+  if (!taskId) {
+    return { kind: "none" };
+  }
+  return { kind: "task", taskId, claim: readClaimIntent(context) };
 };
