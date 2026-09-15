@@ -10,6 +10,7 @@ import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, showForTab, tabForLink, tabForShow, visibleBoardTasks } from "./board-filter";
+import { AdminMenuSection, AppPage, BackToTasks } from "./app-pages";
 import { BOARD_PANEL_ID, BoardTab, BoardTabs, boardTabId } from "./board-tabs";
 import { LoanSearch, LoanSearchEmpty, LoanSearchStatus } from "./loan-search";
 import { bylineOf, formatAgo, formatDate, initialsOf } from "./format";
@@ -2862,7 +2863,9 @@ const AppMenu = ({
   expandedIds,
   onCollapseAll,
   themeChoice,
-  onThemeChange
+  onThemeChange,
+  isAdmin,
+  onOpenPage
 }: {
   grouped: boolean;
   onGroupedChange: (next: boolean) => void;
@@ -2875,6 +2878,10 @@ const AppMenu = ({
   onCollapseAll: (taskIds: string[]) => void;
   themeChoice: ThemeChoice;
   onThemeChange: (next: ThemeChoice) => void;
+  /* An admin's menu ends with Metrics and Admin, the only way to either since
+     the app bar went (#438). Nobody else's menu changes. */
+  isAdmin: boolean;
+  onOpenPage: (page: AppPage) => void;
 }) => {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -2898,6 +2905,13 @@ const AppMenu = ({
   }, [open]);
 
   const collapseCount = expandedIds.length;
+
+  /* The page opens at its top, not wherever the board was scrolled to. */
+  const openPage = (page: AppPage): void => {
+    setOpen(false);
+    window.scrollTo({ top: 0 });
+    onOpenPage(page);
+  };
 
   return (
     <div className="app-menu" ref={wrapRef}>
@@ -2984,6 +2998,8 @@ const AppMenu = ({
               ))}
             </div>
           </div>
+
+          {isAdmin && <AdminMenuSection onOpenPage={openPage} />}
         </div>
       )}
     </div>
@@ -3565,7 +3581,7 @@ export const App = () => {
      task itself: the list refreshes underneath, and holding the object would
      pin the form to a snapshot taken when the menu was clicked. */
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"active" | "metrics" | "admin">("active");
+  const [activeTab, setActiveTab] = useState<"active" | AppPage>("active");
 
   /* Grouped ("courts") view toggle — buckets tasks by whose court the ball is
      in instead of one flat list. App-wide viewing preference, persisted so it
@@ -4918,10 +4934,6 @@ export const App = () => {
   /* The search's empty-box shortlist, the same "mine" the create form derives. */
   const searchMyLoanIds = useMemo(() => deriveMyLoanIds(tasks, user.id), [tasks, user.id]);
 
-  /* The admin-only Tasks tab counts the unfiltered board on purpose (#334): the
-     tab names the list, and Mine is a view over it. */
-  const activeCount = useMemo(() => unifiedTasks.filter((t) => !CLOSED_STATUSES.includes(t.status)).length, [unifiedTasks]);
-
   /* Re-bucket an already-filtered task list (History window applied)
      into the grouped view's courts. A completion the viewer created pins to a
      "Just finished" section at the very top (kept until they archive it) and
@@ -5093,40 +5105,14 @@ export const App = () => {
   return (
     <main className="app-shell">
       {/* ── Header ──────────────────────────────────── */}
-      {/* Teams already shows "Hot Task" in its own tab, so no brand lockup
-          here — that would be pure duplication. New Task lives on the list's
-          own section header now (next to Grouped/Flat), so this top row is
-          just nav (admin only) + the dev user picker — no need for it to
-          read as its own heavy "bar" anymore. */}
-      <header className="app-bar">
-        {isAdmin && (
-          <nav className="tab-bar">
-            <button
-              type="button"
-              className={`tab-btn${activeTab === "active" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("active")}
-            >
-              Tasks
-              <span className="section-count">{activeCount}</span>
-            </button>
-            <button
-              type="button"
-              className={`tab-btn${activeTab === "metrics" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("metrics")}
-            >
-              Metrics
-            </button>
-            <button
-              type="button"
-              className={`tab-btn${activeTab === "admin" ? " tab-active" : ""}`}
-              onClick={() => setActiveTab("admin")}
-            >
-              Admin
-            </button>
-          </nav>
-        )}
-        <div className="app-bar-actions">
-          {IS_DEV ? (
+      {/* Dev builds only. Production has no app bar (#438): Teams already names
+          the app, the board's own header holds its controls, and Metrics and
+          Admin open from the app menu. What is left is the mock user picker,
+          the only way to switch people locally, and vite strips it and this
+          bar from a production build. */}
+      {IS_DEV && (
+        <header className="app-bar">
+          <div className="app-bar-actions">
             <label className="user-picker">
               <span>User:</span>
               {/* Disabled until the roster lands: with no people to offer there
@@ -5151,11 +5137,9 @@ export const App = () => {
                 )}
               </select>
             </label>
-          ) : (
-            <span className="user-picker user-picker-static">{user.displayName}</span>
-          )}
-        </div>
-      </header>
+          </div>
+        </header>
+      )}
 
       {error && <p className="error-bar">{error}</p>}
 
@@ -5265,6 +5249,8 @@ export const App = () => {
                   onCollapseAll={collapseAllTasks}
                   themeChoice={themeChoice}
                   onThemeChange={setThemeChoice}
+                  isAdmin={isAdmin}
+                  onOpenPage={setActiveTab}
                 />
                 <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
               </div>
@@ -5289,13 +5275,21 @@ export const App = () => {
         );
       })()}
 
-      {/* ── Metrics tab content ─────────────────────── */}
+      {/* ── Metrics and Admin ───────────────────────── */}
+      {/* Opened from the app menu. Each page's one control is the way back. */}
       {activeTab === "metrics" && isAdmin && (
-        <MetricsPanel leaderboard={claimsLeaderboard} totals={statusTotals} typeBreakdown={typeBreakdown} />
+        <>
+          <BackToTasks onBack={() => setActiveTab("active")} />
+          <MetricsPanel leaderboard={claimsLeaderboard} totals={statusTotals} typeBreakdown={typeBreakdown} />
+        </>
       )}
 
-      {/* ── Admin tab content ───────────────────────── */}
-      {activeTab === "admin" && isAdmin && <AdminPanel user={user} />}
+      {activeTab === "admin" && isAdmin && (
+        <>
+          <BackToTasks onBack={() => setActiveTab("active")} />
+          <AdminPanel user={user} />
+        </>
+      )}
 
       {/* Last in the tree so it paints over everything, including the edit form,
           which is itself a modal (#265). */}
