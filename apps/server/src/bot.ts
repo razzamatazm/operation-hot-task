@@ -644,6 +644,13 @@ const transitionConfirmCard = (data: ConfirmData): Record<string, unknown> => ({
   actions: advanceButton(data.taskId, data.advance)
 });
 
+/* One line, one event name, one JSON object — so a production log read can grep
+   the event and pull the fields out of the same line (#440). Ids, counts and
+   flags only: never a person's name, never anything about a loan. */
+const logEvent = (event: string, fields: Record<string, unknown>): void => {
+  console.log(event, JSON.stringify(fields));
+};
+
 /* A `refresh` block makes Teams auto-fetch a user-specific view for the listed
    user MRIs (the creator) — they get the creator card (Cancel) while everyone
    else keeps the base Claim card. Omitted when we don't know the creator's MRI
@@ -943,6 +950,19 @@ class LoanTasksBot extends ActivityHandler {
     const taskId = typeof data.taskId === "string" ? data.taskId : undefined;
     const from = context.activity.from;
 
+    /* Card invokes left no trace at all, so a creator who saw the wrong buttons
+       couldn't be told apart from one whose view Teams never asked us for
+       (#440). Every invoke now says what it was and whether it carried a
+       viewer. `trigger` is Teams' own reason for asking — "automatic" for the
+       refresh it fetches on render, absent for a person tapping. */
+    const trigger = (context.activity.value as { trigger?: string } | undefined)?.trigger;
+    logEvent("bot_card_invoke", {
+      verb: verb ?? "none",
+      trigger: trigger ?? "none",
+      taskId: taskId ?? "none",
+      viewer: from?.aadObjectId ? "present" : "absent"
+    });
+
     /* Whatever is in the card's conversation box travels with the button (#250).
        The rule is deliberately uniform rather than per-button: any tap arriving
        with non-empty text posts it as a note through the same path the Reply
@@ -1076,6 +1096,9 @@ class LoanTasksBot extends ActivityHandler {
       }
       const card = await this.onRefreshCard(taskId, from?.aadObjectId);
       if (!card) {
+        // Teams asked for a user-specific view and we had nothing recorded to
+        // build one from, so the base card stays on screen (#440).
+        logEvent("bot_card_refresh_empty", { taskId });
         return super.onInvokeActivity(context);
       }
       return cardRefreshResponse(card);
@@ -1862,10 +1885,24 @@ export class TeamsBotClient {
   ): Record<string, unknown> {
     const creatorUserIds = content.creatorUserIds ?? [];
     const base = adaptiveTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds });
+    const isCreator = Boolean(aadObjectId) && task?.createdBy.id === aadObjectId;
+    /* Which card this viewer was handed, and the three facts that decided it
+       (#440). Whether the answer was right is then readable from the log
+       instead of only from the screen of whoever complained. */
+    const view = (kind: string, card: Record<string, unknown>): Record<string, unknown> => {
+      logEvent("bot_card_view", {
+        taskId,
+        card: kind,
+        status: task?.status ?? "unknown",
+        isCreator,
+        creatorIds: creatorUserIds.length,
+        viewer: aadObjectId ? "present" : "absent"
+      });
+      return card;
+    };
     if (!task) {
-      return base;
+      return view("claim", base);
     }
-    const isCreator = Boolean(aadObjectId) && task.createdBy.id === aadObjectId;
     const withRefresh = (card: Record<string, unknown>): Record<string, unknown> => {
       const refresh = refreshBlock(taskId, creatorUserIds);
       return refresh ? { ...card, refresh } : card;
@@ -1873,8 +1910,8 @@ export class TeamsBotClient {
     if (task.status === "OPEN") {
       // The whole point: the creator gets Cancel, everyone else gets Claim.
       return isCreator
-        ? creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds })
-        : base;
+        ? view("creator", creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds }))
+        : view("claim", base);
     }
     /* Every terminal/in-flight branch below rebuilds its card from the task, so
        each one is handed the same context the in-place edit used. Miss this and
@@ -1882,16 +1919,16 @@ export class TeamsBotClient {
        Teams refreshes it (#193). */
     const context = channelCardContext(task);
     if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
-      return withRefresh(completedCard(context, content.openUrl));
+      return view("completed", withRefresh(completedCard(context, content.openUrl)));
     }
     if (task.status === "CANCELLED") {
-      return withRefresh(cancelledCard(context, content.openUrl));
+      return view("cancelled", withRefresh(cancelledCard(context, content.openUrl)));
     }
     /* In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state —
        unless this is the task that was born in somebody's hands and is still in
        them, which nobody claimed and whose card said so when it was posted. */
     const stillBornAssigned = Boolean(content.bornAssignedTo) && task.assignee?.id === content.bornAssignedTo;
-    return withRefresh(heldCard({ handed: stillBornAssigned, context, ...(content.openUrl ? { openUrl: content.openUrl } : {}) }));
+    return view("held", withRefresh(heldCard({ handed: stillBornAssigned, context, ...(content.openUrl ? { openUrl: content.openUrl } : {}) })));
   }
 
   /* Correct the channel card of a task whose loan was renamed or relinked
@@ -2276,6 +2313,10 @@ export class TeamsBotClient {
      the bot — the card then stays Claim-for-all (graceful degradation). */
   private async resolveCreatorUserIds(creatorAadObjectId?: string): Promise<string[]> {
     if (!creatorAadObjectId) {
+      /* The card is being built without a creator at all, so no lookup happens
+         and none of the lines below fire. Say so, or this case is invisible in
+         exactly the way "asked and found nobody" used to be (#440). */
+      logEvent("bot_creator_ids", { source: "absent", count: 0 });
       return [];
     }
     const refs = await this.store.read();
@@ -2284,7 +2325,9 @@ export class TeamsBotClient {
       .map((entry) => entry.userId)
       .filter((id): id is string => Boolean(id));
     if (ids.length > 0) {
-      return Array.from(new Set(ids));
+      const stored = Array.from(new Set(ids));
+      logEvent("bot_creator_ids", { source: "dm", count: stored.length });
+      return stored;
     }
     /* Nothing stored means the creator has never messaged the bot. That used to
        end here, and the card fell back to the claim-for-all view — which the
@@ -2292,7 +2335,9 @@ export class TeamsBotClient {
        (ADR-0003). It matters more now that the claim affordance is a deep link
        the server can't gate per viewer at tap time (#180), so ask the channel
        roster: the creator is a member of the team the card is going to. */
-    return this.rosterUserIds(creatorAadObjectId);
+    const roster = await this.rosterUserIds(creatorAadObjectId);
+    logEvent("bot_creator_ids", { source: roster.length > 0 ? "roster" : "none", count: roster.length });
+    return roster;
   }
 
   /* Teams MRIs for one AAD object id, from the roster of every channel the bot
@@ -2304,6 +2349,11 @@ export class TeamsBotClient {
       return [];
     }
     const ids = new Set<string>();
+    /* Counted rather than described: the production question was whether the
+       member list was ever asked for, and whether the creator was in it (#440).
+       An empty answer and a channel we never asked look identical otherwise. */
+    let channels = 0;
+    let members = 0;
     for (const entry of await this.targetChannelReferences()) {
       const serviceUrl = entry.reference.serviceUrl;
       const conversationId = entry.reference.conversation?.id;
@@ -2311,20 +2361,29 @@ export class TeamsBotClient {
         continue;
       }
       try {
+        /* Counted before the call, not after: a channel whose member list
+           throws is still a channel we asked, and counting it on the way out
+           would report the failure as "never asked" — the one distinction this
+           line exists to make. */
+        channels += 1;
         const client = this.adapter.createConnectorClient(serviceUrl);
-        const members = (await client.conversations.getConversationMembers(conversationId)) as Array<{
+        const roster = (await client.conversations.getConversationMembers(conversationId)) as Array<{
           id?: string;
           aadObjectId?: string;
         }>;
-        for (const member of members ?? []) {
+        members += (roster ?? []).length;
+        for (const member of roster ?? []) {
           if (member.aadObjectId === aadObjectId && member.id) {
             ids.add(member.id);
           }
         }
       } catch (error) {
-        console.error("bot_roster_lookup_failed", error);
+        /* The message only. A raw connector error carries the response body,
+           which on a member-list call is a list of people's names (#440). */
+        console.error("bot_roster_lookup_failed", JSON.stringify({ message: error instanceof Error ? error.message : "unknown" }));
       }
     }
+    logEvent("bot_roster_lookup", { channels, members, matched: ids.size });
     return [...ids];
   }
 
