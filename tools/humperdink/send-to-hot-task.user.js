@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Send to Hot Task
 // @namespace    https://github.com/razzamatazm/operation-hot-task
-// @version      1.10.0
+// @version      1.10.1
 // @description  Copy a Humperdink loan to the clipboard, then open Hot Task in Teams desktop on a new LOI Check.
 // @author       Operation Hot Task
 // @match        https://humperdink.loneoakfund.com/Loans/Details/*
@@ -836,6 +836,12 @@
        `name="LOI"`, the `lending-controls-button` marker Humperdink's own code
        finds its buttons by, and any inline handler. Kept, the page would have a
        second LOI button that opens the LOI. Only presentation survives. */
+    /* Before the ids go: Humperdink styles the LOI button through `#btnLOIFile`
+       as well as through its classes, and the id is the one thing a copy can
+       never keep. Without those rules the control rides a little high and
+       leaves a gap under it, so each box takes its vertical metrics from what
+       its original actually renders with, whatever rule set them. */
+    matchVerticalTree(el, anchor);
     var nodes = [el].concat(Array.prototype.slice.call(el.querySelectorAll("*")));
     for (var i = 0; i < nodes.length; i += 1) stripIdentity(nodes[i]);
     /* The LOI button's inline width is sized to "LOI"; "Export to HT" spilled out
@@ -856,6 +862,56 @@
     label.style.whiteSpace = "nowrap";
     name.parentNode.replaceChild(label, name);
     return el;
+  }
+
+  /* What holds a header button on the bar's centre line. Vertical only, and
+     that is the whole point of the list. 1.9.4 copied every box property and
+     1.9.5 took it back out for good reasons: it rewrote LOI's
+     `padding-left: 10px !important` as an ordinary declaration, and it could
+     capture a header that hadn't painted. The horizontal side needs no help —
+     LOI's inline width is dropped just below and its padding is inherited
+     untouched — so nothing here reads or writes a left, a right or a width. */
+  var RENDERED_VERTICAL = [
+    "display", "box-sizing", "vertical-align",
+    "height", "min-height", "line-height", "font-size",
+    "margin-top", "margin-bottom", "padding-top", "padding-bottom"
+  ];
+  /* Offsets only travel with `position: relative`; copying an absolute one
+     would stack the control on top of the LOI button. */
+  var RELATIVE_OFFSETS = ["position", "top", "bottom"];
+
+  /* The original's rendered style, or null when there is nothing worth reading.
+     A header that hasn't painted yet measures zero, and a copy of that would be
+     a flattened control that never recovers. */
+  function renderedStyle(original) {
+    if (typeof window.getComputedStyle !== "function") return null;
+    var style = window.getComputedStyle(original);
+    if (!style) return null;
+    return parseFloat(style.getPropertyValue("height")) > 0 ? style : null;
+  }
+
+  function matchVertical(copy, original) {
+    if (!copy.style || typeof copy.style.setProperty !== "function") return;
+    var style = renderedStyle(original);
+    if (!style) return;
+    var names = style.getPropertyValue("position") === "relative" ? RENDERED_VERTICAL.concat(RELATIVE_OFFSETS) : RENDERED_VERTICAL;
+    for (var i = 0; i < names.length; i += 1) {
+      var value = style.getPropertyValue(names[i]);
+      if (!value) continue;
+      /* Never downgrade an `!important` the copy already carries: setting a
+         property plainly would drop its priority, which is how the earlier
+         version broke LOI's padding. */
+      if (typeof copy.style.getPropertyPriority === "function" && copy.style.getPropertyPriority(names[i]) === "important") continue;
+      copy.style.setProperty(names[i], value);
+    }
+  }
+
+  /* The button and every box inside it, each against the original it came from. */
+  function matchVerticalTree(copy, original) {
+    matchVertical(copy, original);
+    var originals = typeof original.querySelectorAll === "function" ? original.querySelectorAll("*") : [];
+    var copies = typeof copy.querySelectorAll === "function" ? copy.querySelectorAll("*") : [];
+    for (var i = 0; i < copies.length && i < originals.length; i += 1) matchVertical(copies[i], originals[i]);
   }
 
   var PRESENTATION_ATTRIBUTE = /^(class|style|role|title|aria-.*)$/i;

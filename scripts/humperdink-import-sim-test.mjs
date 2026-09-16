@@ -244,6 +244,12 @@ const runUserscript = ({
      Left out, the LOI button can't be copied and the script builds its control
      by hand, which is the fallback. */
   loiMarkup = null,
+  /* What the LOI button actually renders with, property by property, as
+     Humperdink's own stylesheet leaves it: the part a copy can't read off the
+     markup because it comes from rules keyed to `#btnLOIFile`. Left out, there
+     is no `getComputedStyle` in the sandbox at all, which is the older-browser
+     path the script guards for. */
+  rendered = null,
   /* Divides every timer the script sets, so a test can run the control's
      twenty-second wait-for-the-grids ceiling in a fraction of a second. */
   clockScale = 1
@@ -605,7 +611,10 @@ const runUserscript = ({
     URL,
     jQuery,
     fetch,
-    DOMParser
+    DOMParser,
+    ...(rendered
+      ? { getComputedStyle: () => ({ getPropertyValue: (name) => rendered[name] ?? "" }) }
+      : {})
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
@@ -784,6 +793,51 @@ test("a copy taken while LOI is disabled doesn't look disabled", () => {
   });
   assert.doesNotMatch(page.button.className, /disabled/);
   assert.equal(page.button.attributes.find((attribute) => attribute.name === "aria-disabled").value, "false");
+});
+
+/* Humperdink styles the LOI button through `#btnLOIFile` as well as through its
+   classes, and the id is the one thing a copy can never keep. Between 1.9.5 and
+   1.10.1 the copy went without those rules: it rode a couple of pixels high and
+   left a gap under it where the neighbouring buttons filled the header. So the
+   copy takes its vertical metrics from what the original renders with. */
+test("the copy takes the LOI button's rendered vertical metrics", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: LOI_MARKUP,
+    rendered: { height: "28px", "line-height": "28px", "margin-top": "2px", "padding-bottom": "4px" }
+  });
+  assert.equal(page.button.style.height, "28px", "what it renders with, not the inline 24px");
+  assert.equal(page.button.style["line-height"], "28px");
+  assert.equal(page.button.style["margin-top"], "2px", "no gap left under it");
+  assert.equal(page.button.style["padding-bottom"], "4px");
+});
+
+/* Why the vertical list is only the vertical. 1.9.4 copied every box property
+   and 1.9.5 took it back out, because rewriting LOI's `padding-left: 10px
+   !important` as an ordinary declaration moved the label sideways. */
+test("the rendered copy leaves LOI's important padding alone", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: LOI_MARKUP,
+    rendered: { height: "24px", "padding-left": "99px", width: "60px" }
+  });
+  assert.equal(page.button.style["padding-left"], "10px !important", "kept as the markup declares it");
+  assert.equal(page.button.style.width, undefined, "and still sized to its own name");
+});
+
+/* 1.9.5's other objection: a header that hasn't painted measures zero, and a
+   copy of that would be a flattened control that never recovers. */
+test("a header that hasn't painted yet is not copied from", () => {
+  const page = runUserscript({
+    title: "Adams - Harbor - Details",
+    href: LOAN_URL,
+    loiMarkup: LOI_MARKUP,
+    rendered: { height: "0px", "margin-top": "99px" }
+  });
+  assert.equal(page.button.style.height, "24px", "the markup's own height stands");
+  assert.equal(page.button.style["margin-top"], undefined, "nothing from a collapsed header");
 });
 
 /* The control wears LOI's classes, so a Humperdink handler listening higher up
