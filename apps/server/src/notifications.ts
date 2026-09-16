@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, taskCardRecipients } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatBornAssignedHeadline, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, channelCardContext, loanCardValues, noteCardDetailsFromTask, recentNoteThread, taskFactLines } from "./bot.js";
@@ -223,12 +223,20 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // vanish. The post alerts the channel (#447), carrying the summary below
       // as its notification text; the quiet half of the bot is the in-place
       // card edits, which announce nothing.
+      /* A task born assigned posts the assigned card ("Casey was assigned
+         Dana's LOI Check"), so its notification has to read the same way. The
+         ordinary "Dana needs an LOI checked" preview would alert the whole
+         room to pick up work that is already in hand, and its holder has been
+         DM'd separately. No poops: that headline family doesn't carry them. */
+      const preview = event.task.assignee
+        ? formatBornAssignedHeadline(event.task.assignee.displayName, event.task.createdBy.displayName, event.task.taskType)
+        : card.summary;
       await this.botClient.postTaskCard(
         event.task.id,
         card.title,
         card.detail,
         card.openUrl,
-        card.summary,
+        preview,
         event.task.createdBy.id,
         event.task.assignee
           ? { ...channelCardContext(event.task), assigneeId: event.task.assignee.id }
