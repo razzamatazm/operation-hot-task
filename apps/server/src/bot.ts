@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -420,7 +420,7 @@ export const taskFactLines = (task: LoanTask, options: { withDue: boolean }): st
     return [`Out: ${from} → ${to}`];
   }
   return [
-    `How Bad: ${task.points > 0 ? "💩".repeat(task.points) : "—"}`,
+    `How Bad: ${formatPoops(task.points) || "—"}`,
     `Urgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
     ...(options.withDue ? [`Due: ${formatWallDate(task.dueAt)}`] : []),
     ...(task.taskType !== "LOI" && task.notes?.trim() ? [`Notes: ${task.notes.trim()}`] : [])
@@ -2215,7 +2215,8 @@ export class TeamsBotClient {
      Best-effort: logs and returns null on failure. */
   private async createChannelThread(
     entry: StoredReference,
-    activity: Partial<Activity>
+    activity: Partial<Activity>,
+    alert = true
   ): Promise<{ reference: Partial<ConversationReference>; activityId: string } | null> {
     const serviceUrl = entry.reference.serviceUrl;
     const channelId = baseChannelId(entry.reference.conversation?.id ?? "");
@@ -2224,10 +2225,26 @@ export class TeamsBotClient {
     }
     try {
       const client = this.adapter.createConnectorClient(serviceUrl);
+      /* Raise a real Teams notification for the post, reading its text from
+         activity.summary (#447). Without the flag, the toast for a card-only
+         message is the generic "Hot Task posted a new message" and says
+         nothing about who needs what — summary alone doesn't reach it.
+
+         Nearly every thread this creates is a moment the room is meant to
+         notice: a new task, a nag, a re-open, a released Fraud Check, an
+         announcement. The exception is a task born assigned, which already has
+         an owner and DMs them — pinging the room asks nobody for anything, so
+         that one posts its card as the record and stays quiet.
+
+         The other quiet half is the in-place card edits, which change a card
+         already sitting in the channel and never come through here. */
+      const posted: Partial<Activity> = alert
+        ? { ...activity, channelData: { ...((activity.channelData as Record<string, unknown>) ?? {}), notification: { alert: true } } }
+        : activity;
       const params = {
         isGroup: true,
         channelData: { channel: { id: channelId } },
-        activity: activity as Activity
+        activity: posted as Activity
       } as ConversationParameters;
       const res = await client.conversations.createConversation(params);
       const reference: Partial<ConversationReference> = {
@@ -2327,7 +2344,8 @@ export class TeamsBotClient {
   private async broadcastCard(
     card: Record<string, unknown>,
     summary: string,
-    kind: "create" | "nag"
+    kind: "create" | "nag",
+    alert = true
   ): Promise<StoredThread["posts"]> {
     const references = await this.targetChannelReferences();
     const activity = MessageFactory.attachment(CardFactory.adaptiveCard(card));
@@ -2336,7 +2354,7 @@ export class TeamsBotClient {
     activity.summary = summary;
     const posts: StoredThread["posts"] = [];
     for (const entry of references) {
-      const post = await this.createChannelThread(entry, activity);
+      const post = await this.createChannelThread(entry, activity, alert);
       if (post) {
         posts.push({ ...post, kind });
       }
@@ -2414,7 +2432,10 @@ export class TeamsBotClient {
     const card = assignedContext
       ? heldCard({ handed: true, context: assignedContext, ...(openUrl ? { openUrl } : {}) })
       : adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
-    const posts = await this.broadcastCard(card, summary?.trim() || plainSummary(title), "create");
+    /* A task born assigned posts silently: its holder is already named on the
+       card and already DM'd, so an alert would ask a room of people to pick up
+       something nobody can pick up. */
+    const posts = await this.broadcastCard(card, summary?.trim() || plainSummary(title), "create", !assignedContext);
     if (posts.length > 0) {
       await this.threads.save({
         taskId,

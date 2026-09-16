@@ -145,7 +145,8 @@ await check("a new task's card says who needs what, then the file and its type",
     "Smith-1042 - LOI Check\nHow Bad: 💩💩\nUrgency: Within 24 Hours",
     "the task has a Humperdink link, and the card still doesn't carry it"
   );
-  assert.equal(posted.at(-1).activity.summary, "Dana needs an LOI checked");
+  // The notification preview carries the poops the headline doesn't (#447).
+  assert.equal(posted.at(-1).activity.summary, "Dana needs an LOI checked 💩💩");
 });
 
 await check("the claimed card names the claimer and whose task, then the file and its type", async () => {

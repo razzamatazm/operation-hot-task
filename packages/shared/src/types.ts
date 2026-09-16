@@ -110,6 +110,22 @@ export const TASK_NEEDS_PHRASE: Readonly<Record<TaskType, string>> = {
 export const formatNewTaskHeadline = (displayName: string, taskType: TaskType): string =>
   `${displayName} ${TASK_NEEDS_PHRASE[taskType]}`;
 
+/* The How Bad? rating as the poops themselves. Empty at zero — a caller with
+   room for a placeholder ("—" on a card's How Bad line) adds its own; a
+   notification preview has no room for one and shows nothing. */
+export const formatPoops = (points: number): string => "💩".repeat(Math.max(0, points));
+
+/* What Teams raises as the notification when a new task lands in the channel:
+   the headline plus the urgency, `Dana needs an LOI checked 💩💩`. It carries
+   the poops and the card's headline does not, because the card has a How Bad
+   line under it and a toast is the only line a reader gets. Kept apart from
+   the headline family above for the same reason: none of the post-creation
+   headlines should grow poops. */
+export const formatNewTaskPreview = (displayName: string, taskType: TaskType, points: number): string => {
+  const poops = formatPoops(points);
+  return poops ? `${formatNewTaskHeadline(displayName, taskType)} ${poops}` : formatNewTaskHeadline(displayName, taskType);
+};
+
 /* The channel card's headlines after creation (reworded 2026-09-12). Each one
    says who did what to whose task, by first name, and the file and its type go
    on the line under it (`formatTaskNameLine`):
