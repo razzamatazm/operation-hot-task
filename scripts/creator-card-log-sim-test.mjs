@@ -76,7 +76,7 @@ const captureLogs = async (fn) => {
 
 const events = (lines, name) => lines.filter((line) => line.event === name).map((line) => JSON.parse(line.payload));
 
-const botSetup = async ({ roster = [] } = {}) => {
+const botSetup = async ({ roster = [], rosterFails = false, dmRef = false } = {}) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "creator-card-log-sim-"));
   const dataFile = path.join(dir, "bot-references.json");
   const reference = {
@@ -84,7 +84,19 @@ const botSetup = async ({ roster = [] } = {}) => {
     conversation: { id: "19:channel-1@thread.tacv2", conversationType: "channel" },
     user: { id: "29:bot" }
   };
-  await fs.writeFile(dataFile, JSON.stringify([{ key: "channel:19:channel-1@thread.tacv2", reference, scope: "CHANNEL" }]), "utf8");
+  /* A creator who has chatted with the bot has their Teams id stored against
+     their DM, which is the only way the posted card gets a refresh block at
+     all. Without it the creator's version is never fetched in real Teams, so
+     the cases that care about that version seed one. */
+  const dmEntry = {
+    key: "dm:29:creator",
+    reference: { ...reference, conversation: { id: "19:dm-1", conversationType: "personal" } },
+    scope: "DM",
+    userAadObjectId: CREATOR.id,
+    userId: "29:creator"
+  };
+  const entries = [{ key: "channel:19:channel-1@thread.tacv2", reference, scope: "CHANNEL" }, ...(dmRef ? [dmEntry] : [])];
+  await fs.writeFile(dataFile, JSON.stringify(entries), "utf8");
 
   const client = new TeamsBotClient("app-id", "app-password", undefined, dataFile);
   await client.init();
@@ -94,7 +106,12 @@ const botSetup = async ({ roster = [] } = {}) => {
       updateActivity: async () => ({ id: "activity-1" }),
       sendToConversation: async () => ({ id: "activity-reply" }),
       deleteActivity: async () => {},
-      getConversationMembers: async () => roster
+      getConversationMembers: async () => {
+        if (rosterFails) {
+          throw new Error("Forbidden");
+        }
+        return roster;
+      }
     }
   });
   client.setTaskLookup(async () => openTask());
@@ -140,12 +157,14 @@ await check("every card invoke logs its verb, trigger and whether a viewer came 
 });
 
 await check("the creator's refresh logs that the creator card went back", async () => {
-  const client = await botSetup();
+  // With a stored DM id, which is the shape real Teams needs before it fetches
+  // the creator's version at all.
+  const client = await botSetup({ dmRef: true });
   await postOpenTask(client);
   const { lines, result } = await captureLogs(() => refreshAs(client, CREATOR));
 
   assert.deepEqual(events(lines, "bot_card_view"), [
-    { taskId: "task-1", card: "creator", status: "OPEN", isCreator: true, creatorIds: 0, viewer: "present" }
+    { taskId: "task-1", card: "creator", status: "OPEN", isCreator: true, creatorIds: 1, viewer: "present" }
   ]);
   assert.deepEqual(titleOf(result.body.value), ["Cancel Task"], "and the card really is the Cancel view");
 });
@@ -188,6 +207,27 @@ await check("a refresh with nothing recorded to build from says so", async () =>
 
   assert.deepEqual(events(lines, "bot_refresh_empty"), []);
   assert.deepEqual(events(lines, "bot_card_refresh_empty"), [{ taskId: "task-1" }]);
+});
+
+await check("a card built with no creator at all says so", async () => {
+  const client = await botSetup();
+  const { lines } = await captureLogs(() =>
+    client.postTaskCard("task-1", "Dana needs an LOI checked", "Smith-1042 - LOI Check\nHow Bad: —\nUrgency: Today")
+  );
+
+  assert.deepEqual(events(lines, "bot_creator_ids"), [{ source: "absent", count: 0 }]);
+  assert.deepEqual(events(lines, "bot_roster_lookup"), [], "no creator to look up, so no lookup happened");
+});
+
+await check("a channel whose member list refuses still counts as a channel we asked", async () => {
+  const client = await botSetup({ rosterFails: true });
+  const { lines } = await captureLogs(() => postOpenTask(client));
+
+  assert.deepEqual(
+    events(lines, "bot_roster_lookup"),
+    [{ channels: 1, members: 0, matched: 0 }],
+    "a refusal is not the same as never asking"
+  );
 });
 
 await check("no logged line carries a name or anything about a loan", async () => {

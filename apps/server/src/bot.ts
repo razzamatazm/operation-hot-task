@@ -1919,16 +1919,16 @@ export class TeamsBotClient {
        Teams refreshes it (#193). */
     const context = channelCardContext(task);
     if (task.status === "COMPLETED" || task.status === "ARCHIVED") {
-      return withRefresh(completedCard(context, content.openUrl));
+      return view("completed", withRefresh(completedCard(context, content.openUrl)));
     }
     if (task.status === "CANCELLED") {
-      return withRefresh(cancelledCard(context, content.openUrl));
+      return view("cancelled", withRefresh(cancelledCard(context, content.openUrl)));
     }
     /* In-flight (CLAIMED / NEEDS_REVIEW / MERGE_*): show the claimed state —
        unless this is the task that was born in somebody's hands and is still in
        them, which nobody claimed and whose card said so when it was posted. */
     const stillBornAssigned = Boolean(content.bornAssignedTo) && task.assignee?.id === content.bornAssignedTo;
-    return withRefresh(heldCard({ handed: stillBornAssigned, context, ...(content.openUrl ? { openUrl: content.openUrl } : {}) }));
+    return view("held", withRefresh(heldCard({ handed: stillBornAssigned, context, ...(content.openUrl ? { openUrl: content.openUrl } : {}) })));
   }
 
   /* Correct the channel card of a task whose loan was renamed or relinked
@@ -2313,6 +2313,10 @@ export class TeamsBotClient {
      the bot — the card then stays Claim-for-all (graceful degradation). */
   private async resolveCreatorUserIds(creatorAadObjectId?: string): Promise<string[]> {
     if (!creatorAadObjectId) {
+      /* The card is being built without a creator at all, so no lookup happens
+         and none of the lines below fire. Say so, or this case is invisible in
+         exactly the way "asked and found nobody" used to be (#440). */
+      logEvent("bot_creator_ids", { source: "absent", count: 0 });
       return [];
     }
     const refs = await this.store.read();
@@ -2357,12 +2361,16 @@ export class TeamsBotClient {
         continue;
       }
       try {
+        /* Counted before the call, not after: a channel whose member list
+           throws is still a channel we asked, and counting it on the way out
+           would report the failure as "never asked" — the one distinction this
+           line exists to make. */
+        channels += 1;
         const client = this.adapter.createConnectorClient(serviceUrl);
         const roster = (await client.conversations.getConversationMembers(conversationId)) as Array<{
           id?: string;
           aadObjectId?: string;
         }>;
-        channels += 1;
         members += (roster ?? []).length;
         for (const member of roster ?? []) {
           if (member.aadObjectId === aadObjectId && member.id) {
@@ -2370,7 +2378,9 @@ export class TeamsBotClient {
           }
         }
       } catch (error) {
-        console.error("bot_roster_lookup_failed", error);
+        /* The message only. A raw connector error carries the response body,
+           which on a member-list call is a list of people's names (#440). */
+        console.error("bot_roster_lookup_failed", JSON.stringify({ message: error instanceof Error ? error.message : "unknown" }));
       }
     }
     logEvent("bot_roster_lookup", { channels, members, matched: ids.size });
