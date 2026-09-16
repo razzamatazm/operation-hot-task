@@ -23,7 +23,7 @@ import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
-import type { AutosaveMove } from "./humperdink-arrival";
+import type { AutosaveMove, PutFormAsideOutcome } from "./humperdink-arrival";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
@@ -3582,6 +3582,12 @@ export const App = () => {
   /* The arrival's move while it is out (#413), so New Task pressed meanwhile
      waits for it rather than opening on an autosave it is about to clear. */
   const arrivalMove = useRef<Promise<void> | null>(null);
+  /* The open create form's own Save for later (#420), which the form registers
+     while it is up and takes back when it closes. An arrival that finds a form
+     already open presses it, so a new task somebody started while the tab was
+     still loading becomes a Task Draft instead of standing in the arrival's
+     way. Null whenever no create form is open, which is the everyday case. */
+  const formSaveAside = useRef<(() => Promise<PutFormAsideOutcome>) | null>(null);
   /* Which task the edit form is open on (#260), or null. An id rather than the
      task itself: the list refreshes underneath, and holding the object would
      pin the form to a snapshot taken when the menu was clicked. */
@@ -4172,13 +4178,23 @@ export const App = () => {
     if (!arrivalPending || !user.id) return;
     setArrivalPending(false);
     arrivalMove.current = (async () => {
-      const outcome: AutosaveMove = formOpenNow.current
+      /* A new task form opened while sign-in was out is put away first (#420),
+         through the form's own Save for later: what was typed into it becomes a
+         Task Draft, and the arrival goes on to its LOI Check rather than being
+         dropped. An untouched form just closes. The move that follows then finds
+         an empty slot, since that one write cleared it.
+
+         A save that didn't land is the one outcome that must lose nothing: the
+         form stays open exactly as it was and the arrival is dropped, which is
+         what a form open at this moment has always meant. */
+      const asideOutcome = formOpenNow.current ? await (formSaveAside.current?.() ?? Promise.resolve("failed" as const)) : "none";
+      const outcome: AutosaveMove = asideOutcome === "failed"
         ? { kind: "none" }
         : await moveAutosaveAside(savedForLaterRequestFor(user), browserDraftStorage(), user.id);
       if (user.id !== savedForLaterOwner.current) return;
       loadSavedForLater().catch(() => {});
       loadAutosave().catch(() => {});
-      if (formOpenNow.current) return;
+      if (asideOutcome === "failed") return;
       setReopened(null);
       setLeaveAutosaveAlone(outcome.kind === "held");
       setHumperdinkArrival(true);
@@ -5168,6 +5184,7 @@ export const App = () => {
           leaveAutosaveAlone={leaveAutosaveAlone}
           readClipboard={humperdinkArrival ? readTeamsClipboard : undefined}
           loansLoaded={loansLoaded}
+          arrivalAside={formSaveAside}
           onClose={() => {
             setFormOpen(false);
             setReopened(null);

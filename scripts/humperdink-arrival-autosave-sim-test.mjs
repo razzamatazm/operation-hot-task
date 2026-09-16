@@ -317,7 +317,7 @@ test("a held form has no seat on either copy of the autosave, so typing into it 
 });
 
 test("Save for later on a held form keeps the old autosave: it doesn't ask the server to clear the slot", async () => {
-  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
+  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
   assert.match(body, /await onSaveForLater\(values, reopened\?\.id, autosaveSeat\)/);
   const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
   assert.match(handler, /saveForLaterRequest\(savedForLaterRequestFor\(user\), form, savedId, clearAutosave\)/);
