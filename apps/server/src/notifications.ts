@@ -220,9 +220,10 @@ export class TeamsNotificationProvider implements NotificationProvider {
       const card = this.buildChannelCard(event.task);
       // A task born assigned (Handoff at creation, ADR-0002) is announced with
       // the claimed-card variant instead — no Claim button to appear and then
-      // vanish. The post alerts the channel (#447), carrying the summary below
-      // as its notification text; the quiet half of the bot is the in-place
-      // card edits, which announce nothing.
+      // vanish. It is also the one post that lands silently: it has an owner
+      // already, and that owner is DM'd, so alerting the room asks nobody for
+      // anything. Every other post here alerts (#447), taking its notification
+      // text from the summary below.
       /* A task born assigned posts the assigned card ("Casey was assigned
          Dana's LOI Check"), so its notification has to read the same way. The
          ordinary "Dana needs an LOI checked" preview would alert the whole

@@ -126,17 +126,20 @@ await check("the card body still reads as it did — the poops live on the How B
   assert.equal(card.body[1].text, "Smith-1042 - LOI Check\nHow Bad: 💩💩\nUrgency: Within 24 Hours");
 });
 
-await check("a task born assigned says so, rather than asking the room for help with it", async () => {
+await check("a task born assigned lands in the channel silently, and says it was assigned", async () => {
   const { posted, notify } = await botSetup();
   await notify("CHANNEL", liveTask({ status: "CLAIMED", assignee: CHECKER }), CREATOR);
 
-  /* The card says "Casey was assigned Dana's LOI Check" (ADR-0002, a Handoff at
-     creation). The notification has to say the same: nobody needs to pick this
-     one up, and now that the post alerts, a preview reading "Dana needs an LOI
-     checked" is a call for help sent to the whole room for work already in
-     hand. No poops either — that family of headlines doesn't carry them. */
+  /* A Handoff at creation (ADR-0002) has an owner already, and that owner gets
+     a DM. Nobody else needs to pick it up, so the channel gets the card as the
+     record of the request and no alert with it — the one posting moment that
+     stays quiet.
+
+     Its preview still has to match the card it belongs to ("Casey was assigned
+     Dana's LOI Check"), because that text is what the feed falls back to. No
+     poops: that family of headlines doesn't carry them. */
   assert.equal(posted.at(-1).activity.summary, "Casey was assigned Dana's LOI Check");
-  assert.equal(alerts(posted.at(-1)), true);
+  assert.notEqual(alerts(posted.at(-1)), true, "it has an owner already — pinging the room asks nobody for anything");
 });
 
 await check("an OOO post keeps its own wording and gains no poops", async () => {
