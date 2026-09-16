@@ -82,6 +82,42 @@ export const moveAutosaveAside = async (
   }
 };
 
+/* ── Putting away a form opened while the tab was loading (#420) ──
+
+   Send to Hot Task reloads the tab, and someone can open New Task in the moment
+   between that reload and the arrival being recognised. That form is put away
+   before the LOI Check opens, rather than the arrival being dropped.
+
+   Worth keeping is the form's own yardstick, the one the Save for later button
+   is enabled by, so the button and the arrival can't disagree about it. What is
+   worth keeping goes through the form's own Save for later — the same one write
+   that clears the autosave slot, so Task Drafts lists it once and not also as
+   Autosaved. An untouched form is nothing to keep, so it just closes.
+
+   A save that didn't land is the one outcome that must lose nothing: the caller
+   leaves the form open exactly as it was and drops the arrival, which is what a
+   form open at this moment did before any of this. Handed the save and the
+   close rather than reaching for them, so it runs against fakes in
+   `scripts/humperdink-arrival-open-form-sim-test.mjs`. */
+/* What became of the form. `failed` is the only one the arrival must not go on
+   from: the form is still open, holding typing that is nowhere else. */
+export type PutFormAsideOutcome = "saved" | "closed" | "failed";
+
+export interface PutFormAsideInput {
+  worthKeeping: boolean;
+  /* The form's own Save for later. True when it landed and the form closed. */
+  saveForLater: () => Promise<boolean>;
+  close: () => void;
+}
+
+export const putFormAside = async ({ worthKeeping, saveForLater, close }: PutFormAsideInput): Promise<PutFormAsideOutcome> => {
+  if (!worthKeeping) {
+    close();
+    return "closed";
+  }
+  return (await saveForLater()) ? "saved" : "failed";
+};
+
 /* ── Filling the LOI Check from the clipboard (#415, ADR-0012) ──
 
    On a Humperdink arrival, and only there, the tab asks Teams for the

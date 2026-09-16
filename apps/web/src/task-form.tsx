@@ -27,11 +27,11 @@
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
 import { ACTION_LABELS, Autosave, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
-import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { FormEvent, MutableRefObject, useEffect, useId, useMemo, useRef, useState } from "react";
 import { autosaveCopy, browserDraftStorage, clearDraft, draftAction, newerAutosave, readDraftCopy, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
-import { arrivalPasteStep } from "./humperdink-arrival";
+import { PutFormAsideOutcome, arrivalPasteStep, putFormAside } from "./humperdink-arrival";
 import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
@@ -189,11 +189,21 @@ interface TaskFormProps {
   /* Whether App's loans list has loaded (#415). The arrival's clipboard import
      waits for it, so it runs against the loans a manual paste would see. */
   loansLoaded?: boolean;
+  /* A handle App holds on this form's own Save for later (#420). A Humperdink
+     arrival that finds a create form already open — someone opened New Task in
+     the moment between Send to Hot Task reloading the tab and the arrival being
+     recognised — presses it, so their typing becomes a Task Draft and the
+     arrival still gets its LOI Check. The form registers itself here while it is
+     up and takes the handle back when it closes. An edit form and a reopened
+     Task Draft register nothing: neither can be open in this window anyway, and
+     if one ever were, an arrival leaves it where it is and is dropped rather
+     than opening over it. */
+  arrivalAside?: MutableRefObject<(() => Promise<PutFormAsideOutcome>) | null>;
   /* Present → edit mode (#260). Absent → the create form, unchanged. */
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, readClipboard, loansLoaded = false, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, readClipboard, loansLoaded = false, arrivalAside, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, autosave, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
@@ -1116,8 +1126,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      any more, and the form closes. A failed save does neither: App has shown
      the error and the form stays open with everything in it. */
   const worthSavingForLater = formHasChanges(opening.fresh, form, seedDraft);
-  const saveForLater = async (): Promise<void> => {
-    if (!onSaveForLater || submitting || savingForLater) return;
+  /* Resolves whether the save landed and the form closed, which is what a
+     Humperdink arrival waits on before it opens its own form over this one. */
+  const saveForLater = async (): Promise<boolean> => {
+    if (!onSaveForLater || submitting || savingForLater) return false;
     const pendingItem = form.taskType === "FRAUD" ? seedDraft.trim() : "";
     const values = pendingItem ? { ...form, initialItems: [...form.initialItems, pendingItem] } : form;
     setSavingForLater(true);
@@ -1126,14 +1138,29 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       await onSaveForLater(values, reopened?.id, autosaveSeat);
       forgetDraft();
       onClose();
+      return true;
     } catch {
       ending.current = false;
       sendUnsaved();
       /* save failed — App surfaced the error; leave the form open to retry */
+      return false;
     } finally {
       setSavingForLater(false);
     }
   };
+
+  /* A Humperdink arrival presses this form's own Save for later (#420), rather
+     than App reaching in for the values: the typing, the autosave seat and the
+     settle-then-write order all live here, and App holds only the handle.
+     Registered on every render so it closes over what is in the form now, and
+     given back on unmount so an arrival can never press a form that has gone. */
+  useEffect(() => {
+    if (!arrivalAside || editing || reopened) return;
+    arrivalAside.current = () => putFormAside({ worthKeeping: worthSavingForLater, saveForLater, close: onClose });
+    return () => {
+      arrivalAside.current = null;
+    };
+  });
 
   /* Save for later as an answer to Cancel (#348). The footer's own, not a copy
      of it. The prompt comes down first, so a save that fails leaves the person

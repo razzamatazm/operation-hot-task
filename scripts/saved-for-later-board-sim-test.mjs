@@ -161,7 +161,7 @@ test("edit mode has no Save for later", () => {
 });
 
 test("pressing it saves the form, then clears the autosave, then closes — and only once the save landed", () => {
-  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
+  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
   assert.ok(body, "the form has a saveForLater handler");
   const saving = body.indexOf("await onSaveForLater(");
   const forgetting = body.indexOf("forgetDraft();");
@@ -589,7 +589,7 @@ test("a reopened form never reads or writes the autosave, and knows which record
     /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
     "no storage seat, the way edit mode has none, so no ending can clear or overwrite an unrelated autosave"
   );
-  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
+  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
   assert.match(body, /await onSaveForLater\(values, reopened\?\.id, autosaveSeat\)/, "Save for later names the record, so App updates it");
   const submit = FORM_SOURCE.match(/const handleSubmit = async \([\s\S]*?\n  \};/)?.[0];
   assert.match(submit, /reopened\?\.id\s*\)/, "Create names the record, so App can clear it once the task exists");
