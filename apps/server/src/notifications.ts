@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatOooHeadline, formatReleasedHeadline, formatTaskNameLine, taskCardRecipients } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, channelCardContext, loanCardValues, noteCardDetailsFromTask, recentNoteThread, taskFactLines } from "./bot.js";
@@ -64,24 +64,30 @@ export class TeamsNotificationProvider implements NotificationProvider {
      re-open as it did at creation, regardless of who triggered the change. */
   private buildChannelCard(task: NotificationEvent["task"]): { title: string; detail: string; summary: string; openUrl?: string } {
     const openUrl = taskDeepLink(task.id, task.folderName);
-    const summary = formatNewTaskHeadline(firstName(task.createdBy.displayName), task.taskType);
+    const headline = formatNewTaskHeadline(firstName(task.createdBy.displayName), task.taskType);
     if (task.taskType === "OOO") {
       return {
         title: formatOooHeadline(task.createdBy.displayName, task.startDate ?? task.dueAt, task.returnDate ?? task.dueAt),
         detail: task.folderName ? `Details: ${task.folderName}` : "Coverage needed",
-        summary,
+        /* OOO is coverage, not urgency, so its preview takes the plain headline
+           — no poops, however the creator rated it. */
+        summary: headline,
         ...(openUrl ? { openUrl } : {})
       };
     }
-    const howBad = task.points > 0 ? "💩".repeat(task.points) : "—";
+    const howBad = formatPoops(task.points) || "—";
     /* `Tyler needs an LOI checked`, then `Smith-1042 - LOI Check` as the first
        line of the body (2026-09-12). The file name carries no Humperdink link:
        no Teams card does. The name line leads the stored body because a loan
-       rename rewrites exactly that line (`correctChannelCard`). */
+       rename rewrites exactly that line (`correctChannelCard`).
+
+       The notification preview (#447) is the headline plus the poops, since a
+       toast shows one line and the How Bad line below is not in it. The card
+       headline stays the plain sentence. */
     return {
-      title: summary,
+      title: headline,
       detail: `${formatTaskNameLine(task.folderName, task.taskType)}\nHow Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
-      summary,
+      summary: formatNewTaskPreview(firstName(task.createdBy.displayName), task.taskType, task.points),
       ...(openUrl ? { openUrl } : {})
     };
   }
@@ -203,7 +209,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
   async notify(event: NotificationEvent): Promise<void> {
     // Friendly type label ("LOI Check") instead of a raw "[LOI]" tag.
     const typeLabel = TASK_TYPE_LABELS[event.task.taskType];
-    const howBad = event.task.points > 0 ? "💩".repeat(event.task.points) : "—";
+    const howBad = formatPoops(event.task.points) || "—";
     const detail = `How Bad: ${howBad}\nUrgency: ${URGENCY_TIMEFRAMES[event.task.urgency]}`;
 
     if (event.target === "CHANNEL") {
@@ -214,7 +220,9 @@ export class TeamsNotificationProvider implements NotificationProvider {
       const card = this.buildChannelCard(event.task);
       // A task born assigned (Handoff at creation, ADR-0002) is announced with
       // the claimed-card variant instead — no Claim button to appear and then
-      // vanish. Deliberately quiet: channel posts set no activity alert.
+      // vanish. The post alerts the channel (#447), carrying the summary below
+      // as its notification text; the quiet half of the bot is the in-place
+      // card edits, which announce nothing.
       await this.botClient.postTaskCard(
         event.task.id,
         card.title,

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -420,7 +420,7 @@ export const taskFactLines = (task: LoanTask, options: { withDue: boolean }): st
     return [`Out: ${from} → ${to}`];
   }
   return [
-    `How Bad: ${task.points > 0 ? "💩".repeat(task.points) : "—"}`,
+    `How Bad: ${formatPoops(task.points) || "—"}`,
     `Urgency: ${URGENCY_TIMEFRAMES[task.urgency]}`,
     ...(options.withDue ? [`Due: ${formatWallDate(task.dueAt)}`] : []),
     ...(task.taskType !== "LOI" && task.notes?.trim() ? [`Notes: ${task.notes.trim()}`] : [])
@@ -2224,10 +2224,23 @@ export class TeamsBotClient {
     }
     try {
       const client = this.adapter.createConnectorClient(serviceUrl);
+      /* Raise a real Teams notification for the post, reading its text from
+         activity.summary (#447). Without the flag, the toast for a card-only
+         message is the generic "Hot Task posted a new message" and says
+         nothing about who needs what — summary alone doesn't reach it.
+
+         Every path that creates a thread is a moment the room is meant to
+         notice: a new task, a nag, a re-open, a released Fraud Check, an
+         announcement. The quiet half of the bot edits cards that are already
+         there, and goes nowhere near this. */
+      const alerting: Partial<Activity> = {
+        ...activity,
+        channelData: { ...((activity.channelData as Record<string, unknown>) ?? {}), notification: { alert: true } }
+      };
       const params = {
         isGroup: true,
         channelData: { channel: { id: channelId } },
-        activity: activity as Activity
+        activity: alerting as Activity
       } as ConversationParameters;
       const res = await client.conversations.createConversation(params);
       const reference: Partial<ConversationReference> = {
