@@ -112,7 +112,7 @@ type MaintenanceEffect =
   | { kind: "AUTO_COMPLETED"; task: LoanTask }
   | { kind: "AUTO_ARCHIVED"; task: LoanTask }
   | { kind: "REMINDED"; task: LoanTask }
-  | { kind: "NAGGED"; task: LoanTask; unclaimedMinutes: number };
+  | { kind: "NAGGED"; task: LoanTask; nagMarkMinutes: number };
 
 /* One task's change in a maintenance pass: what to write, and what to send after. */
 interface MaintenanceStep {
@@ -2326,7 +2326,7 @@ export class TaskService {
               type: "TASK_REMINDER",
               task: effect.task,
               actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-              message: `${effect.task.folderName} is still unclaimed after ${effect.unclaimedMinutes} minutes, who's taking it?`,
+              message: `${effect.task.folderName} is still unclaimed after ${effect.nagMarkMinutes} minutes, who's taking it?`,
               target: "CHANNEL_NAG"
             }, now);
             break;
@@ -2429,9 +2429,9 @@ export class TaskService {
       // Quote the mark this nag is for (20, 40, 60...), not the elapsed time:
       // the sweep runs every five minutes, so the real figure lands on odd
       // numbers like 23 (#455).
-      const unclaimedMinutes = (poolNagCount * UNCLAIMED_ALERT_MS) / 60000;
+      const nagMarkMinutes = (poolNagCount * UNCLAIMED_ALERT_MS) / 60000;
       next = { ...next, lastPoolNagAt: nowIso, poolNagCount, updatedAt: nowIso };
-      effects.push({ kind: "NAGGED", task: next, unclaimedMinutes });
+      effects.push({ kind: "NAGGED", task: next, nagMarkMinutes });
     }
 
     return effects.length > 0 ? { task: next, events, effects } : undefined;
