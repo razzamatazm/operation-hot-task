@@ -2425,8 +2425,12 @@ export class TaskService {
        at `MAX_POOL_NAGS`, which `isPoolNagDue` enforces off the count stamped
        here (#207). */
     if (isPoolNagDue(next, now, this.appConfig)) {
-      const unclaimedMinutes = Math.round((now.getTime() - new Date(inPoolSince(next)).getTime()) / 60000);
-      next = { ...next, lastPoolNagAt: nowIso, poolNagCount: (next.poolNagCount ?? 0) + 1, updatedAt: nowIso };
+      const poolNagCount = (next.poolNagCount ?? 0) + 1;
+      // Quote the mark this nag is for (20, 40, 60...), not the elapsed time:
+      // the sweep runs every five minutes, so the real figure lands on odd
+      // numbers like 23 (#455).
+      const unclaimedMinutes = (poolNagCount * UNCLAIMED_ALERT_MS) / 60000;
+      next = { ...next, lastPoolNagAt: nowIso, poolNagCount, updatedAt: nowIso };
       effects.push({ kind: "NAGGED", task: next, unclaimedMinutes });
     }
 

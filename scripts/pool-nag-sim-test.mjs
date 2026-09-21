@@ -282,7 +282,7 @@ await check("a restart does not delay the first nag of a task too young to have 
   // filed at 10:00, restarted at 10:12, nagged at 10:25.
   await rebaseOnto(store, AT_1012);
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "the restart cost it nothing");
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
 });
 
 await check("the backfill is idempotent, and leaves the second boot alone", async () => {
@@ -325,8 +325,25 @@ await check("a task filed after the backfill nags on the normal cadence", async 
   const result = await service.runMaintenance(AT_1025);
   assert.equal(result.nagged, 1);
   assert.equal(nagsIn(events).length, 1);
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
   assert.equal((await store.findTask(filed.id)).poolNagCount, 1);
+});
+
+await check("each nag quotes its twenty-minute mark, however late the sweep reaches it", async () => {
+  // #455. The sweep ticks every five minutes, so the real elapsed time is 23
+  // or 24; the message says 20, then 40.
+  const { service, store, events } = await setup();
+  await service.backfillPoolNagClock();
+  await service.createTask(
+    { folderName: "Late Sweep", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  await rebaseOnto(store, AT_1000);
+
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
+  assert.equal((await service.runMaintenance(AT_1050)).nagged, 1);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[1].message, /still unclaimed after 40 minutes/);
 });
 
 /* -------------------------------------------------------- blocker 1: the ceiling */
@@ -454,7 +471,7 @@ await check("a task handed back says how long it has been up for grabs, not how 
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
   assert.match(
     nagsIn(events)[0].message,
-    /still unclaimed after 25 minutes/,
+    /still unclaimed after 20 minutes/,
     "counted from re-entering the pool, not from when it was filed"
   );
 
