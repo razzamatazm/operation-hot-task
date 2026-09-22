@@ -1270,9 +1270,10 @@ export class TaskService {
              claiming is what earns a task a fresh ceiling, because somebody
              actually took it. A reopen has had no such hand, and resetting on
              this door would make a task cycled through COMPLETED and back an
-             unbounded nag — the exact thing the ceiling exists to close. In
-             practice the count is already zero by the time anything reaches
-             here, since every route through a holder clears it. */
+             unbounded nag — the exact thing the ceiling exists to close. A task
+             that never had a holder arrives here with its count intact, which is
+             why the minute figure in the nag is not read off that count alone
+             (#455). */
           moved.pooledSince = now;
           moved.lastPoolNagAt = now;
         }
@@ -2426,10 +2427,23 @@ export class TaskService {
        here (#207). */
     if (isPoolNagDue(next, now, this.appConfig)) {
       const poolNagCount = (next.poolNagCount ?? 0) + 1;
-      // Quote the mark this nag is for (20, 40, 60...), not the elapsed time:
-      // the sweep runs every five minutes, so the real figure lands on odd
-      // numbers like 23 (#455).
-      const nagMarkMinutes = (poolNagCount * UNCLAIMED_ALERT_MS) / 60000;
+      /* Quote the mark this nag is for (20, 40, 60...), not the elapsed time:
+         the sweep runs every five minutes, so the real figure lands on odd
+         numbers like 23 (#455).
+
+         The lower of the two marks, because each one alone is wrong on a
+         different edge. The count overstates a task that kept its spent nags
+         across a door that reset its pool clock — reopening an unclaimed task
+         holds the count to preserve the six-ask ceiling, so the first nag after
+         it would claim 60 minutes for a task the room has had for 20. Elapsed
+         overstates in the other direction: nags only fire in business hours, so
+         a task pooled at the end of the day would open the morning claiming the
+         whole night. Whichever is smaller is the one the room can recognise. */
+      const elapsedMark =
+        Math.floor((now.getTime() - new Date(inPoolSince(next)).getTime()) / UNCLAIMED_ALERT_MS) *
+        UNCLAIMED_ALERT_MS;
+      const nagMarkMinutes =
+        Math.max(UNCLAIMED_ALERT_MS, Math.min(poolNagCount * UNCLAIMED_ALERT_MS, elapsedMark)) / 60000;
       next = { ...next, lastPoolNagAt: nowIso, poolNagCount, updatedAt: nowIso };
       effects.push({ kind: "NAGGED", task: next, nagMarkMinutes });
     }
