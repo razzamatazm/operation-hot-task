@@ -112,7 +112,7 @@ type MaintenanceEffect =
   | { kind: "AUTO_COMPLETED"; task: LoanTask }
   | { kind: "AUTO_ARCHIVED"; task: LoanTask }
   | { kind: "REMINDED"; task: LoanTask }
-  | { kind: "NAGGED"; task: LoanTask; unclaimedMinutes: number };
+  | { kind: "NAGGED"; task: LoanTask; nagMarkMinutes: number };
 
 /* One task's change in a maintenance pass: what to write, and what to send after. */
 interface MaintenanceStep {
@@ -1270,9 +1270,10 @@ export class TaskService {
              claiming is what earns a task a fresh ceiling, because somebody
              actually took it. A reopen has had no such hand, and resetting on
              this door would make a task cycled through COMPLETED and back an
-             unbounded nag — the exact thing the ceiling exists to close. In
-             practice the count is already zero by the time anything reaches
-             here, since every route through a holder clears it. */
+             unbounded nag — the exact thing the ceiling exists to close. A task
+             that never had a holder arrives here with its count intact, which is
+             why the minute figure in the nag is not read off that count alone
+             (#455). */
           moved.pooledSince = now;
           moved.lastPoolNagAt = now;
         }
@@ -2326,7 +2327,7 @@ export class TaskService {
               type: "TASK_REMINDER",
               task: effect.task,
               actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-              message: `${effect.task.folderName} is still unclaimed after ${effect.unclaimedMinutes} minutes, who's taking it?`,
+              message: `${effect.task.folderName} is still unclaimed after ${effect.nagMarkMinutes} minutes, who's taking it?`,
               target: "CHANNEL_NAG"
             }, now);
             break;
@@ -2425,9 +2426,26 @@ export class TaskService {
        at `MAX_POOL_NAGS`, which `isPoolNagDue` enforces off the count stamped
        here (#207). */
     if (isPoolNagDue(next, now, this.appConfig)) {
-      const unclaimedMinutes = Math.round((now.getTime() - new Date(inPoolSince(next)).getTime()) / 60000);
-      next = { ...next, lastPoolNagAt: nowIso, poolNagCount: (next.poolNagCount ?? 0) + 1, updatedAt: nowIso };
-      effects.push({ kind: "NAGGED", task: next, unclaimedMinutes });
+      const poolNagCount = (next.poolNagCount ?? 0) + 1;
+      /* Quote the mark this nag is for (20, 40, 60...), not the elapsed time:
+         the sweep runs every five minutes, so the real figure lands on odd
+         numbers like 23 (#455).
+
+         The lower of the two marks, because each one alone is wrong on a
+         different edge. The count overstates a task that kept its spent nags
+         across a door that reset its pool clock — reopening an unclaimed task
+         holds the count to preserve the six-ask ceiling, so the first nag after
+         it would claim 60 minutes for a task the room has had for 20. Elapsed
+         overstates in the other direction: nags only fire in business hours, so
+         a task pooled at the end of the day would open the morning claiming the
+         whole night. Whichever is smaller is the one the room can recognise. */
+      const elapsedMark =
+        Math.floor((now.getTime() - new Date(inPoolSince(next)).getTime()) / UNCLAIMED_ALERT_MS) *
+        UNCLAIMED_ALERT_MS;
+      const nagMarkMinutes =
+        Math.max(UNCLAIMED_ALERT_MS, Math.min(poolNagCount * UNCLAIMED_ALERT_MS, elapsedMark)) / 60000;
+      next = { ...next, lastPoolNagAt: nowIso, poolNagCount, updatedAt: nowIso };
+      effects.push({ kind: "NAGGED", task: next, nagMarkMinutes });
     }
 
     return effects.length > 0 ? { task: next, events, effects } : undefined;

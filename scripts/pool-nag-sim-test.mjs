@@ -67,6 +67,8 @@ const AT_1005 = new Date("2026-03-11T10:05:00-07:00");
 const AT_1012 = new Date("2026-03-11T10:12:00-07:00");
 const AT_1025 = new Date("2026-03-11T10:25:00-07:00");
 const AT_1050 = new Date("2026-03-11T10:50:00-07:00");
+const AT_1115 = new Date("2026-03-11T11:15:00-07:00");
+const AT_1140 = new Date("2026-03-11T11:40:00-07:00");
 const AFTER_CLOSE = new Date("2026-03-11T18:30:00-07:00");
 
 const setup = async () => {
@@ -282,7 +284,7 @@ await check("a restart does not delay the first nag of a task too young to have 
   // filed at 10:00, restarted at 10:12, nagged at 10:25.
   await rebaseOnto(store, AT_1012);
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "the restart cost it nothing");
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
 });
 
 await check("the backfill is idempotent, and leaves the second boot alone", async () => {
@@ -325,8 +327,66 @@ await check("a task filed after the backfill nags on the normal cadence", async 
   const result = await service.runMaintenance(AT_1025);
   assert.equal(result.nagged, 1);
   assert.equal(nagsIn(events).length, 1);
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 25 minutes/);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
   assert.equal((await store.findTask(filed.id)).poolNagCount, 1);
+});
+
+await check("each nag quotes its twenty-minute mark, however late the sweep reaches it", async () => {
+  // #455. The sweep ticks every five minutes, so the real elapsed time is 23
+  // or 24; the message says 20, then 40.
+  const { service, store, events } = await setup();
+  await service.backfillPoolNagClock();
+  await service.createTask(
+    { folderName: "Late Sweep", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  await rebaseOnto(store, AT_1000);
+
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
+  assert.equal((await service.runMaintenance(AT_1050)).nagged, 1);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[1].message, /still unclaimed after 40 minutes/);
+});
+
+await check("the marks stay twenty apart as the sweep's lateness compounds", async () => {
+  /* #455. Each nag restamps the clock at the late tick, so the next one is
+     owed twenty minutes after THAT — by the fourth the task has really been
+     in the pool 100 minutes. The Nth nag still says N x 20, because the room
+     is being told which ask this is, not how the sweep's rounding accumulated. */
+  const { service, store, events } = await setup();
+  await service.backfillPoolNagClock();
+  await service.createTask(
+    { folderName: "Drifting", taskType: "VALUE", notes: "n", urgency: "GREEN" },
+    CREATOR
+  );
+  await rebaseOnto(store, AT_1000);
+
+  for (const at of [AT_1025, AT_1050, AT_1115, AT_1140]) {
+    assert.equal((await service.runMaintenance(at)).nagged, 1);
+  }
+  assert.match(nagsIn(events)[3].message, /still unclaimed after 80 minutes/, "the fourth ask, not 100 elapsed");
+});
+
+await check("a reopened task's first nag counts from the reopen, not from its spent asks", async () => {
+  /* #455. A task nobody ever took can be closed and reopened, and that door
+     holds `poolNagCount` so the six-ask ceiling survives the round trip — but
+     it resets the pool clock, because the reopen post is nag zero. Counting
+     the mark off the held count would open with "60 minutes" for a task the
+     room has had for twenty, which is the #210 rule inverted. */
+  const { service, store, events } = await setup();
+  const task = await legacyOpenTask(service, store, "Back Again");
+  await patch(store, task.id, (current) => {
+    const { assignee: _assignee, ...rest } = current;
+    return { ...rest, status: "COMPLETED", completedAt: minutesAgo(5), poolNagCount: 2 };
+  });
+
+  await service.transitionStatus(task.id, "OPEN", CREATOR);
+  await service.settleBackgroundWork();
+  await rebaseOnto(store, AT_1000);
+
+  assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.equal((await store.findTask(task.id)).poolNagCount, 3, "and the ceiling still counts the older asks");
 });
 
 /* -------------------------------------------------------- blocker 1: the ceiling */
@@ -454,7 +514,7 @@ await check("a task handed back says how long it has been up for grabs, not how 
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
   assert.match(
     nagsIn(events)[0].message,
-    /still unclaimed after 25 minutes/,
+    /still unclaimed after 20 minutes/,
     "counted from re-entering the pool, not from when it was filed"
   );
 
