@@ -639,6 +639,46 @@ test("a reopened record carrying unsaved typing opens on that typing, not on the
   assert.doesNotMatch(html, /role="alertdialog"/, "and nothing is asked on the way in");
 });
 
+/* ── Saying so (#475) ───────────────────────────────────── */
+
+const UNSAVED_NOTE = "You have unsaved changes to this Task Draft. Picking up where you left off.";
+
+test("a reopened record carrying unsaved typing says so on the form, in the Autosave note's style, with no Start fresh", async () => {
+  const html = await renderReopened(reopened(FULL_FORM, { unsaved: { ...FULL_FORM, notes: "typed after the save" } }), {
+    directory: DIRECTORY
+  });
+  const note = html.match(/<div class="task-form-restored">([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(note, "the note is up");
+  assert.match(note, new RegExp(`<p class="task-form-locked task-form-restored-note">${UNSAVED_NOTE}</p>`));
+  assert.doesNotMatch(note, /Start fresh|<button/, "no way back to the last save ships with it");
+  assert.doesNotMatch(html, /Hot Task saved your progress/);
+});
+
+test("a reopened record with no unsaved typing opens with no note", async () => {
+  const html = await renderReopened(reopened(FULL_FORM), { directory: DIRECTORY });
+  assert.doesNotMatch(html, /task-form-restored/);
+  assert.ok(!html.includes(UNSAVED_NOTE));
+});
+
+test("a Task Drafts row with unsaved typing carries an Unsaved changes marker; one without doesn't", () => {
+  const html = renderSection([
+    { ...item("a", 5, { folderName: "Typed since" }), unsaved: { ...FORM, notes: "more" } },
+    item("b", 10, { folderName: "As saved" })
+  ]);
+  const [typed, clean] = rowsOf(html);
+  assert.match(
+    typed,
+    /<time class="saved-row-when"[^>]*>saved 5m ago<\/time><span class="saved-row-unsaved">Unsaved changes<\/span><\/button>/,
+    "inside the row's button, after when it was saved"
+  );
+  assert.doesNotMatch(clean, /saved-row-unsaved|Unsaved changes/);
+});
+
+test("the Autosaved row never carries the marker", () => {
+  const html = renderSection([], { autosave: autosaveOf(5) });
+  assert.doesNotMatch(html, /saved-row-unsaved/);
+});
+
 test("the writes go out one at a time, and every ending waits for them before it acts", () => {
   assert.match(FORM_SOURCE, /const unsavedWrites = useRef<Promise<unknown>>\(Promise\.resolve\(\)\)/, "one queue per form");
   assert.match(FORM_SOURCE, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "each write chains on the last");

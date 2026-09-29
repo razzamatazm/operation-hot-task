@@ -4352,6 +4352,42 @@ button.btn-good:hover {
   white-space: nowrap;
 }
 
+/* A draft with unsaved typing on it (#475), in the create form warning's
+   colours. The words carry it; the tint only sets it apart from the time. */
+.saved-row-unsaved {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0 6px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  background: var(--warn-bg);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* On a phone the marker would squeeze the loan name to a few letters, so a
+   marked row takes a second line for it. */
+@media (max-width: 480px) {
+  .saved-row-open:has(.saved-row-unsaved) {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) minmax(0, max-content) minmax(max-content, 1fr);
+    row-gap: 4px;
+  }
+
+  .saved-row-open:has(.saved-row-unsaved) .saved-row-when {
+    justify-self: end;
+  }
+
+  .saved-row-open .saved-row-unsaved {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
 /* Delete (#345): the checklist's trash control, at the row's right edge and
    outside the reopen target. Muted at rest so the row still reads as three
    facts; it only turns `--bad` under the cursor. Square to the row's height so
@@ -4731,6 +4767,7 @@ button.btn-good:hover {
   .checklist-adder,
   .section-count,
   .saved-row-when,
+  .saved-row-unsaved,
   .timeline-next-label {
     font-size: 11px;
   }

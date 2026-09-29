@@ -50,7 +50,7 @@ const blankName = (form: DraftRowItem["form"]): string =>
 const AUTOSAVE_ROW_ID = "autosave";
 
 /* What a row needs: a Saved for Later task, or the autosave standing in as one. */
-type DraftRowItem = Pick<SavedForLaterTask, "id" | "savedAt" | "form"> & { autosaved?: true };
+type DraftRowItem = Pick<SavedForLaterTask, "id" | "savedAt" | "form" | "unsaved"> & { autosaved?: true };
 
 /* The autosave the page lists and the tab counts, or null: none, or aged out. */
 const shownAutosave = (autosave: Autosave | null | undefined, now: number): Autosave | null =>
@@ -167,6 +167,7 @@ const SavedForLaterRow = <T extends DraftRowItem,>({
             <time className="saved-row-when" dateTime={item.savedAt}>
               {`${item.autosaved ? "Autosaved" : "saved"} ${formatAgo(item.savedAt, now)}`}
             </time>
+            {item.unsaved && <span className="saved-row-unsaved">Unsaved changes</span>}
           </button>
           <button
             type="button"

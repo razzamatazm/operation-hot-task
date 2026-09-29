@@ -264,6 +264,33 @@ test("typing back to exactly the save clears the unsaved slot", async () => {
   assert.deepEqual(ctx.server.writes(), [["DELETE", "/saved-for-later/sfl-1/unsaved"]]);
 });
 
+test("the row learns of unsaved typing once it lands, and of it clearing once typed back to the save (#475)", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  ctx.events.latest.length = 0;
+  ctx.session.edit(values({ folderName: "Castillo", notes: "the save, and more" }));
+  await ctx.clock.advance(1000);
+  assert.equal(ctx.events.latest.length, 1);
+  assert.equal(ctx.events.latest[0].unsaved.notes, "the save, and more", "the row now has unsaved typing");
+  assert.equal(ctx.events.latest[0].form.notes, "the save", "beside the save, not over it");
+  ctx.session.edit(record().form);
+  await ctx.clock.advance(1000);
+  assert.equal(ctx.events.latest.length, 2);
+  assert.equal("unsaved" in ctx.events.latest[1], false, "and none once the form matches the save again");
+});
+
+test("a send that fails leaves the row as it was (#475)", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  ctx.events.latest.length = 0;
+  ctx.server.answer = () => {
+    throw unreachable();
+  };
+  ctx.session.edit(values({ notes: "try me" }));
+  await ctx.clock.advance(1000);
+  assert.deepEqual(ctx.events.latest, []);
+});
+
 test("an untouched reopened form sends nothing", async () => {
   const ctx = setup();
   await reopen(ctx, record({ unsaved: values({ notes: "unsaved" }) }));
