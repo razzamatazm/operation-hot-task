@@ -20,7 +20,7 @@ import { LoanLinkCollision, MergeConfirmDialog, MergeDeclined, linkCollisionIn }
 import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
-import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
+import { TaskDraftsPage, taskDraftsCount, withUnsaved } from "./saved-for-later";
 import { SavedForLaterRequest, forgetAutosaveRequest, keepAutosaveRequest, loadAutosaveRequest, removeSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
@@ -4077,6 +4077,9 @@ export const App = () => {
     },
     onSavedForLaterLatest: (latest) => {
       if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
+    },
+    onSavedForLaterUnsaved: (id, unsaved) => {
+      if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.map((saved) => (saved.id === id ? withUnsaved(saved, unsaved) : saved)));
     },
     onSavedForLaterGone: (id) => {
       if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.filter((saved) => saved.id !== id));

@@ -62,6 +62,13 @@ const shownAutosave = (autosave: Autosave | null | undefined, now: number): Auto
 export const taskDraftsCount = (items: SavedForLaterTask[], autosave: Autosave | null | undefined, now: number): number =>
   items.length + (shownAutosave(autosave, now) ? 1 : 0);
 
+/* A row with its unsaved typing set, or cleared by null (#475). The save
+   itself is left as the row already has it. */
+export const withUnsaved = (item: SavedForLaterTask, unsaved: SavedForLaterTask["form"] | null): SavedForLaterTask => {
+  const { unsaved: _previous, ...saved } = item;
+  return unsaved ? { ...saved, unsaved } : saved;
+};
+
 /* The second step of deleting one (#345). Deleting has no undo, so the row asks
    once, in place, the way the thread's `Delete` and the Instructions box's
    discard do: the question takes the row's own line, where the person is

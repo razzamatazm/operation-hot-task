@@ -40,7 +40,7 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
+    `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount, withUnsaved } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { BoardTabs } from ${JSON.stringify(join(REPO, "apps/web/src/board-tabs.tsx"))};\n` +
     `export { draftKey, serializeDraft, DRAFT_MAX_AGE_MS } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
     `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction, loadAutosaveRequest, keepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n` +
@@ -63,6 +63,7 @@ const {
   BoardTabs,
   SavedForLaterDeleteConfirm,
   taskDraftsCount,
+  withUnsaved,
   draftKey,
   serializeDraft,
   DRAFT_MAX_AGE_MS,
@@ -769,6 +770,20 @@ test("App says out loud what the session reports, and the Task Drafts tab follow
   assert.match(deps, /onSavedForLaterGone: \(id\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\);/);
   assert.match(deps, /onSavedForLaterLatest: \(latest\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(/);
   assert.match(deps, /item\.id !== saved\.id && item\.id !== replaced/, "a save replaces the record it was reopened from");
+  assert.match(
+    deps,
+    /onSavedForLaterUnsaved: \(id, unsaved\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(\(saved\) => \(saved\.id === id \? withUnsaved\(saved, unsaved\) : saved\)\)\);/,
+    "unsaved typing that landed marks the row as it stands now (#475)"
+  );
+});
+
+test("withUnsaved sets or clears only the unsaved typing, leaving the row's save as it is (#475)", () => {
+  const row = item("a", 5, { folderName: "Saved elsewhere since" });
+  const typed = { ...FORM, notes: "typed" };
+  assert.deepEqual(withUnsaved(row, typed), { ...row, unsaved: typed });
+  const cleared = withUnsaved({ ...row, unsaved: typed }, null);
+  assert.deepEqual(cleared, row);
+  assert.equal("unsaved" in cleared, false);
 });
 
 test("saving a reopened one again goes through the one request helper", () => {
