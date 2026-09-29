@@ -529,7 +529,7 @@ test("New Task pressed again while the form is open leaves it open, and its typi
 
 test("App's New Task button and Autosaved row only ever open, never close or swap a form already up", () => {
   const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  const button = app.match(/<NewTaskButton open=\{formOpen \|\| newTaskOpen\} onClick=\{([^\n]*)\} \/>/);
+  const button = app.match(/<NewTaskButton open=\{newTaskOpen\} onClick=\{([^\n]*)\} \/>/);
   assert.ok(button, "the button is wired in App");
   assert.doesNotMatch(button[1], /close|setFormOpen/, "the button never shuts a form");
   assert.match(app, /className="form-toggle" aria-haspopup="dialog" aria-disabled=\{open\}/, "it says it does nothing while a form is up, not that it collapses one");
@@ -545,5 +545,5 @@ test("App keeps one session per person, and the hook closes the old one when the
   assert.match(app, /useNewTaskSession\(\{\s*owner: user\.id,\s*request: savedForLaterRequestFor\(user\),/);
   assert.match(session, /useMemo\(\(\) => createNewTaskSession\(deps\), \[deps\.owner\]\)/);
   assert.match(session, /if \(previous\.current && previous\.current !== session\) previous\.current\.close\(\);/, "the old person's session is closed once the new one is in");
-  assert.match(app, /\{newTaskOpen && \(\s*<TaskForm\s*key=\{`new:\$\{newTask\.owner\}`\}/, "the form is the session's, so a new person's closed session unmounts it");
+  assert.match(app, /\{newTaskOpen && \(\s*<TaskForm\s*key=\{`new:\$\{newTask\.owner\}[^`]*`\}/, "the form is the session's, so a new person's closed session unmounts it");
 });

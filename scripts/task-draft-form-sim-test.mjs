@@ -319,10 +319,10 @@ test("edit mode has nowhere to save a draft to, rather than a rule not to", () =
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
   assert.match(
     seat.slice(0, seat.indexOf("}));")),
-    /storage: edit \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| session \? null : browserDraftStorage\(\)/,
     "edit mode's storage is null, so every draft call is already a no-op"
   );
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !leaveAutosaveAlone && !session;/, "nor a seat on the server's autosave");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !session;/, "nor a seat on the server's autosave");
   assert.match(FORM_SOURCE, /if \(!autosaveSeat\) return;/, "and the save effect leaves immediately too");
 });
 
@@ -562,7 +562,8 @@ test("the line is keyed to how the form opened, not to what is in it now", () =>
   assert.match(FORM_SOURCE, /const restoredNote = live\?\.restored \?\? false;/, "read from the New Task session");
   assert.match(SESSION_SOURCE, /restored: best !== null/, "set once from how the form opened");
   assert.match(SESSION_SOURCE, /mode = \{ kind: "reopened", record(?:: [^;]+)? \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "a reopened Task Draft never has the line");
-  assert.equal((SESSION_SOURCE.match(/restored: (?!boolean)/g) ?? []).length, 3, "and moved by exactly one thing: Start fresh");
+  assert.match(SESSION_SOURCE, /mode = \{ kind: "arrival", held: moved\.kind === "held" \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "nor does an arrival's LOI Check");
+  assert.equal((SESSION_SOURCE.match(/restored: (?!boolean)/g) ?? []).length, 4, "and moved by exactly one thing: Start fresh");
   assert.match(SESSION_SOURCE, /case "startFresh":[\s\S]*?restored: false/);
 });
 

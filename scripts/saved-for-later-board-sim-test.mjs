@@ -78,6 +78,7 @@ const {
   forgetAutosaveRequest,
   createNewTaskSession
 } = await import(pathToFileURL(bundle).href);
+const SESSION_SOURCE = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
 const SECTION_SOURCE = readFileSync(join(REPO, "apps/web/src/saved-for-later.tsx"), "utf8");
 
 const storage = new Map();
@@ -176,23 +177,27 @@ test("pressing it saves the form, then clears the autosave, then closes — and 
   assert.match(FORM_SOURCE, /onClick=\{saveForLater\}/, "the button is what calls it");
 });
 
-test("the form opened from Humperdink is the same create form, so it has the button", () => {
-  // A Humperdink arrival link (#412) opens App's one create-mode form: the
-  // mount that also closes on setFormOpen(false). Since #413 the arrival
-  // effect opens it, once any autosave has been moved aside.
-  assert.match(APP_SOURCE, /if \(!arrivalPending \|\| !user\.id\) return;[\s\S]*?setFormOpen\(true\)/, "the arrival opens formOpen");
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.ok(createMount, "App mounts the create form while formOpen");
-  assert.match(createMount, /onSaveForLater=\{onSaveForLater\}/, "and hands it Save for later");
+test("the form opened from Humperdink is the same create form, so it has the button", async () => {
+  // A Humperdink arrival link (#412) opens App's one create-mode form, the New
+  // Task session's (#473), once any autosave has been moved aside (#413).
+  assert.match(APP_SOURCE, /if \(!arrivalPending \|\| !user\.id\) return;[\s\S]*?newTask\.arrive\(/, "the arrival opens the session's form");
+  const createMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.ok(createMount, "App mounts the create form while the session is open");
+  assert.match(createMount, /session=\{newTask\}/, "and hands it the session, whose Save for later it offers");
   const editMount = APP_SOURCE.match(/\{editingTask && \(\s*<TaskForm([\s\S]*?)\/>\s*\)\}/)?.[1];
   assert.ok(editMount, "App mounts the edit form");
-  assert.doesNotMatch(editMount, /onSaveForLater/, "the edit form never gets it");
+  assert.doesNotMatch(editMount, /onSaveForLater|session=/, "the edit form never gets it");
+
+  const session = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: null }) });
+  assert.equal(await session.arrive({ load: () => {} }), "opened");
+  const html = renderForm({ session });
+  assert.match(html, />Save for later<\/button>/, "the arrival's form has the button");
 });
 
 test("a save lands in the board's list straight away, without a reload", () => {
-  const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.ok(handler, "App has an onSaveForLater handler");
-  assert.match(handler, /saveForLaterRequest\(/, "the save itself is the request helper's, driven below against a fake server");
+  const handler = APP_SOURCE.match(/onSavedForLater: \(saved, replaced\) => \{[\s\S]*?\n    \},/)?.[0];
+  assert.ok(handler, "App hears of every Save for later from the session");
+  assert.match(SESSION_SOURCE, /saveForLaterRequest\(/, "the save itself is the request helper's, driven below against a fake server");
   assert.match(handler, /setSavedForLater\(/, "the saved item goes into the list the section renders");
 });
 
@@ -456,7 +461,7 @@ test("the Autosaved seven days are the server's seven days", () => {
 
 test("tapping the Autosaved row opens New Task exactly as the New Task button does, on the latest autosave", () => {
   assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpenAutosave=\{openNewTask\}/);
-  assert.match(APP_SOURCE, /<NewTaskButton open=\{formOpen \|\| newTaskOpen\} onClick=\{[^}]*openNewTask\(\)/, "the button takes the same way in");
+  assert.match(APP_SOURCE, /<NewTaskButton open=\{newTaskOpen\} onClick=\{[^}]*openNewTask\(\)/, "the button takes the same way in");
   const opener = APP_SOURCE.match(/const openNewTask = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.ok(opener, "App has an openNewTask");
   /* The session asks the server for the latest Autosave first, and `unless`
@@ -464,13 +469,9 @@ test("tapping the Autosaved row opens New Task exactly as the New Task button do
   assert.match(opener, /await newTask\.open\(\{ held: autosaveNow\.current, unless: \(\) => formOpenNow\.current \}\)/, "asks for the latest autosave first, and leaves a form opened meanwhile alone");
   const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.match(newTaskMount, /session=\{newTask\}/, "a New Task gets the session and its autosave");
-  assert.doesNotMatch(newTaskMount, /reopened/, "a New Task is not a reopened record");
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   /* A reopened record opens through the session, whose reopened mode has no
      Autosave seat: driven in reopened-task-session-sim-test. */
-  assert.doesNotMatch(createMount, /reopened/, "a reopened record never gets the create form's autosave");
-  assert.match(createMount, /onKeepAutosave=\{onKeepAutosave\}/);
-  assert.match(createMount, /onForgetAutosave=\{onForgetAutosave\}/);
+  assert.doesNotMatch(newTaskMount, /reopened/, "a reopened record never gets the create form's autosave");
 });
 
 test("App loads the autosave with the drafts, empties it on every identity change, and merges this browser's offline copy", () => {
@@ -486,14 +487,34 @@ test("App loads the autosave with the drafts, empties it on every identity chang
   assert.match(loader, /newerAutosave\(/);
 });
 
-test("App's autosave callbacks are silent: typing never toasts or re-renders the board", () => {
-  const keep = APP_SOURCE.match(/const onKeepAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.match(keep, /keepAutosaveRequest\(/);
-  assert.doesNotMatch(keep, /showToast|setAutosave|setSavedForLater/);
-  const forget = APP_SOURCE.match(/const onForgetAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.match(forget, /forgetAutosaveRequest\(/);
-  assert.match(forget, /setAutosave\(null\)/, "a form that ended takes the row with it");
-  assert.doesNotMatch(forget, /showToast/);
+test("App's autosave callbacks are silent: typing never toasts or re-renders the board", async () => {
+  const onAutosave = APP_SOURCE.match(/onAutosave: \(item\) => \{[\s\S]*?\n    \},/)?.[0];
+  assert.ok(onAutosave, "App hears of the Autosave from the session");
+  assert.match(onAutosave, /setAutosave\(item\)/, "a form that ended takes the row with it");
+  assert.doesNotMatch(onAutosave, /showToast|setSavedForLater/);
+
+  const calls = [];
+  const events = [];
+  const session = createNewTaskSession({
+    owner: USER.id,
+    storage: null,
+    request: async (path, init) => {
+      calls.push(`${init.method} ${path}`);
+      return init.method === "GET" ? { item: null } : {};
+    },
+    onAutosave: (item) => events.push(["autosave", item]),
+    notify: (message) => events.push(["notify", message])
+  });
+  await session.open();
+  events.length = 0;
+  session.edit({ ...session.getState().values, folderName: "Alvarez" });
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.deepEqual(calls.at(-1), "PUT /autosave", "typing is written");
+  assert.deepEqual(events, [], "and nothing is said or re-rendered for it");
+  session.edit({ ...session.getState().values, folderName: "" });
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.deepEqual(calls.at(-1), "DELETE /autosave", "emptied back out, it is forgotten");
+  assert.deepEqual(events, [["autosave", null]], "taking the row with it, silently");
 });
 
 test("deleting the Autosaved row forgets it on the server and in this browser; a failure says so and keeps the row", () => {
@@ -509,9 +530,20 @@ test("deleting the Autosaved row forgets it on the server and in this browser; a
   assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onDeleteAutosave=\{deleteAutosave\}/);
 });
 
-test("saving a new form for later leaves one draft and no Autosaved row", () => {
-  const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(handler, /if \(clearAutosave\) setAutosave\(null\);/, "the row goes the moment the draft appears; the server cleared it in the same write");
+test("saving a new form for later leaves one draft and no Autosaved row", async () => {
+  const events = [];
+  const session = createNewTaskSession({
+    owner: USER.id,
+    storage: null,
+    request: async (path, init) => (init.method === "POST" ? { item: item("new", 0) } : { item: null }),
+    onAutosave: (autosave) => events.push(["autosave", autosave]),
+    onSavedForLater: (saved) => events.push(["saved", saved.id])
+  });
+  await session.open();
+  session.edit({ ...session.getState().values, folderName: "Alvarez" });
+  events.length = 0;
+  await session.end({ kind: "saveForLater" });
+  assert.deepEqual(events, [["autosave", null], ["saved", "new"]], "the row goes the moment the draft appears; the server cleared it in the same write");
 });
 
 /* ── Reopening one (#344) ────────────────────────────────── */
@@ -605,7 +637,7 @@ test("a reopened form keeps the Save for later button, pressable straight away, 
 test("a reopened form is filed through the one payload every create form uses, and its session ends it", () => {
   assert.match(
     FORM_SOURCE,
-    /storage: edit \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| session \? null : browserDraftStorage\(\)/,
     "no storage seat of its own, so no ending can clear or overwrite an unrelated autosave"
   );
   const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
@@ -625,7 +657,7 @@ test("App opens a reopened record through the New Task session", () => {
   /* Fetching the latest first, and leaving a form opened meanwhile alone, are
      driven in reopened-task-session-sim-test. */
   assert.match(opener, /await newTask\.reopen\(item, \{ unless: \(\) => formOpenNow\.current \}\)/);
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  const createMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.doesNotMatch(createMount, /reopened/, "the create form is never handed a record");
 });
 
@@ -1140,7 +1172,8 @@ test("a linked card is scrolled into the room under the pinned header, not centr
 });
 
 test("leaving a form changes no tab: opening, saving for later, creating and discarding never touch it", () => {
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  const createMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.ok(createMount);
   assert.doesNotMatch(createMount, /setBoardTab|selectBoardTab/, "closing the form, however it ends, leaves the tab alone");
   assert.equal(
     (APP_SOURCE.match(/setBoardTab\(/g) ?? []).length,
