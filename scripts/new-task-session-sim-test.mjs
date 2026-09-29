@@ -529,7 +529,7 @@ test("New Task pressed again while the form is open leaves it open, and its typi
 
 test("App's New Task button and Autosaved row only ever open, never close or swap a form already up", () => {
   const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  const button = app.match(/<NewTaskButton open=\{formOpen \|\| newTaskOpen\} onClick=\{([^\n]*)\} \/>/);
+  const button = app.match(/<NewTaskButton open=\{newTaskOpen\} onClick=\{([^\n]*)\} \/>/);
   assert.ok(button, "the button is wired in App");
   assert.doesNotMatch(button[1], /close|setFormOpen/, "the button never shuts a form");
   assert.match(app, /className="form-toggle" aria-haspopup="dialog" aria-disabled=\{open\}/, "it says it does nothing while a form is up, not that it collapses one");

@@ -327,6 +327,20 @@ test("a reopened Task Draft is left where it is, and the arrival is dropped", as
   assert.deepEqual(ctx.server.writes(), []);
 });
 
+test("a form already ending (a Create out) is left to finish, and the arrival is dropped", async () => {
+  const ctx = setup();
+  await ctx.session.open();
+  ctx.session.edit(values({ folderName: "Alvarez" }));
+  let file;
+  const filing = ctx.session.end({ kind: "create", file: () => new Promise((resolve) => (file = resolve)) });
+  await settle();
+  assert.equal(await ctx.session.arrive({ load: ctx.load }), "dropped");
+  assert.deepEqual(ctx.server.writes(), [], "no Task Draft beside the task");
+  file();
+  await filing;
+  assert.equal(ctx.session.getState().phase, "closed");
+});
+
 test("a New Task still loading when the arrival starts gives way to the LOI Check", async () => {
   const ctx = setup();
   ctx.server.hold = (call) => call.method === "GET" && ctx.server.calls.filter((c) => c.method === "GET").length === 1;

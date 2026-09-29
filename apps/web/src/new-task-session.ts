@@ -395,7 +395,7 @@ export const createNewTaskSession = ({
     async arrive({ load, unless }) {
       const run = (async (): Promise<ArrivalOutcome> => {
         if (state.phase === "open") {
-          if (mode.kind !== "fresh") {
+          if (mode.kind !== "fresh" || state.ending) {
             load();
             return "dropped";
           }
