@@ -522,6 +522,6 @@ test("App keeps one session per person, and the hook closes the old one when the
   const session = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
   assert.match(app, /useNewTaskSession\(\{\s*owner: user\.id,\s*request: savedForLaterRequestFor\(user\),/);
   assert.match(session, /useMemo\(\(\) => createNewTaskSession\(deps\), \[deps\.owner\]\)/);
-  assert.match(session, /useEffect\(\(\) => \(\) => session\.close\(\), \[session\]\)/);
+  assert.match(session, /if \(previous\.current && previous\.current !== session\) previous\.current\.close\(\);/, "the old person's session is closed once the new one is in");
   assert.match(app, /\{newTaskOpen && \(\s*<TaskForm\s*key=\{`new:\$\{newTask\.owner\}`\}/, "the form is the session's, so a new person's closed session unmounts it");
 });

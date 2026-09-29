@@ -3,7 +3,7 @@
    its request function, storage and clock, with a thin React hook wrapper at
    the bottom. App and the form only call it. */
 import type { Autosave, SavedForLaterTask } from "@loan-tasks/shared";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { autosaveCopy, clearDraft, draftAction, newerAutosave, readDraftCopy, writeDraft } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
 import { formHasChanges, initialCreateForm } from "./create-form-state";
@@ -276,11 +276,17 @@ export const createNewTaskSession = ({
 /* ── React ──────────────────────────────────────────────── */
 
 /* One session per person, made when they are first seen and closed when the
-   person changes (the dev user picker) or App unmounts. The deps are read once,
-   at creation, so a later render's callbacks can never act for the new person. */
+   person changes (the dev user picker). The deps are read once, at creation, so
+   a later render's callbacks can never act for the new person. Closed by
+   comparing with the last one rather than in an effect cleanup, which StrictMode
+   and a dev hot reload also run, and which would shut a form mid-typing. */
 export const useNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession => {
   const session = useMemo(() => createNewTaskSession(deps), [deps.owner]);
-  useEffect(() => () => session.close(), [session]);
+  const previous = useRef<NewTaskSession | null>(null);
+  useEffect(() => {
+    if (previous.current && previous.current !== session) previous.current.close();
+    previous.current = session;
+  }, [session]);
   return session;
 };
 
