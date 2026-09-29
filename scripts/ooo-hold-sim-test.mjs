@@ -25,6 +25,7 @@ import {
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
+import { TeamsBotClient } from "../apps/server/dist/bot.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -105,7 +106,7 @@ await check("the creator can end an OPEN OOO task early; it lands COMPLETED with
   const { service, store } = await setup();
   const task = await makeOoo(service);
   assert.equal(canEndOooEarly(task, CREATOR), true);
-  const ended = await service.transitionStatus(task.id, "COMPLETED", CREATOR);
+  const ended = await service.endOooEarly(task.id, CREATOR);
   assert.equal(ended.status, "COMPLETED");
   const history = await store.allHistoryForTask(task.id);
   const row = history.find((e) => e.action === "TASK_COMPLETED");
@@ -119,7 +120,7 @@ await check("the creator can end a CLAIMED OOO task early", async () => {
   const { service, store } = await setup();
   const task = await makeOoo(service, { claimed: true });
   assert.equal(canEndOooEarly(task, CREATOR), true);
-  const ended = await service.transitionStatus(task.id, "COMPLETED", CREATOR);
+  const ended = await service.endOooEarly(task.id, CREATOR);
   assert.equal(ended.status, "COMPLETED");
   const row = (await store.allHistoryForTask(task.id)).find((e) => e.action === "TASK_COMPLETED");
   assert.equal(row.by.id, CREATOR.id);
@@ -129,7 +130,7 @@ await check("the coverer can end it early with the same result", async () => {
   const { service, store } = await setup();
   const task = await makeOoo(service, { claimed: true });
   assert.equal(canEndOooEarly(task, COVER), true);
-  const ended = await service.transitionStatus(task.id, "COMPLETED", COVER);
+  const ended = await service.endOooEarly(task.id, COVER);
   assert.equal(ended.status, "COMPLETED");
   const row = (await store.allHistoryForTask(task.id)).find((e) => e.action === "TASK_COMPLETED");
   assert.equal(row.by.id, COVER.id);
@@ -139,11 +140,12 @@ await check("the coverer can end it early with the same result", async () => {
 await check("restoring a reopened OOO task is not recorded as an early end", async () => {
   const { service, store } = await setup();
   const task = await makeOoo(service, { claimed: true });
-  await service.transitionStatus(task.id, "COMPLETED", COVER);
+  await service.endOooEarly(task.id, COVER);
   const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
   assert.equal(reopened.status, "CLAIMED");
   assert.equal(canEndOooEarly(reopened, CREATOR), false, "End stands down; Restore is the move");
   assert.equal(canEndOooEarly(reopened, COVER), false);
+  await assert.rejects(service.endOooEarly(task.id, CREATOR), "End task refuses a restore");
   await service.transitionStatus(task.id, "COMPLETED", CREATOR);
   const rows = (await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED");
   assert.equal(rows.length, 2);
@@ -157,9 +159,63 @@ await check("anyone else is refused the early end, on the server as well", async
   for (const task of [open, claimed]) {
     for (const outsider of [OTHER, ADMIN]) {
       assert.equal(canEndOooEarly(task, outsider), false);
+      await assert.rejects(service.endOooEarly(task.id, outsider));
       await assert.rejects(service.transitionStatus(task.id, "COMPLETED", outsider));
     }
   }
+});
+
+/* A Teams card posted before #453 shipped still carries a Complete button on a
+   claimed OOO task. The server refuses that plain COMPLETED, and the refusal is
+   what makes the bot re-sync the stale card. */
+const botOver = async (service) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ooo-hold-bot-"));
+  const dataFile = path.join(dir, "bot-references.json");
+  await fs.writeFile(dataFile, "[]", "utf8");
+  const client = new TeamsBotClient("app-id", "app-password", undefined, dataFile);
+  await client.init();
+  const users = new Map([CREATOR, COVER].map((u) => [u.id, u]));
+  client.setTransitionHandler(async (aad) => users.get(aad), (taskId, status, user, notes) => service.transitionStatus(taskId, status, user, notes));
+  const resynced = [];
+  client.setCardResync(async (taskId) => { resynced.push(taskId); });
+  const tap = (taskId, targetStatus, user) =>
+    client.bot.onInvokeActivity({
+      activity: {
+        type: "invoke",
+        name: "adaptiveCard/action",
+        conversation: { id: "19:dm-1", conversationType: "personal" },
+        from: { id: "29:tapper", aadObjectId: user.id, name: user.displayName },
+        recipient: { id: "29:bot" },
+        serviceUrl: "https://example.invalid",
+        value: { action: { verb: "transitionTask", data: { taskId, targetStatus } } }
+      }
+    });
+  return { tap, resynced };
+};
+
+await check("a pre-deploy card's Complete on a claimed OOO task is refused and the card refreshes", async () => {
+  const { service, store } = await setup();
+  const task = await makeOoo(service, { claimed: true });
+  const { tap, resynced } = await botOver(service);
+  for (const user of [COVER, CREATOR]) {
+    const response = await tap(task.id, "COMPLETED", user);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(response.body?.value ?? "", /Refreshing this card\./);
+  }
+  assert.deepEqual(resynced, [task.id, task.id], "each refused tap re-syncs the stale card");
+  const [stored] = await store.allTasks();
+  assert.equal(stored.status, "CLAIMED", "the hold stands");
+  await assert.rejects(service.transitionStatus(task.id, "COMPLETED", COVER), "a plain COMPLETED is refused from any surface");
+});
+
+await check("End task from the web still closes it, with the early-end history row", async () => {
+  const { service, store } = await setup();
+  const task = await makeOoo(service, { claimed: true });
+  const ended = await service.endOooEarly(task.id, COVER);
+  assert.equal(ended.status, "COMPLETED");
+  const row = (await store.allHistoryForTask(task.id)).find((e) => e.action === "TASK_COMPLETED");
+  assert.equal(row.by.id, COVER.id);
+  assert.ok(row.detail.includes(OOO_ENDED_EARLY_DETAIL));
 });
 
 await check("releasing a claimed OOO task returns it to the pool, and it is never nagged", async () => {

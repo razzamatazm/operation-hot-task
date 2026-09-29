@@ -630,6 +630,16 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  router.post("/tasks/:taskId/end-early", async (req, res) => {
+    try {
+      const user = await getActor(req);
+      const task = await service.endOooEarly(req.params.taskId, user);
+      res.json({ task });
+    } catch (error) {
+      sendError(res, error, "Failed to end task");
+    }
+  });
+
   router.post("/tasks/:taskId/points", async (req, res) => {
     try {
       const { points } = updatePointsSchema.parse(req.body);

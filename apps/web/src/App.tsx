@@ -1441,6 +1441,7 @@ const TaskCard = memo(({
   user,
   onClaim,
   onUnclaim,
+  onEndEarly,
   onReturnToPool,
   onTransition,
   onRelease,
@@ -1469,6 +1470,7 @@ const TaskCard = memo(({
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
+  onEndEarly: (taskId: string) => Promise<void>;
   onReturnToPool: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
@@ -2155,7 +2157,7 @@ const TaskCard = memo(({
         <button
           type="button"
           className="btn-sm btn-ghost"
-          onClick={() => { acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onTransition(task.id, "COMPLETED"); } }); }}
+          onClick={() => { acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
         >
           End task
         </button>
@@ -2766,6 +2768,7 @@ const CardList = ({
   user,
   onClaim,
   onUnclaim,
+  onEndEarly,
   onReturnToPool,
   onTransition,
   onRelease,
@@ -2795,6 +2798,7 @@ const CardList = ({
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
+  onEndEarly: (taskId: string) => Promise<void>;
   onReturnToPool: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
@@ -2848,6 +2852,7 @@ const CardList = ({
           user={user}
           onClaim={onClaim}
           onUnclaim={onUnclaim}
+          onEndEarly={onEndEarly}
           onReturnToPool={onReturnToPool}
           onTransition={onTransition}
           onRelease={onRelease}
@@ -4521,6 +4526,17 @@ export const App = () => {
     }
   }, [user, refresh, showToast]);
 
+  /* OOO "End task" (#453): its own endpoint, because the server refuses a plain
+     COMPLETED on a live OOO task so a stale Teams Complete button can't close it. */
+  const onEndEarly = useCallback(async (taskId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/end-early`, { method: "POST" }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to end task", { variant: "error" });
+    }
+  }, [user, refresh, showToast]);
+
   const onTransition = useCallback(async (taskId: string, status: TaskStatus, reviewNotes?: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status, ...(reviewNotes ? { reviewNotes } : {}) }) }, user);
@@ -5058,6 +5074,7 @@ export const App = () => {
       user,
       onClaim,
       onUnclaim,
+      onEndEarly,
       onReturnToPool,
       onTransition,
       onRelease,

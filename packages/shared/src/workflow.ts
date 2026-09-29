@@ -1017,22 +1017,31 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
 
 /* Ending an Out of Office task before its return date (#453): the person away
    (they came back early, or the trip was called off) or the person covering.
-   Either party, from OPEN or CLAIMED; nobody else, admins included. */
-const canCloseOoo = (task: LoanTask, user: UserIdentity): boolean =>
-  isOooLive(task) && (isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id);
-
-/* A reopened OOO task carries a restore breadcrumb, and its move to COMPLETED
-   is the Restore, not an early end, so End stands down there. */
+   Either party, from OPEN or CLAIMED; nobody else, admins included. A reopened
+   OOO task carries a restore breadcrumb, and its move to COMPLETED is the
+   Restore, not an early end, so End stands down there. */
 export const canEndOooEarly = (task: LoanTask, user: UserIdentity): boolean =>
-  canCloseOoo(task, user) && restoreTargetStatus(task) === undefined;
+  isOooLive(task) &&
+  restoreTargetStatus(task) === undefined &&
+  (isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id);
+
+/* Whether moving this task to `next` would be an OOO early end, as opposed to
+   a restore of a reopened one. The server lets it through only on End task's
+   own door, so a pre-#453 card's Complete button is refused. */
+export const isOooEarlyEnd = (task: LoanTask, next: TaskStatus): boolean =>
+  next === "COMPLETED" && isOooLive(task) && restoreTargetStatus(task) === undefined;
+
+export const OOO_END_FROM_MENU = "End this from the task's menu in Hot Task.";
 
 /* The detail on the history row an early end writes, so it reads apart from
    the maintenance pass's `AUTO_COMPLETED_RETURN_DATE`. */
 export const OOO_ENDED_EARLY_DETAIL = "Ended before the return date";
 
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
+  // An OOO task has no Complete (#453). Its early end is `canEndOooEarly`, and
+  // the return date closes it through the maintenance pass.
   if (task.taskType === "OOO") {
-    return canCloseOoo(task, user);
+    return false;
   }
 
   if (task.taskType === "FRAUD" && !isSystem(user) && !isFileChecker(user)) {
@@ -1121,6 +1130,13 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
     return canRestoreTask(task, user)
       ? { ok: true }
       : { ok: false, reason: "Only the task creator or assignee can restore a reopened task" };
+  }
+
+  // A live OOO task closes early only through End task's own door (#453), not
+  // a plain COMPLETED. Refusing here is what retires the Complete button on a
+  // Teams card posted before the hold shipped: the refused tap re-syncs it.
+  if (isOooEarlyEnd(task, next)) {
+    return { ok: false, reason: OOO_END_FROM_MENU };
   }
 
   if (next === "CANCELLED" && !canCancelTask(task, user)) {

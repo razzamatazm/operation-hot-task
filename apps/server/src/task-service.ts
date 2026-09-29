@@ -18,7 +18,8 @@ import {
   messageEditRefusal,
   closureActionFor,
   OOO_ENDED_EARLY_DETAIL,
-  restoreTargetStatus,
+  canEndOooEarly,
+  isOooEarlyEnd,
   completionTargetStatus,
   isConfirmingLook,
   TaskHistoryEvent,
@@ -1068,8 +1069,26 @@ export class TaskService {
   }
 
   async transitionStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes?: string): Promise<LoanTask> {
+    return this.moveStatus(taskId, next, user, reviewNotes, false);
+  }
+
+  /* The web's "End task" on an Out of Office task (#453). Its own door so a
+     plain COMPLETED can be refused: Teams cards posted before the hold shipped
+     still carry a Complete button, and pressing one must not close the task
+     without the confirm End task asks for. */
+  async endOooEarly(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    const access = canTransitionStatus(task, next, user);
+    if (!canEndOooEarly(task, user)) {
+      throw new Error("Only the person away or the person covering can end this early");
+    }
+    return this.moveStatus(taskId, "COMPLETED", user, undefined, true);
+  }
+
+  private async moveStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes: string | undefined, endingOooEarly: boolean): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    // `canTransitionStatus` refuses a plain COMPLETED on a live OOO task (a
+    // stale card's Complete); `endOooEarly` has already asked its own question.
+    const access: { ok: boolean; reason?: string } = endingOooEarly ? { ok: true } : canTransitionStatus(task, next, user);
 
     if (!access.ok) {
       throw new Error(access.reason ?? "Transition blocked");
@@ -1307,9 +1326,8 @@ export class TaskService {
       // end (#453). A restore of a reopened one is not, and the return date's
       // own close is the maintenance pass, which writes its own row.
       const endedEarly =
-        current.taskType === "OOO" &&
-        next === "COMPLETED" &&
-        restoreTargetStatus(current) === undefined &&
+        endingOooEarly &&
+        isOooEarlyEnd(current, next) &&
         new Date(now).getTime() < new Date(current.dueAt).getTime();
       const detail = endedEarly ? `${baseDetail} | ${OOO_ENDED_EARLY_DETAIL}` : baseDetail;
       /* The two closing moves are named, so the closure is findable in the

@@ -65,6 +65,11 @@ const createCompleted = async (service, taskType = "VALUE") => {
   );
   await service.claimTask(task.id, ASSIGNEE);
   const flow = flowFor(task).filter((s) => s !== "ARCHIVED");
+  // A live OOO task closes early only through End task's own door (#453).
+  if (taskType === "OOO") {
+    await service.endOooEarly(task.id, ASSIGNEE);
+    return task.id;
+  }
   for (let i = flow.indexOf("CLAIMED") + 1; i < flow.length; i += 1) {
     await service.transitionStatus(task.id, flow[i], flow[i] === "MERGE_APPROVED" ? CREATOR : ASSIGNEE);
   }
