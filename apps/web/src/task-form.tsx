@@ -27,13 +27,13 @@
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
-import { FormEvent, MutableRefObject, useEffect, useId, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { UNSAVED_CHANGES_NOTE, browserDraftStorage, clearDraft, draftAction, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
-import { PutFormAsideOutcome, arrivalPasteStep, putFormAside } from "./humperdink-arrival";
+import { arrivalPasteStep } from "./humperdink-arrival";
 import { UNSAVED_SAVE_DEBOUNCE_MS } from "./saved-for-later-requests";
-import { NewTaskSession, useNewTaskSessionState } from "./new-task-session";
+import { NewTaskSession, useNewTaskSessionState, withPendingItem } from "./new-task-session";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
 import { useToast } from "./toast";
@@ -114,8 +114,9 @@ interface TaskFormProps {
      #413): a new form's save clears the slot in the same write, and a form
      without a seat leaves it alone. */
   onSaveForLater?: (form: CreateFormValues, clearAutosave?: boolean) => Promise<void>;
-  /* A New Task form's session (#467): a fresh form or a reopened Task Draft
-     (#469), what it opens on, where its typing goes, and every way it ends. */
+  /* A New Task form's session (#467): a fresh form, a reopened Task Draft
+     (#469) or a Humperdink arrival's LOI Check (#473), what it opens on, where
+     its typing goes, and every way it ends. */
   session?: NewTaskSession;
   /* Writes a new task form's typing to the server's autosave, as it is typed
      (#371). Resolves whether it landed, and never rejects: it runs off a timer
@@ -131,55 +132,30 @@ interface TaskFormProps {
      why only this subset is openable. Ignored in edit mode, which takes its
      values from the task. */
   initialValues?: CreateFormInitialValues;
-  /* This create form is a Humperdink arrival (#412): somebody pressed Send to
-     Hot Task and Teams opened the tab on its link. The form opens as a new LOI
-     Check, the one type the Humperdink import fills, with focus in the request
-     field so ⌘V imports straight away through the form's paste import. Where
-     Teams can read the clipboard it doesn't wait for the ⌘V (#415, see
-     `readClipboard`). Like any
-     prefilled form it does not open on the autosave: the arrival is about the
-     loan on the clipboard, not last Tuesday's unfinished task. App has already
-     moved that autosave to Task Drafts before opening this (#413). Ignored in
-     edit mode and on a reopened form, which App never opens this way. */
-  humperdinkArrival?: boolean;
-  /* This new task form must not touch the autosave at all (#413): a Humperdink
-     arrival whose move of the old autosave to Task Drafts didn't land, so the
-     slot still holds somebody's other unfinished task. No seat on the server's
-     slot and no browser copy, the way a reopened form has none, so no typing,
-     Save for later, Create or Discard on this form can write over or clear the
-     old task. Its own typing isn't kept against a reload; the loan it is about
-     is still on the clipboard. */
-  leaveAutosaveAlone?: boolean;
   /* Reads the clipboard for a Humperdink arrival (#415, ADR-0012): the text if
      it is a Send to Hot Task payload, null for anything else, and never
-     rejects. App hands it over only with `humperdinkArrival`, and the form
+     rejects. App hands it over only to an arrival's form, and the form
      calls it once, at open, and only then, so no other way into the form reads
      the clipboard. What it returns goes through the form's own paste import. */
   readClipboard?: (() => Promise<string | null>) | undefined;
   /* Whether App's loans list has loaded (#415). The arrival's clipboard import
      waits for it, so it runs against the loans a manual paste would see. */
   loansLoaded?: boolean;
-  /* A handle App holds on this form's own Save for later (#420). A Humperdink
-     arrival that finds a create form already open — someone opened New Task in
-     the moment between Send to Hot Task reloading the tab and the arrival being
-     recognised — presses it, so their typing becomes a Task Draft and the
-     arrival still gets its LOI Check. The form registers itself here while it is
-     up and takes the handle back when it closes. An edit form and a reopened
-     Task Draft register nothing: neither can be open in this window anyway, and
-     if one ever were, an arrival leaves it where it is and is dropped rather
-     than opening over it. */
-  arrivalAside?: MutableRefObject<(() => Promise<PutFormAsideOutcome>) | null>;
   /* Present → edit mode (#260). Absent → the create form, unchanged. */
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, readClipboard, loansLoaded = false, arrivalAside, edit, session, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, readClipboard, loansLoaded = false, edit, session, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   const sessionState = useNewTaskSessionState(session, (state) => state);
   const live = sessionState.phase === "open" ? sessionState : null;
   /* The Task Draft this form was reopened on (#344), if it was. */
   const reopened = live?.mode.kind === "reopened" ? live.mode.record : undefined;
+  /* A Humperdink arrival's LOI Check (#412, #473): opens blank, with focus in
+     the request field so Ctrl-V imports, and fills from the clipboard where
+     Teams allows (#415). */
+  const humperdinkArrival = live?.mode.kind === "arrival";
   /* The two required boxes, so a save can hang its refusal on the field the
      browser would hang "please fill out this field" on. The folder name joined
      them in edit mode with #262; in create mode nothing refuses a create, so the
@@ -213,15 +189,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Null storage in edit mode is the whole of "edit mode saves no draft": there
      is nothing to switch off further down, because there is nowhere to write. */
   const [draftSeat] = useState<{ storage: ReturnType<typeof browserDraftStorage>; userId: string }>(() => ({
-    storage: edit || leaveAutosaveAlone || session ? null : browserDraftStorage(),
+    storage: edit || session ? null : browserDraftStorage(),
     userId: user.id
   }));
   /* Whether this form has a seat on the server's autosave (#371): a new task
      form does, and a reopened or edit form does not, for the reasons it has no
-     browser storage above. Nor does a Humperdink arrival told to leave the
-     autosave alone (#413), whose slot still holds another task. Nothing further
-     down reads, writes or forgets the server's autosave without it. */
-  const autosaveSeat = !edit && !leaveAutosaveAlone && !session;
+     browser storage above. A session's form writes through its session.
+     Nothing further down reads, writes or forgets the server's autosave
+     without it. */
+  const autosaveSeat = !edit && !session;
   /* The server calls behind that seat, pinned at open for the reason the seat's
      user id is. App's callbacks follow whoever is signed in now, and the dev
      user picker can change that mid-form; held from open, they write and forget
@@ -251,9 +227,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       const values = editFormValues(edit.task);
       return { values, fresh: values };
     }
-    /* A Humperdink arrival (#412) is an LOI Check whatever else was passed. */
-    const opensWith = humperdinkArrival ? { ...initialValues, taskType: "LOI" as const } : initialValues;
-    const fresh = initialCreateForm(opensWith);
+    const fresh = initialCreateForm(initialValues);
     return { values: fresh, fresh };
   });
   /* A fresh New Task form's values live in its session; every other form keeps
@@ -280,9 +254,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      never wrote — and what makes emptying a restored form back out clear the
      copy behind it rather than leave the old values waiting to reappear. */
   const draftStored = useRef(false);
-  /* The values on screen, for reads outside a render. */
-  const formNow = useRef(form);
-  formNow.current = form;
   /* Those writes, one after another, so an older one can never land after a
      newer one. Every ending waits on this before it acts (`settleUnsaved`). */
   const unsavedWrites = useRef<Promise<unknown>>(Promise.resolve());
@@ -314,6 +285,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. */
   const [seedDraft, setSeedDraft] = useState("");
+  useEffect(() => session?.notePendingItem(seedDraft), [seedDraft]);
   /* The Fraud filing refusal spans two boxes but is shown on one (#302), so
      the note's custom validity has to clear when the *other* box moves.
      Without this, someone refused for saying nothing, who then itemises a
@@ -344,7 +316,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   /* Save for later's own in-flight flag (#343), for the reason `submitting`
      exists: held for the whole save so a second press can't store two copies,
      and doubling as the button's `Saving…`. Create waits on it too. */
-  const [savingForLater, setSavingForLater] = useState(false);
+  const [ownSavingForLater, setSavingForLater] = useState(false);
+  const savingForLater = ownSavingForLater || live?.ending === "saveForLater";
   /* Humperdink import (#194). There is no box for it since 2026-09-14: a Send to
      Hot Task payload pasted into any field on an LOI Check being filed is the import,
      and any other paste lands where it was pasted. The one other way in is a
@@ -452,7 +425,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     const step = arrivalPasteStep({
       paste: arrivalPaste,
       loansLoaded,
-      untouched: !imported && !formHasChanges(openedWith.current, formNow.current)
+      untouched: !imported && session !== undefined && session.untouched()
     });
     if (step === "wait" || arrivalPaste === null) return;
     setArrivalPaste(null);
@@ -1025,8 +998,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      the error and the form stays open with everything in it. */
   const worthSavingForLater = session ? session.hasTyping(seedDraft) : formHasChanges(opening.fresh, form, seedDraft);
   const offersSaveForLater = !editing && (session !== undefined || onSaveForLater !== undefined);
-  /* Resolves whether the save landed and the form closed, which is what a
-     Humperdink arrival waits on before it opens its own form over this one. */
+  /* Resolves whether the save landed and the form closed. */
   const saveSessionForLater = async (newTask: NewTaskSession, values: CreateFormValues): Promise<boolean> => {
     setSavingForLater(true);
     try {
@@ -1041,8 +1013,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   };
   const saveForLater = async (): Promise<boolean> => {
     if (!offersSaveForLater || submitting || savingForLater) return false;
-    const pendingItem = form.taskType === "FRAUD" ? seedDraft.trim() : "";
-    const values = pendingItem ? { ...form, initialItems: [...form.initialItems, pendingItem] } : form;
+    const values = withPendingItem(form, seedDraft);
     if (session) return saveSessionForLater(session, values);
     if (!onSaveForLater) return false;
     setSavingForLater(true);
@@ -1060,19 +1031,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       setSavingForLater(false);
     }
   };
-
-  /* A Humperdink arrival presses this form's own Save for later (#420), rather
-     than App reaching in for the values: the typing, the autosave seat and the
-     settle-then-write order all live here, and App holds only the handle.
-     Registered on every render so it closes over what is in the form now, and
-     given back on unmount so an arrival can never press a form that has gone. */
-  useEffect(() => {
-    if (!arrivalAside || editing || reopened) return;
-    arrivalAside.current = () => putFormAside({ worthKeeping: worthSavingForLater, saveForLater, close: onClose });
-    return () => {
-      arrivalAside.current = null;
-    };
-  });
 
   /* Save for later as an answer to Cancel (#348). The footer's own, not a copy
      of it. The prompt comes down first, so a save that fails leaves the person

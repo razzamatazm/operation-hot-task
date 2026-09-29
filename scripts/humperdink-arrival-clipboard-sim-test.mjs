@@ -44,7 +44,8 @@ writeFileSync(
   entry,
   `export { readArrivalClipboard, arrivalPasteStep } from ${src("humperdink-arrival.ts")};\n` +
     `export { TaskForm } from ${src("task-form.tsx")};\n` +
-    `export { ToastProvider } from ${src("toast.tsx")};\n`
+    `export { ToastProvider } from ${src("toast.tsx")};\n` +
+    `export { createNewTaskSession } from ${src("new-task-session.ts")};\n`
 );
 const bundle = join(scratch, "bundle.mjs");
 await build({
@@ -56,7 +57,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { readArrivalClipboard, arrivalPasteStep, TaskForm, ToastProvider } = await import(pathToFileURL(bundle).href);
+const { readArrivalClipboard, arrivalPasteStep, TaskForm, ToastProvider, createNewTaskSession } = await import(pathToFileURL(bundle).href);
 
 const PAYLOAD = JSON.stringify({
   kind: "hot-task-humperdink",
@@ -184,7 +185,7 @@ test("the form applies it through its own paste import, once the loans have load
   const apply = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*const step = arrivalPasteStep\(([\s\S]*?)\n  \}, \[arrivalPaste, loansLoaded\]\);/)?.[0];
   assert.ok(apply, "an effect keyed on the text and the loans");
   assert.match(apply, /loansLoaded/);
-  assert.match(apply, /untouched: !imported && !formHasChanges\(openedWith\.current, formNow\.current\)/);
+  assert.match(apply, /untouched: !imported && session !== undefined && session\.untouched\(\)/);
   assert.match(apply, /importFromHumperdink\(arrivalPaste\)/);
   assert.doesNotMatch(apply, /parseHumperdinkPayload|applyImportedLoan/, "not a second copy of the import");
   assert.doesNotMatch(apply, /onCreate|onSaveForLater|apiRequest/, "nothing is created until Create");
@@ -205,9 +206,9 @@ test("a paste on the form is still the import", () => {
 /* ── App (read out of the source) ───────────────────────── */
 
 test("App hands the form a clipboard reader only on a Humperdink arrival", () => {
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  const createMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.ok(createMount);
-  assert.match(createMount, /readClipboard=\{humperdinkArrival \? readTeamsClipboard : undefined\}/);
+  assert.match(createMount, /readClipboard=\{newTaskKind === "arrival" \? readTeamsClipboard : undefined\}/);
   assert.match(createMount, /loansLoaded=\{loansLoaded\}/);
   assert.match(APP_SOURCE, /const readTeamsClipboard = \(\): Promise<string \| null> => readArrivalClipboard\(teamsClipboard\);/);
   assert.equal(APP_SOURCE.match(/readTeamsClipboard/g)?.length, 2, "defined once, handed over once");
@@ -256,8 +257,10 @@ const render = (props) =>
     }))
   );
 
-test("until anything is read, the arrival is an empty LOI Check with no paste box and no toast", () => {
-  const html = render({ humperdinkArrival: true, readClipboard: async () => PAYLOAD, loansLoaded: false });
+test("until anything is read, the arrival is an empty LOI Check with no paste box and no toast", async () => {
+  const session = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: null }) });
+  assert.equal(await session.arrive({ load: () => {} }), "opened");
+  const html = render({ session, readClipboard: async () => PAYLOAD, loansLoaded: false });
   assert.match(html, /<option value="LOI" selected="">/);
   assert.doesNotMatch(html, /task-form-import|then paste here/);
   assert.doesNotMatch(html, /Adams - Harbor/);

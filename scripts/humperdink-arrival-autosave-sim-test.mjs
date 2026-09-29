@@ -16,9 +16,10 @@
 
    Three techniques, the arrangement the other form tests use:
 
-   1. DRIVEN. The move (`moveAutosaveAside`) is framework-free and handed its
-      request function and storage, so it runs against a fake server that keeps
-      state the way the real routes do.
+   1. DRIVEN. The move (`moveAutosaveAside`) and the New Task session that runs
+      it on an arrival (#473) are framework-free and handed their request
+      function and storage, so they run against a fake server that keeps state
+      the way the real routes do.
    2. RENDERED. The form and the Task Drafts page, through `react-dom/server`.
    3. READ OUT OF THE SOURCE. Effects don't run in a static render, so App's
       wiring and the form's seat are asserted against the source.
@@ -132,6 +133,36 @@ const modelServer = ({ autosave = null, failSave = false, unreachable = false, h
 };
 
 const serverAutosave = (form, at = minutesAgo(30)) => ({ ownerId: USER.id, savedAt: new Date(at).toISOString(), form });
+/* Timers that run only when flushed, so the session's typing debounce can be
+   stepped through without waiting on it. */
+const manualClock = () => {
+  const timers = [];
+  return {
+    now: () => NOW,
+    setTimeout: (run) => timers.push(run),
+    clearTimeout: () => {},
+    flush: async () => {
+      for (const run of timers.splice(0)) run();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
+};
+
+/* An arrival through the New Task session, against `request`. */
+const arrive = async (request, storage = memoryStorage(), clock = manualClock()) => {
+  const session = createNewTaskSession({ owner: USER.id, storage, request, clock });
+  const outcome = await session.arrive({ load: () => {} });
+  return { session, outcome, clock, storage };
+};
+const offline = (server) => async (path, init) => {
+  if (init.method === "GET") {
+    server.state.calls.push({ call: `${init.method} ${path}` });
+    throw new Error("offline");
+  }
+  return server.request(path, init);
+};
+const writesOf = (server) => server.state.calls.filter(({ call }) => !call.startsWith("GET")).map(({ call }) => call);
+
 const move = (server, storage, options = {}) => moveAutosaveAside(server.request, storage, USER.id, { now: NOW, ...options });
 
 /* ── The move ───────────────────────────────────────────── */
@@ -271,10 +302,28 @@ test("a save that lands after the arrival gave up on it takes the offline copy w
   assert.equal(storage.getItem(draftKey(USER.id)), null);
 });
 
-test("New Task pressed while the move is out waits for it, so it can't open on an autosave the move is about to clear", () => {
+test("New Task pressed while the move is out waits for it, so it can't open on an autosave the move is about to clear", async () => {
   const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.ok(openNewTask.indexOf("await arrivalMove.current") >= 0 && openNewTask.indexOf("await arrivalMove.current") < openNewTask.indexOf("await newTask.open("));
-  assert.match(arrivalEffect(), /arrivalMove\.current = /);
+  assert.match(openNewTask, /await newTask\.open\(/, "the press goes through the session the arrival runs in");
+  assert.match(arrivalEffect(), /newTask\.arrive\(/);
+
+  let land;
+  const landed = new Promise((resolve) => (land = resolve));
+  const server = modelServer({ autosave: serverAutosave(OLD_TASK, minutesAgo(40)) });
+  const slow = async (path, init) => {
+    if (init.method === "POST") await landed;
+    return server.request(path, init);
+  };
+  const session = createNewTaskSession({ owner: USER.id, storage: memoryStorage(), request: slow, clock: manualClock() });
+  const arriving = session.arrive({ load: () => {} });
+  const pressed = session.open();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(server.state.calls.filter(({ call }) => call === "GET /autosave").length, 1, "the press asks nothing while the move is out");
+  land();
+  assert.equal(await arriving, "opened");
+  assert.equal(await pressed, false, "and leaves the LOI Check alone");
+  assert.equal(session.getState().mode.kind, "arrival");
+  assert.equal(server.state.calls.filter(({ call }) => call === "GET /autosave").length, 1, "never opening on the autosave it cleared");
 });
 
 test("the move never toasts: a failed one is nothing the person has to act on", () => {
@@ -301,28 +350,47 @@ const renderForm = (props) =>
 
 globalThis.window = { localStorage: memoryStorage() };
 
-test("a held arrival still opens a new LOI Check, not the old autosave", () => {
-  const html = renderForm({ humperdinkArrival: true, leaveAutosaveAlone: true, autosave: serverAutosave(OLD_TASK, Date.now() - 60000) });
+test("a held arrival still opens a new LOI Check, not the old autosave", async () => {
+  const server = modelServer({ autosave: serverAutosave(OLD_TASK, Date.now() - 60000) });
+  const { session } = await arrive(offline(server));
+  assert.deepEqual(session.getState().mode, { kind: "arrival", held: true });
+  const html = renderForm({ session });
   assert.doesNotMatch(html, /Castillo - Ridge/);
   assert.match(html, /<option value="LOI" selected="">/);
 });
 
-test("a held form has no seat on either copy of the autosave, so typing into it can't write over the old one", () => {
+test("a held form has no seat on either copy of the autosave, so typing into it can't write over the old one", async () => {
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
-  assert.match(seat.slice(0, seat.indexOf("}));")), /storage: edit \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/, "no browser copy to write");
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !leaveAutosaveAlone && !session;/, "no server slot to write or forget");
-  const effect = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!autosaveSeat\) return;\s*const timer[\s\S]*?\}, \[form, autosaveSeat, opening\.fresh\]\);/)?.[0];
-  assert.ok(effect, "the typing timer leaves before it writes anything");
-  const forget = FORM_SOURCE.match(/const forgetDraft = \(\): void => \{([\s\S]*?)\n  \};/)?.[1];
-  assert.match(forget, /if \(!autosaveSeat\) return;/, "Create and Discard can't clear it either");
+  assert.match(seat.slice(0, seat.indexOf("}));")), /storage: edit \|\| session \? null : browserDraftStorage\(\)/, "a session's form keeps no browser copy of its own");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !session;/, "nor a server slot of its own");
+
+  for (const ending of [{ kind: "create", file: async () => {} }, { kind: "discard" }]) {
+    const server = modelServer({ autosave: serverAutosave(OLD_TASK) });
+    const storage = memoryStorage();
+    const kept = serializeDraft(OLD_TASK, minutesAgo(30));
+    storage.setItem(draftKey(USER.id), kept);
+    const { session, clock } = await arrive(offline(server), storage);
+    session.edit({ ...session.getState().values, ...NEW_TYPING });
+    await clock.flush();
+    assert.deepEqual(writesOf(server), [], "typing writes nothing");
+    await session.end(ending);
+    await clock.flush();
+    assert.deepEqual(writesOf(server), [], `${ending.kind} clears nothing`);
+    assert.deepEqual(server.state.autosave.form, OLD_TASK);
+    assert.equal(storage.getItem(draftKey(USER.id)), kept, "the offline copy is untouched");
+  }
 });
 
 test("Save for later on a held form keeps the old autosave: it doesn't ask the server to clear the slot", async () => {
-  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
-  assert.match(body, /await onSaveForLater\(values, autosaveSeat\)/);
-  const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(handler, /saveForLaterRequest\(savedForLaterRequestFor\(user\), form, undefined, clearAutosave\)/);
-  assert.match(handler, /if \(clearAutosave\) setAutosave\(null\)/, "the Autosaved row stays when the slot wasn't cleared");
+  const held = modelServer({ autosave: serverAutosave(OLD_TASK) });
+  const autosaves = [];
+  const session = createNewTaskSession({ owner: USER.id, storage: memoryStorage(), request: offline(held), clock: manualClock(), onAutosave: (item) => autosaves.push(item) });
+  await session.arrive({ load: () => {} });
+  session.edit({ ...session.getState().values, ...NEW_TYPING });
+  await session.end({ kind: "saveForLater" });
+  assert.equal(held.state.calls.at(-1).body.clearAutosave, undefined);
+  assert.deepEqual(held.state.autosave.form, OLD_TASK);
+  assert.deepEqual(autosaves, [], "the Autosaved row stays when the slot wasn't cleared");
 
   const server = modelServer({ autosave: serverAutosave(OLD_TASK) });
   await saveForLaterRequest(server.request, NEW_TYPING, undefined, false);
@@ -353,37 +421,54 @@ test("the first drafts load for the person waits for the move, so no load can ra
   assert.match(identity, /if \(!arrivalPending\) \{\s*loadSavedForLater\(\)\.catch\(\(\) => \{\}\);\s*loadAutosave\(\)\.catch\(\(\) => \{\}\);\s*\}/);
 });
 
-test("App moves the autosave, then loads the drafts, then opens the LOI Check, holding the seat only when the move didn't land", () => {
+test("App moves the autosave, then loads the drafts, then opens the LOI Check, holding the seat only when the move didn't land", async () => {
   const effect = arrivalEffect();
   assert.ok(effect, "an arrival effect");
-  const order = [
-    "setArrivalPending(false)",
-    "formOpenNow.current",
-    "moveAutosaveAside(savedForLaterRequestFor(user), browserDraftStorage(), user.id)",
-    "user.id !== savedForLaterOwner.current",
-    "loadSavedForLater()",
-    "loadAutosave()",
-    "newTask.close()",
-    'setLeaveAutosaveAlone(outcome.kind === "held")',
-    "setHumperdinkArrival(true)",
-    "setFormOpen(true)"
-  ].map((needle) => [needle, effect.indexOf(needle)]);
+  const order = ["setArrivalPending(false)", "newTask.arrive(", "loadSavedForLater()", "loadAutosave()", "user.id !== savedForLaterOwner.current"].map((needle) => [
+    needle,
+    effect.indexOf(needle)
+  ]);
   for (const [needle, at] of order) assert.ok(at >= 0, `the effect has ${needle}`);
   for (let i = 1; i < order.length; i += 1) assert.ok(order[i - 1][1] < order[i][1], `${order[i - 1][0]} before ${order[i][0]}`);
+
+  for (const [request, held] of [
+    [(server) => server.request, false],
+    [(server) => offline(server), true]
+  ]) {
+    const server = modelServer({ autosave: serverAutosave(OLD_TASK) });
+    const steps = [];
+    const session = createNewTaskSession({
+      owner: USER.id,
+      storage: memoryStorage(),
+      clock: manualClock(),
+      request: async (path, init) => {
+        steps.push(`${init.method} ${path}`);
+        return request(server)(path, init);
+      }
+    });
+    await session.arrive({ load: () => steps.push(`load while ${session.getState().phase}`) });
+    steps.push(`open ${session.getState().phase}`);
+    assert.deepEqual(steps, held ? ["GET /autosave", "load while closed", "open open"] : ["GET /autosave", "POST /saved-for-later", "load while closed", "open open"]);
+    assert.deepEqual(session.getState().mode, { kind: "arrival", held });
+  }
 });
 
-test("App hands the form the hold, and every other way in drops it", () => {
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.match(createMount, /leaveAutosaveAlone=\{leaveAutosaveAlone\}/);
-  const onClose = createMount.match(/onClose=\{\(\) => \{([\s\S]*?)\}\}/)?.[1];
-  assert.match(onClose, /setLeaveAutosaveAlone\(false\)/);
-  const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.match(openNewTask, /newTask\.open\(/);
+test("App hands the form the hold, and every other way in drops it", async () => {
   const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.ok(newTaskMount);
-  assert.doesNotMatch(newTaskMount, /leaveAutosaveAlone/, "New Task always has its seat");
+  assert.match(newTaskMount, /session=\{newTask\}/, "the hold rides the session the form is handed");
+  assert.doesNotMatch(newTaskMount, /leaveAutosaveAlone/);
+  const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(openNewTask, /newTask\.open\(/);
   const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
   assert.match(openSaved, /newTask\.reopen\(/, "a reopened draft opens the session's form, which never holds the seat");
+
+  const server = modelServer({ autosave: serverAutosave(OLD_TASK) });
+  const { session } = await arrive(offline(server));
+  assert.deepEqual(session.getState().mode, { kind: "arrival", held: true });
+  session.close();
+  assert.equal(await session.open(), true);
+  assert.deepEqual(session.getState().mode, { kind: "fresh" }, "New Task after it has its seat back");
 });
 
 test("opening New Task normally still restores the autosave exactly as before", async () => {

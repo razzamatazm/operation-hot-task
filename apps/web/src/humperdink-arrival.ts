@@ -19,8 +19,8 @@
    - `held`: the move didn't happen, or nobody can say it did. The server could
      not be asked (there may be an autosave out there), the save failed, or it
      did not answer in time. Both copies are left exactly as they were, and the
-     form that opens must not touch either (`leaveAutosaveAlone` on `TaskForm`),
-     so nothing typed into it can overwrite the old task. Losing the old task is
+     form that opens must not touch either (a held arrival in the New Task
+     session), so nothing typed into it can overwrite the old task. Losing the old task is
      the one outcome that isn't allowed.
 
    Never throws and never toasts: a move that didn't land leaves nothing for the
@@ -35,8 +35,8 @@ import type { SavedForLaterTask } from "@loan-tasks/shared";
 import { autosaveCopy, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
 import { formHasChanges, initialCreateForm } from "./create-form-state";
-import { AUTOSAVE_LOAD_TIMEOUT_MS, loadAutosaveRequest, saveForLaterRequest } from "./saved-for-later-requests";
-import type { SavedForLaterRequest } from "./saved-for-later-requests";
+import { AUTOSAVE_LOAD_TIMEOUT_MS, browserTimers, loadAutosaveRequest, saveForLaterRequest } from "./saved-for-later-requests";
+import type { RequestTimers, SavedForLaterRequest } from "./saved-for-later-requests";
 
 export type AutosaveMove = { kind: "none" } | { kind: "moved"; saved: SavedForLaterTask } | { kind: "held" };
 
@@ -46,19 +46,20 @@ export const moveAutosaveAside = async (
   request: SavedForLaterRequest,
   storage: DraftStorage | null,
   userId: string,
-  options: { now?: number; timeoutMs?: number } = {}
+  options: { now?: number; timeoutMs?: number; timers?: RequestTimers } = {}
 ): Promise<AutosaveMove> => {
   const timeoutMs = options.timeoutMs ?? AUTOSAVE_LOAD_TIMEOUT_MS;
-  const { reached, item } = await loadAutosaveRequest(request, timeoutMs);
+  const timers = options.timers ?? browserTimers;
+  const { reached, item } = await loadAutosaveRequest(request, timeoutMs, timers);
   if (!reached) return { kind: "held" };
 
   const now = options.now ?? Date.now();
   const kept = newerAutosave(autosaveCopy(item, now), readDraftCopy(storage, userId, now));
   if (!kept || !formHasChanges(initialCreateForm(), kept.values)) return { kind: "none" };
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: unknown;
   const gaveUp = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
+    timer = timers.setTimeout(() => resolve(null), timeoutMs);
   });
   const saving = saveForLaterRequest(request, kept.values);
   try {
@@ -78,44 +79,8 @@ export const moveAutosaveAside = async (
   } catch {
     return { kind: "held" };
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
   }
-};
-
-/* ── Putting away a form opened while the tab was loading (#420) ──
-
-   Send to Hot Task reloads the tab, and someone can open New Task in the moment
-   between that reload and the arrival being recognised. That form is put away
-   before the LOI Check opens, rather than the arrival being dropped.
-
-   Worth keeping is the form's own yardstick, the one the Save for later button
-   is enabled by, so the button and the arrival can't disagree about it. What is
-   worth keeping goes through the form's own Save for later — the same one write
-   that clears the autosave slot, so Task Drafts lists it once and not also as
-   Autosaved. An untouched form is nothing to keep, so it just closes.
-
-   A save that didn't land is the one outcome that must lose nothing: the caller
-   leaves the form open exactly as it was and drops the arrival, which is what a
-   form open at this moment did before any of this. Handed the save and the
-   close rather than reaching for them, so it runs against fakes in
-   `scripts/humperdink-arrival-open-form-sim-test.mjs`. */
-/* What became of the form. `failed` is the only one the arrival must not go on
-   from: the form is still open, holding typing that is nowhere else. */
-export type PutFormAsideOutcome = "saved" | "closed" | "failed";
-
-export interface PutFormAsideInput {
-  worthKeeping: boolean;
-  /* The form's own Save for later. True when it landed and the form closed. */
-  saveForLater: () => Promise<boolean>;
-  close: () => void;
-}
-
-export const putFormAside = async ({ worthKeeping, saveForLater, close }: PutFormAsideInput): Promise<PutFormAsideOutcome> => {
-  if (!worthKeeping) {
-    close();
-    return "closed";
-  }
-  return (await saveForLater()) ? "saved" : "failed";
 };
 
 /* ── Filling the LOI Check from the clipboard (#415, ADR-0012) ──

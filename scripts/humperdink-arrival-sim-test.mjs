@@ -293,8 +293,10 @@ test("the Teams init reads one arrival, and only a task arrival reaches focus an
 });
 
 /* Since #413 the init only marks the arrival; an effect keyed on the person
-   moves any autosave aside and then opens the form. What the move does is
-   `humperdink-arrival-autosave-sim-test.mjs`. */
+   hands it to the New Task session (#473), which moves any autosave aside and
+   then opens the form. What the move does is
+   `humperdink-arrival-autosave-sim-test.mjs`; the session's ordering is
+   `arrival-task-session-sim-test.mjs`. */
 test("a Humperdink arrival opens the create form as that arrival, once the person is known, and creates nothing", () => {
   const branch = teamsInit.match(/arrival\.kind === "humperdink"\)\s*(\{[\s\S]*?\}|[^\n]*;)/)?.[1];
   assert.ok(branch, "a humperdink branch");
@@ -303,26 +305,18 @@ test("a Humperdink arrival opens the create form as that arrival, once the perso
   assert.ok(teamsInit.indexOf("setArrivalPending(true)") < teamsInit.indexOf("setUser(me)"), "set with /me, so the form's seat is the real person's");
   const effect = APP_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!arrivalPending \|\| !user\.id\) return;([\s\S]*?)\n  \}, \[arrivalPending, user\.id\]\);/)?.[1];
   assert.ok(effect, "an effect that waits for the person");
-  assert.match(effect, /setHumperdinkArrival\(true\)/);
-  assert.match(effect, /setFormOpen\(true\)/);
-  assert.ok(
-    effect.indexOf("formOpenNow.current") >= 0 && effect.indexOf("formOpenNow.current") < effect.indexOf("setHumperdinkArrival(true)"),
-    "a form already open (opened during a slow sign-in) is left alone"
-  );
+  assert.match(effect, /newTask\.arrive\(/, "the session opens the arrival's form");
   assert.doesNotMatch(effect, /onCreate|apiRequest|setFocusTaskId|setClaimOnArrivalId/);
 });
 
 test("App hands the create form the arrival, and every other way in clears it", () => {
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.ok(createMount);
-  assert.match(createMount, /humperdinkArrival=\{humperdinkArrival\}/);
-  const onClose = createMount.match(/onClose=\{\(\) => \{([\s\S]*?)\}\}/)?.[1];
-  assert.match(onClose, /setHumperdinkArrival\(false\)/, "closing the form ends the arrival");
-  const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.match(openNewTask, /newTask\.open\(/, "New Task opens its own session's form");
   const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.ok(newTaskMount);
-  assert.doesNotMatch(newTaskMount, /humperdinkArrival/, "New Task is never an arrival");
+  assert.match(newTaskMount, /session=\{newTask\}/, "the arrival rides the session the form is handed");
+  const onClose = newTaskMount.match(/onClose=\{([^}]*)\}/)?.[1];
+  assert.equal(onClose, "newTask.close", "closing the form ends the arrival");
+  const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
+  assert.match(openNewTask, /newTask\.open\(/, "New Task opens its own session's form");
   const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
   assert.match(openSaved, /newTask\.reopen\(/, "reopening a draft opens the session's form, which is never an arrival");
 });
@@ -388,10 +382,17 @@ const render = (props) =>
     }))
   );
 
+/* A session opened by an arrival, against a server with no autosave. */
+const arrival = async () => {
+  const session = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: null }) });
+  assert.equal(await session.arrive({ load: () => {} }), "opened");
+  return session;
+};
+
 const selectedType = (html) => html.match(/<option value="([A-Z_]+)" selected="">/)?.[1];
 
-test("an arrival opens the create form as an LOI Check", () => {
-  const html = render({ humperdinkArrival: true });
+test("an arrival opens the create form as an LOI Check", async () => {
+  const html = render({ session: await arrival() });
   assert.equal(selectedType(html), "LOI");
   assert.match(html, /Create Task/);
 });
@@ -422,7 +423,9 @@ test("an arrival opens on an LOI Check, not on the autosave", async () => {
   const session = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: { ownerId: USER.id, ...autosave } }) });
   await session.open();
   assert.match(render({ session }), /Castillo - Ridge/, "the control: New Task does restore it");
-  const html = render({ humperdinkArrival: true });
+  const arrived = createNewTaskSession({ owner: USER.id, storage: null, request: async (path, init) => (init.method === "GET" ? { item: { ownerId: USER.id, ...autosave } } : {}) });
+  assert.equal(await arrived.arrive({ load: () => {} }), "opened");
+  const html = render({ session: arrived });
   assert.doesNotMatch(html, /Castillo - Ridge/);
   assert.equal(selectedType(html), "LOI");
 });
@@ -435,11 +438,13 @@ test("the request field takes focus on an arrival, and on no other opening, so â
 
 /* Teams won't let the tab read the clipboard, so the arrival's request field
    says which key to press, and no other opening says it. */
-test("an arrival's request field says to press CTRL-V, and a plain New Task's doesn't", () => {
+test("an arrival's request field says to press CTRL-V, and a plain New Task's doesn't", async () => {
   const prompt = /placeholder="Press CTRL-V now to import from Humperdink"/;
-  assert.match(render({ humperdinkArrival: true }), prompt);
+  assert.match(render({ session: await arrival() }), prompt);
   assert.doesNotMatch(render({}), prompt);
-  assert.doesNotMatch(render({ humperdinkArrival: false }), prompt);
+  const plain = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: null }) });
+  await plain.open();
+  assert.doesNotMatch(render({ session: plain }), prompt);
   // Edit mode and a reopened draft never say it, a landed import takes it away
   // even when the loan had no terms to fill the box with, and switching off LOI
   // takes it away because a paste imports only on an LOI Check (#436 review).
@@ -451,4 +456,11 @@ test("an arrival's request field says to press CTRL-V, and a plain New Task's do
 
 test("the arrival's âŒ˜V goes through the form's own paste import", () => {
   assert.match(FORM_SOURCE, /onPaste=\{\(e\) => \{[\s\S]*?importFromHumperdink\(e\.clipboardData\.getData\("text\/plain"\)\)/);
+});
+
+test("New Task after an arrival's LOI Check has closed is never an arrival", async () => {
+  const session = await arrival();
+  session.close();
+  assert.equal(await session.open(), true);
+  assert.deepEqual(session.getState().mode, { kind: "fresh" });
 });
