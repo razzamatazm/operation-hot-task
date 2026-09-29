@@ -373,6 +373,22 @@ test("typing back to what the server holds after a failed send removes the copy"
   assert.equal(ctx.storage.items.size, 0);
 });
 
+test("a pause while a send is still out keeps the copy that send leaves when it fails", async () => {
+  const ctx = setup();
+  await typeWhileDown(ctx, values({ notes: "offline" }));
+  ctx.server.hold = (call) => call.path.endsWith("/unsaved");
+  ctx.session.edit(values({ notes: "still offline" }));
+  await ctx.clock.advance(1000);
+  ctx.session.edit(values({ notes: "still offline" }));
+  await ctx.clock.advance(1000);
+  ctx.server.held.shift().release();
+  await settle();
+  const after = setup({ storage: ctx.storage });
+  down(after);
+  await after.session.reopen(record());
+  assert.equal(openState(after.session).values.notes, "still offline");
+});
+
 test("a record saved again elsewhere since the copy was written wins over the copy", async () => {
   const before = setup();
   await typeWhileDown(before, values({ notes: "offline" }));
@@ -381,6 +397,54 @@ test("a record saved again elsewhere since the copy was written wins over the co
   assert.equal(openState(after.session).values.notes, "saved on the laptop");
   await settle();
   assert.deepEqual(after.server.writes(), []);
+  assert.equal(after.storage.items.size, 0, "a copy that lost to the server goes");
+});
+
+test("a copy that lost stays gone when the server later comes back to its old state", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ notes: "offline" }));
+  const laptop = setup({ storage: before.storage });
+  await reopen(laptop, record({ unsaved: values({ notes: "typed on the laptop" }) }));
+  laptop.session.close();
+  const again = setup({ storage: before.storage });
+  await reopen(again);
+  assert.equal(openState(again.session).values.notes, "the save");
+});
+
+/* Reopened from the board's copy with the server down, then typed into. */
+const typeFromStaleBoard = async () => {
+  const ctx = setup();
+  down(ctx);
+  await ctx.session.reopen(record());
+  ctx.session.edit(values({ notes: "typed from a stale board" }));
+  await ctx.clock.advance(1000);
+  return ctx.storage;
+};
+
+test("a copy typed from the board's copy with the server down beats unsaved typing the board hadn't seen", async () => {
+  const after = setup({ storage: await typeFromStaleBoard() });
+  await reopen(after, record({ unsaved: values({ notes: "older typing from the laptop" }) }));
+  assert.equal(openState(after.session).values.notes, "typed from a stale board");
+});
+
+test("a copy typed from the board's copy with the server down still loses to a newer save", async () => {
+  const after = setup({ storage: await typeFromStaleBoard() });
+  await reopen(after, record({ savedAt: new Date(START).toISOString(), form: values({ notes: "saved on the laptop" }) }));
+  assert.equal(openState(after.session).values.notes, "saved on the laptop");
+});
+
+test("a copy typed back to the save opens without the unsaved changes note", async () => {
+  const ctx = setup();
+  await reopen(ctx, record({ unsaved: values({ notes: "unsaved" }) }));
+  down(ctx);
+  ctx.session.edit(record().form);
+  await ctx.clock.advance(1000);
+  const after = setup({ storage: ctx.storage });
+  down(after);
+  await after.session.reopen(record({ unsaved: values({ notes: "unsaved" }) }));
+  const state = openState(after.session);
+  assert.equal(state.values.notes, "the save");
+  assert.equal(state.mode.record.unsaved, undefined);
 });
 
 test("unsaved typing that reached the server from elsewhere since the copy wins over the copy", async () => {

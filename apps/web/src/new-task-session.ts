@@ -124,9 +124,11 @@ const browserClock: NewTaskSessionClock = { ...browserTimers, now: () => Date.no
 const CLOSED: NewTaskSessionState = { phase: "closed" };
 
 /* Whether the server still holds the record a browser copy was written on. */
-const sameBase = (base: UnsavedCopyBase, latest: SavedForLaterTask): boolean =>
-  base.savedAt === latest.savedAt &&
-  (base.unsaved && latest.unsaved ? !formHasChanges(base.unsaved, latest.unsaved) : !base.unsaved && !latest.unsaved);
+const sameBase = (base: UnsavedCopyBase, latest: SavedForLaterTask): boolean => {
+  if (base.savedAt !== latest.savedAt) return false;
+  if (base.unsaved === undefined) return true;
+  return base.unsaved && latest.unsaved ? !formHasChanges(base.unsaved, latest.unsaved) : !base.unsaved && !latest.unsaved;
+};
 
 export const createNewTaskSession = ({
   owner,
@@ -154,9 +156,9 @@ export const createNewTaskSession = ({
   let mode: NewTaskMode = { kind: "fresh" };
   /* A reopened record's unsaved typing as last sent, or null for none. */
   let sent: CreateFormValues | null = null;
-  /* The same, as the server last took it; and whether this browser holds a
-     copy of typing it didn't take (#476). */
-  let landed: CreateFormValues | null = null;
+  /* The record as the server last held it, for a browser copy of typing it
+     didn't take (#476); and whether this browser holds one. */
+  let base: UnsavedCopyBase = { savedAt: "" };
   let copied = false;
   let timer: unknown = null;
   /* Writes, one after another, so an older one never lands after a newer one. */
@@ -210,8 +212,10 @@ export const createNewTaskSession = ({
       sentExists: before !== null
     });
     if (action === "keep") {
-      /* The server already holds what's on screen. */
-      if (copied) writes = writes.then(() => dropCopy(record.id));
+      /* Nothing to send; the copy goes once the server is known to hold this. */
+      writes = writes.then(() => {
+        if (copied && base.unsaved !== undefined && !formHasChanges(base.unsaved ?? record.form, values)) dropCopy(record.id);
+      });
       return;
     }
     const next = action === "write" ? values : null;
@@ -219,13 +223,13 @@ export const createNewTaskSession = ({
     writes = writes
       .then(async () => {
         if (next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id)) {
-          landed = next;
+          base = { savedAt: record.savedAt, unsaved: next };
           dropCopy(record.id);
           onSavedForLaterUnsaved?.(record.id, next);
           return;
         }
         if (sent === next) sent = before;
-        writeUnsavedCopy(storage, owner, record.id, { values, base: { savedAt: record.savedAt, unsaved: landed } });
+        writeUnsavedCopy(storage, owner, record.id, { values, base });
         copied = true;
       })
       .catch(() => {});
@@ -311,7 +315,13 @@ export const createNewTaskSession = ({
 
     async reopen(item, { unless } = {}) {
       const mine = generation;
-      const latest = await reopenSavedForLaterRequest(request, item);
+      let reached = false;
+      const noteReached: SavedForLaterRequest = async (path, init) => {
+        const answer = await request(path, init);
+        reached = true;
+        return answer as never;
+      };
+      const latest = await reopenSavedForLaterRequest(noteReached, item);
       if (mine !== generation) return "skipped";
       if (!latest) {
         clearUnsavedCopy(storage, owner, item.id);
@@ -323,17 +333,23 @@ export const createNewTaskSession = ({
       /* A New Task still loading gives way: the first form to land wins. */
       if (state.phase === "open" || unless?.()) return "skipped";
       generation += 1;
-      /* This browser's copy, while the server still holds what it was written on. */
-      const offline = readUnsavedCopy(storage, owner, latest.id);
-      const copy = offline && sameBase(offline.base, latest) ? offline.values : null;
+      /* This browser's copy, while the server still holds what it was written
+         on. Without the server, `latest` is the board's copy, which may lag
+         the server's unsaved typing: only a newer save outranks the copy. */
+      const stored = readUnsavedCopy(storage, owner, latest.id);
+      const copy = stored && sameBase(stored.base, latest) ? stored.values : null;
+      if (stored && !copy && reached) clearUnsavedCopy(storage, owner, latest.id);
       const source = copy ?? latest.unsaved ?? latest.form;
       fresh = initialCreateForm();
       openedWith = { ...source, initialItems: [...source.initialItems] };
       onDisk = false;
       sent = latest.unsaved ?? null;
-      landed = sent;
-      copied = offline !== null;
-      mode = { kind: "reopened", record: copy && formHasChanges(latest.form, copy) ? { ...latest, unsaved: copy } : latest };
+      if (reached) base = { savedAt: latest.savedAt, unsaved: sent };
+      else base = copy && stored ? stored.base : { savedAt: latest.savedAt };
+      copied = stored !== null && (copy !== null || !reached);
+      const { unsaved: _, ...saved } = latest;
+      const record = copy ? (formHasChanges(latest.form, copy) ? { ...saved, unsaved: copy } : saved) : latest;
+      mode = { kind: "reopened", record };
       set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
       if (copy) sendUnsaved(latest, copy);
       return "opened";

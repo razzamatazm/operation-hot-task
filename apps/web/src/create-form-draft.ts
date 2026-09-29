@@ -338,17 +338,16 @@ export const clearDraft = (storage: DraftStorage | null, userId: string): void =
 
 /* ── A reopened Task Draft's typing the server never got (#476) ──
    One per person per record. `base` is the record as the server held it when
-   the copy was written: its last save and its unsaved typing (null for none).
-   While the server still holds exactly that, the copy is the newer; once it
-   holds anything else, a later write got there and the copy loses. No clocks
-   are compared, and no expiry: the record it belongs to doesn't expire. */
-export const UNSAVED_COPY_KEY_PREFIX = "loan-tasks:unsaved-copy:";
-
-const unsavedCopyKey = (userId: string, savedId: string): string => `${UNSAVED_COPY_KEY_PREFIX}${userId}:${savedId}`;
+   the copy was written: its last save and its unsaved typing (null for none,
+   absent when never heard from the server). While the server still holds
+   exactly that, the copy is the newer; once it holds anything else, a later
+   write got there and the copy loses. No clocks are compared, and no expiry:
+   the record it belongs to doesn't expire. */
+const unsavedCopyKey = (userId: string, savedId: string): string => `loan-tasks:unsaved-copy:${userId}:${savedId}`;
 
 export interface UnsavedCopyBase {
   savedAt: string;
-  unsaved: CreateFormValues | null;
+  unsaved?: CreateFormValues | null;
 }
 
 export interface UnsavedCopy {
@@ -359,7 +358,8 @@ export interface UnsavedCopy {
 export const writeUnsavedCopy = (storage: DraftStorage | null, userId: string, savedId: string, copy: UnsavedCopy): void => {
   if (!storage) return;
   try {
-    const base = { savedAt: copy.base.savedAt, unsaved: copy.base.unsaved && pickValues(copy.base.unsaved) };
+    const { savedAt, unsaved } = copy.base;
+    const base = unsaved === undefined ? { savedAt } : { savedAt, unsaved: unsaved && pickValues(unsaved) };
     storage.setItem(unsavedCopyKey(userId, savedId), JSON.stringify({ version: DRAFT_VERSION, values: pickValues(copy.values), base }));
   } catch {
     /* storage unavailable or full — degrade silently */
@@ -394,9 +394,12 @@ const parseUnsavedCopy = (raw: string): UnsavedCopy | null => {
   if (record.version !== DRAFT_VERSION || typeof record.base !== "object" || record.base === null) return null;
   if (typeof record.base.savedAt !== "string") return null;
   const values = formValuesOf(record.values);
-  const unsaved = record.base.unsaved === null ? null : formValuesOf(record.base.unsaved);
-  if (!values || (record.base.unsaved !== null && !unsaved)) return null;
-  return { values, base: { savedAt: record.base.savedAt, unsaved } };
+  if (!values) return null;
+  const { savedAt, unsaved } = record.base;
+  if (!("unsaved" in record.base)) return { values, base: { savedAt } };
+  if (unsaved === null) return { values, base: { savedAt, unsaved: null } };
+  const known = formValuesOf(unsaved);
+  return known ? { values, base: { savedAt, unsaved: known } } : null;
 };
 
 export const clearUnsavedCopy = (storage: DraftStorage | null, userId: string, savedId: string): void => {
