@@ -3052,7 +3052,7 @@ const AppMenu = ({
    segment on whichever list header is showing — not in the top app bar,
    which now only holds nav + the dev user picker. */
 const NewTaskButton = ({ open, onClick }: { open: boolean; onClick: () => void }) => (
-  <button type="button" className="form-toggle" aria-expanded={open} onClick={onClick}>
+  <button type="button" className="form-toggle" aria-haspopup="dialog" aria-disabled={open} onClick={onClick}>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
@@ -4396,8 +4396,10 @@ export const App = () => {
      The latest autosave is asked for first, so typing done on another device
      since sign-in is what the form opens on; a server that does not answer in
      time opens on what App already holds. A form opened while that was out is
-     left alone. */
+     left alone. So is one already up: the keyboard reaches the button and the
+     row behind it (#474). */
   const openNewTask = useCallback(async (): Promise<void> => {
+    if (formOpenNow.current) return;
     /* An arrival's move still out (#413) goes first; its LOI Check then
        opens, and this press leaves it alone like any form already up. */
     if (arrivalMove.current) await arrivalMove.current;
@@ -5291,7 +5293,7 @@ export const App = () => {
                   isAdmin={isAdmin}
                   onOpenPage={setActiveTab}
                 />
-                <NewTaskButton open={formOpen || newTaskOpen} onClick={() => { if (!formOpen && !newTaskOpen) void openNewTask(); else { newTask.close(); setFormOpen(false); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
+                <NewTaskButton open={formOpen || newTaskOpen} onClick={() => void openNewTask()} />
               </div>
             </div>
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>

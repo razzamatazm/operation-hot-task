@@ -435,6 +435,20 @@ test("a fresh form's mode is the fresh variant", async () => {
   assert.deepEqual(openState(ctx.session).mode, { kind: "fresh" });
 });
 
+test("the Autosaved row pressed while a reopened task is up leaves it open, and its typing is still sent (#474)", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  ctx.session.edit(values({ folderName: "Castillo", notes: "half typed" }));
+  await ctx.clock.advance(500);
+  assert.equal(await ctx.session.open(), false);
+  const state = openState(ctx.session);
+  assert.equal(state.mode.kind, "reopened");
+  assert.equal(state.values.notes, "half typed");
+  await ctx.clock.advance(500);
+  assert.deepEqual(ctx.server.writes(), [["PUT", "/saved-for-later/sfl-1/unsaved"]]);
+  assert.equal(ctx.server.calls.at(-1).body.form.notes, "half typed");
+});
+
 /* App's wiring, read out of the source like the other session suites. */
 test("App reopens a Task Draft through the session, and has no second form for it", () => {
   const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
