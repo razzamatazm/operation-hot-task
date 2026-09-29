@@ -12,7 +12,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { UNCLAIMED_ALERT_MS, isOfficeOpen, isPoolNagDue, officeMsBetween } from "../packages/shared/dist/index.js";
+import {
+  UNCLAIMED_ALERT_MS,
+  computeClaimAnchoredDueAt,
+  computeDueAtFromUrgency,
+  isOfficeOpen,
+  isPoolNagDue,
+  officeMsBetween
+} from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
@@ -98,6 +105,28 @@ await check("open at the opening instant and up to the last millisecond before c
     assert.equal(officeMsBetween(new Date(closes.getTime() - 1), closes, config), 1, "the measure counts that last millisecond");
     assert.equal(officeMsBetween(closes, new Date(closes.getTime() + MIN), config), 0, "and nothing in the closing minute");
   }
+});
+
+/* End-of-day deadlines use the same boundary: from the closing instant on,
+   "today's close" has passed, so Yellow rolls to the next office day's close. */
+const at = (date, hhmm, seconds) => new Date(pdt(date, hhmm).getTime() + seconds * 1000);
+const yellow = (now) => computeDueAtFromUrgency("YELLOW", now, config);
+
+await check("Yellow set Friday 15:29:59 is due that close; at 15:30:00 or 15:30:20 it is Monday's close", async () => {
+  assert.equal(yellow(at(FRI, "15:29", 59)), pdt(FRI, "15:30").toISOString());
+  assert.equal(yellow(at(FRI, "15:30", 0)), pdt(MON, "17:30").toISOString());
+  assert.equal(yellow(at(FRI, "15:30", 20)), pdt(MON, "17:30").toISOString());
+});
+
+await check("Yellow set Tuesday 17:30:20 is due Wednesday's close, not the close that just passed", async () => {
+  assert.equal(yellow(at(TUE, "17:29", 59)), pdt(TUE, "17:30").toISOString());
+  assert.equal(yellow(at(TUE, "17:30", 20)), pdt(WED, "17:30").toISOString());
+});
+
+await check("a claim in the closing minute anchors to the next opening; a window ending in it clamps to close", async () => {
+  assert.equal(computeClaimAnchoredDueAt("YELLOW", at(FRI, "15:30", 20), config), pdt(MON, "17:30").toISOString());
+  assert.equal(computeClaimAnchoredDueAt("YELLOW", at(TUE, "17:30", 20), config), pdt(WED, "17:30").toISOString());
+  assert.equal(computeClaimAnchoredDueAt("ORANGE", at(TUE, "16:30", 20), config), pdt(TUE, "17:30").toISOString());
 });
 
 /* ------------------------------------------------------------ the predicate */

@@ -104,8 +104,6 @@ export const officeHoursOn = (
 
 export const isOfficeDay = (date: LocalDate, config: AppConfig): boolean => officeHoursOn(date, config) !== undefined;
 
-export const minutesOfDay = (time: OfficeTime): number => time.hour * 60 + time.minute;
-
 /* Open from the opening instant up to, not including, the closing instant: the
    same interval `officeMsBetween` counts, so the two never disagree about the
    closing minute (#459). */
@@ -162,10 +160,11 @@ export const officeClosesAt = (date: LocalDate, config: AppConfig): Date | undef
 /* Today's open if `from` is before it on an office day, else the next office day's. */
 export const nextOfficeOpen = (from: Date, config: AppConfig): Date => {
   const local = zonedParts(from, config.businessTimezone);
-  const today = officeHoursOn(local, config);
-  const beforeOpenToday = today !== undefined && minutesOfDay(local) < minutesOfDay(today.open);
-  const day = beforeOpenToday ? local : nextOfficeDay(local, 1, config);
-  return officeOpensAt(day, config) as Date;
+  const todayOpen = officeOpensAt(local, config);
+  if (todayOpen && from.getTime() < todayOpen.getTime()) {
+    return todayOpen;
+  }
+  return officeOpensAt(nextOfficeDay(local, 1, config), config) as Date;
 };
 
 /* How long the office was open between two instants, in milliseconds (#459).
