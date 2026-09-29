@@ -224,15 +224,17 @@ export const createNewTaskSession = ({
 
   /* An ending that files or saves: no more writes start, the one out lands
      first, and a failure puts the form back as it was. */
-  const settleThen = async <T>(kind: NewTaskEndingKind, act: () => Promise<T>): Promise<T> => {
+  const settleThen = async <T>(mine: number, kind: NewTaskEndingKind, act: () => Promise<T>): Promise<T> => {
     stopTimer();
     patch({ ending: kind, asking: false });
     await writes;
     try {
       return await act();
     } catch (error) {
-      patch({ ending: null });
-      schedule();
+      if (generation === mine) {
+        patch({ ending: null });
+        schedule();
+      }
       throw error;
     }
   };
@@ -301,16 +303,23 @@ export const createNewTaskSession = ({
       const ending: NewTaskEnding = asked;
       if (state.phase !== "open") throw new Error("The New Task form is not open.");
       const values = state.values;
+      /* This ending's own form: another may open while it is out, and must not
+         be deleted, saved over or shut by it. */
+      const current = mode;
+      const mine = generation;
+      const shutMine = (): void => {
+        if (generation === mine) shut();
+      };
       switch (ending.kind) {
         case "cancel":
-          if (mode.kind === "fresh" && !formHasChanges(fresh, values, ending.pendingItemText)) {
+          if (current.kind === "fresh" && !formHasChanges(fresh, values, ending.pendingItemText)) {
             shut();
             return "closed" as R;
           }
           patch({ asking: true });
           return "asked" as R;
         case "startFresh":
-          if (mode.kind === "reopened") return undefined as R;
+          if (current.kind === "reopened") return undefined as R;
           stopTimer();
           openedWith = initialCreateForm();
           forget();
@@ -319,40 +328,40 @@ export const createNewTaskSession = ({
         case "discard":
           stopTimer();
           patch({ ending: "discard" });
-          if (mode.kind === "reopened") {
+          if (current.kind === "reopened") {
             await writes;
-            await removeRecord(mode.record.id, "Couldn't delete that Task Draft. It's still on Task Drafts.");
-            shut();
+            await removeRecord(current.record.id, "Couldn't delete that Task Draft. It's still on Task Drafts.");
+            shutMine();
             return undefined as R;
           }
           forget();
           await writes;
-          shut();
+          shutMine();
           return undefined as R;
         case "create":
-          await settleThen("create", ending.file);
-          if (mode.kind === "reopened") {
-            await removeRecord(mode.record.id, "Task created, but its Task Draft couldn't be removed.");
-            shut();
+          await settleThen(mine, "create", ending.file);
+          if (current.kind === "reopened") {
+            await removeRecord(current.record.id, "Task created, but its Task Draft couldn't be removed.");
+            shutMine();
             return undefined as R;
           }
           forget();
-          shut();
+          shutMine();
           return undefined as R;
         case "saveForLater": {
-          if (mode.kind === "reopened") {
-            const { id } = mode.record;
-            const saved = await settleThen("saveForLater", () => saveForLaterRequest(request, ending.values ?? values, id));
+          if (current.kind === "reopened") {
+            const { id } = current.record;
+            const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values, id));
             onSavedForLater?.(saved, id);
-            shut();
+            shutMine();
             return saved as R;
           }
-          const saved = await settleThen("saveForLater", () => saveForLaterRequest(request, ending.values ?? values));
+          const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values));
           clearDraft(storage, owner);
           onDisk = false;
           onAutosave?.(null);
           onSavedForLater?.(saved);
-          shut();
+          shutMine();
           return saved as R;
         }
       }

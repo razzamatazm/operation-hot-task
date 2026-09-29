@@ -257,8 +257,8 @@ test("Discard on a reopened form no longer keeps the save: it deletes the Task D
   const discard = SESSION_SOURCE.slice(SESSION_SOURCE.indexOf('case "discard":'));
   const body = discard.slice(0, discard.indexOf('case "create":'));
   assert.doesNotMatch(body, /discardUnsavedRequest/, "the unsaved slot is not what Discard clears any more");
-  assert.match(body, /await removeRecord\(mode\.record\.id, "Couldn't delete that Task Draft\. It's still on Task Drafts\."\);/, "the record itself goes, and a delete the server could not carry out is said");
-  assert.ok(body.indexOf("await removeRecord") < body.indexOf("shut();"), "and only then does it close");
+  assert.match(body, /await removeRecord\(current\.record\.id, "Couldn't delete that Task Draft\. It's still on Task Drafts\."\);/, "the record itself goes, and a delete the server could not carry out is said");
+  assert.ok(body.indexOf("await removeRecord") < body.indexOf("shutMine();"), "and only then does it close");
   assert.doesNotMatch(body, /saveForLaterRequest|keepUnsavedRequest/, "nothing writes the save");
 });
 

@@ -308,6 +308,22 @@ test("Create files the task after the send still out, then deletes the record", 
   assert.equal(ctx.session.getState().phase, "closed");
 });
 
+test("a Create still out when another draft is reopened deletes its own record and leaves the new form open", async () => {
+  const ctx = setup();
+  await reopen(ctx, record({ id: "sfl-A" }));
+  let file;
+  const ending = ctx.session.end({ kind: "create", file: () => new Promise((resolve) => (file = resolve)) });
+  await settle();
+  await ctx.session.end({ kind: "cancel" });
+  await ctx.session.end({ kind: "discard" });
+  assert.equal(await reopen(ctx, record({ id: "sfl-B" })), "opened");
+  ctx.server.calls.length = 0;
+  file();
+  await ending;
+  assert.deepEqual(ctx.server.writes(), [["DELETE", "/saved-for-later/sfl-A"]], "A's record goes, never B's");
+  assert.equal(openState(ctx.session).mode.record.id, "sfl-B", "and B's form stays open");
+});
+
 test("a Create whose record delete fails still closes, and says the Task Draft is still there", async () => {
   const ctx = setup();
   await reopen(ctx);
