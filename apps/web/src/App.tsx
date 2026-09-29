@@ -5,7 +5,7 @@ import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
-import { withRequestTimeout } from "./request-timeout";
+import { ADMIN_REQUEST_TIMEOUT_MS, withRequestTimeout } from "./request-timeout";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
@@ -74,7 +74,7 @@ interface LoanPatchResult {
   merged?: { intoLoanId: string; intoLoanName: string; mergedName: string };
 }
 
-const apiRequest = <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> =>
+const apiRequest = <T,>(path: string, init: RequestInit, user: UserIdentity, timeoutMs?: number): Promise<T> =>
   withRequestTimeout(async (signal) => {
     const send = (token: string | null): Promise<Response> =>
       fetch(`${API_BASE}${path}`, {
@@ -107,7 +107,7 @@ const apiRequest = <T,>(path: string, init: RequestInit, user: UserIdentity): Pr
     }
 
     return data as T;
-  });
+  }, timeoutMs);
 
 const formatPtDateOnly = (iso: string): string => {
   const d = new Date(iso);
@@ -3330,7 +3330,7 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
       if (losingCheckerRole && !(await confirmFraudCheckRelease(u, `Taking FILE_CHECKER from ${u.displayName}`))) {
         return;
       }
-      return apiRequest(`/users/${u.id}/roles`, { method: "PUT", body: JSON.stringify({ roles }) }, user);
+      return apiRequest(`/users/${u.id}/roles`, { method: "PUT", body: JSON.stringify({ roles }) }, user, ADMIN_REQUEST_TIMEOUT_MS);
     });
   };
 
@@ -3339,7 +3339,7 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
       if (!active && !(await confirmFraudCheckRelease(u, `Deactivating ${u.displayName}`))) {
         return;
       }
-      return apiRequest(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ active }) }, user);
+      return apiRequest(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ active }) }, user, ADMIN_REQUEST_TIMEOUT_MS);
     });
   };
 
@@ -3351,7 +3351,7 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
       if (!(await confirmFraudCheckRelease(u, `Removing ${u.displayName}`))) {
         return;
       }
-      return apiRequest(`/users/${u.id}`, { method: "DELETE" }, user);
+      return apiRequest(`/users/${u.id}`, { method: "DELETE" }, user, ADMIN_REQUEST_TIMEOUT_MS);
     });
   };
 
@@ -3360,7 +3360,7 @@ const AdminPanel = ({ user }: { user: UserIdentity }) => {
     if (!email) return;
     setAdding(true);
     try {
-      await apiRequest("/users", { method: "POST", body: JSON.stringify({ email, roles: addRoles }) }, user);
+      await apiRequest("/users", { method: "POST", body: JSON.stringify({ email, roles: addRoles }) }, user, ADMIN_REQUEST_TIMEOUT_MS);
       setAddEmail("");
       setAddRoles(["LOAN_OFFICER"]);
       setAddOpen(false);

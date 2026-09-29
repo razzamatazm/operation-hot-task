@@ -2,9 +2,13 @@
    pending forever, so Create sits on "Creating…" and autosave writes queue. */
 
 /* Every route the web app calls answers after local file work; Teams sends run
-   in the background. The exception is an admin role change that releases a
-   checker's Fraud Checks, which waits on Graph and can run past this. */
+   in the background. */
 export const REQUEST_TIMEOUT_MS = 10_000;
+
+/* The admin user-management calls wait on Microsoft before answering: adding
+   by email looks the person up, and a role change, deactivate or remove that
+   releases a checker's Fraud Checks sends activity notifications first. */
+export const ADMIN_REQUEST_TIMEOUT_MS = 30_000;
 
 /* Runs `run` with a signal that aborts after `timeoutMs`, rejecting with the
    error fetch gives for an unreachable server so every caller already handles
