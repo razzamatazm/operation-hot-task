@@ -361,3 +361,7 @@ export const restoredDraftCopy = (): { note: string; action: string } => ({
   note: "Hot Task saved your progress. Picking up where you left off.",
   action: "Start fresh"
 });
+
+/* The same note for a Task Draft reopened on its unsaved typing (#475). No
+   action: going back to the last save is not offered. */
+export const UNSAVED_CHANGES_NOTE = "You have unsaved changes to this Task Draft. Picking up where you left off.";

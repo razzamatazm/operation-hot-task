@@ -28,7 +28,7 @@
    correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, MutableRefObject, useEffect, useId, useMemo, useRef, useState } from "react";
-import { browserDraftStorage, clearDraft, draftAction, restoredDraftCopy, writeDraft } from "./create-form-draft";
+import { UNSAVED_CHANGES_NOTE, browserDraftStorage, clearDraft, draftAction, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { PutFormAsideOutcome, arrivalPasteStep, putFormAside } from "./humperdink-arrival";
@@ -1154,6 +1154,13 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
               <button type="button" className="btn-sm btn-ghost" onClick={startFresh}>
                 {restoredCopy.action}
               </button>
+            </div>
+          )}
+          {/* A Task Draft that opened on its unsaved typing (#475). Stays up for the open. */}
+          {reopened?.unsaved && (
+            <div className="task-form-restored">
+              <InfoIcon />
+              <p className="task-form-locked task-form-restored-note">{UNSAVED_CHANGES_NOTE}</p>
             </div>
           )}
           {/* The top row, in both modes: what the task is about, what kind it is,

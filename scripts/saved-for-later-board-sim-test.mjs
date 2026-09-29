@@ -40,7 +40,7 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
+    `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount, withUnsaved } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { BoardTabs } from ${JSON.stringify(join(REPO, "apps/web/src/board-tabs.tsx"))};\n` +
     `export { draftKey, serializeDraft, DRAFT_MAX_AGE_MS } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
     `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction, loadAutosaveRequest, keepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n` +
@@ -63,6 +63,7 @@ const {
   BoardTabs,
   SavedForLaterDeleteConfirm,
   taskDraftsCount,
+  withUnsaved,
   draftKey,
   serializeDraft,
   DRAFT_MAX_AGE_MS,
@@ -639,6 +640,46 @@ test("a reopened record carrying unsaved typing opens on that typing, not on the
   assert.doesNotMatch(html, /role="alertdialog"/, "and nothing is asked on the way in");
 });
 
+/* ── Saying so (#475) ───────────────────────────────────── */
+
+const UNSAVED_NOTE = "You have unsaved changes to this Task Draft. Picking up where you left off.";
+
+test("a reopened record carrying unsaved typing says so on the form, in the Autosave note's style, with no Start fresh", async () => {
+  const html = await renderReopened(reopened(FULL_FORM, { unsaved: { ...FULL_FORM, notes: "typed after the save" } }), {
+    directory: DIRECTORY
+  });
+  const note = html.match(/<div class="task-form-restored">([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(note, "the note is up");
+  assert.match(note, new RegExp(`<p class="task-form-locked task-form-restored-note">${UNSAVED_NOTE}</p>`));
+  assert.doesNotMatch(note, /Start fresh|<button/, "no way back to the last save ships with it");
+  assert.doesNotMatch(html, /Hot Task saved your progress/);
+});
+
+test("a reopened record with no unsaved typing opens with no note", async () => {
+  const html = await renderReopened(reopened(FULL_FORM), { directory: DIRECTORY });
+  assert.doesNotMatch(html, /task-form-restored/);
+  assert.ok(!html.includes(UNSAVED_NOTE));
+});
+
+test("a Task Drafts row with unsaved typing carries an Unsaved changes marker; one without doesn't", () => {
+  const html = renderSection([
+    { ...item("a", 5, { folderName: "Typed since" }), unsaved: { ...FORM, notes: "more" } },
+    item("b", 10, { folderName: "As saved" })
+  ]);
+  const [typed, clean] = rowsOf(html);
+  assert.match(
+    typed,
+    /<time class="saved-row-when"[^>]*>saved 5m ago<\/time><span class="saved-row-unsaved">Unsaved changes<\/span><\/button>/,
+    "inside the row's button, after when it was saved"
+  );
+  assert.doesNotMatch(clean, /saved-row-unsaved|Unsaved changes/);
+});
+
+test("the Autosaved row never carries the marker", () => {
+  const html = renderSection([], { autosave: autosaveOf(5) });
+  assert.doesNotMatch(html, /saved-row-unsaved/);
+});
+
 test("the writes go out one at a time, and every ending waits for them before it acts", () => {
   assert.match(FORM_SOURCE, /const unsavedWrites = useRef<Promise<unknown>>\(Promise\.resolve\(\)\)/, "one queue per form");
   assert.match(FORM_SOURCE, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "each write chains on the last");
@@ -729,6 +770,20 @@ test("App says out loud what the session reports, and the Task Drafts tab follow
   assert.match(deps, /onSavedForLaterGone: \(id\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\);/);
   assert.match(deps, /onSavedForLaterLatest: \(latest\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(/);
   assert.match(deps, /item\.id !== saved\.id && item\.id !== replaced/, "a save replaces the record it was reopened from");
+  assert.match(
+    deps,
+    /onSavedForLaterUnsaved: \(id, unsaved\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(\(saved\) => \(saved\.id === id \? withUnsaved\(saved, unsaved\) : saved\)\)\);/,
+    "unsaved typing that landed marks the row as it stands now (#475)"
+  );
+});
+
+test("withUnsaved sets or clears only the unsaved typing, leaving the row's save as it is (#475)", () => {
+  const row = item("a", 5, { folderName: "Saved elsewhere since" });
+  const typed = { ...FORM, notes: "typed" };
+  assert.deepEqual(withUnsaved(row, typed), { ...row, unsaved: typed });
+  const cleared = withUnsaved({ ...row, unsaved: typed }, null);
+  assert.deepEqual(cleared, row);
+  assert.equal("unsaved" in cleared, false);
 });
 
 test("saving a reopened one again goes through the one request helper", () => {

@@ -42,6 +42,9 @@ export interface NewTaskSessionDeps {
   onSavedForLater?: (item: SavedForLaterTask, replaced?: string) => void;
   /* A reopened record's latest copy, fetched on the way in. */
   onSavedForLaterLatest?: (item: SavedForLaterTask) => void;
+  /* A reopened record's unsaved typing landed, or cleared (null), for the
+     Task Drafts row's marker (#475). */
+  onSavedForLaterUnsaved?: (id: string, unsaved: CreateFormValues | null) => void;
   /* A record that is off the server: gone on reopen, created, or discarded. */
   onSavedForLaterGone?: (id: string) => void;
   /* Word for the person about an ending that went through only in part. */
@@ -117,6 +120,7 @@ export const createNewTaskSession = ({
   onAutosave,
   onSavedForLater,
   onSavedForLaterLatest,
+  onSavedForLaterUnsaved,
   onSavedForLaterGone,
   notify
 }: NewTaskSessionDeps): NewTaskSession => {
@@ -191,7 +195,8 @@ export const createNewTaskSession = ({
     writes = writes
       .then(async () => {
         const landed = next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id);
-        if (!landed && sent === next) sent = before;
+        if (landed) onSavedForLaterUnsaved?.(record.id, next);
+        else if (sent === next) sent = before;
       })
       .catch(() => {});
   };

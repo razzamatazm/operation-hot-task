@@ -50,7 +50,7 @@ const blankName = (form: DraftRowItem["form"]): string =>
 const AUTOSAVE_ROW_ID = "autosave";
 
 /* What a row needs: a Saved for Later task, or the autosave standing in as one. */
-type DraftRowItem = Pick<SavedForLaterTask, "id" | "savedAt" | "form"> & { autosaved?: true };
+type DraftRowItem = Pick<SavedForLaterTask, "id" | "savedAt" | "form" | "unsaved"> & { autosaved?: true };
 
 /* The autosave the page lists and the tab counts, or null: none, or aged out. */
 const shownAutosave = (autosave: Autosave | null | undefined, now: number): Autosave | null =>
@@ -61,6 +61,13 @@ const shownAutosave = (autosave: Autosave | null | undefined, now: number): Auto
    the page does not draw. */
 export const taskDraftsCount = (items: SavedForLaterTask[], autosave: Autosave | null | undefined, now: number): number =>
   items.length + (shownAutosave(autosave, now) ? 1 : 0);
+
+/* A row with its unsaved typing set, or cleared by null (#475). The save
+   itself is left as the row already has it. */
+export const withUnsaved = (item: SavedForLaterTask, unsaved: SavedForLaterTask["form"] | null): SavedForLaterTask => {
+  const { unsaved: _previous, ...saved } = item;
+  return unsaved ? { ...saved, unsaved } : saved;
+};
 
 /* The second step of deleting one (#345). Deleting has no undo, so the row asks
    once, in place, the way the thread's `Delete` and the Instructions box's
@@ -167,6 +174,7 @@ const SavedForLaterRow = <T extends DraftRowItem,>({
             <time className="saved-row-when" dateTime={item.savedAt}>
               {`${item.autosaved ? "Autosaved" : "saved"} ${formatAgo(item.savedAt, now)}`}
             </time>
+            {item.unsaved && <span className="saved-row-unsaved">Unsaved changes</span>}
           </button>
           <button
             type="button"
