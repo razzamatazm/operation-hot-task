@@ -40,11 +40,11 @@ const fakeClock = () => ({
   clearTimeout: () => {}
 });
 
-const setup = (failSave) => {
+const setup = (saveFailure) => {
   const calls = [];
   const request = (path, init) => {
     calls.push([init.method, path]);
-    if (path === "/saved-for-later" && init.method === "POST") return Promise.reject(failSave);
+    if (path === "/saved-for-later" && init.method === "POST") return Promise.reject(saveFailure);
     if (path === "/autosave" && init.method === "GET") return Promise.resolve({ item: null });
     return Promise.resolve({ item: {} });
   };
