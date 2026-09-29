@@ -102,6 +102,7 @@ import { TaskStore } from "./store.js";
 // requester and stays fully silent (isOverdue already returns false for it).
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "PENDING_APPROVAL"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+const OOO_END_REFUSED = "Only the person away or the person covering can end this, and only before the return date";
 
 /* One activity-feed alert an evaluation decided to send. */
 interface ActivityFeedAlert {
@@ -1078,8 +1079,8 @@ export class TaskService {
      without the confirm End task asks for. */
   async endOooEarly(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    if (!canEndOooEarly(task, user)) {
-      throw new Error("Only the person away or the person covering can end this early");
+    if (!canEndOooEarly(task, user, new Date())) {
+      throw new Error(OOO_END_REFUSED);
     }
     return this.moveStatus(taskId, "COMPLETED", user, undefined, true);
   }
@@ -1154,6 +1155,11 @@ export class TaskService {
          with an item nobody has answered — the gate's whole job. Throwing here
          writes nothing (see `Store.updateTask`) and rejects only this caller.
          `isSystem` bypasses, same as it does in the shared predicate. */
+      // End task asked its question of an earlier read; an unclaim, cancel or
+      // the return-date close can land in between, so ask again of `current`.
+      if (endingOooEarly && !canEndOooEarly(current, user, new Date())) {
+        throw new Error(OOO_END_REFUSED);
+      }
       if (next === "PENDING_APPROVAL" && !isSystemActor(user)) {
         const blocked = submitBlockReason(current.checklist ?? []);
         if (blocked) {

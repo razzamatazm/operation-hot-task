@@ -105,7 +105,7 @@ await check("an OOO task never reads as overdue, even past its return time", asy
 await check("the creator can end an OPEN OOO task early; it lands COMPLETED with a named history row", async () => {
   const { service, store } = await setup();
   const task = await makeOoo(service);
-  assert.equal(canEndOooEarly(task, CREATOR), true);
+  assert.equal(canEndOooEarly(task, CREATOR, new Date()), true);
   const ended = await service.endOooEarly(task.id, CREATOR);
   assert.equal(ended.status, "COMPLETED");
   const history = await store.allHistoryForTask(task.id);
@@ -119,7 +119,7 @@ await check("the creator can end an OPEN OOO task early; it lands COMPLETED with
 await check("the creator can end a CLAIMED OOO task early", async () => {
   const { service, store } = await setup();
   const task = await makeOoo(service, { claimed: true });
-  assert.equal(canEndOooEarly(task, CREATOR), true);
+  assert.equal(canEndOooEarly(task, CREATOR, new Date()), true);
   const ended = await service.endOooEarly(task.id, CREATOR);
   assert.equal(ended.status, "COMPLETED");
   const row = (await store.allHistoryForTask(task.id)).find((e) => e.action === "TASK_COMPLETED");
@@ -129,7 +129,7 @@ await check("the creator can end a CLAIMED OOO task early", async () => {
 await check("the coverer can end it early with the same result", async () => {
   const { service, store } = await setup();
   const task = await makeOoo(service, { claimed: true });
-  assert.equal(canEndOooEarly(task, COVER), true);
+  assert.equal(canEndOooEarly(task, COVER, new Date()), true);
   const ended = await service.endOooEarly(task.id, COVER);
   assert.equal(ended.status, "COMPLETED");
   const row = (await store.allHistoryForTask(task.id)).find((e) => e.action === "TASK_COMPLETED");
@@ -143,8 +143,8 @@ await check("restoring a reopened OOO task is not recorded as an early end", asy
   await service.endOooEarly(task.id, COVER);
   const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
   assert.equal(reopened.status, "CLAIMED");
-  assert.equal(canEndOooEarly(reopened, CREATOR), false, "End stands down; Restore is the move");
-  assert.equal(canEndOooEarly(reopened, COVER), false);
+  assert.equal(canEndOooEarly(reopened, CREATOR, new Date()), false, "End stands down; Restore is the move");
+  assert.equal(canEndOooEarly(reopened, COVER, new Date()), false);
   await assert.rejects(service.endOooEarly(task.id, CREATOR), "End task refuses a restore");
   await service.transitionStatus(task.id, "COMPLETED", CREATOR);
   const rows = (await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED");
@@ -158,7 +158,7 @@ await check("anyone else is refused the early end, on the server as well", async
   const claimed = await makeOoo(service, { claimed: true });
   for (const task of [open, claimed]) {
     for (const outsider of [OTHER, ADMIN]) {
-      assert.equal(canEndOooEarly(task, outsider), false);
+      assert.equal(canEndOooEarly(task, outsider, new Date()), false);
       await assert.rejects(service.endOooEarly(task.id, outsider));
       await assert.rejects(service.transitionStatus(task.id, "COMPLETED", outsider));
     }
@@ -257,6 +257,75 @@ await check("maintenance still auto-completes a claimed OOO task at its return d
   assert.equal(stored.status, "COMPLETED");
   const history = await store.allHistoryForTask(task.id);
   assert.ok(history.some((e) => e.detail === "AUTO_COMPLETED_RETURN_DATE"));
+});
+
+await check("End task is withdrawn once the return time has passed, before maintenance runs", async () => {
+  const { service, store } = await setup();
+  const task = await makeOoo(service, { claimed: true });
+  const due = new Date(task.dueAt).getTime();
+  assert.equal(canEndOooEarly(task, COVER, new Date(due - 60_000)), true, "a minute before, it is still early");
+  assert.equal(canEndOooEarly(task, COVER, new Date(due)), false, "at the return time the pass owns the close");
+  assert.equal(canEndOooEarly(task, CREATOR, new Date(due + 60_000)), false);
+  // Pull the stored return time into the past without running maintenance.
+  const past = new Date(Date.now() - 60_000).toISOString();
+  await store.updateTask(task.id, (current) => ({ task: { ...current, dueAt: past } }));
+  await assert.rejects(service.endOooEarly(task.id, COVER), /before the return date/);
+  const [stored] = await store.allTasks();
+  assert.equal(stored.status, "CLAIMED", "left for the maintenance pass");
+  await service.runMaintenance(new Date());
+  const rows = (await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED");
+  assert.deepEqual(rows.map((e) => e.detail), ["AUTO_COMPLETED_RETURN_DATE"]);
+});
+
+/* End task authorises on one read and writes on a later one. Whatever lands
+   between them (the return-date close, an unclaim, a cancel) must win, and End
+   must refuse rather than write a second closure over it. */
+const raceEnd = async (between, { claimed = true } = {}) => {
+  const { service, store, events } = await setup();
+  const task = await makeOoo(service, { claimed });
+  const realUpdate = store.updateTask.bind(store);
+  let armed = true;
+  store.updateTask = async (id, apply) => {
+    if (armed) {
+      armed = false;
+      await between(service, task);
+    }
+    return realUpdate(id, apply);
+  };
+  const outcome = service.endOooEarly(task.id, claimed ? COVER : CREATOR);
+  return { service, store, events, task, outcome };
+};
+
+await check("End task refuses when the return-date close lands between its check and its write", async () => {
+  const { store, task, outcome, events } = await raceEnd(async (service, t) => {
+    await service.runMaintenance(new Date(new Date(t.dueAt).getTime() + 60_000));
+  });
+  await assert.rejects(outcome, /before the return date/);
+  const rows = (await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED");
+  assert.equal(rows.length, 1, "one closure, not two");
+  assert.equal(rows[0].detail, "AUTO_COMPLETED_RETURN_DATE");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(events.filter((e) => e.actor?.id === COVER.id && /COMPLETE/.test(e.type)).length, 0, "no completion notice from the stale End");
+});
+
+await check("a coverer who released the task cannot end it through a stale End", async () => {
+  const { store, task, outcome } = await raceEnd(async (service, t) => {
+    await service.unclaimTask(t.id, COVER);
+  });
+  await assert.rejects(outcome);
+  const [stored] = await store.allTasks();
+  assert.equal(stored.status, "OPEN", "the release stands");
+  assert.equal((await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED").length, 0);
+});
+
+await check("End task refuses when the task was cancelled in between", async () => {
+  const { store, task, outcome } = await raceEnd(async (service, t) => {
+    await service.transitionStatus(t.id, "CANCELLED", CREATOR);
+  }, { claimed: false });
+  await assert.rejects(outcome);
+  const [stored] = await store.allTasks();
+  assert.equal(stored.status, "CANCELLED");
+  assert.equal((await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED").length, 0);
 });
 
 console.log(`\n${passed} checks passed`);

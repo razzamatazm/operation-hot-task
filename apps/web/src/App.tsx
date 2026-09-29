@@ -2153,7 +2153,7 @@ const TaskCard = memo(({
       {/* #453: an OOO task ends on its return date by itself; this is the early
           end, for the person away or the person covering. It asks first, through
           the same terminal confirm the row's Complete uses. */}
-      {canEndOooEarly(task, user) && (
+      {canEndOooEarly(task, user, new Date(now ?? Date.now())) && (
         <button
           type="button"
           className="btn-sm btn-ghost"

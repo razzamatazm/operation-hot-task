@@ -1019,10 +1019,12 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
    (they came back early, or the trip was called off) or the person covering.
    Either party, from OPEN or CLAIMED; nobody else, admins included. A reopened
    OOO task carries a restore breadcrumb, and its move to COMPLETED is the
-   Restore, not an early end, so End stands down there. */
-export const canEndOooEarly = (task: LoanTask, user: UserIdentity): boolean =>
+   Restore, not an early end, so End stands down there. Once the return time
+   has passed it is no longer early: the maintenance pass owns that close. */
+export const canEndOooEarly = (task: LoanTask, user: UserIdentity, now: Date): boolean =>
   isOooLive(task) &&
   restoreTargetStatus(task) === undefined &&
+  now.getTime() < new Date(task.dueAt).getTime() &&
   (isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id);
 
 /* Whether moving this task to `next` would be an OOO early end, as opposed to
