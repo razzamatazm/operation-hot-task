@@ -100,12 +100,21 @@ export const loadAutosaveRequest = async (
 };
 
 /* The new task form's typing, written as it is typed. True when it landed. */
-export const keepAutosaveRequest = async (request: SavedForLaterRequest, form: SavedForLaterForm): Promise<boolean> => {
+export const keepAutosaveRequest = async (request: SavedForLaterRequest, form: SavedForLaterForm): Promise<boolean> =>
+  (await stampedKeepAutosaveRequest(request, form)).landed;
+
+/* The same write, with the server's stamp on the copy it now holds, in epoch
+   milliseconds, or undefined when the answer didn't carry one (#470). */
+export const stampedKeepAutosaveRequest = async (
+  request: SavedForLaterRequest,
+  form: SavedForLaterForm
+): Promise<{ landed: boolean; savedAt?: number }> => {
   try {
-    await request<{ item: Autosave }>("/autosave", { method: "PUT", body: JSON.stringify({ form }) });
-    return true;
+    const answer = await request<{ item?: Autosave | null }>("/autosave", { method: "PUT", body: JSON.stringify({ form }) });
+    const savedAt = Date.parse(answer?.item?.savedAt ?? "");
+    return Number.isFinite(savedAt) ? { landed: true, savedAt } : { landed: true };
   } catch {
-    return false;
+    return { landed: false };
   }
 };
 

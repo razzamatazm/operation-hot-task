@@ -78,6 +78,7 @@ export const browserDraftStorage = (): DraftStorage | null => {
 export interface StoredDraft {
   version: number;
   savedAt: number;
+  over?: number | null;
   values: CreateFormValues;
 }
 
@@ -134,8 +135,8 @@ const pickValues = (values: CreateFormValues): CreateFormValues => {
 /* The record this app writes, as the string that goes into storage. Split out
    from `writeDraft` so the format is testable without a storage object at all,
    and so the read side has something to be tested against. */
-export const serializeDraft = (values: CreateFormValues, savedAt: number): string =>
-  JSON.stringify({ version: DRAFT_VERSION, savedAt, values: pickValues(values) } satisfies StoredDraft);
+export const serializeDraft = (values: CreateFormValues, savedAt: number, over?: number | null): string =>
+  JSON.stringify({ version: DRAFT_VERSION, savedAt, ...(over === undefined ? {} : { over }), values: pickValues(values) } satisfies StoredDraft);
 
 /* A stored string back into form values, or `null` for anything this app would
    not put in front of a person.
@@ -159,6 +160,9 @@ export const parseDraft = (raw: string | null, now: number): CreateFormValues | 
 export interface AutosaveCopy {
   values: CreateFormValues;
   savedAt: number;
+  /* An offline copy's: the server stamp of the Autosave it was typed over, null
+     when the server had none, absent when not known (#470). */
+  over?: number | null;
 }
 
 /* Something claiming to be the form's values, as exactly those values, or
@@ -188,7 +192,9 @@ const parseDraftCopy = (raw: string | null, now: number): AutosaveCopy | null =>
   if (typeof record.savedAt !== "number" || !Number.isFinite(record.savedAt)) return null;
   if (now - record.savedAt >= DRAFT_MAX_AGE_MS) return null;
   const values = formValuesOf(record.values);
-  return values ? { values, savedAt: record.savedAt } : null;
+  if (!values) return null;
+  const over = record.over === null || (typeof record.over === "number" && Number.isFinite(record.over)) ? record.over : undefined;
+  return over === undefined ? { values, savedAt: record.savedAt } : { values, savedAt: record.savedAt, over };
 };
 
 /* The server's autosave (#371) as a copy the form can restore, or `null` for
@@ -212,10 +218,21 @@ export const autosaveCopy = (
    because a write to the server failed, so when it is the newer it is typing
    the server never got, and when it is the older a later write reached the
    server from somewhere. A tie goes to the server's, the copy every device
-   sees. */
-export const newerAutosave = (server: AutosaveCopy | null, offline: AutosaveCopy | null): AutosaveCopy | null => {
+   sees.
+
+   The two stamps come from different clocks, so an offline copy that knows
+   which server copy it was typed over is weighed by that instead, when the
+   server was reached (#470): still that copy, and the offline one is newer;
+   anything else, and the server moved on since. A held copy may be App's, not
+   the server's, so it is weighed by clock. */
+export const newerAutosave = (
+  server: AutosaveCopy | null,
+  offline: AutosaveCopy | null,
+  reached = true
+): AutosaveCopy | null => {
   if (!server) return offline;
   if (!offline) return server;
+  if (reached && offline.over !== undefined) return offline.over === server.savedAt ? offline : server;
   return offline.savedAt > server.savedAt ? offline : server;
 };
 
@@ -276,11 +293,12 @@ export const writeDraft = (
   storage: DraftStorage | null,
   userId: string,
   values: CreateFormValues,
-  savedAt: number = Date.now()
+  savedAt: number = Date.now(),
+  over?: number | null
 ): boolean => {
   if (!storage) return false;
   try {
-    storage.setItem(draftKey(userId), serializeDraft(values, savedAt));
+    storage.setItem(draftKey(userId), serializeDraft(values, savedAt, over));
     return true;
   } catch {
     /* storage unavailable or full — degrade silently */
