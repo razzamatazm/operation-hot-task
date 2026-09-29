@@ -43,7 +43,8 @@ writeFileSync(
     `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { BoardTabs } from ${JSON.stringify(join(REPO, "apps/web/src/board-tabs.tsx"))};\n` +
     `export { draftKey, serializeDraft, DRAFT_MAX_AGE_MS } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
-    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction, loadAutosaveRequest, keepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n`
+    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction, loadAutosaveRequest, keepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n` +
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n`
 );
 const bundle = join(scratch, "saved-for-later.mjs");
 await build({
@@ -73,7 +74,8 @@ const {
   unsavedAction,
   loadAutosaveRequest,
   keepAutosaveRequest,
-  forgetAutosaveRequest
+  forgetAutosaveRequest,
+  createNewTaskSession
 } = await import(pathToFileURL(bundle).href);
 const SECTION_SOURCE = readFileSync(join(REPO, "apps/web/src/saved-for-later.tsx"), "utf8");
 
@@ -133,11 +135,13 @@ test("an untouched form cannot be saved for later", () => {
   assert.equal(disabled, ' disabled=""');
 });
 
-test("a form holding typing can be saved for later, with nothing else required", () => {
+test("a form holding typing can be saved for later, with nothing else required", async () => {
   // A restored autosave is typing somebody did, and the one first paint a static
   // render can show with something in the form.
   storage.set(draftKey(USER.id), serializeDraft({ ...FORM, folderName: "", notes: "half a thought" }, Date.now()));
-  const [, disabled] = renderForm().match(FOOT_ORDER);
+  const session = createNewTaskSession({ owner: USER.id, storage: window.localStorage, request: async () => ({ item: null }) });
+  await session.open();
+  const [, disabled] = renderForm({ session }).match(FOOT_ORDER);
   assert.equal(disabled, undefined, "no loan and no urgency picked, and it is still pressable");
 });
 
@@ -451,18 +455,17 @@ test("the Autosaved seven days are the server's seven days", () => {
 
 test("tapping the Autosaved row opens New Task exactly as the New Task button does, on the latest autosave", () => {
   assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpenAutosave=\{openNewTask\}/);
-  assert.match(APP_SOURCE, /<NewTaskButton open=\{formOpen\} onClick=\{[^}]*openNewTask\(\)/, "the button takes the same way in");
+  assert.match(APP_SOURCE, /<NewTaskButton open=\{formOpen \|\| newTaskOpen\} onClick=\{[^}]*openNewTask\(\)/, "the button takes the same way in");
   const opener = APP_SOURCE.match(/const openNewTask = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.ok(opener, "App has an openNewTask");
-  assert.ok(opener.indexOf("setReopened(null)") >= 0, "a New Task, not a reopened record");
-  assert.ok(opener.indexOf("await loadAutosave()") > opener.indexOf("setReopened(null)"), "asks the server for the latest autosave first");
-  assert.ok(
-    opener.indexOf("if (formOpenNow.current) return;") > opener.indexOf("await loadAutosave()") &&
-      opener.indexOf("setFormOpen(true)") > opener.indexOf("if (formOpenNow.current) return;"),
-    "and leaves a form opened meanwhile alone"
-  );
+  /* The session asks the server for the latest Autosave first, and `unless`
+     leaves a form opened meanwhile alone: driven in new-task-session-sim-test. */
+  assert.match(opener, /await newTask\.open\(\{ held: autosaveNow\.current, unless: \(\) => formOpenNow\.current \}\)/, "asks for the latest autosave first, and leaves a form opened meanwhile alone");
+  const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.match(newTaskMount, /session=\{newTask\}/, "a New Task gets the session and its autosave");
+  assert.doesNotMatch(newTaskMount, /reopened/, "a New Task is not a reopened record");
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{ autosave \}\)\}/, "a New Task gets the autosave; a reopened record never does");
+  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{\}\)\}/, "a reopened record never gets the autosave");
   assert.match(createMount, /onKeepAutosave=\{onKeepAutosave\}/);
   assert.match(createMount, /onForgetAutosave=\{onForgetAutosave\}/);
 });
@@ -586,7 +589,7 @@ test("a reopened form keeps the Save for later button, pressable straight away, 
 test("a reopened form never reads or writes the autosave, and knows which record it came from", () => {
   assert.match(
     FORM_SOURCE,
-    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
     "no storage seat, the way edit mode has none, so no ending can clear or overwrite an unrelated autosave"
   );
   const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
@@ -603,7 +606,7 @@ test("a reopened form never reads or writes the autosave, and knows which record
 test("App opens the create form on the reopened record, one mount per record", () => {
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.match(createMount, /key=\{reopened\?\.id \?\? "new"\}/, "a different record remounts the form");
-  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{ autosave \}\)\}/, "and hands it the record, when there is one");
+  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{\}\)\}/, "and hands it the record, when there is one");
   const opener = APP_SOURCE.match(/const openSavedForLater = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.ok(opener, "App has an openSavedForLater handler");
   assert.match(opener, /reopenSavedForLaterRequest\(/, "it fetches the latest save before opening");
@@ -645,7 +648,7 @@ test("typing on a reopened form is sent to that record as it is typed, never to 
   assert.doesNotMatch(body, /writeDraft|clearDraft|draftSeat/, "the browser autosave is not touched");
   assert.match(
     FORM_SOURCE,
-    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
     "and still has no seat, so the next New Task can never be offered this typing"
   );
 });

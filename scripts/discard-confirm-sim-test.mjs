@@ -233,7 +233,7 @@ test("while a Discard is being carried out, every answer is shut and Escape does
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
   const body = confirm.slice(0, confirm.indexOf("\n  };"));
   assert.ok(body.indexOf("setDiscarding(true);") >= 0 && body.indexOf("setDiscarding(true);") < body.indexOf("await "), "shut before anything is awaited");
-  assert.match(FORM_SOURCE, /busy=\{discarding\} onCancel=\{\(\) => setDiscardAsk\(false\)\}/);
+  assert.match(FORM_SOURCE, /busy=\{discarding\} onCancel=\{dismissAsk\}/);
 });
 
 test("without Save for later the prompt is the two-way one, word for word", () => {
@@ -247,12 +247,13 @@ test("the form offers Save for later in the prompt on a create form only, and ed
   const line = mount.slice(0, mount.indexOf("\n"));
   assert.match(
     line,
-    /\{\.\.\.\(!editing && onSaveForLater \? \{ onSaveForLater: saveFromPrompt, saveForLaterDisabled: !worthSavingForLater, reopened: reopened !== undefined \} : \{\}\)\}/,
+    /\{\.\.\.\(offersSaveForLater \? \{ onSaveForLater: saveFromPrompt, saveForLaterDisabled: !worthSavingForLater, reopened: reopened !== undefined \} : \{\}\)\}/,
     "the three-way prompt is the create form's, with the footer button's own availability"
   );
+  assert.match(FORM_SOURCE, /const offersSaveForLater = !editing && \(session !== undefined \|\| onSaveForLater !== undefined\);/, "a create form only");
   const fromPrompt = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const saveFromPrompt"));
   const body = fromPrompt.slice(0, fromPrompt.indexOf("};"));
-  assert.match(body, /setDiscardAsk\(false\);/, "the prompt comes down, so a failed save leaves the form in view");
+  assert.match(body, /dismissAsk\(\);/, "the prompt comes down, so a failed save leaves the form in view");
   assert.match(body, /saveForLater\(\)/, "and it is the footer's own Save for later, not a second copy of it");
 });
 
@@ -351,7 +352,8 @@ test("saying yes closes the form, and is where the draft is deliberately forgott
   assert.match(line, /onConfirm=\{confirmDiscard\}/, "confirming goes through one named function");
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
   assert.match(confirm.slice(0, confirm.indexOf("};")), /onClose\(\);/, "which still does what closing always did");
-  assert.match(line, /onCancel=\{\(\) => setDiscardAsk\(false\)\}/, "declining only lowers the prompt");
+  assert.match(line, /onCancel=\{dismissAsk\}/, "declining only lowers the prompt");
+  assert.match(FORM_SOURCE, /const dismissAsk = \(\): void => \(session \? session\.resume\(\) : setDiscardAsk\(false\)\);/, "and lowering it is all declining does");
   assert.doesNotMatch(
     line.slice(line.indexOf("onCancel")),
     /onClose/,

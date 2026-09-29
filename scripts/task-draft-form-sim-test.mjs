@@ -35,6 +35,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const FORM_SOURCE = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
+const SESSION_SOURCE = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
 
 const scratch = mkdtempSync(join(REPO, "node_modules", ".task-draft-"));
 process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
@@ -43,7 +44,8 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export * from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n`
+    `export * from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n`
 );
 const bundle = join(scratch, "task-draft.mjs");
 await build({
@@ -55,7 +57,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider, DRAFT_VERSION, draftAction, draftKey, restoredDraftCopy, serializeDraft } =
+const { TaskForm, ToastProvider, DRAFT_VERSION, draftAction, draftKey, restoredDraftCopy, serializeDraft, browserDraftStorage, createNewTaskSession } =
   await import(pathToFileURL(bundle).href);
 /* Straight from source, no bundle: both modules import their types type-only,
    so node strips them as they stand. Only the form needs building. */
@@ -80,8 +82,21 @@ const DIRECTORY = [
   { id: "user-4", displayName: "Ada Officer", roles: ["LOAN_OFFICER"] }
 ];
 
-const render = (props) =>
-  renderToStaticMarkup(
+/* A fresh New Task form opens through its session (#467), the way App opens
+   it: this browser's storage, and a server whose Autosave is `autosave`. Every
+   other form (edit, prefilled) renders as it is handed. */
+const render = async ({ autosave = null, ...props } = {}) => {
+  const fresh = !props.edit && !props.initialValues && !props.humperdinkArrival && !props.reopened;
+  let session;
+  if (fresh) {
+    session = createNewTaskSession({
+      owner: (props.user ?? USER).id,
+      storage: browserDraftStorage(),
+      request: async () => ({ item: autosave })
+    });
+    await session.open();
+  }
+  return renderToStaticMarkup(
     createElement(ToastProvider, null, createElement(TaskForm, {
       loans: [],
       directory: DIRECTORY,
@@ -89,9 +104,11 @@ const render = (props) =>
       tasks: [],
       onClose: () => {},
       onCreate: async () => {},
-      ...props
+      ...props,
+      ...(session ? { session } : {})
     }))
   );
+};
 
 const FILLED = {
   folderName: "Adams - Harbor",
@@ -140,18 +157,18 @@ test.beforeEach(() => storage.clear());
 
 /* ── Opening New Task on a saved draft ──────────────────── */
 
-test("a saved draft comes back in the form, field for field", () => {
+test("a saved draft comes back in the form, field for field", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render();
+  const html = await render();
   assert.match(html, /value="Adams - Harbor"/, "the loan");
   assert.match(html, /Second TD needs confirming/, "the request text");
   assert.match(html, /value="https:\/\/humperdink\.loneoakfund\.com\/Loans\/Details\/335203"/, "the link");
 });
 
 /* The four the criterion names, by name. */
-test("the task type, the fraud items and the share-or-assign pick with its note all come back", () => {
+test("the task type, the fraud items and the share-or-assign pick with its note all come back", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render();
+  const html = await render();
   assert.match(html, /<option value="FRAUD" selected/, "the type it was left on");
   assert.match(html, /Missing appraisal/, "the outstanding items the creator seeded");
   assert.match(html, /No W-2/);
@@ -160,16 +177,16 @@ test("the task type, the fraud items and the share-or-assign pick with its note 
   assert.match(html, /yours if you can take it today/, "and the note to them");
 });
 
-test("an out-of-office draft comes back with both its dates", () => {
+test("an out-of-office draft comes back with both its dates", async () => {
   saveDraft(USER.id, OOO);
-  const html = render();
+  const html = await render();
   assert.match(html, /<option value="OOO" selected/);
   assert.match(html, /value="2026-09-07"/, "the day they go");
   assert.match(html, /value="2026-09-14"/, "and the day they are back");
 });
 
-test("with no draft the form opens exactly as it always has", () => {
-  const html = render();
+test("with no draft the form opens exactly as it always has", async () => {
+  const html = await render();
   assert.match(html, /<option value="LOI" selected/, "the default type");
   assert.doesNotMatch(html, /Adams - Harbor/);
   assert.doesNotMatch(html, /Second TD needs confirming/);
@@ -186,8 +203,8 @@ const serverAutosave = (values, ageMs = 0) => ({
   form: values
 });
 
-test("an autosave kept on the server comes back in the form, field for field, with the restored line and Start fresh", () => {
-  const html = render({ autosave: serverAutosave(FILLED, 60000) });
+test("an autosave kept on the server comes back in the form, field for field, with the restored line and Start fresh", async () => {
+  const html = await render({ autosave: serverAutosave(FILLED, 60000) });
   assert.match(html, /value="Adams - Harbor"/, "the loan");
   assert.match(html, /Second TD needs confirming/, "the request text");
   assert.match(html, /<option value="FRAUD" selected/, "the type");
@@ -197,31 +214,31 @@ test("an autosave kept on the server comes back in the form, field for field, wi
   assert.equal(storage.size, 0, "nothing from this browser was needed");
 });
 
-test("typing that only reached this browser comes back over an older autosave on the server", () => {
+test("typing that only reached this browser comes back over an older autosave on the server", async () => {
   saveDraft(USER.id, { ...FILLED, notes: "typed while the server was down" }, 1000);
-  const html = render({ autosave: serverAutosave({ ...FILLED, notes: "the last write the server got" }, 60000) });
+  const html = await render({ autosave: serverAutosave({ ...FILLED, notes: "the last write the server got" }, 60000) });
   assert.match(html, /typed while the server was down/);
   assert.doesNotMatch(html, /the last write the server got/);
 });
 
-test("a newer autosave on the server, typed on another device, comes back over an older copy in this browser", () => {
+test("a newer autosave on the server, typed on another device, comes back over an older copy in this browser", async () => {
   saveDraft(USER.id, { ...FILLED, notes: "an old offline copy" }, 60 * 60000);
-  const html = render({ autosave: serverAutosave({ ...FILLED, notes: "typed on the phone" }, 60000) });
+  const html = await render({ autosave: serverAutosave({ ...FILLED, notes: "typed on the phone" }, 60000) });
   assert.match(html, /typed on the phone/);
   assert.doesNotMatch(html, /an old offline copy/);
 });
 
-test("a server autosave seven days old does not come back", () => {
-  const html = render({ autosave: serverAutosave(FILLED, 8 * DAY) });
+test("a server autosave seven days old does not come back", async () => {
+  const html = await render({ autosave: serverAutosave(FILLED, 8 * DAY) });
   assert.doesNotMatch(html, /Adams - Harbor/);
   assert.ok(!html.includes(restoredDraftCopy().note), "and nothing is said about one");
 });
 
-test("a prefilled form and an edit form ignore the server autosave", () => {
-  const prefilled = render({ autosave: serverAutosave(FILLED), initialValues: { folderName: "Whitfield 4471" } });
+test("a prefilled form and an edit form ignore the server autosave", async () => {
+  const prefilled = await render({ autosave: serverAutosave(FILLED), initialValues: { folderName: "Whitfield 4471" } });
   assert.match(prefilled, /value="Whitfield 4471"/);
   assert.doesNotMatch(prefilled, /Second TD needs confirming/);
-  const editing = render({ autosave: serverAutosave(FILLED), edit: { task: TASK, onSave: async () => {} } });
+  const editing = await render({ autosave: serverAutosave(FILLED), edit: { task: TASK, onSave: async () => {} } });
   assert.doesNotMatch(editing, /Second TD needs confirming/);
 });
 
@@ -232,9 +249,9 @@ test("a prefilled form and an edit form ignore the server autosave", () => {
    written to them, so it now waits for a directory before deciding anything.
    Asserted on the source as well as rendered: the render proves the pick is on
    screen, the source proves why it survives. */
-test("a restored recipient is not dropped by a directory that has not loaded yet", () => {
+test("a restored recipient is not dropped by a directory that has not loaded yet", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render({ directory: [] });
+  const html = await render({ directory: [] });
   assert.match(html, /Second TD needs confirming/, "the draft is restored");
   /* The picker itself isn't drawn without a directory to pick from, so the
      person and their note are not on screen to assert — the point is that they
@@ -250,49 +267,49 @@ test("a restored recipient is not dropped by a directory that has not loaded yet
 
 /* ── The drafts that must not come back ─────────────────── */
 
-test("a draft older than seven days does not come back, and the form opens blank", () => {
+test("a draft older than seven days does not come back, and the form opens blank", async () => {
   saveDraft(USER.id, FILLED, 8 * DAY);
-  const html = render();
+  const html = await render();
   assert.doesNotMatch(html, /Adams - Harbor/, "nothing restored");
   assert.match(html, /<option value="LOI" selected/, "a blank form, not a half-restored one");
   assert.equal(storage.size, 0, "and the stale record is pruned rather than re-read forever");
 });
 
-test("a garbled draft is no draft", () => {
+test("a garbled draft is no draft", async () => {
   storage.set(draftKey(USER.id), "{ this is not a draft");
-  const html = render();
+  const html = await render();
   assert.doesNotMatch(html, /Adams - Harbor/);
   assert.match(html, /<option value="LOI" selected/);
 });
 
-test("a draft from a version that no longer exists is no draft", () => {
+test("a draft from a version that no longer exists is no draft", async () => {
   storage.set(
     draftKey(USER.id),
     JSON.stringify({ version: DRAFT_VERSION + 1, savedAt: Date.now(), values: FILLED })
   );
-  assert.doesNotMatch(render(), /Adams - Harbor/);
+  assert.doesNotMatch(await render(), /Adams - Harbor/);
 });
 
 /* ── Whose draft it is ──────────────────────────────────── */
 
-test("two people signed in on the same machine never see each other's draft", () => {
+test("two people signed in on the same machine never see each other's draft", async () => {
   saveDraft("user-2", { ...FILLED, notes: "Sam's half-written task" });
-  const dana = render();
+  const dana = await render();
   assert.doesNotMatch(dana, /Sam's half-written task/, "Dana sees nothing of Sam's");
   assert.doesNotMatch(dana, /Adams - Harbor/);
 
   saveDraft(USER.id, { ...FILLED, notes: "Dana's half-written task" });
-  assert.match(render(), /Dana&#x27;s half-written task/, "and her own comes back");
-  const sam = render({ user: { ...USER, id: "user-2", displayName: "Sam Checker" } });
+  assert.match(await render(), /Dana&#x27;s half-written task/, "and her own comes back");
+  const sam = await render({ user: { ...USER, id: "user-2", displayName: "Sam Checker" } });
   assert.match(sam, /Sam&#x27;s half-written task/, "while Sam still gets his");
   assert.doesNotMatch(sam, /Dana&#x27;s half-written task/);
 });
 
 /* ── Edit mode is out of scope ──────────────────────────── */
 
-test("the form opened on an existing task restores no draft", () => {
+test("the form opened on an existing task restores no draft", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render({ edit: { task: TASK, onSave: async () => {} } });
+  const html = await render({ edit: { task: TASK, onSave: async () => {} } });
   assert.match(html, /value="Whitfield 4471"/, "it shows the task's own values");
   assert.doesNotMatch(html, /Adams - Harbor/, "and none of the draft's");
   assert.doesNotMatch(html, /Second TD needs confirming/);
@@ -302,28 +319,28 @@ test("edit mode has nowhere to save a draft to, rather than a rule not to", () =
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
   assert.match(
     seat.slice(0, seat.indexOf("}));")),
-    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/,
+    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
     "edit mode's storage is null, so every draft call is already a no-op"
   );
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone;/, "nor a seat on the server's autosave");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone && !session;/, "nor a seat on the server's autosave");
   assert.match(FORM_SOURCE, /if \(!autosaveSeat\) return;/, "and the save effect leaves immediately too");
 });
 
-test("an edit form leaves an existing draft alone rather than clearing it", () => {
+test("an edit form leaves an existing draft alone rather than clearing it", async () => {
   saveDraft(USER.id, FILLED);
-  render({ edit: { task: TASK, onSave: async () => {} } });
+  await render({ edit: { task: TASK, onSave: async () => {} } });
   assert.equal(storage.size, 1, "still there after an edit form has been and gone");
 });
 
 /* ── With no storage at all ─────────────────────────────── */
 
-test("a browser that will not store anything renders the form exactly as today", () => {
+test("a browser that will not store anything renders the form exactly as today", async () => {
   const saved = globalThis.window;
   /* No `window` at all is the same shape of failure as a locked-down Teams
      profile, where reading the property throws. */
   delete globalThis.window;
   try {
-    const html = render();
+    const html = await render();
     assert.match(html, /<option value="LOI" selected/, "a normal blank form");
     assert.match(html, />Create Task</, "with its normal button");
     assert.doesNotMatch(html, /storage/i, "and nothing said about storage anywhere");
@@ -332,7 +349,7 @@ test("a browser that will not store anything renders the form exactly as today",
   }
 });
 
-test("a storage that throws on every call still renders the form", () => {
+test("a storage that throws on every call still renders the form", async () => {
   const saved = globalThis.window;
   globalThis.window = {
     localStorage: {
@@ -342,7 +359,7 @@ test("a storage that throws on every call still renders the form", () => {
     }
   };
   try {
-    assert.match(render(), /<option value="LOI" selected/);
+    assert.match(await render(), /<option value="LOI" selected/);
   } finally {
     globalThis.window = saved;
   }
@@ -424,14 +441,14 @@ test("forgetting the autosave forgets it on the server and in this browser, and 
    that with last Tuesday's half-written task about a different one would be the
    wrong form. Their draft is left alone rather than restored or destroyed, so a
    plain New Task still gets it back. */
-test("a form opened prefilled shows the prefill, and leaves the draft where it is", () => {
+test("a form opened prefilled shows the prefill, and leaves the draft where it is", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render({ initialValues: { folderName: "Whitfield 4471" } });
+  const html = await render({ initialValues: { folderName: "Whitfield 4471" } });
   assert.match(html, /value="Whitfield 4471"/, "what the caller asked for");
   assert.doesNotMatch(html, /Adams - Harbor/, "not the draft");
   assert.doesNotMatch(html, /Second TD needs confirming/);
   assert.equal(storage.size, 1, "which is still there for the next plain New Task");
-  assert.match(render(), /Second TD needs confirming/, "and comes back on one");
+  assert.match(await render(), /Second TD needs confirming/, "and comes back on one");
 });
 
 /* The saved copy is keyed to whoever opened the form, not to whoever is signed
@@ -451,9 +468,12 @@ test("there is one way to forget a draft, and every ending goes through it", () 
   assert.match(FORM_SOURCE, /const forgetDraft = \(\): void => \{/, "one named thing");
   assert.equal(
     FORM_SOURCE.match(/forgetDraft\(\);/g).length,
-    5,
-    "used by exactly the four endings (a create, the discard prompt, Start fresh (#285), and Save for later (#343, ADR-0011 rule 5)) and a form emptied back out"
+    4,
+    "used by exactly the three endings a form without a session has (a create, the discard prompt, and Save for later (#343, ADR-0011 rule 5)) and a form emptied back out"
   );
+  /* Start fresh (#285) only exists on a restored form, which only a New Task
+     session opens (#467); its forgetting is driven in new-task-session-sim-test. */
+  assert.match(FORM_SOURCE.slice(FORM_SOURCE.indexOf("const startFresh")), /session\?\.end\(\{ kind: "startFresh" \}\)/);
 });
 
 test("creating the task clears the draft, and only on success", () => {
@@ -472,7 +492,7 @@ test("confirming the discard prompt clears the draft; declining leaves it", () =
   const mount = FORM_SOURCE.slice(FORM_SOURCE.indexOf("{discardAsk &&"));
   const line = mount.slice(0, mount.indexOf("\n"));
   assert.match(line, /onConfirm=\{confirmDiscard\}/, "the yes is the deliberate forget");
-  assert.match(line, /onCancel=\{\(\) => setDiscardAsk\(false\)\}/, "the no only lowers the prompt");
+  assert.match(line, /onCancel=\{dismissAsk\}/, "the no only lowers the prompt");
   assert.doesNotMatch(line.slice(line.indexOf("onCancel")), /forgetDraft|onClose/, "it clears and closes nothing");
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
   const body = confirm.slice(0, confirm.indexOf("};"));
@@ -484,15 +504,15 @@ test("confirming the discard prompt clears the draft; declining leaves it", () =
 
 const NOTE = restoredDraftCopy().note;
 
-test("a form restored from a draft says where the values came from", () => {
+test("a form restored from a draft says where the values came from", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render();
+  const html = await render();
   assert.ok(html.includes(NOTE), "the line is on screen");
   assert.match(html, />Start fresh</, "with the way out beside it");
 });
 
-test("a form that opened blank says nothing", () => {
-  const html = render();
+test("a form that opened blank says nothing", async () => {
+  const html = await render();
   assert.ok(!html.includes(NOTE), "nothing was restored, so there is nothing to explain");
   assert.doesNotMatch(html, />Start fresh</);
 });
@@ -500,30 +520,30 @@ test("a form that opened blank says nothing", () => {
 /* Three more forms that did not open on a draft, and so say nothing either. An
    expired or garbled record is no draft at all — the form opens blank, and a
    line claiming otherwise would be the mystery this ticket exists to remove. */
-test("a form that fell back to blank says nothing about a draft", () => {
+test("a form that fell back to blank says nothing about a draft", async () => {
   saveDraft(USER.id, FILLED, 8 * DAY);
-  assert.ok(!render().includes(NOTE), "an expired draft");
+  assert.ok(!(await render()).includes(NOTE), "an expired draft");
   storage.set(draftKey(USER.id), "{ this is not a draft");
-  assert.ok(!render().includes(NOTE), "a garbled one");
+  assert.ok(!(await render()).includes(NOTE), "a garbled one");
 });
 
-test("a prefilled form says nothing — it took the caller's values, not the draft", () => {
+test("a prefilled form says nothing — it took the caller's values, not the draft", async () => {
   saveDraft(USER.id, FILLED);
-  assert.ok(!render({ initialValues: { folderName: "Whitfield 4471" } }).includes(NOTE));
+  assert.ok(!(await render({ initialValues: { folderName: "Whitfield 4471" } })).includes(NOTE));
 });
 
-test("edit mode says nothing, having restored nothing", () => {
+test("edit mode says nothing, having restored nothing", async () => {
   saveDraft(USER.id, FILLED);
-  assert.ok(!render({ edit: { task: TASK, onSave: async () => {} } }).includes(NOTE));
+  assert.ok(!(await render({ edit: { task: TASK, onSave: async () => {} } })).includes(NOTE));
 });
 
 /* Quiet, per the last criterion: the muted register `.task-form-locked` already
    carries elsewhere on this form, and a secondary ghost button. Never an alert
    role, a warning tint or a dialog — nothing has gone wrong, the app did
    something helpful and is saying so. */
-test("the line and its button are quiet, not an alert", () => {
+test("the line and its button are quiet, not an alert", async () => {
   saveDraft(USER.id, FILLED);
-  const html = render();
+  const html = await render();
   const strip = html.slice(html.indexOf("task-form-restored"), html.indexOf(NOTE) + NOTE.length + 200);
   assert.match(strip, /task-form-locked/, "the form's existing muted prose register");
   assert.match(strip, /class="btn-sm btn-ghost"/, "a secondary button, not a filled one");
@@ -539,27 +559,23 @@ test("the line is keyed to how the form opened, not to what is in it now", () =>
   const mount = FORM_SOURCE.slice(FORM_SOURCE.indexOf("{restoredNote &&"));
   const block = mount.slice(0, mount.indexOf("</div>"));
   assert.doesNotMatch(block, /\bform\.[a-z]/i, "no field of the current values is consulted");
-  assert.match(
-    FORM_SOURCE,
-    /useState\(opening\.fromDraft\)/,
-    "set once from how the form opened"
-  );
-  const setters = FORM_SOURCE.match(/setRestoredNote\(/g) ?? [];
-  assert.equal(setters.length, 1, "and moved by exactly one thing: Start fresh");
+  assert.match(FORM_SOURCE, /const restoredNote = live\?\.restored \?\? false;/, "read from the New Task session");
+  assert.match(SESSION_SOURCE, /restored: best !== null/, "set once from how the form opened");
+  assert.equal((SESSION_SOURCE.match(/restored: (?!boolean)/g) ?? []).length, 2, "and moved by exactly one thing: Start fresh");
+  assert.match(SESSION_SOURCE, /case "startFresh":[\s\S]*?restored: false/);
 });
 
 test("Start fresh empties the form, forgets the draft, and asks nothing first", () => {
   const fresh = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const startFresh"));
   const body = fresh.slice(0, fresh.indexOf("\n  };"));
-  assert.match(body, /setForm\(blank\)/, "every field goes back to the blank form");
-  assert.match(body, /openedWith\.current = blank/, "which is now what a Cancel measures against");
+  /* Blanking the values, forgetting both copies and taking the line down are the
+     session's Start fresh, driven in new-task-session-sim-test. */
+  assert.match(body, /session\?\.end\(\{ kind: "startFresh" \}\)/, "every field goes back to the blank form, and the saved copy is deleted");
   assert.match(body, /setSeedDraft\(""\)/, "the outstanding-items box too");
   /* Every field, per the criterion — including what is not in the values
      object: the FRAUD seeder's box above, and what a Humperdink import left. */
   assert.match(body, /setImported\(false\)/, "the import's announcement is taken back");
   assert.match(body, /setImportedNote\(""\)/, "with nothing left of the note it wrote");
-  assert.match(body, /forgetDraft\(\);/, "and the saved copy is deleted");
-  assert.match(body, /setRestoredNote\(false\)/, "the line has nothing left to describe");
   assert.doesNotMatch(body, /setDiscardAsk|DiscardConfirm/, "no confirmation — one press is the whole thing");
 });
 

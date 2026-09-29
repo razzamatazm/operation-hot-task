@@ -66,16 +66,27 @@ export const saveForLaterRequest = async (
    form shut. */
 export const AUTOSAVE_LOAD_TIMEOUT_MS = 2000;
 
+export interface RequestTimers {
+  setTimeout(run: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+export const browserTimers: RequestTimers = {
+  setTimeout: (run, ms) => setTimeout(run, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
+};
+
 /* The caller's autosave: `reached` says whether the server answered, so a
    caller can tell "you have none" from "could not ask". */
 export const loadAutosaveRequest = async (
   request: SavedForLaterRequest,
-  timeoutMs: number = AUTOSAVE_LOAD_TIMEOUT_MS
+  timeoutMs: number = AUTOSAVE_LOAD_TIMEOUT_MS,
+  timers: RequestTimers = browserTimers
 ): Promise<{ reached: boolean; item: Autosave | null }> => {
   const unreached = { reached: false, item: null };
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: unknown;
   const gaveUp = new Promise<typeof unreached>((resolve) => {
-    timer = setTimeout(() => resolve(unreached), timeoutMs);
+    timer = timers.setTimeout(() => resolve(unreached), timeoutMs);
   });
   const load = request<{ item: Autosave | null }>("/autosave", { method: "GET" }).then(
     ({ item }) => ({ reached: true, item: item ?? null }),
@@ -84,7 +95,7 @@ export const loadAutosaveRequest = async (
   try {
     return await Promise.race([load, gaveUp]);
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
   }
 };
 
