@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG } from "@loan-tasks/shared";
+import { DEFAULT_BUSINESS_END_BY_WEEKDAY, DEFAULT_CONFIG } from "@loan-tasks/shared";
 import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +57,8 @@ export const config = {
   businessStartMinute: parseNumber(process.env.BUSINESS_START_MINUTE, DEFAULT_CONFIG.businessStartMinute),
   businessEndHour: parseNumber(process.env.BUSINESS_END_HOUR, DEFAULT_CONFIG.businessEndHour),
   businessEndMinute: parseNumber(process.env.BUSINESS_END_MINUTE, DEFAULT_CONFIG.businessEndMinute),
+  // Friday's 15:30 close (#457) is built in; no env setting moves it.
+  businessEndByWeekday: DEFAULT_BUSINESS_END_BY_WEEKDAY,
   archiveRetentionDays: parseNumber(process.env.ARCHIVE_RETENTION_DAYS, DEFAULT_CONFIG.archiveRetentionDays),
   tasksChannelName: process.env.TASKS_CHANNEL_NAME ?? "loan-tasks",
   webhookUrl: process.env.TEAMS_CHANNEL_WEBHOOK_URL,

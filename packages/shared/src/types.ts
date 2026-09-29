@@ -653,11 +653,20 @@ export interface NotificationEvent {
   createdAt: string;
 }
 
+export type Weekday = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
+
+export interface OfficeTime {
+  hour: number;
+  minute: number;
+}
+
 export interface AppConfig {
   businessTimezone: string;
   businessStartHour: number;
   businessStartMinute: number;
   businessEndHour: number;
   businessEndMinute: number;
+  /* Per-weekday closes, merged over the built-in Friday 15:30 (#457). */
+  businessEndByWeekday?: Partial<Record<Weekday, OfficeTime>>;
   archiveRetentionDays: number;
 }

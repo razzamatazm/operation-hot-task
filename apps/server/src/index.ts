@@ -65,6 +65,7 @@ const bootstrap = async (): Promise<void> => {
     businessStartMinute: appConfig.businessStartMinute,
     businessEndHour: appConfig.businessEndHour,
     businessEndMinute: appConfig.businessEndMinute,
+    businessEndByWeekday: appConfig.businessEndByWeekday,
     archiveRetentionDays: appConfig.archiveRetentionDays
   };
 

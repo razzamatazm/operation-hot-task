@@ -1,5 +1,17 @@
 import { submitBlockReason } from "./checklist.js";
 import { ACTION_LABELS } from "./labels.js";
+import {
+  DEFAULT_BUSINESS_END_BY_WEEKDAY,
+  isOfficeDay,
+  isOfficeOpen,
+  minutesOfDay,
+  nextOfficeDay,
+  nextOfficeOpen,
+  officeClosesAt,
+  officeHoursOn,
+  zonedParts,
+  zonedToUtcIso
+} from "./office-hours.js";
 import { isTaskParty } from "./parties.js";
 import { AppConfig, CLOSED_STATUSES, isSystemActor, LoanTask, requestFieldNoun, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
@@ -73,106 +85,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   businessStartMinute: 30,
   businessEndHour: 17,
   businessEndMinute: 30,
+  businessEndByWeekday: DEFAULT_BUSINESS_END_BY_WEEKDAY,
   archiveRetentionDays: 90
 };
 
 export const toUtcISOString = (date: Date): string => date.toISOString();
-
-const parseOffsetMinutes = (value: string): number => {
-  const match = value.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
-  if (!match) {
-    return 0;
-  }
-
-  const sign = match[1] === "-" ? -1 : 1;
-  const hours = Number.parseInt(match[2] ?? "0", 10);
-  const minutes = Number.parseInt(match[3] ?? "0", 10);
-  return sign * (hours * 60 + minutes);
-};
-
-const zonedOffsetMinutes = (date: Date, timezone: string): number => {
-  const part = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    timeZoneName: "shortOffset",
-    hour: "2-digit"
-  })
-    .formatToParts(date)
-    .find((entry) => entry.type === "timeZoneName");
-  return parseOffsetMinutes(part?.value ?? "GMT");
-};
-
-const zonedParts = (
-  date: Date,
-  timezone: string
-): { year: number; month: number; day: number; weekday: string; hour: number; minute: number } => {
-  const partMap = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  })
-    .formatToParts(date)
-    .reduce<Record<string, string>>((acc, part) => {
-      acc[part.type] = part.value;
-      return acc;
-    }, {});
-
-  return {
-    year: Number.parseInt(partMap.year ?? "1970", 10),
-    month: Number.parseInt(partMap.month ?? "1", 10),
-    day: Number.parseInt(partMap.day ?? "1", 10),
-    weekday: partMap.weekday ?? "Mon",
-    hour: Number.parseInt(partMap.hour ?? "0", 10),
-    minute: Number.parseInt(partMap.minute ?? "0", 10)
-  };
-};
-
-const isWeekend = (dayName: string): boolean => dayName === "Sat" || dayName === "Sun";
-
-const isBusinessDate = (year: number, month: number, day: number): boolean => {
-  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, day)));
-  return !isWeekend(weekday);
-};
-
-const nextBusinessDate = (
-  year: number,
-  month: number,
-  day: number,
-  count: number
-): { year: number; month: number; day: number } => {
-  let cursor = new Date(Date.UTC(year, month - 1, day));
-  let remaining = count;
-
-  while (remaining > 0) {
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-    const y = cursor.getUTCFullYear();
-    const m = cursor.getUTCMonth() + 1;
-    const d = cursor.getUTCDate();
-    if (isBusinessDate(y, m, d)) {
-      remaining -= 1;
-    }
-  }
-
-  while (!isBusinessDate(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, cursor.getUTCDate())) {
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return {
-    year: cursor.getUTCFullYear(),
-    month: cursor.getUTCMonth() + 1,
-    day: cursor.getUTCDate()
-  };
-};
-
-const zonedToUtcIso = (year: number, month: number, day: number, hour: number, minute: number, timezone: string): string => {
-  const guessUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
-  const offset = zonedOffsetMinutes(new Date(guessUtc), timezone);
-  return new Date(guessUtc - offset * 60 * 1000).toISOString();
-};
 
 export const computeDueAtFromUrgency = (
   urgency: UrgencyLevel,
@@ -188,27 +105,23 @@ export const computeDueAtFromUrgency = (
   }
 
   const localNow = zonedParts(now, config.businessTimezone);
-  const nowMinutes = localNow.hour * 60 + localNow.minute;
-  const endMinutes = config.businessEndHour * 60 + config.businessEndMinute;
 
-  // Yellow means end of current business day (or next business day if already past close/weekend).
+  // Yellow means close of the current office day, or of the next one if today
+  // is already past close or the office doesn't open today.
   if (urgency === "YELLOW") {
-    if (!isWeekend(localNow.weekday) && nowMinutes <= endMinutes) {
-      return zonedToUtcIso(localNow.year, localNow.month, localNow.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
-    }
-
-    const next = nextBusinessDate(localNow.year, localNow.month, localNow.day, 1);
-    return zonedToUtcIso(next.year, next.month, next.day, config.businessEndHour, config.businessEndMinute, config.businessTimezone);
+    const today = officeHoursOn(localNow, config);
+    const day = today && minutesOfDay(localNow) <= minutesOfDay(today.close) ? localNow : nextOfficeDay(localNow, 1, config);
+    return (officeClosesAt(day, config) as Date).toISOString();
   }
 
   // Green is due 24 real hours from creation; if that local due time lands on a weekend, shift to Monday.
   const greenCandidate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const localGreenCandidate = zonedParts(greenCandidate, config.businessTimezone);
-  if (!isWeekend(localGreenCandidate.weekday)) {
+  if (isOfficeDay(localGreenCandidate, config)) {
     return greenCandidate.toISOString();
   }
 
-  const nextBusiness = nextBusinessDate(localGreenCandidate.year, localGreenCandidate.month, localGreenCandidate.day, 0);
+  const nextBusiness = nextOfficeDay(localGreenCandidate, 0, config);
   return zonedToUtcIso(
     nextBusiness.year,
     nextBusiness.month,
@@ -348,22 +261,6 @@ export const computeDefaultDueAt = (
 export const isDeadlineRecomputeExempt = (task: Pick<LoanTask, "taskType">): boolean =>
   task.taskType === "OOO";
 
-/* The instant the working day next opens at or after `from`: today's open when
-   `from` is a business date the day hasn't started on, otherwise the next
-   business date's open. */
-const nextBusinessOpen = (from: Date, config: AppConfig): Date => {
-  const local = zonedParts(from, config.businessTimezone);
-  const startMinutes = config.businessStartHour * 60 + config.businessStartMinute;
-  const beforeOpenToday =
-    isBusinessDate(local.year, local.month, local.day) && local.hour * 60 + local.minute < startMinutes;
-  const day = beforeOpenToday
-    ? { year: local.year, month: local.month, day: local.day }
-    : nextBusinessDate(local.year, local.month, local.day, 1);
-  return new Date(
-    zonedToUtcIso(day.year, day.month, day.day, config.businessStartHour, config.businessStartMinute, config.businessTimezone)
-  );
-};
-
 /* `RED` means "urgent now", so at creation its deadline is the present instant.
    That is the right ordering signal for an unclaimed task, but it cannot be a
    window: handed to somebody it would make them late the moment they accepted,
@@ -388,7 +285,7 @@ export const computeClaimAnchoredDueAt = (
   claimedAt: Date,
   config: AppConfig = DEFAULT_CONFIG
 ): string => {
-  const anchor = isWithinBusinessHours(claimedAt, config) ? claimedAt : nextBusinessOpen(claimedAt, config);
+  const anchor = isOfficeOpen(claimedAt, config) ? claimedAt : nextOfficeOpen(claimedAt, config);
   if (urgency === "RED") {
     return new Date(anchor.getTime() + RED_CLAIM_WINDOW_MS).toISOString();
   }
@@ -402,19 +299,12 @@ export const computeClaimAnchoredDueAt = (
     return candidate;
   }
 
-  const endMinutes = config.businessEndHour * 60 + config.businessEndMinute;
-  if (localDue.hour * 60 + localDue.minute <= endMinutes) {
+  // The close of the anchor's own day: a Friday claim clamps to Friday's close.
+  const { close } = officeHoursOn(localAnchor, config)!;
+  if (minutesOfDay(localDue) <= minutesOfDay(close)) {
     return candidate;
   }
-
-  return zonedToUtcIso(
-    localDue.year,
-    localDue.month,
-    localDue.day,
-    config.businessEndHour,
-    config.businessEndMinute,
-    config.businessTimezone
-  );
+  return (officeClosesAt(localAnchor, config) as Date).toISOString();
 };
 
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
@@ -1276,35 +1166,7 @@ export const shouldPurgeArchived = (task: LoanTask, now: Date, retentionDays: nu
   return now.getTime() - new Date(task.archivedAt).getTime() > retentionMs;
 };
 
-export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => {
-  const dayName = new Intl.DateTimeFormat("en-US", {
-    timeZone: config.businessTimezone,
-    weekday: "short"
-  }).format(now);
-
-  if (dayName === "Sat" || dayName === "Sun") {
-    return false;
-  }
-
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: config.businessTimezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  })
-    .formatToParts(now)
-    .reduce<Record<string, string>>((acc, part) => {
-      acc[part.type] = part.value;
-      return acc;
-    }, {});
-
-  const hour = Number.parseInt(parts.hour ?? "0", 10);
-  const minute = Number.parseInt(parts.minute ?? "0", 10);
-  const minutes = hour * 60 + minute;
-  const start = config.businessStartHour * 60 + config.businessStartMinute;
-  const end = config.businessEndHour * 60 + config.businessEndMinute;
-  return minutes >= start && minutes <= end;
-};
+export const isWithinBusinessHours = (now: Date, config: AppConfig = DEFAULT_CONFIG): boolean => isOfficeOpen(now, config);
 
 /* How long an unclaimed task sits unclaimed before anybody is told about it.
    Twenty minutes is the point at which "nobody has picked this up" stops being
