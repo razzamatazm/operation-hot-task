@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication, clipboard as teamsClipboard } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, botPrimaryAdvance, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canEndOooEarly, oooReturnCountdown, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, isOooHold, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canEndOooEarly, oooReturnCountdown, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -1937,7 +1937,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && botPrimaryAdvance(task)?.status === "COMPLETED" && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && !isOooHold(task) && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -2026,12 +2026,19 @@ const TaskCard = memo(({
      are still passive spans — the ball is genuinely in the other party's court,
      so this reports why the row is in front of you and offers no move. */
   const pulledIntoCourt = hasUnreadNote || courtHeld === true;
-  const waitingLabel =
+  /* A covered OOO task waits on a date (#453), so the slot names the date in
+     the place `Waiting on` sits, and the countdown sits in the cell below. */
+  const oooBackOn =
+    !primaryAction && isOooHold(task) && task.returnDate
+      ? `Back on ${formatWallDate(task.returnDate).replace(/, \d{4}$/, "")}`
+      : null;
+  const waitingLabel = oooBackOn ?? (
     !primaryAction && waitingOn && waitingOn.id !== user.id
       ? pulledIntoCourt
         ? (hasUnreadNote ? "Unread reply" : "Read reply")
         : `Waiting on ${firstName(waitingOn.displayName)}`
-      : null;
+      : null
+  );
   /* `transitions` already carries the status's allowed moves, so CANCELLED
      being in it is the same rule the server enforces. */
   const showRowCancel =

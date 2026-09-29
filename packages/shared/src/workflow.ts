@@ -309,8 +309,12 @@ export const computeClaimAnchoredDueAt = (
    not on anybody, so it has no forward step. The flow's CLAIMED → COMPLETED
    rung is withheld here; the early end is a separate door (`canEndOooEarly`)
    offered from the menu, and the return date closes it on its own. */
-const isOooHold = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
+export const isOooHold = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
   task.taskType === "OOO" && task.status === "CLAIMED";
+
+/* An OOO task still running: OPEN (nobody covering yet) or CLAIMED (held). */
+const isOooLive = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
+  task.taskType === "OOO" && (task.status === "OPEN" || task.status === "CLAIMED");
 
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
   if (isOooHold(task)) {
@@ -506,7 +510,7 @@ export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
   // OOO's early end (#453): COMPLETED stays reachable from OPEN and CLAIMED,
   // but as a side door rather than the flow's next step, so nothing offers it
   // as the row's primary action or the card's step button.
-  if (task.taskType === "OOO" && (task.status === "OPEN" || task.status === "CLAIMED")) {
+  if (isOooLive(task)) {
     next.push("COMPLETED");
   }
   // The corrections state is the one ALWAYS_ALLOWED entry gated on task type
@@ -656,6 +660,8 @@ export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string 
    person hold this task", and the answer to that is still yes. */
 const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to put it back in the pool";
 
+export const OOO_COVER_SWAP_REFUSAL = "Someone is already covering this. They release it, then someone else can claim it";
+
 /* The whole of "may this actor hand this task to this person", as a reason or
    `undefined` for yes. Every refusal the handoff can give, in one place, so the
    picker that hides a row and the service that throws give the same answer AND
@@ -665,8 +671,6 @@ const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to pu
    then who may hold it at all (ADR-0003's creator rule earns its own explanation
    ahead of the self rule, since a creator handing to themselves is refused for
    the older and more specific reason); then the self rule. */
-export const OOO_COVER_SWAP_REFUSAL = "Someone is already covering this. They release it, then someone else can claim it";
-
 export const handoffRefusal = (
   task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
   target: UserIdentity,
@@ -1015,7 +1019,7 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
    (they came back early, or the trip was called off) or the person covering.
    Either party, from OPEN or CLAIMED; nobody else, admins included. */
 export const canEndOooEarly = (task: LoanTask, user: UserIdentity): boolean => {
-  if (task.taskType !== "OOO" || (task.status !== "OPEN" && task.status !== "CLAIMED")) {
+  if (!isOooLive(task)) {
     return false;
   }
   return isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id;

@@ -18,6 +18,7 @@ import {
   messageEditRefusal,
   closureActionFor,
   OOO_ENDED_EARLY_DETAIL,
+  restoreTargetStatus,
   completionTargetStatus,
   isConfirmingLook,
   TaskHistoryEvent,
@@ -1302,10 +1303,15 @@ export class TaskService {
       const baseDetail = reviewNotes
         ? `${current.status} -> ${next} | Review: ${reviewNotes}`
         : `${current.status} -> ${next}`;
-      // An OOO task closed by a person is always an early end (#453); the
-      // return date's own close is the maintenance pass, which writes its own row.
-      const detail =
-        current.taskType === "OOO" && next === "COMPLETED" ? `${baseDetail} | ${OOO_ENDED_EARLY_DETAIL}` : baseDetail;
+      // A person closing a live OOO task ahead of its return time is the early
+      // end (#453). A restore of a reopened one is not, and the return date's
+      // own close is the maintenance pass, which writes its own row.
+      const endedEarly =
+        current.taskType === "OOO" &&
+        next === "COMPLETED" &&
+        restoreTargetStatus(current) === undefined &&
+        new Date(now).getTime() < new Date(current.dueAt).getTime();
+      const detail = endedEarly ? `${baseDetail} | ${OOO_ENDED_EARLY_DETAIL}` : baseDetail;
       /* The two closing moves are named, so the closure is findable in the
          history without parsing `detail` (#239). `moved.status` rather than
          `next`: a restore asks for OPEN and lands on CLAIMED, and the row

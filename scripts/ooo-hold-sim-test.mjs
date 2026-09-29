@@ -136,6 +136,18 @@ await check("the coverer can end it early with the same result", async () => {
   assert.ok(row.detail.includes(OOO_ENDED_EARLY_DETAIL));
 });
 
+await check("restoring a reopened OOO task is not recorded as an early end", async () => {
+  const { service, store } = await setup();
+  const task = await makeOoo(service, { claimed: true });
+  await service.transitionStatus(task.id, "COMPLETED", COVER);
+  const reopened = await service.transitionStatus(task.id, "OPEN", CREATOR);
+  assert.equal(reopened.status, "CLAIMED");
+  await service.transitionStatus(task.id, "COMPLETED", CREATOR);
+  const rows = (await store.allHistoryForTask(task.id)).filter((e) => e.action === "TASK_COMPLETED");
+  assert.equal(rows.length, 2);
+  assert.equal(rows.filter((e) => e.detail.includes(OOO_ENDED_EARLY_DETAIL)).length, 1, "only the first close was the early end");
+});
+
 await check("anyone else is refused the early end, on the server as well", async () => {
   const { service } = await setup();
   const open = await makeOoo(service);
