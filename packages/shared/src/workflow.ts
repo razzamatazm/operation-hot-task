@@ -305,7 +305,21 @@ export const computeClaimAnchoredDueAt = (
   return due.getTime() <= close.getTime() ? candidate : close.toISOString();
 };
 
+/* A covered Out of Office task is a hold (#453): it waits on the return date,
+   not on anybody, so it has no forward step. The flow's CLAIMED → COMPLETED
+   rung is withheld here; the early end is a separate door (`canEndOooEarly`)
+   offered from the menu, and the return date closes it on its own. */
+export const isOooHold = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
+  task.taskType === "OOO" && task.status === "CLAIMED";
+
+/* An OOO task still running: OPEN (nobody covering yet) or CLAIMED (held). */
+const isOooLive = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
+  task.taskType === "OOO" && (task.status === "OPEN" || task.status === "CLAIMED");
+
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
+  if (isOooHold(task)) {
+    return undefined;
+  }
   const flow = flowFor(task);
   const index = flow.indexOf(task.status);
   return index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
@@ -491,11 +505,14 @@ export const isConfirmingLook = (task: Pick<LoanTask, "status" | "awaitingConfir
   completionTargetStatus(task) === "ARCHIVED";
 
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
-  const flow = flowFor(task);
-  const index = flow.indexOf(task.status);
-
-  const nextCandidate = index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
+  const nextCandidate = nextForwardStatus(task);
   const next = nextCandidate ? [nextCandidate] : [];
+  // OOO's early end (#453): COMPLETED stays reachable from OPEN and CLAIMED,
+  // but as a side door rather than the flow's next step, so nothing offers it
+  // as the row's primary action or the card's step button.
+  if (isOooLive(task)) {
+    next.push("COMPLETED");
+  }
   // The corrections state is the one ALWAYS_ALLOWED entry gated on task type
   // (ADR-0007 rule 3): listed universally, LOI-only by rule, so the restriction
   // is applied here where the moves are offered rather than implied by a flow.
@@ -643,6 +660,8 @@ export const claimRefusalMessage = (task: LoanTask, user: UserIdentity): string 
    person hold this task", and the answer to that is still yes. */
 const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to put it back in the pool";
 
+export const OOO_COVER_SWAP_REFUSAL = "Someone is already covering this. They release it, then someone else can claim it";
+
 /* The whole of "may this actor hand this task to this person", as a reason or
    `undefined` for yes. Every refusal the handoff can give, in one place, so the
    picker that hides a row and the service that throws give the same answer AND
@@ -663,6 +682,10 @@ export const handoffRefusal = (
   const cannotHold = assigneeRefusal(task, target);
   if (cannotHold) {
     return cannotHold;
+  }
+  // No coverage swap (#453): changing who covers is a release, then a claim.
+  if (task.taskType === "OOO" && task.assignee) {
+    return OOO_COVER_SWAP_REFUSAL;
   }
   if (actor.id === target.id) {
     return SELF_ASSIGN;
@@ -992,7 +1015,37 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
   return isSystem(user) || isCreator;
 };
 
+/* Ending an Out of Office task before its return date (#453): the person away
+   (they came back early, or the trip was called off) or the person covering.
+   Either party, from OPEN or CLAIMED; nobody else, admins included. A reopened
+   OOO task carries a restore breadcrumb, and its move to COMPLETED is the
+   Restore, not an early end, so End stands down there. Once the return time
+   has passed it is no longer early: the maintenance pass owns that close. */
+export const canEndOooEarly = (task: LoanTask, user: UserIdentity, now: Date): boolean =>
+  isOooLive(task) &&
+  restoreTargetStatus(task) === undefined &&
+  now.getTime() < new Date(task.dueAt).getTime() &&
+  (isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id);
+
+/* Whether moving this task to `next` would be an OOO early end, as opposed to
+   a restore of a reopened one. The server lets it through only on End task's
+   own door, so a pre-#453 card's Complete button is refused. */
+export const isOooEarlyEnd = (task: LoanTask, next: TaskStatus): boolean =>
+  next === "COMPLETED" && isOooLive(task) && restoreTargetStatus(task) === undefined;
+
+export const OOO_END_FROM_MENU = "End this from the task's menu in Hot Task.";
+
+/* The detail on the history row an early end writes, so it reads apart from
+   the maintenance pass's `AUTO_COMPLETED_RETURN_DATE`. */
+export const OOO_ENDED_EARLY_DETAIL = "Ended before the return date";
+
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
+  // An OOO task has no Complete (#453). Its early end is `canEndOooEarly`, and
+  // the return date closes it through the maintenance pass.
+  if (task.taskType === "OOO") {
+    return false;
+  }
+
   if (task.taskType === "FRAUD" && !isSystem(user) && !isFileChecker(user)) {
     return false;
   }
@@ -1081,6 +1134,13 @@ export const canTransitionStatus = (task: LoanTask, next: TaskStatus, user: User
       : { ok: false, reason: "Only the task creator or assignee can restore a reopened task" };
   }
 
+  // A live OOO task closes early only through End task's own door (#453), not
+  // a plain COMPLETED. Refusing here is what retires the Complete button on a
+  // Teams card posted before the hold shipped: the refused tap re-syncs it.
+  if (isOooEarlyEnd(task, next)) {
+    return { ok: false, reason: OOO_END_FROM_MENU };
+  }
+
   if (next === "CANCELLED" && !canCancelTask(task, user)) {
     return { ok: false, reason: "Only the task creator can cancel a task" };
   }
@@ -1151,8 +1211,34 @@ export const isOverdue = (task: LoanTask, now: Date): boolean => {
   if (["COMPLETED", "ARCHIVED", "CANCELLED", "AWAITING_ITEMS"].includes(task.status)) {
     return false;
   }
+  // An OOO task's date is a return date, not a deadline (#453): the
+  // maintenance pass closes it then, and nobody is late in the meantime.
+  if (task.taskType === "OOO") {
+    return false;
+  }
 
   return new Date(task.dueAt).getTime() < now.getTime();
+};
+
+/* The countdown an OOO task shows in place of a deadline (#453), in calendar
+   days from today in the business timezone to the return date. Floors at
+   "Back today", so a task the maintenance pass has yet to close never counts
+   negative. `undefined` for anything that is not an OOO task with a date. */
+export const oooReturnCountdown = (
+  task: Pick<LoanTask, "taskType" | "returnDate">,
+  now: Date,
+  config: AppConfig = DEFAULT_CONFIG
+): string | undefined => {
+  const match = task.taskType === "OOO" && task.returnDate ? /^(\d{4})-(\d{2})-(\d{2})/.exec(task.returnDate) : null;
+  if (!match) {
+    return undefined;
+  }
+  const today = zonedParts(now, config.businessTimezone);
+  const returnDay = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const days = Math.round((returnDay - Date.UTC(today.year, today.month - 1, today.day)) / 86_400_000);
+  if (days <= 0) return "Back today";
+  if (days === 1) return "Back tomorrow";
+  return `Back in ${days} days`;
 };
 
 export const shouldPurgeArchived = (task: LoanTask, now: Date, retentionDays: number): boolean => {

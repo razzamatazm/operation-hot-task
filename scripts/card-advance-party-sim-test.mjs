@@ -82,7 +82,9 @@ const MATRIX = [
   { taskType: "LOI", status: "NEEDS_REVIEW", advance: { status: "COMPLETED", label: "Complete" }, party: "CREATOR" },
   { taskType: "LOI", status: "COMPLETED", advance: undefined, party: NOBODY },
   { taskType: "VALUE", status: "CLAIMED", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
-  { taskType: "OOO", status: "CLAIMED", advance: { status: "COMPLETED", label: "Complete" }, party: "ASSIGNEE" },
+  // A covered OOO task is a hold (#453): it waits on the return date, so the
+  // card offers no step. The early end lives in the web row's menu.
+  { taskType: "OOO", status: "CLAIMED", advance: undefined, party: NOBODY },
 
   // --- FRAUD: the two-phase exchange. Its buttons come from `fraudActions`,
   //     but the same party rule holds underneath and is asserted here too. ----

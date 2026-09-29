@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication, clipboard as teamsClipboard } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, isOooHold, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canEndOooEarly, oooReturnCountdown, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -314,8 +314,16 @@ const groupedDue = (
     const stamp = task.cancelledAt ?? task.updatedAt;
     return { label: "", value: `✕ ${formatRelativeCompleted(stamp).replace(/^done\s*/, "")}`.trim(), overdue: false, done: true };
   }
+  /* An OOO task waits on a date, not a person (#453), so the cell counts down
+     to the return in calendar days and never reads as a deadline. No label:
+     "Back in 3 days" says what it is. */
   if (task.taskType === "OOO") {
-    return { label: "RETURNS", value: formatPtDateOnly(task.dueAt), overdue: false, done: false };
+    return {
+      label: "",
+      value: oooReturnCountdown(task, new Date(nowMs)) ?? `Back ${formatPtDateOnly(task.dueAt)}`,
+      overdue: false,
+      done: false
+    };
   }
   // FRAUD AWAITING_ITEMS is a wait on the requester, not a deadline the checker
   // is missing, so the row shows how long the requester has held it instead of
@@ -1433,6 +1441,7 @@ const TaskCard = memo(({
   user,
   onClaim,
   onUnclaim,
+  onEndEarly,
   onReturnToPool,
   onTransition,
   onRelease,
@@ -1461,6 +1470,7 @@ const TaskCard = memo(({
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
+  onEndEarly: (taskId: string) => Promise<void>;
   onReturnToPool: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
@@ -1929,7 +1939,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && !isOooHold(task) && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -2018,12 +2028,19 @@ const TaskCard = memo(({
      are still passive spans — the ball is genuinely in the other party's court,
      so this reports why the row is in front of you and offers no move. */
   const pulledIntoCourt = hasUnreadNote || courtHeld === true;
-  const waitingLabel =
+  /* A covered OOO task waits on a date (#453), so the slot names the date in
+     the place `Waiting on` sits, and the countdown sits in the cell below. */
+  const oooBackOn =
+    !primaryAction && isOooHold(task) && task.returnDate
+      ? `Back on ${formatWallDate(task.returnDate).replace(/, \d{4}$/, "")}`
+      : null;
+  const waitingLabel = oooBackOn ?? (
     !primaryAction && waitingOn && waitingOn.id !== user.id
       ? pulledIntoCourt
         ? (hasUnreadNote ? "Unread reply" : "Read reply")
         : `Waiting on ${firstName(waitingOn.displayName)}`
-      : null;
+      : null
+  );
   /* `transitions` already carries the status's allowed moves, so CANCELLED
      being in it is the same rule the server enforces. */
   const showRowCancel =
@@ -2131,6 +2148,18 @@ const TaskCard = memo(({
       {canUnclaimTask(task, user) && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
           Unclaim
+        </button>
+      )}
+      {/* #453: an OOO task ends on its return date by itself; this is the early
+          end, for the person away or the person covering. It asks first, through
+          the same terminal confirm the row's Complete uses. */}
+      {canEndOooEarly(task, user, new Date(now ?? Date.now())) && (
+        <button
+          type="button"
+          className="btn-sm btn-ghost"
+          onClick={() => { acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
+        >
+          End task
         </button>
       )}
       {/* #208: the creator takes their own request off a holder who has stalled
@@ -2739,6 +2768,7 @@ const CardList = ({
   user,
   onClaim,
   onUnclaim,
+  onEndEarly,
   onReturnToPool,
   onTransition,
   onRelease,
@@ -2768,6 +2798,7 @@ const CardList = ({
   user: UserIdentity;
   onClaim: (taskId: string) => Promise<void>;
   onUnclaim: (taskId: string) => Promise<void>;
+  onEndEarly: (taskId: string) => Promise<void>;
   onReturnToPool: (taskId: string) => Promise<void>;
   onTransition: (taskId: string, status: TaskStatus, reviewNotes?: string) => Promise<void>;
   onRelease: (taskId: string) => Promise<void>;
@@ -2821,6 +2852,7 @@ const CardList = ({
           user={user}
           onClaim={onClaim}
           onUnclaim={onUnclaim}
+          onEndEarly={onEndEarly}
           onReturnToPool={onReturnToPool}
           onTransition={onTransition}
           onRelease={onRelease}
@@ -4494,6 +4526,17 @@ export const App = () => {
     }
   }, [user, refresh, showToast]);
 
+  /* OOO "End task" (#453): its own endpoint, because the server refuses a plain
+     COMPLETED on a live OOO task so a stale Teams Complete button can't close it. */
+  const onEndEarly = useCallback(async (taskId: string): Promise<void> => {
+    try {
+      await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/end-early`, { method: "POST" }, user);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to end task", { variant: "error" });
+    }
+  }, [user, refresh, showToast]);
+
   const onTransition = useCallback(async (taskId: string, status: TaskStatus, reviewNotes?: string): Promise<void> => {
     try {
       await apiRequest<{ task: LoanTask }>(`/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ status, ...(reviewNotes ? { reviewNotes } : {}) }) }, user);
@@ -5031,6 +5074,7 @@ export const App = () => {
       user,
       onClaim,
       onUnclaim,
+      onEndEarly,
       onReturnToPool,
       onTransition,
       onRelease,

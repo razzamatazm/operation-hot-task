@@ -1014,11 +1014,14 @@ await check("a closed OOO task refuses the date edit", async () => {
   for (const status of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
     const { service } = await setup();
     const id = await makeTask(service, { taskType: "OOO", claimed: true });
-    if (status === "ARCHIVED") {
-      await service.transitionStatus(id, "COMPLETED", ASSIGNEE);
-      await service.transitionStatus(id, "ARCHIVED", CREATOR);
+    // A live OOO task closes early only through End task's door (#453).
+    if (status === "CANCELLED") {
+      await service.transitionStatus(id, status, CREATOR);
     } else {
-      await service.transitionStatus(id, status, status === "COMPLETED" ? ASSIGNEE : CREATOR);
+      await service.endOooEarly(id, ASSIGNEE);
+      if (status === "ARCHIVED") {
+        await service.transitionStatus(id, "ARCHIVED", CREATOR);
+      }
     }
     await rejects(
       () => service.updateTaskOooDates(id, "2026-06-01", "2026-06-12", CREATOR),

@@ -56,6 +56,12 @@ const completeTask = async (service, taskType) => {
   const task = await service.createTask({ folderName: FOLDER, taskType, notes: "n", ...oooDates }, CREATOR);
   await service.claimTask(task.id, ASSIGNEE);
   const flow = flowFor(task).filter((s) => s !== "ARCHIVED");
+  // A live OOO task closes early only through End task's door (#453).
+  if (taskType === "OOO") {
+    await service.endOooEarly(task.id, ASSIGNEE);
+    await service.settleBackgroundWork();
+    return task;
+  }
   for (let i = flow.indexOf("CLAIMED") + 1; i < flow.length; i += 1) {
     const step = flow[i];
     const actor = step === "MERGE_APPROVED" || step === "PENDING_APPROVAL" ? CREATOR : ASSIGNEE;

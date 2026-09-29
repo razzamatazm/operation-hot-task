@@ -17,6 +17,9 @@ import {
   messageDeleteRefusal,
   messageEditRefusal,
   closureActionFor,
+  OOO_ENDED_EARLY_DETAIL,
+  canEndOooEarly,
+  isOooEarlyEnd,
   completionTargetStatus,
   isConfirmingLook,
   TaskHistoryEvent,
@@ -99,6 +102,7 @@ import { TaskStore } from "./store.js";
 // requester and stays fully silent (isOverdue already returns false for it).
 const ACTIVE_STATUSES: TaskStatus[] = ["OPEN", "CLAIMED", "NEEDS_REVIEW", "MERGE_DONE", "MERGE_APPROVED", "PENDING_APPROVAL"];
 const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+const OOO_END_REFUSED = "Only the person away or the person covering can end this, and only before the return date";
 
 /* One activity-feed alert an evaluation decided to send. */
 interface ActivityFeedAlert {
@@ -1066,8 +1070,26 @@ export class TaskService {
   }
 
   async transitionStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes?: string): Promise<LoanTask> {
+    return this.moveStatus(taskId, next, user, reviewNotes, false);
+  }
+
+  /* The web's "End task" on an Out of Office task (#453). Its own door so a
+     plain COMPLETED can be refused: Teams cards posted before the hold shipped
+     still carry a Complete button, and pressing one must not close the task
+     without the confirm End task asks for. */
+  async endOooEarly(taskId: string, user: UserIdentity): Promise<LoanTask> {
     const task = await this.requireTask(taskId);
-    const access = canTransitionStatus(task, next, user);
+    if (!canEndOooEarly(task, user, new Date())) {
+      throw new Error(OOO_END_REFUSED);
+    }
+    return this.moveStatus(taskId, "COMPLETED", user, undefined, true);
+  }
+
+  private async moveStatus(taskId: string, next: TaskStatus, user: UserIdentity, reviewNotes: string | undefined, endingOooEarly: boolean): Promise<LoanTask> {
+    const task = await this.requireTask(taskId);
+    // `canTransitionStatus` refuses a plain COMPLETED on a live OOO task (a
+    // stale card's Complete); `endOooEarly` has already asked its own question.
+    const access: { ok: boolean; reason?: string } = endingOooEarly ? { ok: true } : canTransitionStatus(task, next, user);
 
     if (!access.ok) {
       throw new Error(access.reason ?? "Transition blocked");
@@ -1133,6 +1155,11 @@ export class TaskService {
          with an item nobody has answered — the gate's whole job. Throwing here
          writes nothing (see `Store.updateTask`) and rejects only this caller.
          `isSystem` bypasses, same as it does in the shared predicate. */
+      // End task asked its question of an earlier read; an unclaim, cancel or
+      // the return-date close can land in between, so ask again of `current`.
+      if (endingOooEarly && !canEndOooEarly(current, user, new Date())) {
+        throw new Error(OOO_END_REFUSED);
+      }
       if (next === "PENDING_APPROVAL" && !isSystemActor(user)) {
         const blocked = submitBlockReason(current.checklist ?? []);
         if (blocked) {
@@ -1298,9 +1325,17 @@ export class TaskService {
         delete moved.reopenedFrom;
       }
 
-      const detail = reviewNotes
+      const baseDetail = reviewNotes
         ? `${current.status} -> ${next} | Review: ${reviewNotes}`
         : `${current.status} -> ${next}`;
+      // A person closing a live OOO task ahead of its return time is the early
+      // end (#453). A restore of a reopened one is not, and the return date's
+      // own close is the maintenance pass, which writes its own row.
+      const endedEarly =
+        endingOooEarly &&
+        isOooEarlyEnd(current, next) &&
+        new Date(now).getTime() < new Date(current.dueAt).getTime();
+      const detail = endedEarly ? `${baseDetail} | ${OOO_ENDED_EARLY_DETAIL}` : baseDetail;
       /* The two closing moves are named, so the closure is findable in the
          history without parsing `detail` (#239). `moved.status` rather than
          `next`: a restore asks for OPEN and lands on CLAIMED, and the row
