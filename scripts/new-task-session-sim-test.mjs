@@ -745,6 +745,29 @@ test("closing a restored form that still has typing forgets nothing", async () =
   assert.equal((await openWithin(session, clock)).values.notes, "restored");
 });
 
+test("an earlier forget that lands doesn't settle a later one that fails", async () => {
+  const { session, server, storage, clock } = setup({ offline: { values: values({ notes: "old" }), ageMs: 60_000 } });
+  realServer(server, clock);
+  await session.open();
+  server.hold = () => true;
+  await session.end({ kind: "startFresh" });
+  session.edit(values({ notes: "replacement" }));
+  await clock.advance(1000);
+  const ending = session.end({ kind: "discard" });
+  server.held.shift().release();
+  await settle();
+  server.held.shift().release();
+  await settle();
+  assert.equal(server.autosave.form.notes, "replacement");
+  server.hold = null;
+  server.reach = false;
+  server.held.shift().release();
+  await ending;
+  await settle();
+  const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
+  assert.deepEqual((await openWithin(reloaded, clock, { held: server.autosave })).values, BLANK_CREATE_FORM);
+});
+
 test("a blank form never restored, cancelled within the second, forgets nothing", async () => {
   const { session, server, clock } = setup();
   await session.open();

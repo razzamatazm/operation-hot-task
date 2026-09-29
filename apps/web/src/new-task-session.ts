@@ -259,14 +259,14 @@ export const createNewTaskSession = ({
      the server can't be reached. */
   const forget = (): void => {
     if (!seated()) return;
-    forgotAt = ++asked;
+    const mine = (forgotAt = ++asked);
     clearDraft(storage, owner);
     onDisk = false;
     owe(true);
     writes = writes
       .then(async () => {
         onAutosave?.(null);
-        if ((await forgetAutosaveRequest(request)) && owed()) owe(false);
+        if ((await forgetAutosaveRequest(request)) && mine === forgotAt && owed()) owe(false);
       })
       .catch(() => {});
   };
@@ -367,8 +367,9 @@ export const createNewTaskSession = ({
     if (!owed()) return false;
     let settled = false;
     retrying += 1;
+    const mine = asked;
     const retry = writes.then(async () => {
-      if (await forgetAutosaveRequest(request)) owe(false);
+      if ((await forgetAutosaveRequest(request)) && forgotAt <= mine) owe(false);
       settled = true;
     });
     retry.then(
