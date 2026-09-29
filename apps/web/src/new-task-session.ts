@@ -209,6 +209,7 @@ export const createNewTaskSession = ({
   /* A filed task's forget that has not landed (#472), kept here as well as in
      storage so it holds where storage is locked down. */
   let filedOwed = false;
+  let retrying = false;
   const owed = (): boolean => filedOwed || filedForgetOwed(storage, owner);
   const owe = (value: boolean): void => {
     filedOwed = value;
@@ -236,7 +237,9 @@ export const createNewTaskSession = ({
     onDisk = true;
     writes = writes
       .then(async () => {
-        if (await keepAutosaveRequest(request, values)) {
+        /* While a timed-out forget is still out, a server write could land
+           before it and be deleted, so the typing stays offline. */
+        if (!retrying && (await keepAutosaveRequest(request, values))) {
           clearDraft(storage, owner);
           if (owed()) owe(false);
         } else writeDraft(storage, owner, values, clock.now());
@@ -345,15 +348,21 @@ export const createNewTaskSession = ({
   const retryOwedForget = async (): Promise<boolean> => {
     if (!owed()) return false;
     let settled = false;
+    retrying = true;
     const retry = writes.then(async () => {
       if (await forgetAutosaveRequest(request)) owe(false);
       settled = true;
     });
-    writes = retry.catch(() => {});
+    retry.then(
+      () => (retrying = false),
+      () => (retrying = false)
+    );
     let timer: unknown;
     const gaveUp = new Promise<void>((resolve) => {
       timer = clock.setTimeout(resolve, AUTOSAVE_LOAD_TIMEOUT_MS);
     });
+    /* A retry that never answers must not hold every later write behind it. */
+    writes = Promise.race([retry.catch(() => {}), gaveUp]);
     try {
       await Promise.race([retry, gaveUp]);
     } finally {

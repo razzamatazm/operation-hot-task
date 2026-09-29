@@ -413,6 +413,27 @@ test("the filed task's server Autosave is forgotten once the server is reachable
   assert.equal(openState(reloaded).values.notes, "typed on another device later");
 });
 
+test("a retried forget that never answers doesn't hold up later typing: it is kept offline, not raced against the forget", async () => {
+  const { server, storage, clock, key } = await fileWithForgetFailing();
+  server.hold = (call) => call.method === "DELETE";
+  const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
+  const opening = reloaded.open();
+  await clock.advance(2000);
+  assert.equal(await opening, true);
+  const putsBefore = server.writes().filter((call) => call.method === "PUT").length;
+  reloaded.edit(values({ notes: "the next task" }));
+  await clock.advance(1000);
+  assert.equal(JSON.parse(storage.getItem(key)).values.notes, "the next task");
+  assert.equal(server.writes().filter((call) => call.method === "PUT").length, putsBefore, "no write races the forget still out");
+
+  server.hold = null;
+  server.held.shift().release();
+  await settle();
+  reloaded.edit(values({ notes: "the next task, more" }));
+  await clock.advance(1000);
+  assert.equal(server.writes().filter((call) => call.method === "PUT").length, putsBefore + 1, "once it answers, typing goes to the server again");
+});
+
 test("typing after a filed task whose forget failed is still kept and restored", async () => {
   const { session, server, clock } = await fileWithForgetFailing();
   await session.open();
