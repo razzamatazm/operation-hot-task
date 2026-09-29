@@ -4,11 +4,10 @@ import {
   DEFAULT_BUSINESS_END_BY_WEEKDAY,
   isOfficeDay,
   isOfficeOpen,
-  minutesOfDay,
   nextOfficeDay,
   nextOfficeOpen,
   officeClosesAt,
-  officeHoursOn,
+  officeMsBetween,
   zonedParts,
   zonedToUtcIso
 } from "./office-hours.js";
@@ -106,11 +105,12 @@ export const computeDueAtFromUrgency = (
 
   const localNow = zonedParts(now, config.businessTimezone);
 
-  // Yellow means close of the current office day, or of the next one if today
-  // is already past close or the office doesn't open today.
+  // Yellow means close of the current office day, or of the next one if today's
+  // close has already arrived (the closing instant is closed, #459) or the
+  // office doesn't open today.
   if (urgency === "YELLOW") {
-    const today = officeHoursOn(localNow, config);
-    const day = today && minutesOfDay(localNow) <= minutesOfDay(today.close) ? localNow : nextOfficeDay(localNow, 1, config);
+    const todayClose = officeClosesAt(localNow, config);
+    const day = todayClose && now.getTime() < todayClose.getTime() ? localNow : nextOfficeDay(localNow, 1, config);
     return (officeClosesAt(day, config) as Date).toISOString();
   }
 
@@ -292,7 +292,8 @@ export const computeClaimAnchoredDueAt = (
   const candidate = computeDueAtFromUrgency(urgency, anchor, config);
 
   const localAnchor = zonedParts(anchor, config.businessTimezone);
-  const localDue = zonedParts(new Date(candidate), config.businessTimezone);
+  const due = new Date(candidate);
+  const localDue = zonedParts(due, config.businessTimezone);
   const sameDate =
     localDue.year === localAnchor.year && localDue.month === localAnchor.month && localDue.day === localAnchor.day;
   if (!sameDate) {
@@ -300,11 +301,8 @@ export const computeClaimAnchoredDueAt = (
   }
 
   // The close of the anchor's own day: a Friday claim clamps to Friday's close.
-  const { close } = officeHoursOn(localAnchor, config)!;
-  if (minutesOfDay(localDue) <= minutesOfDay(close)) {
-    return candidate;
-  }
-  return (officeClosesAt(localAnchor, config) as Date).toISOString();
+  const close = officeClosesAt(localAnchor, config) as Date;
+  return due.getTime() <= close.getTime() ? candidate : close.toISOString();
 };
 
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
@@ -1269,11 +1267,15 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
   // (#210): a task handed back is owed its first nag twenty minutes from the
   // hand-back. `inPoolSince` rather than `createdAt` makes that structural
   // instead of resting on every door happening to stamp both fields.
-  const since = task.lastPoolNagAt ?? inPoolSince(task);
-  if (now.getTime() - new Date(since).getTime() < UNCLAIMED_ALERT_MS) {
+  const since = new Date(task.lastPoolNagAt ?? inPoolSince(task));
+  // Office minutes, not wall time (#459); the wall check is a cheap early out.
+  if (now.getTime() - since.getTime() < UNCLAIMED_ALERT_MS) {
     return false;
   }
-  return isWithinBusinessHours(now, config);
+  if (!isWithinBusinessHours(now, config)) {
+    return false;
+  }
+  return officeMsBetween(since, now, config) >= UNCLAIMED_ALERT_MS;
 };
 
 /* Nobody currently holds this task, so its `dueAt` is not yet anybody's

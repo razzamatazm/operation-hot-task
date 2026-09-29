@@ -104,17 +104,20 @@ export const officeHoursOn = (
 
 export const isOfficeDay = (date: LocalDate, config: AppConfig): boolean => officeHoursOn(date, config) !== undefined;
 
-export const minutesOfDay = (time: OfficeTime): number => time.hour * 60 + time.minute;
-
-/* Open and close are both inclusive, as they always have been. */
+/* Open from the opening instant up to, not including, the closing instant: the
+   same interval `officeMsBetween` counts, so the two never disagree about the
+   closing minute (#459). */
 export const isOfficeOpen = (now: Date, config: AppConfig): boolean => {
   const local = zonedParts(now, config.businessTimezone);
   const hours = officeHoursOn(local, config);
   if (!hours) {
     return false;
   }
-  const minutes = minutesOfDay(local);
-  return minutes >= minutesOfDay(hours.open) && minutes <= minutesOfDay(hours.close);
+  const at = now.getTime();
+  return (
+    at >= instantOn(local, hours.open, config.businessTimezone).getTime() &&
+    at < instantOn(local, hours.close, config.businessTimezone).getTime()
+  );
 };
 
 /* The `count`-th office day after `date`; 0 means `date` itself if it's an office day. */
@@ -157,8 +160,37 @@ export const officeClosesAt = (date: LocalDate, config: AppConfig): Date | undef
 /* Today's open if `from` is before it on an office day, else the next office day's. */
 export const nextOfficeOpen = (from: Date, config: AppConfig): Date => {
   const local = zonedParts(from, config.businessTimezone);
-  const today = officeHoursOn(local, config);
-  const beforeOpenToday = today !== undefined && minutesOfDay(local) < minutesOfDay(today.open);
-  const day = beforeOpenToday ? local : nextOfficeDay(local, 1, config);
-  return officeOpensAt(day, config) as Date;
+  const todayOpen = officeOpensAt(local, config);
+  if (todayOpen && from.getTime() < todayOpen.getTime()) {
+    return todayOpen;
+  }
+  return officeOpensAt(nextOfficeDay(local, 1, config), config) as Date;
+};
+
+/* How long the office was open between two instants, in milliseconds (#459).
+   The one walk over the schedule: anything that waits in office time rather
+   than wall time measures it here, so a closed day added to `officeHoursOn`
+   reaches every such wait at once. */
+export const officeMsBetween = (from: Date, to: Date, config: AppConfig): number => {
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+  if (toMs <= fromMs) {
+    return 0;
+  }
+  const first = zonedParts(from, config.businessTimezone);
+  const last = zonedParts(to, config.businessTimezone);
+  const cursor = new Date(Date.UTC(first.year, first.month - 1, first.day));
+  const end = Date.UTC(last.year, last.month - 1, last.day);
+  let total = 0;
+  for (; cursor.getTime() <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const day = { year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1, day: cursor.getUTCDate() };
+    const hours = officeHoursOn(day, config);
+    if (!hours) {
+      continue;
+    }
+    const opens = instantOn(day, hours.open, config.businessTimezone).getTime();
+    const closes = instantOn(day, hours.close, config.businessTimezone).getTime();
+    total += Math.max(0, Math.min(toMs, closes) - Math.max(fromMs, opens));
+  }
+  return total;
 };

@@ -241,9 +241,11 @@ await check("after the backfill, the same queue says nothing on the first pass",
   await legacyOpenTask(service, store, "Legacy Two");
   await legacyOpenTask(service, store, "Legacy Three");
 
-  const backfilled = await service.backfillPoolNagClock();
-  assert.equal(backfilled.stamped, 3, "all three were open, unclaimed and unstamped");
+  /* The backfill measures office time (#459), so it runs on the fixed
+     timeline too, or this would read differently at night. */
   await rebaseOnto(store, AT_1000);
+  const backfilled = await service.backfillPoolNagClock(AT_1000);
+  assert.equal(backfilled.stamped, 3, "all three were open, unclaimed and unstamped");
 
   const result = await service.runMaintenance(AT_1000);
   assert.equal(result.nagged, 0, "their clock starts at the backfill, not at creation");
@@ -254,8 +256,8 @@ await check("the backfill delays the nag, it does not cancel it", async () => {
   const { service, store, events } = await setup();
   await legacyOpenTask(service, store, "Legacy One");
   await legacyOpenTask(service, store, "Legacy Two");
-  await service.backfillPoolNagClock();
   await rebaseOnto(store, AT_1000);
+  await service.backfillPoolNagClock(AT_1000);
   await service.runMaintenance(AT_1000);
 
   const result = await service.runMaintenance(AT_1025);
@@ -276,13 +278,13 @@ await check("a restart does not delay the first nag of a task too young to have 
 
   // A restart twelve minutes later, while the task is still too young to nag.
   await patch(store, fresh.id, (current) => ({ ...current, createdAt: minutesAgo(12) }));
-  const backfilled = await service.backfillPoolNagClock();
+  await rebaseOnto(store, AT_1012);
+  const backfilled = await service.backfillPoolNagClock(AT_1012);
   assert.equal(backfilled.stamped, 0, "nothing to suppress, so nothing is stamped");
   assert.equal((await store.findTask(fresh.id)).lastPoolNagAt, undefined, "its clock is untouched");
 
   // So it still nags on its original schedule rather than twenty minutes later:
   // filed at 10:00, restarted at 10:12, nagged at 10:25.
-  await rebaseOnto(store, AT_1012);
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "the restart cost it nothing");
   assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
 });
@@ -290,9 +292,10 @@ await check("a restart does not delay the first nag of a task too young to have 
 await check("the backfill is idempotent, and leaves the second boot alone", async () => {
   const { service, store } = await setup();
   await legacyOpenTask(service, store, "Legacy One");
+  await rebaseOnto(store, AT_1000);
 
-  assert.equal((await service.backfillPoolNagClock()).stamped, 1);
-  assert.equal((await service.backfillPoolNagClock()).stamped, 0, "nothing left without a stamp");
+  assert.equal((await service.backfillPoolNagClock(AT_1000)).stamped, 1);
+  assert.equal((await service.backfillPoolNagClock(AT_1000)).stamped, 0, "nothing left without a stamp");
 });
 
 await check("the backfill touches only what the nag would look at", async () => {
