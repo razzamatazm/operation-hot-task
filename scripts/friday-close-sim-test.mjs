@@ -73,9 +73,9 @@ const on = (date, offset, hhmm) => new Date(`${date}T${hhmm}:00${offset}`);
 /* ------------------------------------------------------------ is it open */
 
 for (const [date, offset, label] of FRIDAYS) {
-  await check(`Friday ${date} (${label}): open at 15:29 and 15:30, closed at 15:31`, async () => {
+  await check(`Friday ${date} (${label}): open at 15:29, closed from 15:30`, async () => {
     assert.equal(isWithinBusinessHours(on(date, offset, "15:29"), config), true);
-    assert.equal(isWithinBusinessHours(on(date, offset, "15:30"), config), true, "close is inclusive, as on every day");
+    assert.equal(isWithinBusinessHours(on(date, offset, "15:30"), config), false, "closed from the closing instant (#459)");
     assert.equal(isWithinBusinessHours(on(date, offset, "15:31"), config), false);
     assert.equal(isWithinBusinessHours(on(date, offset, "17:00"), config), false);
   });
@@ -83,8 +83,8 @@ for (const [date, offset, label] of FRIDAYS) {
 
 await check("Monday to Thursday still close at the configured 17:30", async () => {
   for (const date of ["2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12"]) {
-    assert.equal(isWithinBusinessHours(on(date, "-07:00", "17:30"), config), true, date);
-    assert.equal(isWithinBusinessHours(on(date, "-07:00", "17:31"), config), false, date);
+    assert.equal(isWithinBusinessHours(on(date, "-07:00", "17:29"), config), true, date);
+    assert.equal(isWithinBusinessHours(on(date, "-07:00", "17:30"), config), false, date);
     assert.equal(isWithinBusinessHours(on(date, "-07:00", "15:45"), config), true, date);
   }
 });

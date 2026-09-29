@@ -106,15 +106,20 @@ export const isOfficeDay = (date: LocalDate, config: AppConfig): boolean => offi
 
 export const minutesOfDay = (time: OfficeTime): number => time.hour * 60 + time.minute;
 
-/* Open and close are both inclusive, as they always have been. */
+/* Open from the opening instant up to, not including, the closing instant: the
+   same interval `officeMsBetween` counts, so the two never disagree about the
+   closing minute (#459). */
 export const isOfficeOpen = (now: Date, config: AppConfig): boolean => {
   const local = zonedParts(now, config.businessTimezone);
   const hours = officeHoursOn(local, config);
   if (!hours) {
     return false;
   }
-  const minutes = minutesOfDay(local);
-  return minutes >= minutesOfDay(hours.open) && minutes <= minutesOfDay(hours.close);
+  const at = now.getTime();
+  return (
+    at >= instantOn(local, hours.open, config.businessTimezone).getTime() &&
+    at < instantOn(local, hours.close, config.businessTimezone).getTime()
+  );
 };
 
 /* The `count`-th office day after `date`; 0 means `date` itself if it's an office day. */

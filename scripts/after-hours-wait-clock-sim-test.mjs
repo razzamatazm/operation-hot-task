@@ -12,7 +12,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { UNCLAIMED_ALERT_MS, isPoolNagDue, officeMsBetween } from "../packages/shared/dist/index.js";
+import { UNCLAIMED_ALERT_MS, isOfficeOpen, isPoolNagDue, officeMsBetween } from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
@@ -82,6 +82,22 @@ await check("office minutes: a DST change over the weekend costs or adds nothing
   // A whole Monday either side of each change is still nine hours.
   assert.equal(officeMsBetween(on("2026-03-09", "-07:00", "00:00"), on("2026-03-10", "-07:00", "00:00"), config), 9 * 60 * MIN);
   assert.equal(officeMsBetween(on("2026-11-02", "-08:00", "00:00"), on("2026-11-03", "-08:00", "00:00"), config), 9 * 60 * MIN);
+});
+
+/* ------------------------------------------------------------ one boundary */
+
+/* The open check and the measure share one interval: open from the opening
+   instant up to, not including, the closing instant. */
+await check("open at the opening instant and up to the last millisecond before close, closed at close", async () => {
+  for (const [date, close] of [[TUE, "17:30"], [FRI, "15:30"]]) {
+    const closes = pdt(date, close);
+    assert.equal(isOfficeOpen(pdt(date, "08:30"), config), true, `${date} opening instant`);
+    assert.equal(isOfficeOpen(new Date(pdt(date, "08:30").getTime() - 1), config), false, `${date} before open`);
+    assert.equal(isOfficeOpen(new Date(closes.getTime() - 1), config), true, `${date} close - 1ms`);
+    assert.equal(isOfficeOpen(closes, config), false, `${date} closing instant`);
+    assert.equal(officeMsBetween(new Date(closes.getTime() - 1), closes, config), 1, "the measure counts that last millisecond");
+    assert.equal(officeMsBetween(closes, new Date(closes.getTime() + MIN), config), 0, "and nothing in the closing minute");
+  }
 });
 
 /* ------------------------------------------------------------ the predicate */
@@ -159,6 +175,23 @@ await check("pooled Friday 15:25: nothing over the weekend, first nag Monday 08:
   assert.equal(nagsIn(events).length, 0);
 
   assert.equal((await service.runMaintenance(pdt(MON, "08:45"))).nagged, 1);
+  await service.settleBackgroundWork();
+  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+});
+
+await check("pooled Friday 15:10:30: 19.5 office minutes by close, so the nag waits for Monday 08:30:30", async () => {
+  /* Decided behaviour: the office is closed from 15:30:00, so no pass after it
+     can nag, and 19.5 minutes is under the threshold. The 30 seconds left over
+     are owed Monday morning, and the first pass at or after 08:30:30 nags. */
+  const task = openTask(new Date(pdt(FRI, "15:10").getTime() + 30_000));
+  assert.equal(isPoolNagDue(task, pdt(FRI, "15:30"), config), false, "19:30 accrued at close");
+  assert.equal(isPoolNagDue(task, new Date(pdt(FRI, "15:30").getTime() + 30_000), config), false, "15:30:30 is closed");
+  assert.equal(isPoolNagDue(task, pdt(MON, "08:30"), config), false, "still 30 seconds short at opening");
+  assert.equal(isPoolNagDue(task, new Date(pdt(MON, "08:30").getTime() + 30_000), config), true);
+
+  const { service, events } = await boot([task]);
+  assert.equal(await sweepEvery5(service, pdt(FRI, "15:15"), pdt(MON, "08:30")), 0);
+  assert.equal((await service.runMaintenance(pdt(MON, "08:35"))).nagged, 1);
   await service.settleBackgroundWork();
   assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
 });
