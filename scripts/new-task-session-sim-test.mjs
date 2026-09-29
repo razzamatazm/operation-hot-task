@@ -237,6 +237,104 @@ test("an `unless` that says another form got there first leaves this one shut", 
   assert.equal(session.getState().phase, "closed");
 });
 
+/* #470: the server stamps its Autosave with its own clock, the offline copy is
+   stamped with this computer's, and the two can disagree by an hour. */
+const HOUR = 60 * 60_000;
+const skewedServer = (serverAheadBy) => {
+  const env = setup();
+  const { server, clock } = env;
+  env.online = () => {
+    server.answer = (call) => {
+      if (call.method !== "PUT") return {};
+      server.autosave = { ownerId: "user-1", savedAt: new Date(clock.now() + serverAheadBy).toISOString(), form: call.body.form };
+      return { item: server.autosave };
+    };
+  };
+  env.offline = () => {
+    server.answer = () => {
+      throw Object.assign(new Error("offline"), { status: 0 });
+    };
+  };
+  env.type = async (notes) => {
+    env.session.edit(values({ notes }));
+    await clock.advance(1000);
+  };
+  env.online();
+  return env;
+};
+
+test("clock behind the server: typing kept offline after the last server write is what comes back", async () => {
+  const { session, type, online, offline } = skewedServer(HOUR);
+  await session.open();
+  await type("reached the server");
+  offline();
+  await type("typed offline after it");
+  session.close();
+  online();
+  await session.open();
+  assert.equal(openState(session).values.notes, "typed offline after it");
+
+  offline();
+  await type("typed offline after it, and more");
+  session.close();
+  online();
+  await session.open();
+  assert.equal(openState(session).values.notes, "typed offline after it, and more", "still over the same server copy");
+});
+
+test("clock ahead of the server: a newer server Autosave typed on another device beats the stale offline copy", async () => {
+  const { session, server, clock, type, online, offline } = skewedServer(-HOUR);
+  await session.open();
+  await type("reached the server");
+  offline();
+  await type("typed offline, then left");
+  session.close();
+  await clock.advance(60_000);
+  server.autosave = { ownerId: "user-1", savedAt: new Date(clock.now() - HOUR).toISOString(), form: values({ notes: "typed on another device" }) };
+  online();
+  await session.open();
+  assert.equal(openState(session).values.notes, "typed on another device");
+});
+
+test("clock behind the server: two offline spells in a row, the second across an open that couldn't reach it, still come back", async () => {
+  const { session, server, clock, type, online, offline } = skewedServer(HOUR);
+  await session.open();
+  await type("reached the server");
+  offline();
+  await type("first spell offline");
+  session.close();
+  server.reach = false;
+  const opening = session.open();
+  await settle();
+  await clock.advance(5000);
+  await opening;
+  assert.equal(openState(session).values.notes, "first spell offline");
+  await type("second spell offline");
+  session.close();
+  server.reach = true;
+  online();
+  await session.open();
+  assert.equal(openState(session).values.notes, "second spell offline");
+});
+
+test("an open that can't reach the server weighs the copy App held by clock, so newer offline typing beats it", async () => {
+  const { session, server, clock, type, online, offline } = skewedServer(0);
+  const held = { ...server.autosave, ownerId: "user-1", savedAt: new Date(START - 60_000).toISOString(), form: values({ notes: "held by App" }) };
+  server.autosave = held;
+  await session.open();
+  await type("reached the server");
+  offline();
+  await type("typed offline");
+  session.close();
+  server.reach = false;
+  const opening = session.open({ held });
+  await settle();
+  await clock.advance(5000);
+  await opening;
+  assert.equal(openState(session).values.notes, "typed offline");
+  online();
+});
+
 /* ── Typing ─────────────────────────────────────────────── */
 
 test("one second after typing stops, the form writes to the server Autosave", async () => {

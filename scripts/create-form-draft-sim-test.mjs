@@ -128,6 +128,27 @@ test("with both a server autosave and an offline copy, the one written last come
   assert.equal(newerAutosave(null, null), null);
 });
 
+test("an offline copy that knows which server Autosave it was typed over is weighed by that, not by two clocks (#470)", () => {
+  const server = { values: { ...FILLED, notes: "on the server" }, savedAt: NOW };
+  const behind = { values: { ...FILLED, notes: "typed after it, on a slow clock" }, savedAt: NOW - 3600000, over: NOW };
+  assert.equal(newerAutosave(server, behind), behind, "typed over this very copy, so it is the newer whatever its clock says");
+  const ahead = { values: { ...FILLED, notes: "typed over an older one, on a fast clock" }, savedAt: NOW + 3600000, over: NOW - 60000 };
+  assert.equal(newerAutosave(server, ahead), server, "the server moved on since, so a write elsewhere is the newer");
+  assert.equal(newerAutosave(server, { ...ahead, over: null }), server, "typed when the server had none, and it has one now");
+  assert.equal(newerAutosave(null, ahead), ahead);
+  assert.equal(newerAutosave(server, ahead, false), ahead, "a copy held while the server couldn't be reached is weighed by clock");
+});
+
+test("the offline copy keeps which server Autosave it was typed over", () => {
+  const storage = fakeStorage();
+  writeDraft(storage, "dana", FILLED, NOW - DAY, NOW - 2 * DAY);
+  assert.deepEqual(readDraftCopy(storage, "dana", NOW), { values: FILLED, savedAt: NOW - DAY, over: NOW - 2 * DAY });
+  writeDraft(storage, "dana", FILLED, NOW - DAY, null);
+  assert.deepEqual(readDraftCopy(storage, "dana", NOW), { values: FILLED, savedAt: NOW - DAY, over: null });
+  storage.setItem(draftKey("dana"), JSON.stringify({ version: DRAFT_VERSION, savedAt: NOW - DAY, over: "yesterday", values: FILLED }));
+  assert.deepEqual(readDraftCopy(storage, "dana", NOW), { values: FILLED, savedAt: NOW - DAY }, "an unreadable one is not known");
+});
+
 /* ── The stored shape ───────────────────────────────────── */
 
 /* The duplication guard. The field list in the codec is written out by hand so

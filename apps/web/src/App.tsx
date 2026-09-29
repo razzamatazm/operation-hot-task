@@ -4033,7 +4033,7 @@ export const App = () => {
     const filed = filedForgetOwed(browserDraftStorage(), user.id);
     const at = Date.now();
     setAutosave((current) => {
-      const best = newerAutosave(autosaveCopy(filed ? null : reached ? item : current, at), offline);
+      const best = newerAutosave(autosaveCopy(filed ? null : reached ? item : current, at), offline, reached);
       return best ? { ownerId: user.id, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null;
     });
   }, [user]);

@@ -30,12 +30,12 @@ import {
   browserTimers,
   discardUnsavedRequest,
   forgetAutosaveRequest,
-  keepAutosaveRequest,
   keepUnsavedRequest,
   loadAutosaveRequest,
   removeSavedForLaterRequest,
   reopenSavedForLaterRequest,
   saveForLaterRequest,
+  stampedKeepAutosaveRequest,
   unsavedAction
 } from "./saved-for-later-requests";
 import type { RequestTimers, SavedForLaterRequest } from "./saved-for-later-requests";
@@ -193,6 +193,9 @@ export const createNewTaskSession = ({
      didn't take (#476); and whether this browser holds one. */
   let base: UnsavedCopyBase = { savedAt: "" };
   let copied = false;
+  /* The server's stamp on the Autosave it holds, null for none, undefined when
+     not known: what an offline copy is written over (#470). */
+  let serverAt: number | null | undefined;
   let timer: unknown = null;
   /* Writes, one after another, so an older one never lands after a newer one. */
   let writes: Promise<unknown> = Promise.resolve();
@@ -245,12 +248,13 @@ export const createNewTaskSession = ({
       .then(async () => {
         /* While a timed-out forget is still out, a server write could land
            before it and be deleted, so the typing stays offline. */
-        const landed = retrying === 0 && (await keepAutosaveRequest(request, values));
+        const { landed, savedAt } = retrying === 0 ? await stampedKeepAutosaveRequest(request, values) : { landed: false, savedAt: undefined };
         if (mine < forgotAt) return;
         if (landed) {
+          serverAt = savedAt;
           clearDraft(storage, owner);
           if (owed()) owe(false);
-        } else writeDraft(storage, owner, values, clock.now());
+        } else writeDraft(storage, owner, values, clock.now(), serverAt);
       })
       .catch(() => {});
   };
@@ -262,6 +266,7 @@ export const createNewTaskSession = ({
     const mine = (forgotAt = ++asked);
     clearDraft(storage, owner);
     onDisk = false;
+    serverAt = null;
     owe(true);
     writes = writes
       .then(async () => {
@@ -410,7 +415,12 @@ export const createNewTaskSession = ({
       if (mine !== generation) return false;
       const now = clock.now();
       const server = filed ? null : reached ? item : held;
-      const best = known ? newerAutosave(autosaveCopy(server, now), readDraftCopy(storage, owner, now)) : null;
+      const offline = known ? readDraftCopy(storage, owner, now) : null;
+      const best = known ? newerAutosave(autosaveCopy(server, now), offline, reached) : null;
+      /* Unreached, the server is as the offline copy last knew it: a write
+         landing from here would have removed that copy. */
+      const stamp = item ? Date.parse(item.savedAt) : null;
+      serverAt = filed ? null : !reached ? offline?.over : Number.isNaN(stamp) ? undefined : stamp;
       if (known) onAutosave?.(best ? { ownerId: owner, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null);
       if (unless?.()) {
         shut();
