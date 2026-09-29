@@ -209,7 +209,8 @@ export const createNewTaskSession = ({
   /* A filed task's forget that has not landed (#472), kept here as well as in
      storage so it holds where storage is locked down. */
   let filedOwed = false;
-  let retrying = false;
+  /* Owed-forget retries still out; one that gave up can outlive a later one. */
+  let retrying = 0;
   const owed = (): boolean => filedOwed || filedForgetOwed(storage, owner);
   const owe = (value: boolean): void => {
     filedOwed = value;
@@ -239,7 +240,7 @@ export const createNewTaskSession = ({
       .then(async () => {
         /* While a timed-out forget is still out, a server write could land
            before it and be deleted, so the typing stays offline. */
-        if (!retrying && (await keepAutosaveRequest(request, values))) {
+        if (retrying === 0 && (await keepAutosaveRequest(request, values))) {
           clearDraft(storage, owner);
           if (owed()) owe(false);
         } else writeDraft(storage, owner, values, clock.now());
@@ -348,14 +349,14 @@ export const createNewTaskSession = ({
   const retryOwedForget = async (): Promise<boolean> => {
     if (!owed()) return false;
     let settled = false;
-    retrying = true;
+    retrying += 1;
     const retry = writes.then(async () => {
       if (await forgetAutosaveRequest(request)) owe(false);
       settled = true;
     });
     retry.then(
-      () => (retrying = false),
-      () => (retrying = false)
+      () => (retrying -= 1),
+      () => (retrying -= 1)
     );
     let timer: unknown;
     const gaveUp = new Promise<void>((resolve) => {

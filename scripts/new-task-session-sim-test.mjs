@@ -434,6 +434,36 @@ test("a retried forget that never answers doesn't hold up later typing: it is ke
   assert.equal(server.writes().filter((call) => call.method === "PUT").length, putsBefore + 1, "once it answers, typing goes to the server again");
 });
 
+test("two retried forgets out at once: the first answering doesn't let typing reach the server before the second lands", async () => {
+  const { server, storage, clock, key } = await fileWithForgetFailing();
+  server.hold = (call) => call.method === "DELETE";
+  const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
+  const first = reloaded.open();
+  await clock.advance(2000);
+  assert.equal(await first, true);
+  reloaded.close();
+  const second = reloaded.open();
+  await clock.advance(2000);
+  assert.equal(await second, true);
+  assert.equal(server.held.length, 2, "both forgets are still out");
+  const putsBefore = server.writes().filter((call) => call.method === "PUT").length;
+
+  server.held.shift().release();
+  await settle();
+  reloaded.edit(values({ notes: "the next task" }));
+  await clock.advance(1000);
+  assert.equal(server.writes().filter((call) => call.method === "PUT").length, putsBefore, "no write races the forget still out");
+  assert.equal(JSON.parse(storage.getItem(key)).values.notes, "the next task");
+
+  server.hold = null;
+  server.held.shift().release();
+  await settle();
+  assert.equal(JSON.parse(storage.getItem(key)).values.notes, "the next task", "the late forget leaves the offline copy alone");
+  reloaded.edit(values({ notes: "the next task, more" }));
+  await clock.advance(1000);
+  assert.equal(server.writes().filter((call) => call.method === "PUT").length, putsBefore + 1, "once both answer, typing goes to the server again");
+});
+
 test("typing after a filed task whose forget failed is still kept and restored", async () => {
   const { session, server, clock } = await fileWithForgetFailing();
   await session.open();
