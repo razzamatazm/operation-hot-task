@@ -121,13 +121,13 @@ const record = (over = {}) => ({
   ...over
 });
 
-const setup = () => {
+/* `storage` carries a browser across a reload: a new session on the old one. */
+const setup = ({ owner = "user-1", storage = fakeStorage() } = {}) => {
   const clock = fakeClock();
   const server = fakeServer();
-  const storage = fakeStorage();
   const events = { autosave: [], savedForLater: [], latest: [], unsaved: [], gone: [], notices: [] };
   const session = createNewTaskSession({
-    owner: "user-1",
+    owner,
     request: server.request,
     storage,
     clock,
@@ -198,7 +198,7 @@ test("a server that can't be reached opens on the copy already on screen", async
   assert.deepEqual(ctx.events.notices, []);
 });
 
-test("a reopened record has no Autosave seat and no offline copy", async () => {
+test("a reopened record has no Autosave seat, and no browser copy once its send lands", async () => {
   const ctx = setup();
   await reopen(ctx);
   ctx.session.edit(values({ notes: "typing" }));
@@ -296,7 +296,7 @@ test("an untouched reopened form sends nothing", async () => {
   assert.deepEqual(ctx.server.writes(), []);
 });
 
-test("a failed send isn't kept anywhere, and the next keystroke retries", async () => {
+test("a failed send is kept in the browser, and the next keystroke retries and removes it (#476)", async () => {
   const ctx = setup();
   await reopen(ctx);
   ctx.server.answer = () => {
@@ -304,11 +304,154 @@ test("a failed send isn't kept anywhere, and the next keystroke retries", async 
   };
   ctx.session.edit(values({ notes: "try me" }));
   await ctx.clock.advance(1000);
-  assert.equal(ctx.storage.items.size, 0);
+  assert.equal(ctx.storage.items.size, 1);
   ctx.server.answer = () => ({});
   ctx.session.edit(values({ notes: "try me" }));
   await ctx.clock.advance(1000);
   assert.deepEqual(ctx.server.writes(), [["PUT", "/saved-for-later/sfl-1/unsaved"], ["PUT", "/saved-for-later/sfl-1/unsaved"]]);
+  assert.equal(ctx.storage.items.size, 0);
+});
+
+/* ── The browser copy while the server is down (#476) ───── */
+
+const down = (ctx) => {
+  ctx.server.answer = () => {
+    throw unreachable();
+  };
+};
+
+/* Type into a reopened record with the server down: a browser copy is left. */
+const typeWhileDown = async (ctx, typed, latest = record()) => {
+  await reopen(ctx, latest);
+  down(ctx);
+  ctx.session.edit(typed);
+  await ctx.clock.advance(1000);
+  assert.equal(ctx.storage.items.size, 1);
+};
+
+test("typing while the server is down survives a reload, reopened with the server still down", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ folderName: "Castillo", notes: "typed offline" }));
+  const after = setup({ storage: before.storage });
+  down(after);
+  assert.equal(await after.session.reopen(record()), "opened");
+  const state = openState(after.session);
+  assert.equal(state.values.notes, "typed offline");
+  assert.equal(state.mode.record.unsaved.notes, "typed offline", "the unsaved changes note shows");
+  assert.equal(after.storage.items.size, 1, "still the only copy");
+});
+
+test("once the server is back, reopening sends the copy to the unsaved slot and removes it", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ folderName: "Castillo", notes: "typed offline" }));
+  const after = setup({ storage: before.storage });
+  await reopen(after);
+  assert.equal(openState(after.session).values.notes, "typed offline");
+  await settle();
+  assert.deepEqual(after.server.writes(), [["PUT", "/saved-for-later/sfl-1/unsaved"]]);
+  assert.equal(after.server.calls.at(-1).body.form.notes, "typed offline");
+  assert.deepEqual(after.events.unsaved, [["sfl-1", values({ folderName: "Castillo", notes: "typed offline" })]]);
+  assert.equal(after.storage.items.size, 0);
+});
+
+test("the next send that lands in the same open removes the copy", async () => {
+  const ctx = setup();
+  await typeWhileDown(ctx, values({ notes: "offline" }));
+  ctx.server.answer = () => ({});
+  ctx.session.edit(values({ notes: "online again" }));
+  await ctx.clock.advance(1000);
+  assert.equal(ctx.storage.items.size, 0);
+});
+
+test("typing back to what the server holds after a failed send removes the copy", async () => {
+  const ctx = setup();
+  await typeWhileDown(ctx, values({ notes: "offline" }));
+  ctx.server.answer = () => ({});
+  ctx.session.edit(record().form);
+  await ctx.clock.advance(1000);
+  assert.deepEqual(ctx.server.writes(), [["PUT", "/saved-for-later/sfl-1/unsaved"]], "nothing to send");
+  assert.equal(ctx.storage.items.size, 0);
+});
+
+test("a record saved again elsewhere since the copy was written wins over the copy", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ notes: "offline" }));
+  const after = setup({ storage: before.storage });
+  await reopen(after, record({ savedAt: new Date(START).toISOString(), form: values({ notes: "saved on the laptop" }) }));
+  assert.equal(openState(after.session).values.notes, "saved on the laptop");
+  await settle();
+  assert.deepEqual(after.server.writes(), []);
+});
+
+test("unsaved typing that reached the server from elsewhere since the copy wins over the copy", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ notes: "offline" }));
+  const after = setup({ storage: before.storage });
+  await reopen(after, record({ unsaved: values({ notes: "typed on the laptop" }) }));
+  assert.equal(openState(after.session).values.notes, "typed on the laptop");
+});
+
+test("the copy remembers unsaved typing that had landed before the server went down", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  ctx.session.edit(values({ notes: "landed" }));
+  await ctx.clock.advance(1000);
+  down(ctx);
+  ctx.session.edit(values({ notes: "landed, then offline" }));
+  await ctx.clock.advance(1000);
+  const after = setup({ storage: ctx.storage });
+  await reopen(after, record({ unsaved: values({ notes: "landed" }) }));
+  assert.equal(openState(after.session).values.notes, "landed, then offline");
+});
+
+test("another person's copy is never shown", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ notes: "user-1's typing" }));
+  const other = setup({ owner: "user-2", storage: before.storage });
+  await reopen(other, record({ ownerId: "user-2" }));
+  assert.equal(openState(other.session).values.notes, "the save");
+  await settle();
+  assert.deepEqual(other.server.writes(), []);
+  assert.equal(other.storage.items.size, 1, "user-1's copy is left for user-1");
+});
+
+test("Create removes the copy", async () => {
+  const ctx = setup();
+  await typeWhileDown(ctx, values({ notes: "offline" }));
+  ctx.server.answer = () => ({});
+  await ctx.session.end({ kind: "create", file: async () => {} });
+  assert.equal(ctx.storage.items.size, 0);
+});
+
+test("Save for later removes the copy", async () => {
+  const ctx = setup();
+  await typeWhileDown(ctx, values({ notes: "offline" }));
+  ctx.server.answer = () => ({ item: record({ savedAt: new Date(START).toISOString() }) });
+  await ctx.session.end({ kind: "saveForLater" });
+  assert.equal(ctx.storage.items.size, 0);
+});
+
+test("Discard removes the copy, even when the delete fails", async () => {
+  const ctx = setup();
+  await typeWhileDown(ctx, values({ notes: "offline" }));
+  await ctx.session.end({ kind: "discard" });
+  assert.equal(ctx.storage.items.size, 0);
+});
+
+test("a record found gone on reopen takes its copy with it", async () => {
+  const before = setup();
+  await typeWhileDown(before, values({ notes: "offline" }));
+  const after = setup({ storage: before.storage });
+  after.server.answer = () => {
+    throw gone();
+  };
+  assert.equal(await after.session.reopen(record()), "gone");
+  assert.equal(after.storage.items.size, 0);
+});
+
+test("deleting a Task Draft from the board removes its copy", () => {
+  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  assert.match(app, /removeSavedForLaterRequest\(savedForLaterRequestFor\(user\), item\.id\);[\s\S]{0,400}clearUnsavedCopy\(browserDraftStorage\(\), user\.id, item\.id\)/);
 });
 
 /* ── Ending ─────────────────────────────────────────────── */

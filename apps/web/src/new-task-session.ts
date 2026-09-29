@@ -5,7 +5,18 @@
    the bottom. App and the form only call it. */
 import type { Autosave, SavedForLaterTask } from "@loan-tasks/shared";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { autosaveCopy, clearDraft, draftAction, newerAutosave, readDraftCopy, writeDraft } from "./create-form-draft";
+import {
+  autosaveCopy,
+  clearDraft,
+  clearUnsavedCopy,
+  draftAction,
+  newerAutosave,
+  readDraftCopy,
+  readUnsavedCopy,
+  writeDraft,
+  writeUnsavedCopy
+} from "./create-form-draft";
+import type { UnsavedCopyBase } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
 import { formHasChanges, initialCreateForm } from "./create-form-state";
 import type { CreateFormValues } from "./create-form-state";
@@ -112,6 +123,11 @@ const browserClock: NewTaskSessionClock = { ...browserTimers, now: () => Date.no
 
 const CLOSED: NewTaskSessionState = { phase: "closed" };
 
+/* Whether the server still holds the record a browser copy was written on. */
+const sameBase = (base: UnsavedCopyBase, latest: SavedForLaterTask): boolean =>
+  base.savedAt === latest.savedAt &&
+  (base.unsaved && latest.unsaved ? !formHasChanges(base.unsaved, latest.unsaved) : !base.unsaved && !latest.unsaved);
+
 export const createNewTaskSession = ({
   owner,
   request,
@@ -138,6 +154,10 @@ export const createNewTaskSession = ({
   let mode: NewTaskMode = { kind: "fresh" };
   /* A reopened record's unsaved typing as last sent, or null for none. */
   let sent: CreateFormValues | null = null;
+  /* The same, as the server last took it; and whether this browser holds a
+     copy of typing it didn't take (#476). */
+  let landed: CreateFormValues | null = null;
+  let copied = false;
   let timer: unknown = null;
   /* Writes, one after another, so an older one never lands after a newer one. */
   let writes: Promise<unknown> = Promise.resolve();
@@ -189,16 +209,31 @@ export const createNewTaskSession = ({
       differsFromSent: before !== null && formHasChanges(before, values),
       sentExists: before !== null
     });
-    if (action === "keep") return;
+    if (action === "keep") {
+      /* The server already holds what's on screen. */
+      if (copied) writes = writes.then(() => dropCopy(record.id));
+      return;
+    }
     const next = action === "write" ? values : null;
     sent = next;
     writes = writes
       .then(async () => {
-        const landed = next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id);
-        if (landed) onSavedForLaterUnsaved?.(record.id, next);
-        else if (sent === next) sent = before;
+        if (next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id)) {
+          landed = next;
+          dropCopy(record.id);
+          onSavedForLaterUnsaved?.(record.id, next);
+          return;
+        }
+        if (sent === next) sent = before;
+        writeUnsavedCopy(storage, owner, record.id, { values, base: { savedAt: record.savedAt, unsaved: landed } });
+        copied = true;
       })
       .catch(() => {});
+  };
+
+  const dropCopy = (id: string): void => {
+    clearUnsavedCopy(storage, owner, id);
+    copied = false;
   };
 
   const removeRecord = async (id: string, failed: string): Promise<void> => {
@@ -279,6 +314,7 @@ export const createNewTaskSession = ({
       const latest = await reopenSavedForLaterRequest(request, item);
       if (mine !== generation) return "skipped";
       if (!latest) {
+        clearUnsavedCopy(storage, owner, item.id);
         onSavedForLaterGone?.(item.id);
         notify?.("That Task Draft is gone. It was created or removed somewhere else.", "warn");
         return "gone";
@@ -287,13 +323,19 @@ export const createNewTaskSession = ({
       /* A New Task still loading gives way: the first form to land wins. */
       if (state.phase === "open" || unless?.()) return "skipped";
       generation += 1;
-      const source = latest.unsaved ?? latest.form;
+      /* This browser's copy, while the server still holds what it was written on. */
+      const offline = readUnsavedCopy(storage, owner, latest.id);
+      const copy = offline && sameBase(offline.base, latest) ? offline.values : null;
+      const source = copy ?? latest.unsaved ?? latest.form;
       fresh = initialCreateForm();
       openedWith = { ...source, initialItems: [...source.initialItems] };
       onDisk = false;
       sent = latest.unsaved ?? null;
-      mode = { kind: "reopened", record: latest };
+      landed = sent;
+      copied = offline !== null;
+      mode = { kind: "reopened", record: copy && formHasChanges(latest.form, copy) ? { ...latest, unsaved: copy } : latest };
       set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
+      if (copy) sendUnsaved(latest, copy);
       return "opened";
     },
 
@@ -335,6 +377,7 @@ export const createNewTaskSession = ({
           patch({ ending: "discard" });
           if (current.kind === "reopened") {
             await writes;
+            dropCopy(current.record.id);
             await removeRecord(current.record.id, "Couldn't delete that Task Draft. It's still on Task Drafts.");
             shutMine();
             return undefined as R;
@@ -346,6 +389,7 @@ export const createNewTaskSession = ({
         case "create":
           await settleThen(mine, "create", ending.file);
           if (current.kind === "reopened") {
+            dropCopy(current.record.id);
             await removeRecord(current.record.id, "Task created, but its Task Draft couldn't be removed.");
             shutMine();
             return undefined as R;
@@ -357,6 +401,7 @@ export const createNewTaskSession = ({
           if (current.kind === "reopened") {
             const { id } = current.record;
             const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values, id));
+            dropCopy(id);
             onSavedForLater?.(saved, id);
             shutMine();
             return saved as R;
