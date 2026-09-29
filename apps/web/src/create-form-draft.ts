@@ -336,6 +336,81 @@ export const clearDraft = (storage: DraftStorage | null, userId: string): void =
   }
 };
 
+/* ── A reopened Task Draft's typing the server never got (#476) ──
+   One per person per record. `base` is the record as the server held it when
+   the copy was written: its last save and its unsaved typing (null for none,
+   absent when never heard from the server). While the server still holds
+   exactly that, the copy is the newer; once it holds anything else, a later
+   write got there and the copy loses. No clocks are compared, and no expiry:
+   the record it belongs to doesn't expire. */
+const unsavedCopyKey = (userId: string, savedId: string): string => `loan-tasks:unsaved-copy:${userId}:${savedId}`;
+
+export interface UnsavedCopyBase {
+  savedAt: string;
+  unsaved?: CreateFormValues | null;
+}
+
+export interface UnsavedCopy {
+  values: CreateFormValues;
+  base: UnsavedCopyBase;
+}
+
+export const writeUnsavedCopy = (storage: DraftStorage | null, userId: string, savedId: string, copy: UnsavedCopy): void => {
+  if (!storage) return;
+  try {
+    const { savedAt, unsaved } = copy.base;
+    const base = unsaved === undefined ? { savedAt } : { savedAt, unsaved: unsaved && pickValues(unsaved) };
+    storage.setItem(unsavedCopyKey(userId, savedId), JSON.stringify({ version: DRAFT_VERSION, values: pickValues(copy.values), base }));
+  } catch {
+    /* storage unavailable or full — degrade silently */
+  }
+};
+
+/* The copy, or null for none or one that isn't the right shape (pruned). */
+export const readUnsavedCopy = (storage: DraftStorage | null, userId: string, savedId: string): UnsavedCopy | null => {
+  if (!storage) return null;
+  try {
+    const key = unsavedCopyKey(userId, savedId);
+    const raw = storage.getItem(key);
+    if (raw === null) return null;
+    const copy = parseUnsavedCopy(raw);
+    if (!copy) storage.removeItem(key);
+    return copy;
+  } catch {
+    /* storage unavailable — degrade silently */
+    return null;
+  }
+};
+
+const parseUnsavedCopy = (raw: string): UnsavedCopy | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const record = parsed as { version?: unknown; values?: unknown; base?: { savedAt?: unknown; unsaved?: unknown } };
+  if (record.version !== DRAFT_VERSION || typeof record.base !== "object" || record.base === null) return null;
+  if (typeof record.base.savedAt !== "string") return null;
+  const values = formValuesOf(record.values);
+  if (!values) return null;
+  const { savedAt, unsaved } = record.base;
+  if (!("unsaved" in record.base)) return { values, base: { savedAt } };
+  if (unsaved === null) return { values, base: { savedAt, unsaved: null } };
+  const known = formValuesOf(unsaved);
+  return known ? { values, base: { savedAt, unsaved: known } } : null;
+};
+
+export const clearUnsavedCopy = (storage: DraftStorage | null, userId: string, savedId: string): void => {
+  if (!storage) return;
+  try {
+    storage.removeItem(unsavedCopyKey(userId, savedId));
+  } catch {
+    /* storage unavailable — degrade silently */
+  }
+};
+
 /* ── What a restored form says about itself (#285) ──────────
    Restoring silently is the right default and a small mystery: someone opens
    New Task expecting an empty form and finds last Tuesday's abandoned attempt

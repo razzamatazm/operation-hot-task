@@ -344,7 +344,7 @@ test("confirming removes it from the server, then from the section; a failure sa
   const dropping = handler.indexOf("setSavedForLater(");
   assert.ok(removing >= 0, "it asks the server through the one removal helper");
   assert.ok(refused > removing && toasting > refused && dropping > toasting, "a refusal toasts and returns before the row is dropped");
-  assert.match(handler, /return false;\s*\}\s*setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== item\.id\)\);\s*return true;/);
+  assert.match(handler, /return false;\s*\}\s*(?:clearUnsavedCopy\([^;]*\);\s*)?setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== item\.id\)\);\s*return true;/);
   assert.match(handler, /if \(user\.id !== savedForLaterOwner\.current\) return false;/, "an answer for the previous person is dropped");
 });
 

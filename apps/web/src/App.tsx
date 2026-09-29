@@ -22,7 +22,7 @@ import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount, withUnsaved } from "./saved-for-later";
 import { SavedForLaterRequest, forgetAutosaveRequest, keepAutosaveRequest, loadAutosaveRequest, removeSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
-import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
+import { autosaveCopy, browserDraftStorage, clearDraft, clearUnsavedCopy, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
 import { useNewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import type { AutosaveMove, PutFormAsideOutcome } from "./humperdink-arrival";
@@ -4390,6 +4390,7 @@ export const App = () => {
       showToast("Couldn't delete that Task Draft. Try again.", { variant: "error" });
       return false;
     }
+    clearUnsavedCopy(browserDraftStorage(), user.id, item.id);
     setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
     return true;
   }, [user, showToast]);

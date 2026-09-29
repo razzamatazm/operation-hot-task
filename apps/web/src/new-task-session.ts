@@ -5,7 +5,18 @@
    the bottom. App and the form only call it. */
 import type { Autosave, SavedForLaterTask } from "@loan-tasks/shared";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { autosaveCopy, clearDraft, draftAction, newerAutosave, readDraftCopy, writeDraft } from "./create-form-draft";
+import {
+  autosaveCopy,
+  clearDraft,
+  clearUnsavedCopy,
+  draftAction,
+  newerAutosave,
+  readDraftCopy,
+  readUnsavedCopy,
+  writeDraft,
+  writeUnsavedCopy
+} from "./create-form-draft";
+import type { UnsavedCopyBase } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
 import { formHasChanges, initialCreateForm } from "./create-form-state";
 import type { CreateFormValues } from "./create-form-state";
@@ -112,6 +123,13 @@ const browserClock: NewTaskSessionClock = { ...browserTimers, now: () => Date.no
 
 const CLOSED: NewTaskSessionState = { phase: "closed" };
 
+/* Whether the server still holds the record a browser copy was written on. */
+const sameBase = (base: UnsavedCopyBase, latest: SavedForLaterTask): boolean => {
+  if (base.savedAt !== latest.savedAt) return false;
+  if (base.unsaved === undefined) return true;
+  return base.unsaved && latest.unsaved ? !formHasChanges(base.unsaved, latest.unsaved) : !base.unsaved && !latest.unsaved;
+};
+
 export const createNewTaskSession = ({
   owner,
   request,
@@ -138,6 +156,10 @@ export const createNewTaskSession = ({
   let mode: NewTaskMode = { kind: "fresh" };
   /* A reopened record's unsaved typing as last sent, or null for none. */
   let sent: CreateFormValues | null = null;
+  /* The record as the server last held it, for a browser copy of typing it
+     didn't take (#476); and whether this browser holds one. */
+  let base: UnsavedCopyBase = { savedAt: "" };
+  let copied = false;
   let timer: unknown = null;
   /* Writes, one after another, so an older one never lands after a newer one. */
   let writes: Promise<unknown> = Promise.resolve();
@@ -189,16 +211,33 @@ export const createNewTaskSession = ({
       differsFromSent: before !== null && formHasChanges(before, values),
       sentExists: before !== null
     });
-    if (action === "keep") return;
+    if (action === "keep") {
+      /* Nothing to send; the copy goes once the server is known to hold this. */
+      writes = writes.then(() => {
+        if (copied && base.unsaved !== undefined && !formHasChanges(base.unsaved ?? record.form, values)) dropCopy(record.id);
+      });
+      return;
+    }
     const next = action === "write" ? values : null;
     sent = next;
     writes = writes
       .then(async () => {
-        const landed = next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id);
-        if (landed) onSavedForLaterUnsaved?.(record.id, next);
-        else if (sent === next) sent = before;
+        if (next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id)) {
+          base = { savedAt: record.savedAt, unsaved: next };
+          dropCopy(record.id);
+          onSavedForLaterUnsaved?.(record.id, next);
+          return;
+        }
+        if (sent === next) sent = before;
+        writeUnsavedCopy(storage, owner, record.id, { values, base });
+        copied = true;
       })
       .catch(() => {});
+  };
+
+  const dropCopy = (id: string): void => {
+    clearUnsavedCopy(storage, owner, id);
+    copied = false;
   };
 
   const removeRecord = async (id: string, failed: string): Promise<void> => {
@@ -276,9 +315,16 @@ export const createNewTaskSession = ({
 
     async reopen(item, { unless } = {}) {
       const mine = generation;
-      const latest = await reopenSavedForLaterRequest(request, item);
+      let reached = false;
+      const noteReached: SavedForLaterRequest = async (path, init) => {
+        const answer = await request(path, init);
+        reached = true;
+        return answer as never;
+      };
+      const latest = await reopenSavedForLaterRequest(noteReached, item);
       if (mine !== generation) return "skipped";
       if (!latest) {
+        clearUnsavedCopy(storage, owner, item.id);
         onSavedForLaterGone?.(item.id);
         notify?.("That Task Draft is gone. It was created or removed somewhere else.", "warn");
         return "gone";
@@ -287,13 +333,25 @@ export const createNewTaskSession = ({
       /* A New Task still loading gives way: the first form to land wins. */
       if (state.phase === "open" || unless?.()) return "skipped";
       generation += 1;
-      const source = latest.unsaved ?? latest.form;
+      /* This browser's copy, while the server still holds what it was written
+         on. Without the server, `latest` is the board's copy, which may lag
+         the server's unsaved typing: only a newer save outranks the copy. */
+      const stored = readUnsavedCopy(storage, owner, latest.id);
+      const copy = stored && sameBase(stored.base, latest) ? stored.values : null;
+      if (stored && !copy && reached) clearUnsavedCopy(storage, owner, latest.id);
+      const source = copy ?? latest.unsaved ?? latest.form;
       fresh = initialCreateForm();
       openedWith = { ...source, initialItems: [...source.initialItems] };
       onDisk = false;
       sent = latest.unsaved ?? null;
-      mode = { kind: "reopened", record: latest };
+      if (reached) base = { savedAt: latest.savedAt, unsaved: sent };
+      else base = copy && stored ? stored.base : { savedAt: latest.savedAt };
+      copied = stored !== null && (copy !== null || !reached);
+      const { unsaved: _, ...saved } = latest;
+      const record = copy ? (formHasChanges(latest.form, copy) ? { ...saved, unsaved: copy } : saved) : latest;
+      mode = { kind: "reopened", record };
       set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
+      if (copy) sendUnsaved(latest, copy);
       return "opened";
     },
 
@@ -335,6 +393,7 @@ export const createNewTaskSession = ({
           patch({ ending: "discard" });
           if (current.kind === "reopened") {
             await writes;
+            dropCopy(current.record.id);
             await removeRecord(current.record.id, "Couldn't delete that Task Draft. It's still on Task Drafts.");
             shutMine();
             return undefined as R;
@@ -346,6 +405,7 @@ export const createNewTaskSession = ({
         case "create":
           await settleThen(mine, "create", ending.file);
           if (current.kind === "reopened") {
+            dropCopy(current.record.id);
             await removeRecord(current.record.id, "Task created, but its Task Draft couldn't be removed.");
             shutMine();
             return undefined as R;
@@ -357,6 +417,7 @@ export const createNewTaskSession = ({
           if (current.kind === "reopened") {
             const { id } = current.record;
             const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values, id));
+            dropCopy(id);
             onSavedForLater?.(saved, id);
             shutMine();
             return saved as R;

@@ -561,7 +561,7 @@ test("the line is keyed to how the form opened, not to what is in it now", () =>
   assert.doesNotMatch(block, /\bform\.[a-z]/i, "no field of the current values is consulted");
   assert.match(FORM_SOURCE, /const restoredNote = live\?\.restored \?\? false;/, "read from the New Task session");
   assert.match(SESSION_SOURCE, /restored: best !== null/, "set once from how the form opened");
-  assert.match(SESSION_SOURCE, /mode = \{ kind: "reopened", record: latest \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "a reopened Task Draft never has the line");
+  assert.match(SESSION_SOURCE, /mode = \{ kind: "reopened", record(?:: [^;]+)? \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "a reopened Task Draft never has the line");
   assert.equal((SESSION_SOURCE.match(/restored: (?!boolean)/g) ?? []).length, 3, "and moved by exactly one thing: Start fresh");
   assert.match(SESSION_SOURCE, /case "startFresh":[\s\S]*?restored: false/);
 });
