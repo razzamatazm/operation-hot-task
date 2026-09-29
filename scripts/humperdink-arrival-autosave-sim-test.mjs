@@ -309,8 +309,8 @@ test("a held arrival still opens a new LOI Check, not the old autosave", () => {
 
 test("a held form has no seat on either copy of the autosave, so typing into it can't write over the old one", () => {
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
-  assert.match(seat.slice(0, seat.indexOf("}));")), /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/, "no browser copy to write");
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone && !session;/, "no server slot to write or forget");
+  assert.match(seat.slice(0, seat.indexOf("}));")), /storage: edit \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/, "no browser copy to write");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !leaveAutosaveAlone && !session;/, "no server slot to write or forget");
   const effect = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!autosaveSeat\) return;\s*const timer[\s\S]*?\}, \[form, autosaveSeat, opening\.fresh\]\);/)?.[0];
   assert.ok(effect, "the typing timer leaves before it writes anything");
   const forget = FORM_SOURCE.match(/const forgetDraft = \(\): void => \{([\s\S]*?)\n  \};/)?.[1];
@@ -319,10 +319,10 @@ test("a held form has no seat on either copy of the autosave, so typing into it 
 
 test("Save for later on a held form keeps the old autosave: it doesn't ask the server to clear the slot", async () => {
   const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
-  assert.match(body, /await onSaveForLater\(values, reopened\?\.id, autosaveSeat\)/);
+  assert.match(body, /await onSaveForLater\(values, autosaveSeat\)/);
   const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(handler, /saveForLaterRequest\(savedForLaterRequestFor\(user\), form, savedId, clearAutosave\)/);
-  assert.match(handler, /if \(!savedId && clearAutosave\) setAutosave\(null\)/, "the Autosaved row stays when the slot wasn't cleared");
+  assert.match(handler, /saveForLaterRequest\(savedForLaterRequestFor\(user\), form, undefined, clearAutosave\)/);
+  assert.match(handler, /if \(clearAutosave\) setAutosave\(null\)/, "the Autosaved row stays when the slot wasn't cleared");
 
   const server = modelServer({ autosave: serverAutosave(OLD_TASK) });
   await saveForLaterRequest(server.request, NEW_TYPING, undefined, false);
@@ -363,7 +363,7 @@ test("App moves the autosave, then loads the drafts, then opens the LOI Check, h
     "user.id !== savedForLaterOwner.current",
     "loadSavedForLater()",
     "loadAutosave()",
-    "setReopened(null)",
+    "newTask.close()",
     'setLeaveAutosaveAlone(outcome.kind === "held")',
     "setHumperdinkArrival(true)",
     "setFormOpen(true)"
@@ -383,7 +383,7 @@ test("App hands the form the hold, and every other way in drops it", () => {
   assert.ok(newTaskMount);
   assert.doesNotMatch(newTaskMount, /leaveAutosaveAlone/, "New Task always has its seat");
   const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
-  assert.match(openSaved, /setLeaveAutosaveAlone\(false\)/);
+  assert.match(openSaved, /newTask\.reopen\(/, "a reopened draft opens the session's form, which never holds the seat");
 });
 
 test("opening New Task normally still restores the autosave exactly as before", async () => {

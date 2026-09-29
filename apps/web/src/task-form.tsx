@@ -26,13 +26,13 @@
    rather than this task (ADR-0008 rule 7). The folder name loses its typeahead
    in edit mode — picking a different existing loan is repointing the task, not
    correcting it. */
-import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, SavedForLaterTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
+import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, MutableRefObject, useEffect, useId, useMemo, useRef, useState } from "react";
 import { browserDraftStorage, clearDraft, draftAction, restoredDraftCopy, writeDraft } from "./create-form-draft";
 import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
 import { PutFormAsideOutcome, arrivalPasteStep, putFormAside } from "./humperdink-arrival";
-import { UNSAVED_SAVE_DEBOUNCE_MS, unsavedAction } from "./saved-for-later-requests";
+import { UNSAVED_SAVE_DEBOUNCE_MS } from "./saved-for-later-requests";
 import { NewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
@@ -102,49 +102,20 @@ interface TaskFormProps {
   /* Persist the task, then fire the optional post-create share (#46) with its
      delivered/couldn't-reach toast, and refresh. Resolves once the task is
      created; rejects only when the create itself fails (App has already shown
-     the error toast) so the form stays open for a retry.
-
-     `savedId` is the Saved for Later task this form was reopened from (#344),
-     so App can remove it once the task exists, and only then. */
-  onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string, savedId?: string) => Promise<void>;
+     the error toast) so the form stays open for a retry. */
+  onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
   /* Put this new task aside (#343, ADR-0011): App keeps the whole form on the
      server and lists it in the board's Saved for Later section. Resolves once it
      is saved; rejects only when the save fails (App has already shown the
      error) so the form stays open. Absent means no Save for later button, and
      App never passes it to edit mode.
 
-     `savedId` names the record a reopened form came from (#344), so the save
-     lands on that record instead of making a copy. `clearAutosave` is whether
-     this form has a seat on the autosave (#371, #413): a new form's save clears
-     the slot in the same write, and a form without a seat leaves it alone. */
-  onSaveForLater?: (form: CreateFormValues, savedId?: string, clearAutosave?: boolean) => Promise<void>;
-  /* The Saved for Later task this create form was reopened from (#344,
-     ADR-0011). Present means the form opens on that record's values, every
-     field, and stays the create form: Create Task and Save for later both
-     work, and both name this record to App.
-
-     It never touches the browser autosave, the way edit mode does not. The
-     autosave is one unrelated new-task form kept against a lost tab, and a
-     reopened record is already kept on the server; letting this form write
-     there would make a second copy of the record, and letting it clear there
-     would throw away somebody's other typing. Abandoned typing goes back to
-     the record instead (#348): see `onKeepUnsaved`. It opens on that typing
-     when the record carries some. */
-  reopened?: SavedForLaterTask;
-  /* Where a reopened form's typing goes as it is typed (#348, ADR-0011 rule
-     5): onto that record's unsaved slot, beside its save. Resolves whether it
-     landed, and never rejects, because it runs off a timer mid-sentence. */
-  onKeepUnsaved?: (savedId: string, form: CreateFormValues) => Promise<boolean>;
-  /* Throws that unsaved typing away and leaves the save as it was: a form typed
-     back to exactly what was saved. Resolves whether nothing unsaved is left;
-     never rejects. */
-  onDiscardUnsaved?: (savedId: string) => Promise<boolean>;
-  /* Deletes the Task Draft this form was reopened from, when Discard is pressed
-     on its leave prompt (#388, #399), and drops it from the Task Drafts tab.
-     Resolves whether it is gone, one already gone included; never rejects. */
-  onDeleteReopened?: (savedId: string) => Promise<boolean>;
-  /* A fresh New Task form's session (#467): what it opens on, its Autosave,
-     and every way it ends. Present only on that form. */
+     `clearAutosave` is whether this form has a seat on the autosave (#371,
+     #413): a new form's save clears the slot in the same write, and a form
+     without a seat leaves it alone. */
+  onSaveForLater?: (form: CreateFormValues, clearAutosave?: boolean) => Promise<void>;
+  /* A New Task form's session (#467): a fresh form or a reopened Task Draft
+     (#469), what it opens on, where its typing goes, and every way it ends. */
   session?: NewTaskSession;
   /* Writes a new task form's typing to the server's autosave, as it is typed
      (#371). Resolves whether it landed, and never rejects: it runs off a timer
@@ -202,11 +173,13 @@ interface TaskFormProps {
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, readClipboard, loansLoaded = false, arrivalAside, edit, reopened, onKeepUnsaved, onDiscardUnsaved, onDeleteReopened, session, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, humperdinkArrival, leaveAutosaveAlone, readClipboard, loansLoaded = false, arrivalAside, edit, session, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   const sessionState = useNewTaskSessionState(session, (state) => state);
   const live = sessionState.phase === "open" ? sessionState : null;
+  /* The Task Draft this form was reopened on (#344), if it was. */
+  const reopened = live?.mode.kind === "reopened" ? live.mode.record : undefined;
   /* The two required boxes, so a save can hang its refusal on the field the
      browser would hang "please fill out this field" on. The folder name joined
      them in edit mode with #262; in create mode nothing refuses a create, so the
@@ -240,7 +213,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Null storage in edit mode is the whole of "edit mode saves no draft": there
      is nothing to switch off further down, because there is nowhere to write. */
   const [draftSeat] = useState<{ storage: ReturnType<typeof browserDraftStorage>; userId: string }>(() => ({
-    storage: edit || reopened || leaveAutosaveAlone || session ? null : browserDraftStorage(),
+    storage: edit || leaveAutosaveAlone || session ? null : browserDraftStorage(),
     userId: user.id
   }));
   /* Whether this form has a seat on the server's autosave (#371): a new task
@@ -248,7 +221,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      browser storage above. Nor does a Humperdink arrival told to leave the
      autosave alone (#413), whose slot still holds another task. Nothing further
      down reads, writes or forgets the server's autosave without it. */
-  const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone && !session;
+  const autosaveSeat = !edit && !leaveAutosaveAlone && !session;
   /* The server calls behind that seat, pinned at open for the reason the seat's
      user id is. App's callbacks follow whoever is signed in now, and the dev
      user picker can change that mid-form; held from open, they write and forget
@@ -277,17 +250,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     if (edit) {
       const values = editFormValues(edit.task);
       return { values, fresh: values };
-    }
-    /* A reopened Saved for Later task (#344) opens on its record, every field,
-       copied so the form's state can never be the list's object. `fresh` stays
-       the blank-slate open, which keeps Save for later pressable straight away:
-       saving it again unchanged is a real save, and restarts its "saved N ago". */
-    if (reopened) {
-      /* Typing left on it without a save (#348) is what the person last had on
-         screen, so that is what comes back. */
-      const source = reopened.unsaved ?? reopened.form;
-      const values = { ...source, initialItems: [...source.initialItems] };
-      return { values, fresh: initialCreateForm() };
     }
     /* A Humperdink arrival (#412) is an LOI Check whatever else was passed. */
     const opensWith = humperdinkArrival ? { ...initialValues, taskType: "LOI" as const } : initialValues;
@@ -318,11 +280,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      never wrote — and what makes emptying a restored form back out clear the
      copy behind it rather than leave the old values waiting to reappear. */
   const draftStored = useRef(false);
-  /* The unsaved typing on a reopened form's record, as far as this form knows
-     (#348): what it opened on, then whatever it last sent, or null for none. */
-  const unsavedSent = useRef<CreateFormValues | null>(reopened?.unsaved ?? null);
-  /* The values on screen, for the sends that happen outside a render: Cancel's
-     last send, and the retry after a failed ending. */
+  /* The values on screen, for reads outside a render. */
   const formNow = useRef(form);
   formNow.current = form;
   /* Those writes, one after another, so an older one can never land after a
@@ -621,8 +579,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Storage that is missing, locked down or full is handled inside the local
      write and clear themselves, silently.
 
-     Writes go into the same queue a reopened form's do (`unsavedWrites`), so
-     every ending, which waits on that queue, can never be followed by a write
+     Writes go into one queue (`unsavedWrites`), so every ending, which waits on that queue, can never be followed by a write
      that puts the typing back. The timer does nothing once an ending has
      begun, for the same reason. */
   const keepAutosave = (values: CreateFormValues): void => {
@@ -667,60 +624,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     }, UNSAVED_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [form, autosaveSeat, opening.fresh]);
-
-  /* ── Keeping unsaved typing on its record (#348) ─────────────
-     A reopened Saved for Later task has no seat in the browser autosave, so the
-     autosave above does nothing for it. Its typing goes to the server instead,
-     onto the record it came from, which is ADR-0011 rule 5: there is never a
-     second copy, and the next New Task is never offered it.
-
-     Written as it is typed, on a trailing debounce, like the autosave, and
-     never on a way out the app cannot see. Write, keep or clear is
-     `unsavedAction`, measured against what this form last sent rather than
-     what it opened on, because it sends as it goes: typing that differs from
-     the save and from the last send is sent, and a form typed back to exactly
-     the save clears what was sent.
-
-     Onto the record's unsaved slot, never over its save, so `savedAt` and the
-     row's place stay put until a save moves them.
-
-     `sendUnsaved` is also called after a Save for later or Create that failed,
-     whose stop dropped a send. Cancel never needs it: a reopened form always
-     asks (#365), and every answer settles the writes itself. */
-  const sendUnsaved = (): void => {
-    if (!reopened || ending.current) return;
-    const values = formNow.current;
-    const sent = unsavedSent.current;
-    const action = unsavedAction({
-      differsFromSave: formHasChanges(reopened.form, values),
-      differsFromSent: sent !== null && formHasChanges(sent, values),
-      sentExists: sent !== null
-    });
-    /* What was sent moves when a send goes out rather than when it lands, so
-       the next decision is made against it; a send that fails puts it back,
-       unless a newer one has gone out since. */
-    if (action === "write" && onKeepUnsaved) {
-      unsavedSent.current = values;
-      unsavedWrites.current = unsavedWrites.current
-        .then(async () => {
-          if (!(await onKeepUnsaved(reopened.id, values)) && unsavedSent.current === values) unsavedSent.current = sent;
-        })
-        .catch(() => {});
-    } else if (action === "clear" && onDiscardUnsaved) {
-      unsavedSent.current = null;
-      unsavedWrites.current = unsavedWrites.current
-        .then(async () => {
-          if (!(await onDiscardUnsaved(reopened.id)) && unsavedSent.current === null) unsavedSent.current = sent;
-        })
-        .catch(() => {});
-    }
-  };
-
-  useEffect(() => {
-    if (!reopened) return;
-    const timer = window.setTimeout(sendUnsaved, UNSAVED_SAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [form, reopened, onKeepUnsaved, onDiscardUnsaved]);
 
   /* Before Save for later, Create or Discard acts (#348, #388): no
      further unsaved typing is sent, and the one already out lands first.
@@ -912,12 +815,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
         return;
       }
       await settleUnsaved();
-      await onCreate(
-        payload,
-        assignAtCreate ? "" : form.recipientUserId,
-        form.recipientNote.trim() || undefined,
-        reopened?.id
-      );
+      await onCreate(payload, assignAtCreate ? "" : form.recipientUserId, form.recipientNote.trim() || undefined);
       /* The task exists now, so the copy of it kept against losing it is over
          (#284) — the next New Task opens blank. Only on success: a create that
          failed leaves the form open to retry, and its draft with it. */
@@ -925,7 +823,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       onClose();
     } catch {
       ending.current = false;
-      sendUnsaved();
       /* create failed — App surfaced the error; leave the form open to retry */
     } finally {
       // In `finally`, not the catch: an exception must never strand the form
@@ -1078,10 +975,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      create form asks whenever there is anything in it: a reopened Saved for
      Later task always, a new one whenever it differs from a blank form, so only
      a completely empty one closes on the first press. The FRAUD seeder's
-     half-typed item counts in both, being typing that would be lost.
-
-     A reopened form therefore never closes silently, so it never has typing to
-     send on the way out: every answer to the prompt settles it (#348). */
+     half-typed item counts in both, being typing that would be lost. A session's
+     form (a fresh one, or a reopened Task Draft) asks its session instead. */
   const requestClose = (): void => {
     if (session) {
       void session.end({ kind: "cancel", pendingItemText: seedDraft });
@@ -1100,27 +995,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      takes the saved copy with it. Declining changes nothing at all — the prompt
      comes down and the draft stays exactly where it was.
 
-     On a reopened Task Draft (#388) Discard means the person does not want the
-     draft, and deletes it straight away: the prompt's body already says so, so
-     the prompt is the confirmation (#399). The answers shut first, and the
-     prompt stays up reading `Deleting…`. The typing writes settle next, so a
-     keystroke's write still out cannot land after the delete and bring the
-     record back. Then the record goes, through the same removal the Task Drafts
-     row and Create use, which counts one already gone as deleted. If it could
-     not be deleted the form still closes, since that is what the person asked
-     for, and says the draft is still there rather than letting it surprise
-     anyone. */
+     On a reopened Task Draft (#388, #399) the session deletes the record, and
+     the prompt stays up reading `Deleting…` until it is done. */
   const confirmDiscard = async (): Promise<void> => {
-    if (reopened && onDeleteReopened) {
-      if (discarding) return;
-      setDiscarding(true);
-      await settleUnsaved();
-      if (!(await onDeleteReopened(reopened.id))) {
-        showToast("Couldn't delete that Task Draft. It's still on Task Drafts.", { variant: "warn" });
-      }
-      onClose();
-      return;
-    }
     if (session) {
       if (!discarding) await session.end({ kind: "discard" });
       return;
@@ -1171,13 +1048,12 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     setSavingForLater(true);
     try {
       await settleUnsaved();
-      await onSaveForLater(values, reopened?.id, autosaveSeat);
+      await onSaveForLater(values, autosaveSeat);
       forgetDraft();
       onClose();
       return true;
     } catch {
       ending.current = false;
-      sendUnsaved();
       /* save failed — App surfaced the error; leave the form open to retry */
       return false;
     } finally {

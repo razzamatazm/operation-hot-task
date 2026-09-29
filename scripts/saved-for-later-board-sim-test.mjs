@@ -465,7 +465,9 @@ test("tapping the Autosaved row opens New Task exactly as the New Task button do
   assert.match(newTaskMount, /session=\{newTask\}/, "a New Task gets the session and its autosave");
   assert.doesNotMatch(newTaskMount, /reopened/, "a New Task is not a reopened record");
   const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{\}\)\}/, "a reopened record never gets the autosave");
+  /* A reopened record opens through the session, whose reopened mode has no
+     Autosave seat: driven in reopened-task-session-sim-test. */
+  assert.doesNotMatch(createMount, /reopened/, "a reopened record never gets the create form's autosave");
   assert.match(createMount, /onKeepAutosave=\{onKeepAutosave\}/);
   assert.match(createMount, /onForgetAutosave=\{onForgetAutosave\}/);
 });
@@ -508,7 +510,7 @@ test("deleting the Autosaved row forgets it on the server and in this browser; a
 
 test("saving a new form for later leaves one draft and no Autosaved row", () => {
   const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(handler, /if \(!savedId && clearAutosave\) setAutosave\(null\);/, "the row goes the moment the draft appears; the server cleared it in the same write");
+  assert.match(handler, /if \(clearAutosave\) setAutosave\(null\);/, "the row goes the moment the draft appears; the server cleared it in the same write");
 });
 
 /* ── Reopening one (#344) ────────────────────────────────── */
@@ -546,8 +548,19 @@ const reopened = (form, overrides = {}) => ({
   ...overrides
 });
 
-test("a reopened Saved for Later task opens the create form with every field restored", () => {
-  const html = renderForm({ reopened: reopened(FULL_FORM), directory: DIRECTORY });
+/* A reopened Task Draft is a New Task session opened on the record (#469). */
+const renderReopened = async (record, props = {}) => {
+  const session = createNewTaskSession({
+    owner: USER.id,
+    request: async () => ({ item: record }),
+    storage: window.localStorage
+  });
+  assert.equal(await session.reopen(record), "opened");
+  return renderForm({ session, ...props });
+};
+
+test("a reopened Saved for Later task opens the create form with every field restored", async () => {
+  const html = await renderReopened(reopened(FULL_FORM), { directory: DIRECTORY });
   assert.match(html, /aria-label="New task"/, "the create form, not edit mode");
   assert.match(html, /value="Baker - Pier 9"/, "folder name");
   assert.match(html, /<option value="FRAUD" selected="">/, "task type");
@@ -559,12 +572,12 @@ test("a reopened Saved for Later task opens the create form with every field res
   assert.match(html, /<option value="user-2" selected="">Sam Checker<\/option>/, "who it goes to");
   assert.match(html, /value="Can you look first thing\?"/, "the note to them");
 
-  const assign = renderForm({ reopened: reopened({ ...FULL_FORM, taskType: "VALUE", pickerMode: "assign" }), directory: DIRECTORY });
+  const assign = await renderReopened(reopened({ ...FULL_FORM, taskType: "VALUE", pickerMode: "assign" }), { directory: DIRECTORY });
   assert.match(assign, /aria-pressed="true">Assign/, "share or assign");
 
-  const ooo = renderForm({
-    reopened: reopened({ ...FULL_FORM, taskType: "OOO", folderName: "Beach week", startDate: "2026-09-20", returnDate: "2026-09-27" })
-  });
+  const ooo = await renderReopened(
+    reopened({ ...FULL_FORM, taskType: "OOO", folderName: "Beach week", startDate: "2026-09-20", returnDate: "2026-09-27" })
+  );
   assert.match(ooo, /value="2026-09-20"/, "start date");
   assert.match(ooo, /value="2026-09-27"/, "return date");
 });
@@ -574,11 +587,11 @@ test("every field the form holds is one the reopen test above restores", async (
   assert.deepEqual(Object.keys(FULL_FORM).sort(), draftFieldNames().sort());
 });
 
-test("a reopened form keeps the Save for later button, pressable straight away, and says nothing about the autosave", () => {
+test("a reopened form keeps the Save for later button, pressable straight away, and says nothing about the autosave", async () => {
   // Someone else's typing in the autosave must not leak into, or replace, the
   // record they asked to reopen.
   storage.set(draftKey(USER.id), serializeDraft({ ...FORM, notes: "an unrelated autosave" }, Date.now()));
-  const html = renderForm({ reopened: reopened(FULL_FORM), directory: DIRECTORY });
+  const html = await renderReopened(reopened(FULL_FORM), { directory: DIRECTORY });
   const [, disabled] = html.match(FOOT_ORDER);
   assert.equal(disabled, undefined, "saving it again needs no further typing");
   assert.doesNotMatch(html, /an unrelated autosave/);
@@ -586,16 +599,18 @@ test("a reopened form keeps the Save for later button, pressable straight away, 
   assert.match(html, />Create Task<\/button>/);
 });
 
-test("a reopened form never reads or writes the autosave, and knows which record it came from", () => {
+/* Which record Save for later and Create act on, and that neither touches the
+   Autosave, is driven through the session in reopened-task-session-sim-test. */
+test("a reopened form is filed through the one payload every create form uses, and its session ends it", () => {
   assert.match(
     FORM_SOURCE,
-    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
-    "no storage seat, the way edit mode has none, so no ending can clear or overwrite an unrelated autosave"
+    /storage: edit \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
+    "no storage seat of its own, so no ending can clear or overwrite an unrelated autosave"
   );
   const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
-  assert.match(body, /await onSaveForLater\(values, reopened\?\.id, autosaveSeat\)/, "Save for later names the record, so App updates it");
+  assert.match(body, /if \(session\) return saveSessionForLater\(session, values\);/, "Save for later goes through the session");
   const submit = FORM_SOURCE.match(/const handleSubmit = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(submit, /reopened\?\.id\s*\)/, "Create names the record, so App can clear it once the task exists");
+  assert.match(submit, /await session\.end\(\{\s*kind: "create",/, "Create goes through the session, which removes the record once the task exists");
   assert.equal(
     (submit.match(/const payload: CreateTaskInput = \{/g) ?? []).length,
     1,
@@ -603,54 +618,25 @@ test("a reopened form never reads or writes the autosave, and knows which record
   );
 });
 
-test("App opens the create form on the reopened record, one mount per record", () => {
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.match(createMount, /key=\{reopened\?\.id \?\? "new"\}/, "a different record remounts the form");
-  assert.match(createMount, /\{\.\.\.\(reopened \? \{ reopened \} : \{\}\)\}/, "and hands it the record, when there is one");
+test("App opens a reopened record through the New Task session", () => {
   const opener = APP_SOURCE.match(/const openSavedForLater = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
   assert.ok(opener, "App has an openSavedForLater handler");
-  assert.match(opener, /reopenSavedForLaterRequest\(/, "it fetches the latest save before opening");
-  assert.ok(
-    opener.indexOf("if (formOpenNow.current) return;") >= 0 &&
-      opener.indexOf("if (formOpenNow.current) return;") < opener.indexOf("setReopened(latest)"),
-    "a form opened while the fetch was out is left alone when it lands"
-  );
+  /* Fetching the latest first, and leaving a form opened meanwhile alone, are
+     driven in reopened-task-session-sim-test. */
+  assert.match(opener, /await newTask\.reopen\(item, \{ unless: \(\) => formOpenNow\.current \}\)/);
+  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.doesNotMatch(createMount, /reopened/, "the create form is never handed a record");
 });
 
 /* ── Abandoned typing on a reopened form (#348) ─────────── */
 
-test("a reopened record carrying unsaved typing opens on that typing, not on the earlier save", () => {
-  const html = renderForm({
-    reopened: reopened(FULL_FORM, { unsaved: { ...FULL_FORM, notes: "typed after the save, tab closed" } }),
+test("a reopened record carrying unsaved typing opens on that typing, not on the earlier save", async () => {
+  const html = await renderReopened(reopened(FULL_FORM, { unsaved: { ...FULL_FORM, notes: "typed after the save, tab closed" } }), {
     directory: DIRECTORY
   });
   assert.match(html, />typed after the save, tab closed<\/textarea>/, "the typing comes back");
   assert.doesNotMatch(html, /Borrower ID does not match/, "rather than the version it was saved at");
   assert.doesNotMatch(html, /role="alertdialog"/, "and nothing is asked on the way in");
-});
-
-test("typing on a reopened form is sent to that record as it is typed, never to the browser autosave", () => {
-  const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("── Keeping unsaved typing on its record (#348)"));
-  const body = effect.slice(0, effect.indexOf("}, [form,"));
-  assert.ok(body.length > 0, "the form has an effect for it");
-  assert.match(body, /if \(!reopened\) return;/, "reopened forms only; a fresh form keeps the autosave as it was");
-  assert.match(body, /window\.setTimeout\(sendUnsaved, UNSAVED_SAVE_DEBOUNCE_MS\)/, "on a trailing debounce, like the autosave");
-  assert.match(body, /if \(!reopened \|\| ending\.current\) return;/, "and never after an ending has begun");
-  assert.match(body, /differsFromSave: formHasChanges\(reopened\.form, values\)/, "worth keeping means different from what was saved");
-  assert.match(
-    body,
-    /differsFromSent: sent !== null && formHasChanges\(sent, values\)/,
-    "measured against what was last sent, not what the form opened on"
-  );
-  assert.match(body, /sentExists: sent !== null/);
-  assert.match(body, /onKeepUnsaved\(reopened\.id, values\)/, "written onto that record");
-  assert.match(body, /onDiscardUnsaved\(reopened\.id\)/, "and cleared when the form is typed back to what was saved");
-  assert.doesNotMatch(body, /writeDraft|clearDraft|draftSeat/, "the browser autosave is not touched");
-  assert.match(
-    FORM_SOURCE,
-    /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/,
-    "and still has no seat, so the next New Task can never be offered this typing"
-  );
 });
 
 test("the writes go out one at a time, and every ending waits for them before it acts", () => {
@@ -663,11 +649,7 @@ test("the writes go out one at a time, and every ending waits for them before it
   for (const [name, call] of [
     ["const saveForLater", "await onSaveForLater("],
     ["const handleSubmit", "await onCreate("],
-    ["const confirmDiscard", "onClose();"],
-    /* #388, #399: a keystroke's write still out when a reopened draft's Discard
-       is pressed lands first, and none follows, so it cannot bring the deleted
-       record back. */
-    ["const confirmDiscard", "await onDeleteReopened("]
+    ["const confirmDiscard", "onClose();"]
   ]) {
     const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
     const fnBody = fn.slice(0, fn.indexOf("\n  };"));
@@ -679,8 +661,8 @@ test("the writes go out one at a time, and every ending waits for them before it
     const failed = fn.slice(fn.indexOf("} catch {") + "} catch {".length);
     assert.match(
       failed.slice(0, failed.indexOf("}")),
-      /ending\.current = false;\s*sendUnsaved\(\);/,
-      `${name}: a failure leaves the form open, keeping typing again, and sends what the stop held back`
+      /ending\.current = false;/,
+      `${name}: a failure leaves the form open, keeping typing again`
     );
   }
 });
@@ -696,7 +678,7 @@ test("Cancel on an unchanged reopened Saved for Later task asks, with Save for l
   );
   // The prompt's Save for later is the footer's, pressable exactly when the
   // footer's is, and the footer's is pressable on an unchanged reopened form.
-  const [, disabled] = renderForm({ reopened: reopened(FULL_FORM), directory: DIRECTORY }).match(FOOT_ORDER);
+  const [, disabled] = (await renderReopened(reopened(FULL_FORM), { directory: DIRECTORY })).match(FOOT_ORDER);
   assert.equal(disabled, undefined, "so Save for later is an answer, and saving again restarts its saved N ago");
   const close = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const requestClose"));
   assert.doesNotMatch(close.slice(0, close.indexOf("};")), /sendUnsaved|onClose\(\);[\s\S]*onClose\(\);/, "no silent way out for a reopened form");
@@ -711,7 +693,7 @@ test("Discard from that prompt removes the saved record itself, with no second q
   const body = confirm.slice(0, confirm.indexOf("\n  };"));
   assert.doesNotMatch(body, /setDeleteAsk|setDiscardAsk\(false\)/, "no second question: the prompt stays up while the delete is out");
   assert.doesNotMatch(body, /onDiscardUnsaved|onSaveForLater|onKeepUnsaved/, "nothing that clears only the slot or writes the save");
-  assert.match(body, /await onDeleteReopened\(reopened\.id\)/);
+  assert.match(body, /await session\.end\(\{ kind: "discard" \}\)/, "the session deletes a reopened record: driven in reopened-task-session-sim-test");
   const server = fakeServer({ "DELETE /saved-for-later/saved-1": undefined });
   assert.equal(await removeSavedForLaterRequest(server.request, "saved-1"), true);
   assert.deepEqual(server.calls, ["DELETE /saved-for-later/saved-1"], "one request, to the record, not to its unsaved slot");
@@ -741,34 +723,17 @@ test("what a reopened form sends is decided against its last send, as a truth ta
   for (const [state, expected, why] of cases) assert.equal(unsavedAction(state), expected, why);
 });
 
-test("App sends a reopened form's typing to its record, and a Delete that did not land is said out loud", () => {
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.match(createMount, /onKeepUnsaved=\{onKeepUnsaved\}/);
-  assert.match(createMount, /onDiscardUnsaved=\{onDiscardUnsaved\}/, "still passed: a form typed back to its save clears the slot");
-  assert.match(createMount, /onDeleteReopened=\{onDeleteReopened\}/);
-  const keep = APP_SOURCE.match(/const onKeepUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.match(keep, /keepUnsavedRequest\(/);
-  assert.doesNotMatch(keep, /showToast|setSavedForLater/, "silent, and the board does not re-render as somebody types");
-  const discard = APP_SOURCE.match(/const onDiscardUnsaved = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.match(discard, /discardUnsavedRequest\(/);
-  assert.doesNotMatch(discard, /showToast/, "silent in App, since a form typed back to its save uses it");
-  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
-  assert.match(confirm.slice(0, confirm.indexOf("\n  };")), /showToast\(/, "Discard itself says when the delete did not land");
-});
-
-test("Create clears the Saved for Later task only after the task was filed", () => {
-  const handler = APP_SOURCE.match(/const onCreate = async \([\s\S]*?\n  \};/)?.[0];
-  assert.ok(handler);
-  const filing = handler.indexOf(`"/tasks", { method: "POST"`);
-  const failedFiling = handler.indexOf("throw err;");
-  const clearing = handler.indexOf("removeSavedForLaterRequest(");
-  assert.ok(filing >= 0 && failedFiling > filing, "a failed filing rethrows");
-  assert.ok(clearing > failedFiling, "and so never reaches the clear");
+test("App says out loud what the session reports, and the Task Drafts tab follows its records", () => {
+  const deps = APP_SOURCE.match(/const newTask = useNewTaskSession\(\{([\s\S]*?)\n  \}\);/)?.[1];
+  assert.match(deps, /notify: \(message, variant\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) showToast\(message, \{ variant \}\);/);
+  assert.match(deps, /onSavedForLaterGone: \(id\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\);/);
+  assert.match(deps, /onSavedForLaterLatest: \(latest\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(/);
+  assert.match(deps, /item\.id !== saved\.id && item\.id !== replaced/, "a save replaces the record it was reopened from");
 });
 
 test("saving a reopened one again goes through the one request helper", () => {
-  const handler = APP_SOURCE.match(/const onSaveForLater = async \([\s\S]*?\n  \};/)?.[0];
-  assert.match(handler, /saveForLaterRequest\(/);
+  const session = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
+  assert.match(session, /saveForLaterRequest\(request, ending\.values \?\? values, id\)/);
 });
 
 /* The three requests, driven against a fake server. */
