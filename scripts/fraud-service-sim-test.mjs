@@ -23,6 +23,7 @@ import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import { computeDueAtFromUrgency } from "../packages/shared/dist/workflow.js";
+import { officeHoursOn, zonedParts } from "../packages/shared/dist/office-hours.js";
 
 const config = {
   businessTimezone: "America/Los_Angeles",
@@ -177,8 +178,10 @@ await check("PENDING_APPROVAL entry recomputes a fresh EOD dueAt and DMs the che
   // dueAt is discarded and recomputed to end-of-business-day (the YELLOW path).
   assert.notEqual(result.dueAt, originalDueAt, "original dueAt is discarded");
   const eod = zonedHourMinute(result.dueAt, config.businessTimezone);
-  assert.equal(eod.hour, config.businessEndHour, "fresh dueAt lands at the business end hour");
-  assert.equal(eod.minute, config.businessEndMinute, "fresh dueAt lands at the business end minute");
+  // That day's close, which is earlier on a Friday (#457) — this reads the wall clock.
+  const { close } = officeHoursOn(zonedParts(new Date(result.dueAt), config.businessTimezone), config);
+  assert.equal(eod.hour, close.hour, "fresh dueAt lands at the business end hour");
+  assert.equal(eod.minute, close.minute, "fresh dueAt lands at the business end minute");
   // Sanity: matches the shared YELLOW computation taken right now.
   assert.equal(result.dueAt, computeDueAtFromUrgency("YELLOW", new Date(), config));
   assert.equal(result.urgency, "YELLOW", "urgency reset to the gentle YELLOW clock");
