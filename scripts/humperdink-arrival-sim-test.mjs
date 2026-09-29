@@ -319,7 +319,10 @@ test("App hands the create form the arrival, and every other way in clears it", 
   const onClose = createMount.match(/onClose=\{\(\) => \{([\s\S]*?)\}\}/)?.[1];
   assert.match(onClose, /setHumperdinkArrival\(false\)/, "closing the form ends the arrival");
   const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.match(openNewTask, /setHumperdinkArrival\(false\)/, "New Task is never an arrival");
+  assert.match(openNewTask, /newTask\.open\(/, "New Task opens its own session's form");
+  const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.ok(newTaskMount);
+  assert.doesNotMatch(newTaskMount, /humperdinkArrival/, "New Task is never an arrival");
   const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
   assert.match(openSaved, /setHumperdinkArrival\(false\)/, "reopening a draft is never an arrival");
 });
@@ -354,7 +357,8 @@ const entry = join(scratch, "entry.tsx");
 writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
-    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n`
+    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n`
 );
 const bundle = join(scratch, "humperdink-arrival.mjs");
 await build({
@@ -366,7 +370,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider } = await import(pathToFileURL(bundle).href);
+const { TaskForm, ToastProvider, createNewTaskSession } = await import(pathToFileURL(bundle).href);
 
 globalThis.window = { localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } };
 
@@ -396,7 +400,7 @@ test("an arrival opens the create form as an LOI Check", () => {
    the autosave must not come back in its place, where a Humperdink paste does
    nothing. What happens to that autosave is #413's; here it is only not
    restored. */
-test("an arrival opens on an LOI Check, not on the autosave", () => {
+test("an arrival opens on an LOI Check, not on the autosave", async () => {
   const autosave = {
     form: {
       folderName: "Castillo - Ridge",
@@ -415,8 +419,10 @@ test("an arrival opens on an LOI Check, not on the autosave", () => {
     },
     savedAt: new Date().toISOString()
   };
-  assert.match(render({ autosave }), /Castillo - Ridge/, "the control: New Task does restore it");
-  const html = render({ humperdinkArrival: true, autosave });
+  const session = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: { ownerId: USER.id, ...autosave } }) });
+  await session.open();
+  assert.match(render({ session }), /Castillo - Ridge/, "the control: New Task does restore it");
+  const html = render({ humperdinkArrival: true });
   assert.doesNotMatch(html, /Castillo - Ridge/);
   assert.equal(selectedType(html), "LOI");
 });

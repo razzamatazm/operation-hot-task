@@ -45,7 +45,7 @@ writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
-    `export * from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n`
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n`
 );
 const bundle = join(scratch, "share-assign.mjs");
 await build({
@@ -57,17 +57,8 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider, draftKey, serializeDraft } = await import(pathToFileURL(bundle).href);
+const { TaskForm, ToastProvider, createNewTaskSession } = await import(pathToFileURL(bundle).href);
 const { BLANK_CREATE_FORM } = await import(pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href);
-
-const storage = new Map();
-globalThis.window = {
-  localStorage: {
-    getItem: (key) => (storage.has(key) ? storage.get(key) : null),
-    setItem: (key, value) => storage.set(key, value),
-    removeItem: (key) => storage.delete(key)
-  }
-};
 
 const USER = { id: "user-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 const DIRECTORY = [
@@ -75,16 +66,19 @@ const DIRECTORY = [
   { id: "user-4", displayName: "Ada Officer", roles: ["LOAN_OFFICER"] }
 ];
 
-/* The mode is only reachable through state, so the Assign render opens on a
-   restored draft that chose it — the one way a first paint can hold it. */
-const renderIn = (pickerMode) => {
-  storage.clear();
-  if (pickerMode !== BLANK_CREATE_FORM.pickerMode) {
-    storage.set(
-      draftKey(USER.id),
-      serializeDraft({ ...BLANK_CREATE_FORM, folderName: "Adams - Harbor", pickerMode }, Date.now())
-    );
-  }
+/* The mode is only reachable through state, so the Assign render opens a New
+   Task session on an Autosave that chose it — the one way a first paint can
+   hold it. */
+const renderIn = async (pickerMode) => {
+  const form = { ...BLANK_CREATE_FORM, initialItems: [], folderName: "Adams - Harbor", pickerMode };
+  const session = createNewTaskSession({
+    owner: USER.id,
+    storage: null,
+    request: async () => ({
+      item: pickerMode === BLANK_CREATE_FORM.pickerMode ? null : { ownerId: USER.id, savedAt: new Date().toISOString(), form }
+    })
+  });
+  await session.open();
   return renderToStaticMarkup(
     createElement(ToastProvider, null, createElement(TaskForm, {
       loans: [],
@@ -92,7 +86,8 @@ const renderIn = (pickerMode) => {
       user: USER,
       tasks: [],
       onClose: () => {},
-      onCreate: async () => {}
+      onCreate: async () => {},
+      session
     }))
   );
 };
@@ -119,7 +114,7 @@ const blocksFor = (cls) =>
     .filter(([, sel]) => ruleFor(cls).test(sel))
     .map(([, , decls]) => decls);
 
-const STATES = { share: selector(renderIn("share")), assign: selector(renderIn("assign")) };
+const STATES = { share: selector(await renderIn("share")), assign: selector(await renderIn("assign")) };
 
 test("every class the selector emits has a rule in styles.css", () => {
   for (const [mode, { classes, buttons }] of Object.entries(STATES)) {

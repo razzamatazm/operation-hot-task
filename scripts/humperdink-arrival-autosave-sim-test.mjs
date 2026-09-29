@@ -50,7 +50,8 @@ writeFileSync(
     `export { ToastProvider } from ${src("toast.tsx")};\n` +
     `export { TaskDraftsPage, taskDraftsCount } from ${src("saved-for-later.tsx")};\n` +
     `export { draftKey, serializeDraft } from ${src("create-form-draft.ts")};\n` +
-    `export { saveForLaterRequest, keepAutosaveRequest } from ${src("saved-for-later-requests.ts")};\n`
+    `export { saveForLaterRequest, keepAutosaveRequest } from ${src("saved-for-later-requests.ts")};\n` +
+    `export { createNewTaskSession } from ${src("new-task-session.ts")};\n`
 );
 const bundle = join(scratch, "bundle.mjs");
 await build({
@@ -62,7 +63,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { moveAutosaveAside, TaskForm, ToastProvider, TaskDraftsPage, taskDraftsCount, draftKey, serializeDraft, saveForLaterRequest, keepAutosaveRequest } =
+const { moveAutosaveAside, TaskForm, ToastProvider, TaskDraftsPage, taskDraftsCount, draftKey, serializeDraft, saveForLaterRequest, keepAutosaveRequest, createNewTaskSession } =
   await import(pathToFileURL(bundle).href);
 
 const USER = { id: "user-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
@@ -272,7 +273,7 @@ test("a save that lands after the arrival gave up on it takes the offline copy w
 
 test("New Task pressed while the move is out waits for it, so it can't open on an autosave the move is about to clear", () => {
   const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.ok(openNewTask.indexOf("await arrivalMove.current") >= 0 && openNewTask.indexOf("await arrivalMove.current") < openNewTask.indexOf("await loadAutosave()"));
+  assert.ok(openNewTask.indexOf("await arrivalMove.current") >= 0 && openNewTask.indexOf("await arrivalMove.current") < openNewTask.indexOf("await newTask.open("));
   assert.match(arrivalEffect(), /arrivalMove\.current = /);
 });
 
@@ -308,8 +309,8 @@ test("a held arrival still opens a new LOI Check, not the old autosave", () => {
 
 test("a held form has no seat on either copy of the autosave, so typing into it can't write over the old one", () => {
   const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
-  assert.match(seat.slice(0, seat.indexOf("}));")), /storage: edit \|\| reopened \|\| leaveAutosaveAlone \? null : browserDraftStorage\(\)/, "no browser copy to write");
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone;/, "no server slot to write or forget");
+  assert.match(seat.slice(0, seat.indexOf("}));")), /storage: edit \|\| reopened \|\| leaveAutosaveAlone \|\| session \? null : browserDraftStorage\(\)/, "no browser copy to write");
+  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !reopened && !leaveAutosaveAlone && !session;/, "no server slot to write or forget");
   const effect = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!autosaveSeat\) return;\s*const timer[\s\S]*?\}, \[form, autosaveSeat, opening\.fresh\]\);/)?.[0];
   assert.ok(effect, "the typing timer leaves before it writes anything");
   const forget = FORM_SOURCE.match(/const forgetDraft = \(\): void => \{([\s\S]*?)\n  \};/)?.[1];
@@ -377,13 +378,19 @@ test("App hands the form the hold, and every other way in drops it", () => {
   const onClose = createMount.match(/onClose=\{\(\) => \{([\s\S]*?)\}\}/)?.[1];
   assert.match(onClose, /setLeaveAutosaveAlone\(false\)/);
   const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.match(openNewTask, /setLeaveAutosaveAlone\(false\)/, "New Task always has its seat");
+  assert.match(openNewTask, /newTask\.open\(/);
+  const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
+  assert.ok(newTaskMount);
+  assert.doesNotMatch(newTaskMount, /leaveAutosaveAlone/, "New Task always has its seat");
   const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
   assert.match(openSaved, /setLeaveAutosaveAlone\(false\)/);
 });
 
-test("opening New Task normally still restores the autosave exactly as before", () => {
-  const html = renderForm({ autosave: serverAutosave(OLD_TASK, Date.now() - 60000) });
+test("opening New Task normally still restores the autosave exactly as before", async () => {
+  const autosave = serverAutosave(OLD_TASK, Date.now() - 60000);
+  const session = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: autosave }) });
+  await session.open();
+  const html = renderForm({ session });
   assert.match(html, /Castillo - Ridge/);
   assert.match(html, /<option value="FRAUD" selected="">/);
   assert.match(html, /Hot Task saved your progress/);

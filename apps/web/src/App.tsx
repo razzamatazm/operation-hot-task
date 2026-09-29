@@ -24,6 +24,7 @@ import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
 import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
+import { useNewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import type { AutosaveMove, PutFormAsideOutcome } from "./humperdink-arrival";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
 import { Timeline, currentStepName } from "./timeline";
@@ -4030,7 +4031,6 @@ export const App = () => {
      waits on a fetch, and a New Task opened during that wait must not have its
      typing swapped out for the record when the fetch lands. */
   const formOpenNow = useRef(formOpen);
-  formOpenNow.current = formOpen;
   const loadSavedForLater = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ items: SavedForLaterTask[] }>("/saved-for-later", { method: "GET" }, user);
@@ -4062,6 +4062,26 @@ export const App = () => {
       return best ? { ownerId: user.id, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null;
     });
   }, [user]);
+  const autosaveNow = useRef(autosave);
+  autosaveNow.current = autosave;
+
+  /* The fresh New Task form's session (#467), one per signed-in person. Its
+     answers are dropped once the person has changed, like every load above. */
+  const newTask = useNewTaskSession({
+    owner: user.id,
+    request: savedForLaterRequestFor(user),
+    storage: browserDraftStorage(),
+    onAutosave: (item) => {
+      if (user.id === savedForLaterOwner.current) setAutosave(item);
+    },
+    onSavedForLater: (saved) => {
+      if (saved.ownerId === savedForLaterOwner.current) {
+        setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+      }
+    }
+  });
+  const newTaskOpen = useNewTaskSessionState(newTask, (state) => state.phase === "open");
+  formOpenNow.current = formOpen || newTaskOpen;
 
   /* Runtime client config. Unauthenticated and independent of SSO, so it runs
      on its own rather than waiting on the Teams handshake — /me stays about
@@ -4432,16 +4452,11 @@ export const App = () => {
      time opens on what App already holds. A form opened while that was out is
      left alone. */
   const openNewTask = useCallback(async (): Promise<void> => {
-    setReopened(null);
     /* An arrival's move still out (#413) goes first; its LOI Check then
        opens, and this press leaves it alone like any form already up. */
     if (arrivalMove.current) await arrivalMove.current;
-    await loadAutosave();
-    if (formOpenNow.current) return;
-    setHumperdinkArrival(false);
-    setLeaveAutosaveAlone(false);
-    setFormOpen(true);
-  }, [loadAutosave]);
+    await newTask.open({ held: autosaveNow.current, unless: () => formOpenNow.current });
+  }, [newTask]);
 
   /* A new task form's typing, written to the server's autosave as it is typed
      (#371). Silent, and the board is left alone, for the reason
@@ -5220,6 +5235,20 @@ export const App = () => {
           closed tab can be picked back up (#284), on the server since #371.
           Both of those live in the child; App holds "is it open" and the
           autosave the form opens on, which the Task Drafts tab also lists. */}
+      {newTaskOpen && (
+        <TaskForm
+          key={`new:${newTask.owner}`}
+          loans={loans}
+          directory={directory}
+          user={user}
+          tasks={tasks}
+          loansLoaded={loansLoaded}
+          arrivalAside={formSaveAside}
+          onClose={newTask.close}
+          onCreate={onCreate}
+          session={newTask}
+        />
+      )}
       {formOpen && (
         <TaskForm
           key={reopened?.id ?? "new"}
@@ -5245,7 +5274,7 @@ export const App = () => {
           onDeleteReopened={onDeleteReopened}
           onKeepAutosave={onKeepAutosave}
           onForgetAutosave={onForgetAutosave}
-          {...(reopened ? { reopened } : { autosave })}
+          {...(reopened ? { reopened } : {})}
         />
       )}
 
@@ -5322,7 +5351,7 @@ export const App = () => {
                   isAdmin={isAdmin}
                   onOpenPage={setActiveTab}
                 />
-                <NewTaskButton open={formOpen} onClick={() => { if (!formOpen) void openNewTask(); else { setFormOpen(false); setReopened(null); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
+                <NewTaskButton open={formOpen || newTaskOpen} onClick={() => { if (!formOpen && !newTaskOpen) void openNewTask(); else { newTask.close(); setFormOpen(false); setReopened(null); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
               </div>
             </div>
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>
