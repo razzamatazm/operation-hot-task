@@ -298,7 +298,11 @@ test("a typed form whose save fails stays open exactly as it was, and the arriva
   assert.deepEqual(state.mode, { kind: "fresh" });
   assert.deepEqual(state.values, typed);
   assert.equal(state.ending, null);
-  assert.deepEqual(ctx.events.notices, [["error", "Server said no"]], "the form's own save failure, as the button says it");
+  assert.deepEqual(
+    ctx.events.notices,
+    [["error", "Couldn't open the Humperdink task. Your form is still here."]],
+    "says the arrival didn't open, not that Save for later failed (#479)"
+  );
   assert.equal(ctx.server.calls.filter((call) => call.method === "GET").length, 1, "no move after a failed save");
   assert.equal(ctx.events.loads.length, 1, "the drafts still load");
 

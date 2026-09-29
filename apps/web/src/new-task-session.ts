@@ -403,8 +403,8 @@ export const createNewTaskSession = ({
           else {
             try {
               await session.end({ kind: "saveForLater", values: withPendingItem(state.values, pendingItem) });
-            } catch (error) {
-              notify?.(error instanceof Error ? error.message : "Failed to save for later", "error");
+            } catch {
+              notify?.("Couldn't open the Humperdink task. Your form is still here.", "error");
               load();
               return "dropped";
             }
