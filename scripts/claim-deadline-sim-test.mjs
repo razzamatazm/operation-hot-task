@@ -37,7 +37,9 @@ import {
   isUnclaimed,
   isUnclaimedTooLong,
   isPoolNagDue,
-  isPoolNagEligible
+  isPoolNagEligible,
+  officeHoursOn,
+  zonedParts
 } from "../packages/shared/dist/index.js";
 import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
@@ -361,9 +363,11 @@ await check("a FRAUD task released at PENDING_APPROVAL re-anchors for whoever pi
   const claimed = await service.claimTask(task.id, OTHER);
   assert.equal(claimed.status, "PENDING_APPROVAL", "released in place — the status does not rewind");
   assert.notEqual(claimed.dueAt, nearlySpent, "the new approver does not inherit the last one's expired clock");
-  // The end-of-business clamp lands on 17:30 Pacific whatever day the claim
-  // falls on, so this literal costs nothing and is the one that has teeth.
-  assert.equal(pacificClock(claimed.dueAt), "17:30", "an end-of-day, not the scraps of somebody else's");
+  // The end-of-business clamp lands on the close of the day it falls on, which
+  // is 17:30 except on a Friday (#457). This reads the wall clock.
+  const { close } = officeHoursOn(zonedParts(new Date(claimed.dueAt), config.businessTimezone), config);
+  const closeClock = `${String(close.hour).padStart(2, "0")}:${String(close.minute).padStart(2, "0")}`;
+  assert.equal(pacificClock(claimed.dueAt), closeClock, "an end-of-day, not the scraps of somebody else's");
   assert.equal(
     claimed.dueAt,
     computeDueAtFromUrgency("YELLOW", new Date(claimed.updatedAt), config),
