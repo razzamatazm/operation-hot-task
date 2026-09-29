@@ -136,7 +136,9 @@ const setup = () => {
   const server = fakeServer();
   const storage = fakeStorage();
   const loads = [];
-  const make = (owner) => createNewTaskSession({ owner, request: server.request, storage, clock });
+  const notices = [];
+  const make = (owner) =>
+    createNewTaskSession({ owner, request: server.request, storage, clock, notify: (message, variant) => notices.push([variant, message]) });
   const signingIn = make("");
   const signIn = async ({ arrival = true } = {}) => {
     const dana = make("user-1");
@@ -147,7 +149,7 @@ const setup = () => {
     return dana;
   };
   const emptyIdKeys = () => [...storage.items.keys()].filter((key) => key === DRAFT_KEY_PREFIX);
-  return { clock, server, storage, signingIn, signIn, emptyIdKeys, loads };
+  return { clock, server, storage, signingIn, signIn, emptyIdKeys, loads, notices };
 };
 
 const WINDOW_TYPING = values({ folderName: "Alvarez", notes: "typed while signing in" });
@@ -190,8 +192,7 @@ test("typing before the token is stored keeps no offline copy under an empty per
 
 for (const [name, ending] of [
   ["Discard", { kind: "discard" }],
-  ["Start fresh", { kind: "startFresh" }],
-  ["Create", { kind: "create", file: async () => {} }]
+  ["Start fresh", { kind: "startFresh" }]
 ]) {
   test(`${name} on a form opened while signing in doesn't clear the Autosave it never loaded`, async () => {
     const ctx = setup();
@@ -219,6 +220,29 @@ test("Save for later while signing in saves nothing under nobody, and works once
   assert.equal(saved.form.notes, "typed while signing in");
   assert.equal(ctx.server.calls.at(-1).body.clearAutosave, undefined, "its save clears no slot it never loaded");
   assert.ok(ctx.server.keepsBeforeReload());
+});
+
+test("Create while signing in files nothing and says so, and works once the form is carried to the person", async () => {
+  const ctx = setup();
+  await ctx.signingIn.open();
+  ctx.signingIn.edit(WINDOW_TYPING);
+  ctx.server.signedIn = true;
+  const filed = [];
+  await assert.rejects(ctx.signingIn.end({ kind: "create", file: async () => filed.push("signing in") }), /Still signing in/);
+  assert.deepEqual(filed, [], "no task is filed");
+  assert.deepEqual(ctx.notices, [["error", "Still signing in. Try Create again in a moment."]], "the person is told");
+  const state = ctx.signingIn.getState();
+  assert.equal(state.phase, "open");
+  assert.deepEqual(state.values, WINDOW_TYPING, "the form stays with its typing");
+  assert.equal(state.ending, null);
+  assert.ok(ctx.server.keepsBeforeReload());
+
+  const dana = await ctx.signIn({ arrival: false });
+  await dana.end({ kind: "create", file: async () => filed.push("dana") });
+  await settle();
+  assert.deepEqual(filed, ["dana"]);
+  assert.equal(dana.getState().phase, "closed");
+  assert.ok(ctx.server.keepsBeforeReload(), "a carried form's Create forgets no Autosave it never loaded");
 });
 
 /* The carry has to happen before the arrival runs, and both are effects in

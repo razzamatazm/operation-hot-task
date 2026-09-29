@@ -512,6 +512,11 @@ export const createNewTaskSession = ({
           shutMine();
           return undefined as R;
         case "create":
+          if (!known) {
+            /* The form swallows a failed Create, leaving word to whoever failed it. */
+            notify?.("Still signing in. Try Create again in a moment.", "error");
+            throw new Error("Still signing in. Try Create again in a moment.");
+          }
           await settleThen(mine, "create", ending.file);
           if (current.kind === "reopened") {
             dropCopy(current.record.id);
