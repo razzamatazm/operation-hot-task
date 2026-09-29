@@ -4250,6 +4250,10 @@ export const App = () => {
       loadSavedForLater().catch(() => {});
       loadAutosave().catch(() => {});
       if (asideOutcome === "failed") return;
+      /* A New Task that opened while the move was out keeps the screen, as any
+         open form does; one still loading gives way to the arrival. */
+      if (newTask.getState().phase === "open") return;
+      newTask.close();
       setReopened(null);
       setLeaveAutosaveAlone(outcome.kind === "held");
       setHumperdinkArrival(true);

@@ -10,6 +10,7 @@ import { formHasChanges, initialCreateForm } from "./create-form-state";
 import type { CreateFormValues } from "./create-form-state";
 import {
   UNSAVED_SAVE_DEBOUNCE_MS,
+  browserTimers,
   forgetAutosaveRequest,
   keepAutosaveRequest,
   loadAutosaveRequest,
@@ -82,11 +83,7 @@ export interface NewTaskSession {
   hasTyping(pendingItemText?: string): boolean;
 }
 
-const browserClock: NewTaskSessionClock = {
-  now: () => Date.now(),
-  setTimeout: (run, ms) => setTimeout(run, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
-};
+const browserClock: NewTaskSessionClock = { ...browserTimers, now: () => Date.now() };
 
 const CLOSED: NewTaskSessionState = { phase: "closed" };
 
@@ -289,8 +286,9 @@ export const useNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession => {
 
 const noSubscribe = (): (() => void) => () => {};
 
-/* The session's state, or `closed` for a form with no session. Pass a selector
-   that returns a primitive to re-render only when that changes. */
+/* The session's state, or `closed` for a form with no session. A selector that
+   returns a primitive re-renders only when that changes; the form, which holds
+   its values here, selects the whole state. */
 export const useNewTaskSessionState = <T,>(
   session: NewTaskSession | undefined,
   select: (state: NewTaskSessionState) => T

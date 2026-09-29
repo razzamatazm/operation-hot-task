@@ -5,7 +5,7 @@
 
    Run: `node --test scripts/new-task-session-sim-test.mjs`. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -489,4 +489,39 @@ test("changing the selected person closes the form, and no write goes out for th
   first.edit(values({ notes: "late keystroke" }));
   await clock.advance(10_000);
   assert.deepEqual(dana.writes(), []);
+});
+
+test("a write already out when the person changes lands as, and on, the person who typed it", async () => {
+  const clock = fakeClock();
+  const storage = fakeStorage();
+  const dana = fakeServer({ owner: "user-1" });
+  const sam = fakeServer({ owner: "user-2" });
+  const first = createNewTaskSession({ owner: "user-1", request: dana.request, storage, clock });
+  await first.open();
+  dana.hold = (call) => call.method === "PUT";
+  dana.answer = () => {
+    throw new Error("offline");
+  };
+  first.edit(values({ notes: "Dana's typing" }));
+  await clock.advance(1000);
+  first.close();
+  const second = createNewTaskSession({ owner: "user-2", request: sam.request, storage, clock });
+  dana.held.shift().release();
+  await settle();
+  assert.deepEqual(dana.writes().map((call) => call.owner), ["user-1"]);
+  assert.deepEqual(sam.calls, []);
+  assert.equal(JSON.parse(storage.getItem(draftKey("user-1"))).values.notes, "Dana's typing", "the offline copy is Dana's");
+  assert.equal(storage.getItem(draftKey("user-2")), null);
+  assert.equal(second.getState().phase, "closed");
+});
+
+/* The hook's effects can't run in a static render, so App's wiring of the
+   ownership rule is read out of the source. */
+test("App keeps one session per person, and the hook closes the old one when the person changes", () => {
+  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  const session = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
+  assert.match(app, /useNewTaskSession\(\{\s*owner: user\.id,\s*request: savedForLaterRequestFor\(user\),/);
+  assert.match(session, /useMemo\(\(\) => createNewTaskSession\(deps\), \[deps\.owner\]\)/);
+  assert.match(session, /useEffect\(\(\) => \(\) => session\.close\(\), \[session\]\)/);
+  assert.match(app, /\{newTaskOpen && \(\s*<TaskForm\s*key=\{`new:\$\{newTask\.owner\}`\}/, "the form is the session's, so a new person's closed session unmounts it");
 });

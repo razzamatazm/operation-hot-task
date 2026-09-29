@@ -66,18 +66,18 @@ export const saveForLaterRequest = async (
    form shut. */
 export const AUTOSAVE_LOAD_TIMEOUT_MS = 2000;
 
-/* The caller's autosave: `reached` says whether the server answered, so a
-   caller can tell "you have none" from "could not ask". */
 export interface RequestTimers {
   setTimeout(run: () => void, ms: number): unknown;
   clearTimeout(handle: unknown): void;
 }
 
-const browserTimers: RequestTimers = {
+export const browserTimers: RequestTimers = {
   setTimeout: (run, ms) => setTimeout(run, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
 };
 
+/* The caller's autosave: `reached` says whether the server answered, so a
+   caller can tell "you have none" from "could not ask". */
 export const loadAutosaveRequest = async (
   request: SavedForLaterRequest,
   timeoutMs: number = AUTOSAVE_LOAD_TIMEOUT_MS,
