@@ -515,6 +515,28 @@ test("a write already out when the person changes lands as, and on, the person w
   assert.equal(second.getState().phase, "closed");
 });
 
+/* #474: the keyboard reaches New Task and the Autosaved row behind an open form. */
+test("New Task pressed again while the form is open leaves it open, and its typing is still written", async () => {
+  const { session, server, clock } = setup();
+  await session.open();
+  session.edit(values({ notes: "half typed" }));
+  await clock.advance(500);
+  assert.equal(await session.open(), false);
+  assert.equal(openState(session).values.notes, "half typed");
+  await clock.advance(500);
+  assert.deepEqual(server.writes().map((call) => [call.method, call.path, call.body.form.notes]), [["PUT", "/autosave", "half typed"]]);
+});
+
+test("App's New Task button and Autosaved row only ever open, never close or swap a form already up", () => {
+  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  const button = app.match(/<NewTaskButton open=\{formOpen \|\| newTaskOpen\} onClick=\{([^\n]*)\} \/>/);
+  assert.ok(button, "the button is wired in App");
+  assert.doesNotMatch(button[1], /close|setFormOpen/, "the button never shuts a form");
+  assert.match(app, /className="form-toggle" aria-haspopup="dialog" aria-disabled=\{open\}/, "it says it does nothing while a form is up, not that it collapses one");
+  const openNewTask = app.slice(app.indexOf("const openNewTask = useCallback("), app.indexOf("}, [newTask]);", app.indexOf("const openNewTask = useCallback(")));
+  assert.match(openNewTask, /if \(formOpenNow\.current\) return;/, "a form already up is left alone before anything is fetched");
+});
+
 /* The hook's effects can't run in a static render, so App's wiring of the
    ownership rule is read out of the source. */
 test("App keeps one session per person, and the hook closes the old one when the person changes", () => {
