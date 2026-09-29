@@ -305,7 +305,17 @@ export const computeClaimAnchoredDueAt = (
   return due.getTime() <= close.getTime() ? candidate : close.toISOString();
 };
 
+/* A covered Out of Office task is a hold (#453): it waits on the return date,
+   not on anybody, so it has no forward step. The flow's CLAIMED → COMPLETED
+   rung is withheld here; the early end is a separate door (`canEndOooEarly`)
+   offered from the menu, and the return date closes it on its own. */
+const isOooHold = (task: Pick<LoanTask, "taskType" | "status">): boolean =>
+  task.taskType === "OOO" && task.status === "CLAIMED";
+
 const nextForwardStatus = (task: LoanTask): TaskStatus | undefined => {
+  if (isOooHold(task)) {
+    return undefined;
+  }
   const flow = flowFor(task);
   const index = flow.indexOf(task.status);
   return index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
@@ -491,11 +501,14 @@ export const isConfirmingLook = (task: Pick<LoanTask, "status" | "awaitingConfir
   completionTargetStatus(task) === "ARCHIVED";
 
 export const nextFlowStatuses = (task: LoanTask): TaskStatus[] => {
-  const flow = flowFor(task);
-  const index = flow.indexOf(task.status);
-
-  const nextCandidate = index >= 0 && index < flow.length - 1 ? flow[index + 1] : undefined;
+  const nextCandidate = nextForwardStatus(task);
   const next = nextCandidate ? [nextCandidate] : [];
+  // OOO's early end (#453): COMPLETED stays reachable from OPEN and CLAIMED,
+  // but as a side door rather than the flow's next step, so nothing offers it
+  // as the row's primary action or the card's step button.
+  if (task.taskType === "OOO" && (task.status === "OPEN" || task.status === "CLAIMED")) {
+    next.push("COMPLETED");
+  }
   // The corrections state is the one ALWAYS_ALLOWED entry gated on task type
   // (ADR-0007 rule 3): listed universally, LOI-only by rule, so the restriction
   // is applied here where the moves are offered rather than implied by a flow.
@@ -652,6 +665,8 @@ const SELF_ASSIGN = "You can't hand a task to yourself — ask its creator to pu
    then who may hold it at all (ADR-0003's creator rule earns its own explanation
    ahead of the self rule, since a creator handing to themselves is refused for
    the older and more specific reason); then the self rule. */
+export const OOO_COVER_SWAP_REFUSAL = "Someone is already covering this. They release it, then someone else can claim it";
+
 export const handoffRefusal = (
   task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
   target: UserIdentity,
@@ -663,6 +678,10 @@ export const handoffRefusal = (
   const cannotHold = assigneeRefusal(task, target);
   if (cannotHold) {
     return cannotHold;
+  }
+  // No coverage swap (#453): changing who covers is a release, then a claim.
+  if (task.taskType === "OOO" && task.assignee) {
+    return OOO_COVER_SWAP_REFUSAL;
   }
   if (actor.id === target.id) {
     return SELF_ASSIGN;
@@ -992,7 +1011,25 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
   return isSystem(user) || isCreator;
 };
 
+/* Ending an Out of Office task before its return date (#453): the person away
+   (they came back early, or the trip was called off) or the person covering.
+   Either party, from OPEN or CLAIMED; nobody else, admins included. */
+export const canEndOooEarly = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.taskType !== "OOO" || (task.status !== "OPEN" && task.status !== "CLAIMED")) {
+    return false;
+  }
+  return isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id;
+};
+
+/* The detail on the history row an early end writes, so it reads apart from
+   the maintenance pass's `AUTO_COMPLETED_RETURN_DATE`. */
+export const OOO_ENDED_EARLY_DETAIL = "Ended before the return date";
+
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
+  if (task.taskType === "OOO") {
+    return canEndOooEarly(task, user);
+  }
+
   if (task.taskType === "FRAUD" && !isSystem(user) && !isFileChecker(user)) {
     return false;
   }
@@ -1151,8 +1188,34 @@ export const isOverdue = (task: LoanTask, now: Date): boolean => {
   if (["COMPLETED", "ARCHIVED", "CANCELLED", "AWAITING_ITEMS"].includes(task.status)) {
     return false;
   }
+  // An OOO task's date is a return date, not a deadline (#453): the
+  // maintenance pass closes it then, and nobody is late in the meantime.
+  if (task.taskType === "OOO") {
+    return false;
+  }
 
   return new Date(task.dueAt).getTime() < now.getTime();
+};
+
+/* The countdown an OOO task shows in place of a deadline (#453), in calendar
+   days from today in the business timezone to the return date. Floors at
+   "Back today", so a task the maintenance pass has yet to close never counts
+   negative. `undefined` for anything that is not an OOO task with a date. */
+export const oooReturnCountdown = (
+  task: Pick<LoanTask, "taskType" | "returnDate">,
+  now: Date,
+  config: AppConfig = DEFAULT_CONFIG
+): string | undefined => {
+  const match = task.taskType === "OOO" && task.returnDate ? /^(\d{4})-(\d{2})-(\d{2})/.exec(task.returnDate) : null;
+  if (!match) {
+    return undefined;
+  }
+  const today = zonedParts(now, config.businessTimezone);
+  const returnDay = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const days = Math.round((returnDay - Date.UTC(today.year, today.month - 1, today.day)) / 86_400_000);
+  if (days <= 0) return "Back today";
+  if (days === 1) return "Back tomorrow";
+  return `Back in ${days} days`;
 };
 
 export const shouldPurgeArchived = (task: LoanTask, now: Date, retentionDays: number): boolean => {

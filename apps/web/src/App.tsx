@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication, clipboard as teamsClipboard } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, botPrimaryAdvance, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canEndOooEarly, oooReturnCountdown, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterForm, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -314,8 +314,16 @@ const groupedDue = (
     const stamp = task.cancelledAt ?? task.updatedAt;
     return { label: "", value: `✕ ${formatRelativeCompleted(stamp).replace(/^done\s*/, "")}`.trim(), overdue: false, done: true };
   }
+  /* An OOO task waits on a date, not a person (#453), so the cell counts down
+     to the return in calendar days and never reads as a deadline. No label:
+     "Back in 3 days" says what it is. */
   if (task.taskType === "OOO") {
-    return { label: "RETURNS", value: formatPtDateOnly(task.dueAt), overdue: false, done: false };
+    return {
+      label: "",
+      value: oooReturnCountdown(task, new Date(nowMs)) ?? `Back ${formatPtDateOnly(task.dueAt)}`,
+      overdue: false,
+      done: false
+    };
   }
   // FRAUD AWAITING_ITEMS is a wait on the requester, not a deadline the checker
   // is missing, so the row shows how long the requester has held it instead of
@@ -1929,7 +1937,7 @@ const TaskCard = memo(({
       };
     } else if (canMarkMergeDone(task, user) && transitions.includes("MERGE_DONE")) {
       primaryAction = { label: ACTION_LABELS.MERGE_DONE, kind: "good", run: () => { void onTransition(task.id, "MERGE_DONE"); } };
-    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && canTransitionStatus(task, "COMPLETED", user).ok) {
+    } else if (!twoExitPanel && (task.status === "CLAIMED" || task.status === "NEEDS_REVIEW") && botPrimaryAdvance(task)?.status === "COMPLETED" && canTransitionStatus(task, "COMPLETED", user).ok) {
       /* Complete, gated by the exact question the server asks on the click —
          not by a neighbouring predicate. On NEEDS_REVIEW (#118, the LOI
          corrections state) the row used to read `canMoveNeedsReview`, which
@@ -2131,6 +2139,18 @@ const TaskCard = memo(({
       {canUnclaimTask(task, user) && (
         <button type="button" className="btn-sm btn-ghost" onClick={() => { acknowledgeUnread(); onUnclaim(task.id); }}>
           Unclaim
+        </button>
+      )}
+      {/* #453: an OOO task ends on its return date by itself; this is the early
+          end, for the person away or the person covering. It asks first, through
+          the same terminal confirm the row's Complete uses. */}
+      {canEndOooEarly(task, user) && (
+        <button
+          type="button"
+          className="btn-sm btn-ghost"
+          onClick={() => { acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onTransition(task.id, "COMPLETED"); } }); }}
+        >
+          End task
         </button>
       )}
       {/* #208: the creator takes their own request off a holder who has stalled

@@ -256,7 +256,9 @@ await check("rule 2: from corrections the creator has two moves, and the assigne
 
 await check("completion from every other status is exactly as it was: the assignee's alone", () => {
   for (const cell of CELLS) {
-    if (cell.status === "NEEDS_REVIEW" || cell.unassigned) {
+    // OOO's completion is the early end, either party's from OPEN or CLAIMED
+    // (#453); scripts/ooo-hold-sim-test.mjs holds that rule.
+    if (cell.status === "NEEDS_REVIEW" || cell.unassigned || cell.taskType === "OOO") {
       continue;
     }
     const task = taskFor(cell);
