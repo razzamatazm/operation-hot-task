@@ -54,6 +54,9 @@ const config = {
   archiveRetentionDays: 90
 };
 
+// An OOO return date relative to the real clock (the service reads it), so it never slides into the past (#464).
+const wallDate = (days) => new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", { timeZone: config.businessTimezone });
+
 const CREATOR = { id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };
 const OTHER = { id: "checker-2", displayName: "Robin Second", roles: ["FILE_CHECKER"] };
@@ -292,8 +295,8 @@ await check("unclaiming and releasing leave the deadline alone", async () => {
 
 await check("an OOO task keeps its return date across a claim", async () => {
   const { service } = await setup();
-  const startDate = "2027-06-01";
-  const returnDate = "2027-06-08";
+  const startDate = wallDate(0);
+  const returnDate = wallDate(7);
   const task = await service.createTask(
     { folderName: "Beach", taskType: "OOO", notes: "n", startDate, returnDate },
     CREATOR
@@ -405,7 +408,7 @@ await check("the creator's row reddens at twenty minutes unclaimed, and never fo
   // on the return date, so a rule keyed only on "OPEN and unassigned" would
   // redden a holiday for its whole duration.
   const ooo = await service.createTask(
-    { folderName: "Beach Week", taskType: "OOO", notes: "n", startDate: "2027-06-01", returnDate: "2027-06-08" },
+    { folderName: "Beach Week", taskType: "OOO", notes: "n", startDate: wallDate(0), returnDate: wallDate(7) },
     CREATOR
   );
   assert.equal(ooo.status, "OPEN");

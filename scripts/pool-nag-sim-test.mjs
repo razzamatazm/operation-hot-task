@@ -56,6 +56,8 @@ const config = {
   archiveRetentionDays: 90
 };
 
+const wallDate = (days) => new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", { timeZone: config.businessTimezone });
+
 const CREATOR = { id: "creator-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 const CHECKER = { id: "checker-1", displayName: "Casey Checker", roles: ["FILE_CHECKER"] };
 
@@ -302,9 +304,9 @@ await check("the backfill touches only what the nag would look at", async () => 
   const { service, store } = await setup();
 
   const ooo = await service.createTask(
-    // Far enough out to be a real holiday whenever this suite is run — the
-    // OOO due date is the one thing here the wall clock still gates.
-    { folderName: "Vacation", taskType: "OOO", notes: "n", startDate: "2030-03-18", returnDate: "2030-03-22" },
+    // Relative to the real clock: the OOO due date is the one thing here the
+    // wall clock still gates, so a fixed date would expire (#464).
+    { folderName: "Vacation", taskType: "OOO", notes: "n", startDate: wallDate(0), returnDate: wallDate(7) },
     CREATOR
   );
   const claimed = await legacyOpenTask(service, store, "Already Taken");

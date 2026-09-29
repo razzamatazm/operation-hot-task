@@ -291,7 +291,9 @@ const setup = async () => {
 
 const claimedTask = async (service, taskType = "LOI") => {
   // An Out of Office cover is the one type with a required extra field.
-  const extra = taskType === "OOO" ? { startDate: "2026-09-20", returnDate: "2026-09-30" } : {};
+  // Relative to the real clock (the service reads it), so the return date never slides into the past (#464).
+  const wallDate = (days) => new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", { timeZone: config.businessTimezone });
+  const extra = taskType === "OOO" ? { startDate: wallDate(0), returnDate: wallDate(7) } : {};
   const task = await service.createTask({ folderName: "Corrections Sim", taskType, notes: "n", ...extra }, CREATOR);
   return service.claimTask(task.id, ASSIGNEE);
 };
