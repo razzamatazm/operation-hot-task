@@ -1018,12 +1018,13 @@ export const canMoveNeedsReview = (task: LoanTask, user: UserIdentity): boolean 
 /* Ending an Out of Office task before its return date (#453): the person away
    (they came back early, or the trip was called off) or the person covering.
    Either party, from OPEN or CLAIMED; nobody else, admins included. */
-export const canEndOooEarly = (task: LoanTask, user: UserIdentity): boolean => {
-  if (!isOooLive(task)) {
-    return false;
-  }
-  return isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id;
-};
+const canCloseOoo = (task: LoanTask, user: UserIdentity): boolean =>
+  isOooLive(task) && (isSystem(user) || task.createdBy.id === user.id || task.assignee?.id === user.id);
+
+/* A reopened OOO task carries a restore breadcrumb, and its move to COMPLETED
+   is the Restore, not an early end, so End stands down there. */
+export const canEndOooEarly = (task: LoanTask, user: UserIdentity): boolean =>
+  canCloseOoo(task, user) && restoreTargetStatus(task) === undefined;
 
 /* The detail on the history row an early end writes, so it reads apart from
    the maintenance pass's `AUTO_COMPLETED_RETURN_DATE`. */
@@ -1031,7 +1032,7 @@ export const OOO_ENDED_EARLY_DETAIL = "Ended before the return date";
 
 export const canCompleteTask = (task: LoanTask, user: UserIdentity): boolean => {
   if (task.taskType === "OOO") {
-    return canEndOooEarly(task, user);
+    return canCloseOoo(task, user);
   }
 
   if (task.taskType === "FRAUD" && !isSystem(user) && !isFileChecker(user)) {
