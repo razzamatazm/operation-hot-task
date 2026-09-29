@@ -306,7 +306,7 @@ test("a Humperdink arrival opens the create form as that arrival, once the perso
   assert.match(effect, /setHumperdinkArrival\(true\)/);
   assert.match(effect, /setFormOpen\(true\)/);
   assert.ok(
-    effect.indexOf("formOpenNow.current") >= 0 && effect.indexOf("formOpenNow.current") < effect.indexOf("setReopened(null)"),
+    effect.indexOf("formOpenNow.current") >= 0 && effect.indexOf("formOpenNow.current") < effect.indexOf("setHumperdinkArrival(true)"),
     "a form already open (opened during a slow sign-in) is left alone"
   );
   assert.doesNotMatch(effect, /onCreate|apiRequest|setFocusTaskId|setClaimOnArrivalId/);
@@ -324,7 +324,7 @@ test("App hands the create form the arrival, and every other way in clears it", 
   assert.ok(newTaskMount);
   assert.doesNotMatch(newTaskMount, /humperdinkArrival/, "New Task is never an arrival");
   const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
-  assert.match(openSaved, /setHumperdinkArrival\(false\)/, "reopening a draft is never an arrival");
+  assert.match(openSaved, /newTask\.reopen\(/, "reopening a draft opens the session's form, which is never an arrival");
 });
 
 /* #198's create-form intent is gone whole: the field, its reader and the

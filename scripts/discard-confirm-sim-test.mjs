@@ -37,6 +37,7 @@ const REPO = fileURLToPath(new URL("..", import.meta.url));
 
 const FORM_SOURCE = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
 const DIALOG_SOURCE = readFileSync(join(REPO, "apps/web/src/discard-confirm.tsx"), "utf8");
+const SESSION_SOURCE = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
 
 /* Both modules are TSX with relative imports, so esbuild bundles rather than
    transforms. The toast provider comes out of the same bundle as the form: it
@@ -183,31 +184,21 @@ const fnBody = (name) => {
   return fn.slice(0, fn.indexOf("\n  };"));
 };
 
-test("Discard on a reopened form deletes the Task Draft at once: shut, settle, delete, say so if it did not land, close", () => {
+/* Settle, delete, say so if it did not land, and close are driven through the
+   session in reopened-task-session-sim-test. */
+test("Discard on a reopened form goes to its session, once: a second press does nothing", () => {
   const body = fnBody("const confirmDiscard");
-  const start = body.indexOf("if (reopened && onDeleteReopened) {");
-  assert.ok(start >= 0, "a reopened form with somewhere to delete it");
-  const branch = body.slice(start, body.indexOf("forgetDraft();"));
-  const at = (s) => branch.indexOf(s);
-  assert.match(branch, /if \(discarding\) return;/, "a second press does nothing");
-  assert.ok(at("setDiscarding(true);") >= 0 && at("setDiscarding(true);") < at("await "), "answers shut before anything is awaited");
-  assert.ok(at("await settleUnsaved();") >= 0, "a keystroke's write in flight lands first, and none follows");
-  assert.ok(at("await settleUnsaved();") < at("await onDeleteReopened(reopened.id)"), "so it cannot bring the record back after the delete");
-  assert.match(branch, /if \(!\(await onDeleteReopened\(reopened\.id\)\)\) \{\s*showToast\("Couldn't delete that Task Draft\. It's still on Task Drafts\.", \{ variant: "warn" \}\);/);
-  assert.match(branch, /\}\s*onClose\(\);\s*return;/, "and the form closes either way");
-  assert.doesNotMatch(branch, /setDiscardAsk|onDiscardUnsaved|onSaveForLater|onKeepUnsaved/, "the prompt stays up reading Deleting…, and nothing clears only the slot or writes the save");
+  assert.match(body, /if \(session\) \{\s*if \(!discarding\) await session\.end\(\{ kind: "discard" \}\);\s*return;/);
+  const discard = SESSION_SOURCE.slice(SESSION_SOURCE.indexOf('case "discard":'));
+  const branch = discard.slice(0, discard.indexOf('case "create":'));
+  assert.ok(branch.indexOf('patch({ ending: "discard" });') < branch.indexOf("await "), "the answers shut before anything is awaited");
+  assert.doesNotMatch(branch, /discardUnsavedRequest|saveForLaterRequest|keepUnsavedRequest/, "nothing clears only the slot or writes the save");
 });
 
-test("App deletes a reopened Task Draft through the row's own removal, and drops it from the tab", () => {
+test("a reopened Task Draft's Discard uses the row's own removal, and the tab drops it only for its owner", () => {
   const APP_SOURCE = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  const createMount = APP_SOURCE.match(/\{formOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
-  assert.match(createMount, /onDeleteReopened=\{onDeleteReopened\}/);
-  const cb = APP_SOURCE.match(/const onDeleteReopened = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.ok(cb, "App has the callback");
-  assert.match(cb, /const removed = await removeSavedForLaterRequest\(savedForLaterRequestFor\(user\), savedId\);/, "the same removal the row's delete and Create use, which counts a 404 as gone");
-  assert.match(cb, /if \(removed && user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== savedId\)\);/, "the row leaves the tab, and the count with it, only for the person it belongs to");
-  assert.match(cb, /return removed;/);
-  assert.doesNotMatch(cb, /showToast/, "the form says what went wrong, once");
+  assert.match(SESSION_SOURCE, /if \(await removeSavedForLaterRequest\(request, id\)\) onSavedForLaterGone\?\.\(id\);/, "the same removal the row's delete uses, which counts a 404 as gone");
+  assert.match(APP_SOURCE, /onSavedForLaterGone: \(id\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\);/, "the row leaves the tab, and the count with it, only for the person it belongs to");
 });
 
 test("a new task's Discard and edit mode's still close on the first answer, with no second question", () => {
@@ -231,8 +222,9 @@ test("while a Discard is being carried out, every answer is shut and Escape does
   const key = DIALOG_SOURCE.slice(DIALOG_SOURCE.indexOf("const onKey"));
   assert.match(key.slice(0, key.indexOf("};")), /if \(!busy\) onCancel\(\);/);
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
-  const body = confirm.slice(0, confirm.indexOf("\n  };"));
-  assert.ok(body.indexOf("setDiscarding(true);") >= 0 && body.indexOf("setDiscarding(true);") < body.indexOf("await "), "shut before anything is awaited");
+  const own = confirm.slice(confirm.indexOf("setDiscarding(true);"), confirm.indexOf("\n  };"));
+  assert.ok(own.indexOf("setDiscarding(true);") === 0 && own.indexOf("await ") > 0, "shut before anything is awaited");
+  assert.match(FORM_SOURCE, /const discarding = live \? live\.ending === "discard" : ownDiscarding;/, "a session's Discard shuts them from its own state");
   assert.match(FORM_SOURCE, /busy=\{discarding\} onCancel=\{dismissAsk\}/);
 });
 
@@ -262,12 +254,12 @@ test("the form offers Save for later in the prompt on a create form only, and ed
    then that a second question stood between Discard and the delete. The rule
    now is that Discard on the prompt deletes the Task Draft. */
 test("Discard on a reopened form no longer keeps the save: it deletes the Task Draft, then closes", () => {
-  const body = fnBody("const confirmDiscard");
-  assert.doesNotMatch(body, /onDiscardUnsaved/, "the unsaved slot is not what Discard clears any more");
-  assert.match(body, /await onDeleteReopened\(reopened\.id\)/, "the record itself goes");
-  assert.match(body, /showToast\(/, "and a delete the server could not carry out is said, rather than coming back as a surprise");
-  assert.ok(body.indexOf("await onDeleteReopened") < body.indexOf("onClose();"), "and only then does it close");
-  assert.doesNotMatch(body, /onSaveForLater|onKeepUnsaved/, "nothing writes the save");
+  const discard = SESSION_SOURCE.slice(SESSION_SOURCE.indexOf('case "discard":'));
+  const body = discard.slice(0, discard.indexOf('case "create":'));
+  assert.doesNotMatch(body, /discardUnsavedRequest/, "the unsaved slot is not what Discard clears any more");
+  assert.match(body, /await removeRecord\(mode\.record\.id, "Couldn't delete that Task Draft\. It's still on Task Drafts\."\);/, "the record itself goes, and a delete the server could not carry out is said");
+  assert.ok(body.indexOf("await removeRecord") < body.indexOf("shut();"), "and only then does it close");
+  assert.doesNotMatch(body, /saveForLaterRequest|keepUnsavedRequest/, "nothing writes the save");
 });
 
 /* Built as the merge confirmation is (#265), because two dialogs that behave

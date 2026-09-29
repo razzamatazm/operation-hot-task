@@ -21,7 +21,7 @@ import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount } from "./saved-for-later";
-import { SavedForLaterRequest, discardUnsavedRequest, forgetAutosaveRequest, keepAutosaveRequest, keepUnsavedRequest, loadAutosaveRequest, removeSavedForLaterRequest, reopenSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
+import { SavedForLaterRequest, forgetAutosaveRequest, keepAutosaveRequest, loadAutosaveRequest, removeSavedForLaterRequest, saveForLaterRequest } from "./saved-for-later-requests";
 import { autosaveCopy, browserDraftStorage, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import { moveAutosaveAside, readArrivalClipboard } from "./humperdink-arrival";
 import { useNewTaskSession, useNewTaskSessionState } from "./new-task-session";
@@ -4023,10 +4023,6 @@ export const App = () => {
      name, which on a shared machine is the whole of the privacy promise. */
   const [savedForLater, setSavedForLater] = useState<SavedForLaterTask[]>([]);
   const savedForLaterOwner = useRef(user.id);
-  /* The Saved for Later task the create form is open on, or null for a New Task
-     (#344). Set only together with `formOpen`, and cleared when the form
-     closes, so New Task never opens on a record left over from last time. */
-  const [reopened, setReopened] = useState<SavedForLaterTask | null>(null);
   /* Whether a form is up, readable from inside an async handler. Tapping a row
      waits on a fetch, and a New Task opened during that wait must not have its
      typing swapped out for the record when the fetch lands. */
@@ -4074,10 +4070,19 @@ export const App = () => {
     onAutosave: (item) => {
       if (user.id === savedForLaterOwner.current) setAutosave(item);
     },
-    onSavedForLater: (saved) => {
+    onSavedForLater: (saved, replaced) => {
       if (saved.ownerId === savedForLaterOwner.current) {
-        setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+        setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== replaced)]);
       }
+    },
+    onSavedForLaterLatest: (latest) => {
+      if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
+    },
+    onSavedForLaterGone: (id) => {
+      if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.filter((saved) => saved.id !== id));
+    },
+    notify: (message, variant) => {
+      if (user.id === savedForLaterOwner.current) showToast(message, { variant });
     }
   });
   const newTaskOpen = useNewTaskSessionState(newTask, (state) => state.phase === "open");
@@ -4254,7 +4259,6 @@ export const App = () => {
          open form does; one still loading gives way to the arrival. */
       if (newTask.getState().phase === "open") return;
       newTask.close();
-      setReopened(null);
       setLeaveAutosaveAlone(outcome.kind === "held");
       setHumperdinkArrival(true);
       setFormOpen(true);
@@ -4292,7 +4296,7 @@ export const App = () => {
      the post-create share — so the child stays presentational. Resolves once
      the task is persisted (the child then closes itself); rejects only when the
      create itself fails, after surfacing the error, so the form stays open. */
-  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string, note?: string, savedId?: string): Promise<void> => {
+  const onCreate = async (payload: CreateTaskInput, shareWithUserId: string, note?: string): Promise<void> => {
     let created: { task: LoanTask };
     try {
       created = await apiRequest<{ task: LoanTask }>("/tasks", { method: "POST", body: JSON.stringify(payload) }, user);
@@ -4301,21 +4305,6 @@ export const App = () => {
       throw err;
     }
     setError(null);
-    /* Filed from a reopened Saved for Later task (#344, ADR-0011 rule 4): the
-       task exists, so the Saved for Later task goes. Only here, after the create
-       landed: a filing that failed rethrew above and never reaches this, so the
-       record is still there for the retry. The task was filed through the same
-       request as any new task, with the same notifications, so a removal that
-       fails cannot undo that and does not reject; it only says so. */
-    if (savedId) {
-      if (await removeSavedForLaterRequest(savedForLaterRequestFor(user), savedId)) {
-        if (user.id === savedForLaterOwner.current) {
-          setSavedForLater((current) => current.filter((item) => item.id !== savedId));
-        }
-      } else {
-        showToast("Task created, but its Task Draft couldn't be removed.", { variant: "warn" });
-      }
-    }
     // Born assigned (ADR-0002): the handoff already happened inside the create
     // call, so there's nothing to fire here — just confirm it landed.
     if (payload.assigneeUserId) {
@@ -4355,26 +4344,21 @@ export const App = () => {
      the section renders, so it is on the board the moment the form closes, with
      no reload. Nothing else is refreshed: saving files no task and touches no
      loan. */
-  /* Since #344 a reopened form names its record, and the save lands on that one
-     rather than making a copy. The request helper decides new-or-update, and
-     keeps the typing as a new record if the old one went elsewhere; either way
-     the saved record moves to the top of the list and replaces whatever it
-     was reopened from. */
-  const onSaveForLater = async (form: SavedForLaterForm, savedId?: string, clearAutosave = true): Promise<void> => {
+  const onSaveForLater = async (form: SavedForLaterForm, clearAutosave = true): Promise<void> => {
     let saved: SavedForLaterTask;
     try {
-      saved = await saveForLaterRequest(savedForLaterRequestFor(user), form, savedId, clearAutosave);
+      saved = await saveForLaterRequest(savedForLaterRequestFor(user), form, undefined, clearAutosave);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to save for later", { variant: "error" });
       throw err;
     }
     if (saved.ownerId === savedForLaterOwner.current) {
-      setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== savedId)]);
+      setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       /* A new form's typing was its autosave, and the server cleared that in the
          same write (#371), so the Autosaved row goes as the draft row arrives.
          A form with no seat on the autosave (#413) cleared nothing, so the row
          stays. */
-      if (!savedId && clearAutosave) setAutosave(null);
+      if (clearAutosave) setAutosave(null);
     }
   };
 
@@ -4385,20 +4369,8 @@ export const App = () => {
      of opening a form for a record that no longer exists. An answer that comes
      back after the person switched is dropped, like every Saved for Later load. */
   const openSavedForLater = useCallback(async (item: SavedForLaterTask): Promise<void> => {
-    const latest = await reopenSavedForLaterRequest(savedForLaterRequestFor(user), item);
-    if (user.id !== savedForLaterOwner.current) return;
-    if (!latest) {
-      setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
-      showToast("That Task Draft is gone. It was created or removed somewhere else.", { variant: "warn" });
-      return;
-    }
-    setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
-    if (formOpenNow.current) return;
-    setHumperdinkArrival(false);
-    setLeaveAutosaveAlone(false);
-    setReopened(latest);
-    setFormOpen(true);
-  }, [user, showToast]);
+    await newTask.reopen(item, { unless: () => formOpenNow.current });
+  }, [newTask]);
 
   /* Deleting one from the board (#345), once the row's question was answered
      yes. For good: no undo. The server first, then the list, so a delete that
@@ -4419,36 +4391,6 @@ export const App = () => {
     return true;
   }, [user, showToast]);
 
-  /* A reopened form's typing, kept on its record as it is typed (#348,
-     ADR-0011 rule 5). Silent, and the board's list is left alone: this runs
-     every time somebody pauses, and re-rendering the board for it would undo
-     what lifting the form out of App was for (#72). Reopening fetches the
-     latest record anyway. Stable per person, so the form's timer is not reset
-     by an unrelated App render. */
-  const onKeepUnsaved = useCallback(async (savedId: string, form: SavedForLaterForm): Promise<boolean> => {
-    return keepUnsavedRequest(savedForLaterRequestFor(user), savedId, form);
-  }, [user]);
-
-  /* Throwing that typing away, leaving the save as it was (#348), when a
-     reopened form is typed back to exactly its save. Silent here too. Discard
-     no longer uses it: since #388 Discard deletes the record
-     (`onDeleteReopened`, below). */
-  const onDiscardUnsaved = useCallback(async (savedId: string): Promise<boolean> => {
-    return discardUnsavedRequest(savedForLaterRequestFor(user), savedId);
-  }, [user]);
-
-  /* Discard on a reopened Task Draft's leave prompt (#388, #399). The same
-     removal the row's delete control and Create use, so one already gone
-     counts as deleted. The row leaves the tab, and the
-     count with it, only when the server let it go and only for the person it
-     belongs to, the row's own owner check. Silent: the form says when it did
-     not land. */
-  const onDeleteReopened = useCallback(async (savedId: string): Promise<boolean> => {
-    const removed = await removeSavedForLaterRequest(savedForLaterRequestFor(user), savedId);
-    if (removed && user.id === savedForLaterOwner.current) setSavedForLater((current) => current.filter((saved) => saved.id !== savedId));
-    return removed;
-  }, [user]);
-
   /* Opening New Task (#371). The button and the Task Drafts tab's Autosaved row
      are the same way in, so tapping the row opens exactly what New Task would.
      The latest autosave is asked for first, so typing done on another device
@@ -4463,8 +4405,8 @@ export const App = () => {
   }, [newTask]);
 
   /* A new task form's typing, written to the server's autosave as it is typed
-     (#371). Silent, and the board is left alone, for the reason
-     `onKeepUnsaved` is: it runs every time somebody pauses. */
+     (#371). Silent, and the board is left alone: it runs every time somebody
+     pauses. */
   const onKeepAutosave = useCallback(async (form: SavedForLaterForm): Promise<boolean> => {
     return keepAutosaveRequest(savedForLaterRequestFor(user), form);
   }, [user]);
@@ -5255,7 +5197,6 @@ export const App = () => {
       )}
       {formOpen && (
         <TaskForm
-          key={reopened?.id ?? "new"}
           loans={loans}
           directory={directory}
           user={user}
@@ -5267,18 +5208,13 @@ export const App = () => {
           arrivalAside={formSaveAside}
           onClose={() => {
             setFormOpen(false);
-            setReopened(null);
             setHumperdinkArrival(false);
             setLeaveAutosaveAlone(false);
           }}
           onCreate={onCreate}
           onSaveForLater={onSaveForLater}
-          onKeepUnsaved={onKeepUnsaved}
-          onDiscardUnsaved={onDiscardUnsaved}
-          onDeleteReopened={onDeleteReopened}
           onKeepAutosave={onKeepAutosave}
           onForgetAutosave={onForgetAutosave}
-          {...(reopened ? { reopened } : {})}
         />
       )}
 
@@ -5355,7 +5291,7 @@ export const App = () => {
                   isAdmin={isAdmin}
                   onOpenPage={setActiveTab}
                 />
-                <NewTaskButton open={formOpen || newTaskOpen} onClick={() => { if (!formOpen && !newTaskOpen) void openNewTask(); else { newTask.close(); setFormOpen(false); setReopened(null); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
+                <NewTaskButton open={formOpen || newTaskOpen} onClick={() => { if (!formOpen && !newTaskOpen) void openNewTask(); else { newTask.close(); setFormOpen(false); setHumperdinkArrival(false); setLeaveAutosaveAlone(false); } }} />
               </div>
             </div>
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>
