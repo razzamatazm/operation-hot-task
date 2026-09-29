@@ -50,7 +50,7 @@ writeFileSync(
     `export { TaskForm } from ${src("task-form.tsx")};\n` +
     `export { ToastProvider } from ${src("toast.tsx")};\n` +
     `export { TaskDraftsPage, taskDraftsCount } from ${src("saved-for-later.tsx")};\n` +
-    `export { draftKey, serializeDraft } from ${src("create-form-draft.ts")};\n` +
+    `export { draftKey, serializeDraft, filedAutosaveKey } from ${src("create-form-draft.ts")};\n` +
     `export { saveForLaterRequest, keepAutosaveRequest } from ${src("saved-for-later-requests.ts")};\n` +
     `export { createNewTaskSession } from ${src("new-task-session.ts")};\n`
 );
@@ -64,7 +64,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { moveAutosaveAside, TaskForm, ToastProvider, TaskDraftsPage, taskDraftsCount, draftKey, serializeDraft, saveForLaterRequest, keepAutosaveRequest, createNewTaskSession } =
+const { moveAutosaveAside, TaskForm, ToastProvider, TaskDraftsPage, taskDraftsCount, draftKey, serializeDraft, filedAutosaveKey, saveForLaterRequest, keepAutosaveRequest, createNewTaskSession } =
   await import(pathToFileURL(bundle).href);
 
 const USER = { id: "user-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
@@ -180,6 +180,22 @@ test("an autosave worth keeping becomes a Saved for Later task with the same val
     "the existing Save for later route, and no separate clear"
   );
   assert.equal(server.state.calls[1].body.clearAutosave, true);
+});
+
+test("a server autosave that is a filed task whose forget never landed (#472) is not moved to Task Drafts", async () => {
+  const server = modelServer({ autosave: serverAutosave(OLD_TASK) });
+  const storage = memoryStorage();
+  storage.setItem(filedAutosaveKey(USER.id), "1");
+  assert.deepEqual(await move(server, storage), { kind: "none" });
+  assert.deepEqual(server.state.items, []);
+});
+
+test("App's own autosave writes that land settle a filed task's owed forget, so an arrival form's typing is never deleted as the filed task (#472)", () => {
+  for (const name of ["deleteAutosave"]) {
+    const body = APP_SOURCE.match(new RegExp(`const ${name} = useCallback\\(async \\([^)]*\\): Promise<boolean> => \\{([\\s\\S]*?)\\n  \\}, \\[`))?.[1];
+    assert.ok(body, name);
+    assert.match(body, /if \((kept|forgot|removed)\) oweFiledForget\(browserDraftStorage\(\), user\.id, false\);/, name);
+  }
 });
 
 test("afterwards the Task Drafts tab lists it once, as a Task Draft and not also as Autosaved", async () => {

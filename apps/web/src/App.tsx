@@ -22,7 +22,7 @@ import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount, withUnsaved } from "./saved-for-later";
 import { SavedForLaterRequest, forgetAutosaveRequest, loadAutosaveRequest, removeSavedForLaterRequest } from "./saved-for-later-requests";
-import { autosaveCopy, browserDraftStorage, clearDraft, clearUnsavedCopy, newerAutosave, readDraftCopy } from "./create-form-draft";
+import { autosaveCopy, filedForgetOwed, browserDraftStorage, clearDraft, clearUnsavedCopy, newerAutosave, readDraftCopy, oweFiledForget } from "./create-form-draft";
 import { readArrivalClipboard } from "./humperdink-arrival";
 import { useNewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
@@ -4030,9 +4030,10 @@ export const App = () => {
     const { reached, item } = await loadAutosaveRequest(savedForLaterRequestFor(user));
     if (user.id !== savedForLaterOwner.current) return;
     const offline = readDraftCopy(browserDraftStorage(), user.id);
+    const filed = filedForgetOwed(browserDraftStorage(), user.id);
     const at = Date.now();
     setAutosave((current) => {
-      const best = newerAutosave(autosaveCopy(reached ? item : current, at), offline);
+      const best = newerAutosave(autosaveCopy(filed ? null : reached ? item : current, at), offline);
       return best ? { ownerId: user.id, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null;
     });
   }, [user]);
@@ -4344,6 +4345,7 @@ export const App = () => {
      draft's does. */
   const deleteAutosave = useCallback(async (): Promise<boolean> => {
     const removed = await forgetAutosaveRequest(savedForLaterRequestFor(user));
+    if (removed) oweFiledForget(browserDraftStorage(), user.id, false);
     if (user.id !== savedForLaterOwner.current) return false;
     if (!removed) {
       showToast("Couldn't delete the autosaved task. Try again.", { variant: "error" });

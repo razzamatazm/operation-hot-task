@@ -11,7 +11,9 @@ import {
   clearDraft,
   clearUnsavedCopy,
   draftAction,
+  filedForgetOwed,
   newerAutosave,
+  oweFiledForget,
   readDraftCopy,
   readUnsavedCopy,
   writeDraft,
@@ -23,6 +25,7 @@ import { formHasChanges, initialCreateForm } from "./create-form-state";
 import type { CreateFormValues } from "./create-form-state";
 import { moveAutosaveAside } from "./humperdink-arrival";
 import {
+  AUTOSAVE_LOAD_TIMEOUT_MS,
   UNSAVED_SAVE_DEBOUNCE_MS,
   browserTimers,
   discardUnsavedRequest,
@@ -203,6 +206,14 @@ export const createNewTaskSession = ({
   let carriedFromSignIn = false;
   /* An arrival whose move didn't land has no seat on the Autosave. */
   const seated = (): boolean => known && !carriedFromSignIn && !(mode.kind === "arrival" && mode.held);
+  /* A filed task's forget that has not landed (#472), kept here as well as in
+     storage so it holds where storage is locked down. */
+  let filedOwed = false;
+  const owed = (): boolean => filedOwed || filedForgetOwed(storage, owner);
+  const owe = (value: boolean): void => {
+    filedOwed = value;
+    oweFiledForget(storage, owner, value);
+  };
 
   const set = (next: NewTaskSessionState): void => {
     state = next;
@@ -225,20 +236,23 @@ export const createNewTaskSession = ({
     onDisk = true;
     writes = writes
       .then(async () => {
-        if (await keepAutosaveRequest(request, values)) clearDraft(storage, owner);
-        else writeDraft(storage, owner, values, clock.now());
+        if (await keepAutosaveRequest(request, values)) {
+          clearDraft(storage, owner);
+          if (owed()) owe(false);
+        } else writeDraft(storage, owner, values, clock.now());
       })
       .catch(() => {});
   };
 
-  const forget = (): void => {
+  const forget = (filed = false): void => {
     if (!seated()) return;
     clearDraft(storage, owner);
     onDisk = false;
+    if (filed) owe(true);
     writes = writes
       .then(async () => {
         onAutosave?.(null);
-        await forgetAutosaveRequest(request);
+        if ((await forgetAutosaveRequest(request)) && owed()) owe(false);
       })
       .catch(() => {});
   };
@@ -325,6 +339,29 @@ export const createNewTaskSession = ({
     }
   };
 
+  /* Sends a filed task's owed forget again, after any write still out, waiting
+     no longer than an open waits on the Autosave. True while the server's copy
+     may still be the filed task. */
+  const retryOwedForget = async (): Promise<boolean> => {
+    if (!owed()) return false;
+    let settled = false;
+    const retry = writes.then(async () => {
+      if (await forgetAutosaveRequest(request)) owe(false);
+      settled = true;
+    });
+    writes = retry.catch(() => {});
+    let timer: unknown;
+    const gaveUp = new Promise<void>((resolve) => {
+      timer = clock.setTimeout(resolve, AUTOSAVE_LOAD_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([retry, gaveUp]);
+    } finally {
+      clock.clearTimeout(timer);
+    }
+    return !settled || owed();
+  };
+
   const session: NewTaskSession = {
     owner,
     getState: () => state,
@@ -339,10 +376,13 @@ export const createNewTaskSession = ({
       generation += 1;
       const mine = generation;
       set({ phase: "opening" });
-      const { reached, item } = known ? await loadAutosaveRequest(request, undefined, clock) : { reached: false, item: null };
+      const filed = known && (await retryOwedForget());
+      if (mine !== generation) return false;
+      const { reached, item } = known && !filed ? await loadAutosaveRequest(request, undefined, clock) : { reached: false, item: null };
       if (mine !== generation) return false;
       const now = clock.now();
-      const best = known ? newerAutosave(autosaveCopy(reached ? item : held, now), readDraftCopy(storage, owner, now)) : null;
+      const server = filed ? null : reached ? item : held;
+      const best = known ? newerAutosave(autosaveCopy(server, now), readDraftCopy(storage, owner, now)) : null;
       if (known) onAutosave?.(best ? { ownerId: owner, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null);
       if (unless?.()) {
         shut();
@@ -524,7 +564,7 @@ export const createNewTaskSession = ({
             shutMine();
             return undefined as R;
           }
-          forget();
+          forget(true);
           shutMine();
           return undefined as R;
         case "saveForLater": {
@@ -542,6 +582,7 @@ export const createNewTaskSession = ({
           if (clearsAutosave) {
             clearDraft(storage, owner);
             onDisk = false;
+            if (owed()) owe(false);
             onAutosave?.(null);
           }
           onSavedForLater?.(saved);

@@ -347,6 +347,100 @@ test("a Create that fails keeps the form open with both copies, and typing is sa
   assert.deepEqual(server.writes().map((call) => call.method), ["PUT", "PUT"]);
 });
 
+/* #472: a Create whose forget never reached the server. The server still holds
+   the filed task as its Autosave. */
+const fileWithForgetFailing = async ({ owner = "user-1" } = {}) => {
+  const env = setup({ owner });
+  const { session, server, clock } = env;
+  const filedForm = values({ folderName: "Castillo", notes: "filed" });
+  server.answer = (call) => {
+    if (call.method === "DELETE") throw new Error("offline");
+    if (call.method === "PUT") server.autosave = { ownerId: owner, savedAt: new Date(clock.now()).toISOString(), form: call.body.form };
+    return {};
+  };
+  await session.open();
+  session.edit(filedForm);
+  await clock.advance(1000);
+  await session.end({ kind: "create", file: async () => {} });
+  await settle();
+  assert.equal(server.autosave.form.notes, "filed", "the forget failed, so the server still holds the filed task");
+  return env;
+};
+
+test("a Create whose forget fails: the next New Task opens blank, not on the filed task", async () => {
+  const { session, events, server } = await fileWithForgetFailing();
+  const gets = () => server.calls.filter((call) => call.method === "GET").length;
+  const getsBefore = gets();
+  assert.equal(await session.open(), true);
+  assert.equal(gets(), getsBefore, "no point asking for a copy that is the filed task");
+  assert.deepEqual(openState(session).values, BLANK_CREATE_FORM);
+  assert.equal(openState(session).restored, false);
+  assert.equal(events.autosave.at(-1), null);
+});
+
+test("a Create whose forget fails still opens blank after a reload, reached or not", async () => {
+  const { server, storage, clock } = await fileWithForgetFailing();
+  const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
+  await reloaded.open({ held: server.autosave });
+  assert.deepEqual(openState(reloaded).values, BLANK_CREATE_FORM);
+  assert.equal(openState(reloaded).restored, false);
+
+  const unreached = fakeServer({ autosave: server.autosave, reach: false });
+  unreached.answer = server.answer;
+  const offline = createNewTaskSession({ owner: "user-1", request: unreached.request, storage, clock });
+  const opening = offline.open({ held: server.autosave });
+  await clock.advance(5000);
+  assert.equal(await opening, true);
+  assert.deepEqual(openState(offline).values, BLANK_CREATE_FORM);
+});
+
+test("the filed task's server Autosave is forgotten once the server is reachable again, and only once", async () => {
+  const { server, storage, clock } = await fileWithForgetFailing();
+  server.answer = (call) => {
+    if (call.method === "DELETE") server.autosave = null;
+    return {};
+  };
+  const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
+  await reloaded.open({ held: server.autosave });
+  assert.equal(server.autosave, null, "the owed forget went out on the way in");
+  assert.deepEqual(openState(reloaded).values, BLANK_CREATE_FORM);
+  reloaded.close();
+
+  server.autosave = serverCopy(values({ notes: "typed on another device later" }), 0);
+  const deletesBefore = server.writes().filter((call) => call.method === "DELETE").length;
+  await reloaded.open();
+  assert.equal(server.writes().filter((call) => call.method === "DELETE").length, deletesBefore, "nothing more is owed");
+  assert.equal(openState(reloaded).values.notes, "typed on another device later");
+});
+
+test("typing after a filed task whose forget failed is still kept and restored", async () => {
+  const { session, server, clock } = await fileWithForgetFailing();
+  await session.open();
+  session.edit(values({ notes: "the next task" }));
+  await clock.advance(1000);
+  assert.equal(server.autosave.form.notes, "the next task");
+  session.close();
+  const deletesBefore = server.writes().filter((call) => call.method === "DELETE").length;
+  await session.open();
+  assert.equal(openState(session).values.notes, "the next task");
+  assert.equal(openState(session).restored, true);
+  assert.equal(server.writes().filter((call) => call.method === "DELETE").length, deletesBefore, "the write replaced the filed copy");
+});
+
+test("typing after a filed task, kept only offline, is still restored while the forget is owed", async () => {
+  const { session, server, clock } = await fileWithForgetFailing();
+  server.answer = () => {
+    throw new Error("offline");
+  };
+  await session.open();
+  session.edit(values({ notes: "the next task, offline" }));
+  await clock.advance(1000);
+  session.close();
+  await clock.advance(60_000);
+  await session.open();
+  assert.equal(openState(session).values.notes, "the next task, offline");
+});
+
 test("Save for later goes out as one request that also clears the Autosave", async () => {
   const saved = { id: "sfl-1", ownerId: "user-1", savedAt: new Date(START).toISOString(), form: values({ notes: "later" }) };
   const { session, server, storage, key, events } = setup({ offline: { values: values({ notes: "later" }), ageMs: 60_000 } });
