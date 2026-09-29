@@ -293,13 +293,17 @@ const run = async () => {
     assert.ok(redDueMs >= -60 * 1000 && redDueMs <= 60 * 1000, `RED due delta expected immediate, got ${redDueMs}`);
     pushPass("RED urgency default due is immediate");
 
+    // Relative to the real clock (the server reads it), so the return date never slides into the past (#464).
+    const wallDate = (days) => new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+    const oooStart = wallDate(0);
+    const oooReturn = wallDate(7);
     const createOoo = await request(server.baseUrl, "POST", "/tasks", {
       user: users.creator,
       body: {
         folderName: "OOO Coverage",
         taskType: "OOO",
-        startDate: "2099-01-01",
-        returnDate: "2099-01-02",
+        startDate: oooStart,
+        returnDate: oooReturn,
         notes: "cover while away"
       }
     });
@@ -307,8 +311,8 @@ const run = async () => {
     const oooTask = createOoo.json.task;
     assert.equal(oooTask.taskType, "OOO");
     assert.equal(oooTask.urgency, "GREEN");
-    assert.equal(oooTask.startDate, "2099-01-01");
-    assert.equal(oooTask.returnDate, "2099-01-02");
+    assert.equal(oooTask.startDate, oooStart);
+    assert.equal(oooTask.returnDate, oooReturn);
     const oooDue = new Date(oooTask.dueAt);
     const oooDuePt = oooDue.toLocaleString("en-US", {
       timeZone: "America/Los_Angeles",
@@ -319,7 +323,8 @@ const run = async () => {
       hour: "2-digit",
       minute: "2-digit"
     });
-    assert.ok(oooDuePt.includes("01/02/2099, 08:30"), `OOO due should map to 8:30am PT, got ${oooDuePt}`);
+    const [returnYear, returnMonth, returnDay] = oooReturn.split("-");
+    assert.ok(oooDuePt.includes(`${returnMonth}/${returnDay}/${returnYear}, 08:30`), `OOO due should map to 8:30am PT, got ${oooDuePt}`);
     pushPass("OOO task uses return date due at 8:30 AM PT and GREEN urgency");
 
     const createOooMissingReturnDate = await request(server.baseUrl, "POST", "/tasks", {
