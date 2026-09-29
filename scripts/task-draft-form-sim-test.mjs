@@ -563,7 +563,7 @@ test("the line is keyed to how the form opened, not to what is in it now", () =>
   assert.match(SESSION_SOURCE, /restored: best !== null/, "set once from how the form opened");
   assert.match(SESSION_SOURCE, /mode = \{ kind: "reopened", record(?:: [^;]+)? \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "a reopened Task Draft never has the line");
   assert.match(SESSION_SOURCE, /mode = \{ kind: "arrival", held: moved\.kind === "held" \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "nor does an arrival's LOI Check");
-  assert.match(SESSION_SOURCE, /carried = true;\s*mode = \{ kind: "fresh" \};\s*set\(\{ phase: "open", mode, values, restored: false,/, "nor does a form carried over from sign-in");
+  assert.match(SESSION_SOURCE, /carriedFromSignIn = true;\s*mode = \{ kind: "fresh" \};\s*set\(\{ phase: "open", mode, values, restored: false,/, "nor does a form carried over from sign-in");
   assert.equal((SESSION_SOURCE.match(/restored: (?!boolean)/g) ?? []).length, 5, "and moved by exactly one thing: Start fresh");
   assert.match(SESSION_SOURCE, /case "startFresh":[\s\S]*?restored: false/);
 });

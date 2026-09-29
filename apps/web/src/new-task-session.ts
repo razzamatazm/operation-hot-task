@@ -200,9 +200,9 @@ export const createNewTaskSession = ({
      out as the person whose Autosave this session never loaded. */
   const known = owner !== "";
   /* A form carried over from sign-in, which never loaded the Autosave either. */
-  let carried = false;
+  let carriedFromSignIn = false;
   /* An arrival whose move didn't land has no seat on the Autosave. */
-  const seated = (): boolean => known && !carried && !(mode.kind === "arrival" && mode.held);
+  const seated = (): boolean => known && !carriedFromSignIn && !(mode.kind === "arrival" && mode.held);
 
   const set = (next: NewTaskSessionState): void => {
     state = next;
@@ -352,7 +352,7 @@ export const createNewTaskSession = ({
       openedWith = best?.values ?? fresh;
       onDisk = best !== null;
       pendingItem = "";
-      carried = false;
+      carriedFromSignIn = false;
       mode = { kind: "fresh" };
       set({ phase: "open", mode, values: openedWith, restored: best !== null, asking: false, ending: null });
       return true;
@@ -395,7 +395,7 @@ export const createNewTaskSession = ({
       copied = stored !== null && (copy !== null || !reached);
       const { unsaved: _, ...saved } = latest;
       const record = copy ? (formHasChanges(latest.form, copy) ? { ...saved, unsaved: copy } : saved) : latest;
-      carried = false;
+      carriedFromSignIn = false;
       mode = { kind: "reopened", record };
       set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
       if (copy) sendUnsaved(latest, copy);
@@ -431,7 +431,7 @@ export const createNewTaskSession = ({
         openedWith = fresh;
         onDisk = false;
         pendingItem = "";
-        carried = false;
+        carriedFromSignIn = false;
         mode = { kind: "arrival", held: moved.kind === "held" };
         set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
         return "opened";
@@ -451,7 +451,7 @@ export const createNewTaskSession = ({
       openedWith = fresh;
       onDisk = false;
       pendingItem = "";
-      carried = true;
+      carriedFromSignIn = true;
       mode = { kind: "fresh" };
       set({ phase: "open", mode, values, restored: false, asking: false, ending: null });
     },
@@ -523,6 +523,7 @@ export const createNewTaskSession = ({
           shutMine();
           return undefined as R;
         case "saveForLater": {
+          if (!known) throw new Error("Still signing in. Try Save for later again in a moment.");
           if (current.kind === "reopened") {
             const { id } = current.record;
             const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values, id));

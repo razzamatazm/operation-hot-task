@@ -7,7 +7,7 @@
 
    Run: `node --test scripts/sign-in-window-autosave-sim-test.mjs`. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -205,15 +205,36 @@ for (const [name, ending] of [
   });
 }
 
-test("Save for later on a form opened while signing in keeps it without clearing the Autosave", async () => {
+test("Save for later while signing in saves nothing under nobody, and works once the form is carried to the person", async () => {
   const ctx = setup();
   await ctx.signingIn.open();
   ctx.signingIn.edit(WINDOW_TYPING);
   ctx.server.signedIn = true;
-  const saved = await ctx.signingIn.end({ kind: "saveForLater" });
+  await assert.rejects(ctx.signingIn.end({ kind: "saveForLater" }), /Still signing in/);
+  assert.deepEqual(ctx.signingIn.getState().values, WINDOW_TYPING, "the form stays as it was");
+  assert.deepEqual(ctx.server.drafts, []);
+
+  const dana = await ctx.signIn({ arrival: false });
+  const saved = await dana.end({ kind: "saveForLater" });
   assert.equal(saved.form.notes, "typed while signing in");
-  assert.equal(ctx.server.calls.at(-1).body.clearAutosave, undefined);
+  assert.equal(ctx.server.calls.at(-1).body.clearAutosave, undefined, "its save clears no slot it never loaded");
   assert.ok(ctx.server.keepsBeforeReload());
+});
+
+/* The carry has to happen before the arrival runs, and both are effects in
+   App: the hook's runs first only because it is declared first. */
+test("App carries the sign-in form over before the arrival effect runs", () => {
+  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
+  const session = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
+  const hook = app.indexOf("useNewTaskSession({");
+  const arrival = app.indexOf("if (!arrivalPending || !user.id) return;");
+  assert.ok(hook > 0 && arrival > 0, "both are found");
+  assert.ok(hook < arrival, "the session's hook, and its hand-over effect, come before the arrival effect");
+  assert.match(
+    session,
+    /previous\.current !== session\) carrySignInForm\(previous\.current, session\);\s*if \(previous\.current && previous\.current !== session\) previous\.current\.close\(\);/,
+    "the typing is carried before the old session closes"
+  );
 });
 
 /* ── Once the person is known ───────────────────────────── */
