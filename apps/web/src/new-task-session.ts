@@ -124,6 +124,9 @@ export interface NewTaskSession {
      `load`, then opens a blank LOI Check. An open press waits for it. `unless`
      is asked after the move; true opens nothing and skips `load`. */
   arrive(options: { load: () => void; unless?: () => boolean }): Promise<ArrivalOutcome>;
+  /* A form typed into while nobody was known, carried into this session. It
+     never writes or forgets the Autosave. */
+  adopt(values: CreateFormValues): void;
   edit(values: CreateFormValues): void;
   /* The Fraud seeder's half-typed item, which Save for later folds in. */
   notePendingItem(text: string): void;
@@ -193,8 +196,13 @@ export const createNewTaskSession = ({
   let pendingItem = "";
   /* An arrival under way, which an open waits behind. */
   let arriving: Promise<unknown> | null = null;
+  /* Nobody known yet (#478): Teams sign-in is out, and requests may already go
+     out as the person whose Autosave this session never loaded. */
+  const known = owner !== "";
+  /* A form carried over from sign-in, which never loaded the Autosave either. */
+  let carried = false;
   /* An arrival whose move didn't land has no seat on the Autosave. */
-  const seated = (): boolean => !(mode.kind === "arrival" && mode.held);
+  const seated = (): boolean => known && !carried && !(mode.kind === "arrival" && mode.held);
 
   const set = (next: NewTaskSessionState): void => {
     state = next;
@@ -331,11 +339,11 @@ export const createNewTaskSession = ({
       generation += 1;
       const mine = generation;
       set({ phase: "opening" });
-      const { reached, item } = await loadAutosaveRequest(request, undefined, clock);
+      const { reached, item } = known ? await loadAutosaveRequest(request, undefined, clock) : { reached: false, item: null };
       if (mine !== generation) return false;
       const now = clock.now();
-      const best = newerAutosave(autosaveCopy(reached ? item : held, now), readDraftCopy(storage, owner, now));
-      onAutosave?.(best ? { ownerId: owner, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null);
+      const best = known ? newerAutosave(autosaveCopy(reached ? item : held, now), readDraftCopy(storage, owner, now)) : null;
+      if (known) onAutosave?.(best ? { ownerId: owner, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null);
       if (unless?.()) {
         shut();
         return false;
@@ -344,6 +352,7 @@ export const createNewTaskSession = ({
       openedWith = best?.values ?? fresh;
       onDisk = best !== null;
       pendingItem = "";
+      carried = false;
       mode = { kind: "fresh" };
       set({ phase: "open", mode, values: openedWith, restored: best !== null, asking: false, ending: null });
       return true;
@@ -386,6 +395,7 @@ export const createNewTaskSession = ({
       copied = stored !== null && (copy !== null || !reached);
       const { unsaved: _, ...saved } = latest;
       const record = copy ? (formHasChanges(latest.form, copy) ? { ...saved, unsaved: copy } : saved) : latest;
+      carried = false;
       mode = { kind: "reopened", record };
       set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
       if (copy) sendUnsaved(latest, copy);
@@ -410,7 +420,7 @@ export const createNewTaskSession = ({
             }
           }
         }
-        const moved = await moveAutosaveAside(request, storage, owner, { now: clock.now(), timers: clock });
+        const moved = known ? await moveAutosaveAside(request, storage, owner, { now: clock.now(), timers: clock }) : { kind: "held" as const };
         if (unless?.()) return "skipped";
         load();
         /* A New Task that opened while the move was out keeps the screen; one
@@ -421,6 +431,7 @@ export const createNewTaskSession = ({
         openedWith = fresh;
         onDisk = false;
         pendingItem = "";
+        carried = false;
         mode = { kind: "arrival", held: moved.kind === "held" };
         set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
         return "opened";
@@ -431,6 +442,18 @@ export const createNewTaskSession = ({
       } finally {
         if (arriving === run) arriving = null;
       }
+    },
+
+    adopt(values) {
+      if (state.phase !== "closed") return;
+      generation += 1;
+      fresh = initialCreateForm();
+      openedWith = fresh;
+      onDisk = false;
+      pendingItem = "";
+      carried = true;
+      mode = { kind: "fresh" };
+      set({ phase: "open", mode, values, restored: false, asking: false, ending: null });
     },
 
     edit(values) {
@@ -539,6 +562,14 @@ export const createNewTaskSession = ({
   return session;
 };
 
+/* Once sign-in names the person, typing from a form opened before that moves
+   into their session rather than closing with the old one (#478). */
+export const carrySignInForm = (from: NewTaskSession, to: NewTaskSession): void => {
+  const state = from.getState();
+  if (from.owner !== "" || state.phase !== "open" || state.ending || !from.hasTyping()) return;
+  to.adopt(state.values);
+};
+
 /* ── React ──────────────────────────────────────────────── */
 
 /* One session per person, made when they are first seen and closed when the
@@ -550,6 +581,7 @@ export const useNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession => {
   const session = useMemo(() => createNewTaskSession(deps), [deps.owner]);
   const previous = useRef<NewTaskSession | null>(null);
   useEffect(() => {
+    if (previous.current && previous.current !== session) carrySignInForm(previous.current, session);
     if (previous.current && previous.current !== session) previous.current.close();
     previous.current = session;
   }, [session]);
