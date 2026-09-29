@@ -411,6 +411,28 @@ export const clearUnsavedCopy = (storage: DraftStorage | null, userId: string, s
   }
 };
 
+/* A filed task whose server Autosave could not be forgotten (#472). While this
+   is set, the server's copy is the filed task and never opens; the forget is
+   owed until a DELETE lands or a newer write replaces the copy. */
+export const filedAutosaveKey = (userId: string): string => `loan-tasks:autosave-filed:${userId}`;
+
+export const filedForgetOwed = (storage: DraftStorage | null, userId: string): boolean => {
+  try {
+    return storage?.getItem(filedAutosaveKey(userId)) != null;
+  } catch {
+    return false;
+  }
+};
+
+export const oweFiledForget = (storage: DraftStorage | null, userId: string, owed: boolean): void => {
+  try {
+    if (owed) storage?.setItem(filedAutosaveKey(userId), "1");
+    else storage?.removeItem(filedAutosaveKey(userId));
+  } catch {
+    /* storage unavailable — degrade silently */
+  }
+};
+
 /* ── What a restored form says about itself (#285) ──────────
    Restoring silently is the right default and a small mystery: someone opens
    New Task expecting an empty form and finds last Tuesday's abandoned attempt

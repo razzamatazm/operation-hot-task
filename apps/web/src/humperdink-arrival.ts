@@ -32,7 +32,7 @@
    The clipboard fill that arrival's form runs (#415) is at the bottom. */
 import { parseHumperdinkPayload } from "@loan-tasks/shared";
 import type { SavedForLaterTask } from "@loan-tasks/shared";
-import { autosaveCopy, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
+import { autosaveCopy, filedForgetOwed, clearDraft, newerAutosave, readDraftCopy } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
 import { formHasChanges, initialCreateForm } from "./create-form-state";
 import { AUTOSAVE_LOAD_TIMEOUT_MS, browserTimers, loadAutosaveRequest, saveForLaterRequest } from "./saved-for-later-requests";
@@ -54,7 +54,8 @@ export const moveAutosaveAside = async (
   if (!reached) return { kind: "held" };
 
   const now = options.now ?? Date.now();
-  const kept = newerAutosave(autosaveCopy(item, now), readDraftCopy(storage, userId, now));
+  const server = filedForgetOwed(storage, userId) ? null : item;
+  const kept = newerAutosave(autosaveCopy(server, now), readDraftCopy(storage, userId, now));
   if (!kept || !formHasChanges(initialCreateForm(), kept.values)) return { kind: "none" };
 
   let timer: unknown;
