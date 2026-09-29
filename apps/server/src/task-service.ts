@@ -2439,14 +2439,13 @@ export class TaskService {
          across a door that reset its pool clock — reopening an unclaimed task
          holds the count to preserve the six-ask ceiling, so the first nag after
          it would claim 60 minutes for a task the room has had for 20. Elapsed
-         overstates in the other direction once the sweep's lateness compounds
-         over several nags. It counts office time only (#459), so a night or a
-         weekend in the pool adds nothing to it. Whichever is smaller is the one the room can recognise. */
-      const elapsedMark =
+         (office time only, #459) overstates once the sweep's lateness
+         compounds. Whichever is smaller is the one the room can recognise. */
+      const officeMark =
         Math.floor(officeMsBetween(new Date(inPoolSince(next)), now, this.appConfig) / UNCLAIMED_ALERT_MS) *
         UNCLAIMED_ALERT_MS;
       const nagMarkMinutes =
-        Math.max(UNCLAIMED_ALERT_MS, Math.min(poolNagCount * UNCLAIMED_ALERT_MS, elapsedMark)) / 60000;
+        Math.max(UNCLAIMED_ALERT_MS, Math.min(poolNagCount * UNCLAIMED_ALERT_MS, officeMark)) / 60000;
       next = { ...next, lastPoolNagAt: nowIso, poolNagCount, updatedAt: nowIso };
       effects.push({ kind: "NAGGED", task: next, nagMarkMinutes });
     }

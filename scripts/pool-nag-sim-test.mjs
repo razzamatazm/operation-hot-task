@@ -278,13 +278,13 @@ await check("a restart does not delay the first nag of a task too young to have 
 
   // A restart twelve minutes later, while the task is still too young to nag.
   await patch(store, fresh.id, (current) => ({ ...current, createdAt: minutesAgo(12) }));
-  const backfilled = await service.backfillPoolNagClock();
+  await rebaseOnto(store, AT_1012);
+  const backfilled = await service.backfillPoolNagClock(AT_1012);
   assert.equal(backfilled.stamped, 0, "nothing to suppress, so nothing is stamped");
   assert.equal((await store.findTask(fresh.id)).lastPoolNagAt, undefined, "its clock is untouched");
 
   // So it still nags on its original schedule rather than twenty minutes later:
   // filed at 10:00, restarted at 10:12, nagged at 10:25.
-  await rebaseOnto(store, AT_1012);
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "the restart cost it nothing");
   assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
 });

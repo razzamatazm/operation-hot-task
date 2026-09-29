@@ -1271,10 +1271,7 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
   // hand-back. `inPoolSince` rather than `createdAt` makes that structural
   // instead of resting on every door happening to stamp both fields.
   const since = new Date(task.lastPoolNagAt ?? inPoolSince(task));
-  // Office minutes, not wall time (#459): a task pooled at 19:00 has waited
-  // for nobody overnight, and is owed the same twenty open minutes as one
-  // pooled mid-morning. The wall check first is only a cheap early out, since
-  // office time never exceeds wall time.
+  // Office minutes, not wall time (#459); the wall check is a cheap early out.
   if (now.getTime() - since.getTime() < UNCLAIMED_ALERT_MS) {
     return false;
   }
