@@ -5,6 +5,7 @@ import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
 import { createPortal } from "react-dom";
 import { createTokenCache, sendWithToken } from "./auth-token";
+import { withRequestTimeout } from "./request-timeout";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
 import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
@@ -73,38 +74,40 @@ interface LoanPatchResult {
   merged?: { intoLoanId: string; intoLoanName: string; mergedName: string };
 }
 
-const apiRequest = async <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> => {
-  const send = (token: string | null): Promise<Response> =>
-    fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: {
-        "content-type": "application/json",
-        /* Teams: SSO bearer. Dev browser (no token): identify via the mock
-           user headers so local role-switching still works. */
-        ...(token
-          ? { authorization: `Bearer ${token}` }
-          : {
-              "x-user-id": user.id,
-              "x-user-name": user.displayName,
-              "x-user-roles": user.roles.join(",")
-            }),
-        ...(init.headers ?? {})
-      }
-    });
+const apiRequest = <T,>(path: string, init: RequestInit, user: UserIdentity): Promise<T> =>
+  withRequestTimeout(async (signal) => {
+    const send = (token: string | null): Promise<Response> =>
+      fetch(`${API_BASE}${path}`, {
+        ...init,
+        signal,
+        headers: {
+          "content-type": "application/json",
+          /* Teams: SSO bearer. Dev browser (no token): identify via the mock
+             user headers so local role-switching still works. */
+          ...(token
+            ? { authorization: `Bearer ${token}` }
+            : {
+                "x-user-id": user.id,
+                "x-user-name": user.displayName,
+                "x-user-roles": user.roles.join(",")
+              }),
+          ...(init.headers ?? {})
+        }
+      });
 
-  const response = await sendWithToken(tokenCache, send);
+    const response = await sendWithToken(tokenCache, send);
 
-  /* No content: a removal that worked (DELETE /saved-for-later/:id, #344). There
-     is no body to read, and reading one would throw on a success. */
-  if (response.status === 204) return undefined as T;
+    /* No content: a removal that worked (DELETE /saved-for-later/:id, #344). There
+       is no body to read, and reading one would throw on a success. */
+    if (response.status === 204) return undefined as T;
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new ApiError(data.error ?? "Request failed", response.status, data);
-  }
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiError(data.error ?? "Request failed", response.status, data);
+    }
 
-  return data as T;
-};
+    return data as T;
+  });
 
 const formatPtDateOnly = (iso: string): string => {
   const d = new Date(iso);
