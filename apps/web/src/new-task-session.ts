@@ -138,7 +138,7 @@ export interface NewTaskSession {
   end<E extends NewTaskEnding>(ending: E): Promise<EndResult<E>>;
   /* Keep editing: the leave question comes down. */
   resume(): void;
-  /* Shut without forgetting anything, and stop writing. */
+  /* Shut and stop writing, forgetting only a form typed back to blank. */
   close(): void;
   /* Whether the form differs from a blank one, the yardstick for Cancel asking
      and for Save for later being offered. */
@@ -206,14 +206,18 @@ export const createNewTaskSession = ({
   let carriedFromSignIn = false;
   /* An arrival whose move didn't land has no seat on the Autosave. */
   const seated = (): boolean => known && !carriedFromSignIn && !(mode.kind === "arrival" && mode.held);
-  /* A filed task's forget that has not landed (#472), kept here as well as in
+  /* A forget that has not landed (#472, #471), kept here as well as in
      storage so it holds where storage is locked down. */
-  let filedOwed = false;
+  let forgetOwed = false;
   /* Owed-forget retries still out; one that gave up can outlive a later one. */
   let retrying = 0;
-  const owed = (): boolean => filedOwed || filedForgetOwed(storage, owner);
+  /* Writes and forgets in the order asked, so a write asked before the latest
+     forget can neither put an offline copy back nor settle what it owes. */
+  let asked = 0;
+  let forgotAt = 0;
+  const owed = (): boolean => forgetOwed || filedForgetOwed(storage, owner);
   const owe = (value: boolean): void => {
-    filedOwed = value;
+    forgetOwed = value;
     oweFiledForget(storage, owner, value);
   };
 
@@ -236,11 +240,14 @@ export const createNewTaskSession = ({
 
   const keep = (values: CreateFormValues): void => {
     onDisk = true;
+    const mine = ++asked;
     writes = writes
       .then(async () => {
         /* While a timed-out forget is still out, a server write could land
            before it and be deleted, so the typing stays offline. */
-        if (retrying === 0 && (await keepAutosaveRequest(request, values))) {
+        const landed = retrying === 0 && (await keepAutosaveRequest(request, values));
+        if (mine < forgotAt) return;
+        if (landed) {
           clearDraft(storage, owner);
           if (owed()) owe(false);
         } else writeDraft(storage, owner, values, clock.now());
@@ -248,15 +255,18 @@ export const createNewTaskSession = ({
       .catch(() => {});
   };
 
-  const forget = (filed = false): void => {
+  /* Owed until it lands, so typing thrown away never opens again, even when
+     the server can't be reached. */
+  const forget = (): void => {
     if (!seated()) return;
+    const mine = (forgotAt = ++asked);
     clearDraft(storage, owner);
     onDisk = false;
-    if (filed) owe(true);
+    owe(true);
     writes = writes
       .then(async () => {
         onAutosave?.(null);
-        if ((await forgetAutosaveRequest(request)) && owed()) owe(false);
+        if ((await forgetAutosaveRequest(request)) && mine === forgotAt && owed()) owe(false);
       })
       .catch(() => {});
   };
@@ -321,6 +331,13 @@ export const createNewTaskSession = ({
     else if (action === "clear") forget();
   };
 
+  /* A form typed back to blank and shut before its clear went out still
+     forgets its Autosave. */
+  const shutEmptied = (): void => {
+    if (state.phase === "open" && !state.ending && onDisk && !formHasChanges(fresh, state.values)) forget();
+    shut();
+  };
+
   const schedule = (): void => {
     stopTimer();
     timer = clock.setTimeout(tick, UNSAVED_SAVE_DEBOUNCE_MS);
@@ -350,8 +367,9 @@ export const createNewTaskSession = ({
     if (!owed()) return false;
     let settled = false;
     retrying += 1;
+    const mine = asked;
     const retry = writes.then(async () => {
-      if (await forgetAutosaveRequest(request)) owe(false);
+      if ((await forgetAutosaveRequest(request)) && forgotAt <= mine) owe(false);
       settled = true;
     });
     retry.then(
@@ -535,7 +553,7 @@ export const createNewTaskSession = ({
       switch (ending.kind) {
         case "cancel":
           if (current.kind !== "reopened" && !formHasChanges(fresh, values, ending.pendingItemText)) {
-            shut();
+            shutEmptied();
             return "closed" as R;
           }
           patch({ asking: true });
@@ -574,7 +592,7 @@ export const createNewTaskSession = ({
             shutMine();
             return undefined as R;
           }
-          forget(true);
+          forget();
           shutMine();
           return undefined as R;
         case "saveForLater": {
@@ -608,7 +626,7 @@ export const createNewTaskSession = ({
 
     close() {
       /* Closed too while a Task Draft is loading, so it never opens. */
-      if (state.phase !== "closed") shut();
+      if (state.phase !== "closed") shutEmptied();
       else generation += 1;
     },
 
