@@ -9,6 +9,7 @@ import {
   nextOfficeOpen,
   officeClosesAt,
   officeHoursOn,
+  officeMsBetween,
   zonedParts,
   zonedToUtcIso
 } from "./office-hours.js";
@@ -1269,11 +1270,18 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
   // (#210): a task handed back is owed its first nag twenty minutes from the
   // hand-back. `inPoolSince` rather than `createdAt` makes that structural
   // instead of resting on every door happening to stamp both fields.
-  const since = task.lastPoolNagAt ?? inPoolSince(task);
-  if (now.getTime() - new Date(since).getTime() < UNCLAIMED_ALERT_MS) {
+  const since = new Date(task.lastPoolNagAt ?? inPoolSince(task));
+  // Office minutes, not wall time (#459): a task pooled at 19:00 has waited
+  // for nobody overnight, and is owed the same twenty open minutes as one
+  // pooled mid-morning. The wall check first is only a cheap early out, since
+  // office time never exceeds wall time.
+  if (now.getTime() - since.getTime() < UNCLAIMED_ALERT_MS) {
     return false;
   }
-  return isWithinBusinessHours(now, config);
+  if (!isWithinBusinessHours(now, config)) {
+    return false;
+  }
+  return officeMsBetween(since, now, config) >= UNCLAIMED_ALERT_MS;
 };
 
 /* Nobody currently holds this task, so its `dueAt` is not yet anybody's

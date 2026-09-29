@@ -53,6 +53,7 @@ import {
   computeClaimAnchoredDueAt,
   isPoolNagDue,
   isPoolNagEligible,
+  officeMsBetween,
   inPoolSince,
   UNCLAIMED_ALERT_MS,
   isDeadlineRecomputeExempt,
@@ -2215,9 +2216,8 @@ export class TaskService {
      exists for — either it predates the feature, or the server was down through
      the window it should have nagged in, and in both cases starting its clock
      here is the honest answer. */
-  async backfillPoolNagClock(): Promise<{ stamped: number }> {
-    const nowMs = Date.now();
-    const now = new Date(nowMs).toISOString();
+  async backfillPoolNagClock(at: Date = new Date()): Promise<{ stamped: number }> {
+    const now = at.toISOString();
     const tasks = await this.store.allTasks();
     let stamped = 0;
     for (const task of tasks) {
@@ -2228,7 +2228,10 @@ export class TaskService {
       if (!isPoolNagEligible(task) || task.lastPoolNagAt) {
         continue;
       }
-      if (nowMs - new Date(inPoolSince(task)).getTime() < UNCLAIMED_ALERT_MS) {
+      // Office minutes, as the nag measures them (#459): a boot before opening
+      // must not stamp a task pooled the evening before, which has waited for
+      // nobody yet.
+      if (officeMsBetween(new Date(inPoolSince(task)), at, this.appConfig) < UNCLAIMED_ALERT_MS) {
         continue;
       }
       await this.store.updateTask(task.id, (current) =>
@@ -2436,11 +2439,11 @@ export class TaskService {
          across a door that reset its pool clock — reopening an unclaimed task
          holds the count to preserve the six-ask ceiling, so the first nag after
          it would claim 60 minutes for a task the room has had for 20. Elapsed
-         overstates in the other direction: nags only fire in business hours, so
-         a task pooled at the end of the day would open the morning claiming the
-         whole night. Whichever is smaller is the one the room can recognise. */
+         overstates in the other direction once the sweep's lateness compounds
+         over several nags. It counts office time only (#459), so a night or a
+         weekend in the pool adds nothing to it. Whichever is smaller is the one the room can recognise. */
       const elapsedMark =
-        Math.floor((now.getTime() - new Date(inPoolSince(next)).getTime()) / UNCLAIMED_ALERT_MS) *
+        Math.floor(officeMsBetween(new Date(inPoolSince(next)), now, this.appConfig) / UNCLAIMED_ALERT_MS) *
         UNCLAIMED_ALERT_MS;
       const nagMarkMinutes =
         Math.max(UNCLAIMED_ALERT_MS, Math.min(poolNagCount * UNCLAIMED_ALERT_MS, elapsedMark)) / 60000;
