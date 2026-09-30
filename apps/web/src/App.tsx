@@ -8,7 +8,7 @@ import { createTokenCache, sendWithToken } from "./auth-token";
 import { ADMIN_REQUEST_TIMEOUT_MS, withRequestTimeout } from "./request-timeout";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
-import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
+import { ExpandOverrides, collapseTasks, expandedTaskIds, headerKeyToggles, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, showForTab, tabForLink, tabForShow, visibleBoardTasks } from "./board-filter";
 import { AdminMenuSection, AppPage, BackToTasks } from "./app-pages";
@@ -1849,7 +1849,7 @@ const TaskCard = memo(({
     setExpanded(!expanded);
   };
   const handleHeaderKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
+    if (!headerKeyToggles(e.key, e.target, e.currentTarget)) return;
     e.preventDefault();
     acknowledgeUnread();
     setExpanded(!expanded);

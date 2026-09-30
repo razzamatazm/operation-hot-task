@@ -24,6 +24,13 @@ export type ExpandOverrides = Record<string, boolean>;
    so the rule has one place to be read and tested. */
 export const isTaskExpanded = (override: boolean | undefined): boolean => override ?? false;
 
+/* Whether a key on the card's header row toggles it (#504). Only a key aimed
+   at the row itself: the task menu, its items (portaled, but still bubbling
+   through React), and the action buttons all sit inside the row, and taking
+   their Enter/Space here cancelled their own click. */
+export const headerKeyToggles = (key: string, target: unknown, row: unknown): boolean =>
+  target === row && (key === "Enter" || key === " ");
+
 /* Which of `tasks` are open right now, in list order — the input to that
    list's Collapse all. The caller passes exactly the collection its list
    renders, so the tab / loan-filter / grouping scoping is already done and

@@ -12,7 +12,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { collapseTasks, expandedTaskIds, isTaskExpanded } from "../apps/web/src/expand-state.ts";
+import { readFileSync } from "node:fs";
+
+import { collapseTasks, expandedTaskIds, headerKeyToggles, isTaskExpanded } from "../apps/web/src/expand-state.ts";
 
 /* Only the id is read — expansion no longer looks at status, parties or
    notes, and a test that supplied them would imply it did. */
@@ -89,4 +91,26 @@ test("collapsing what the header reported empties the header", () => {
   const next = collapseTasks(overrides, expandedTaskIds(tasks, overrides));
   assert.deepEqual(expandedTaskIds(tasks, next), []);
   assert.equal(collapseTasks(next, expandedTaskIds(tasks, next)), next, "a second press is a no-op");
+});
+
+/* ── #504: keys on controls inside the header row ──────── */
+
+test("Enter and Space on the header row itself toggle the card", () => {
+  const row = {};
+  assert.equal(headerKeyToggles("Enter", row, row), true);
+  assert.equal(headerKeyToggles(" ", row, row), true);
+  assert.equal(headerKeyToggles("Tab", row, row), false);
+});
+
+test("Enter and Space on the task menu, its items or an action button leave the card alone", () => {
+  const row = {};
+  for (const control of [{ name: "Task menu" }, { name: "Edit Task" }, { name: "Complete" }]) {
+    assert.equal(headerKeyToggles("Enter", control, row), false, `Enter on ${control.name}`);
+    assert.equal(headerKeyToggles(" ", control, row), false, `Space on ${control.name}`);
+  }
+});
+
+test("the card's header key handler goes through headerKeyToggles", () => {
+  const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /if \(!headerKeyToggles\(e\.key, e\.target, e\.currentTarget\)\) return;/);
 });
