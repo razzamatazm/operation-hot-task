@@ -2,7 +2,8 @@
 /* Unit test for the accordion expansion state (apps/web/src/expand-state.ts).
 
    Expansion is the viewer's alone (#161): a card is open because they opened
-   it, and nothing — status, notes, refresh — moves it. Issue #177 adds a
+   it, and nothing — status, notes, refresh — moves it, bar the one collapse
+   when the board sees a task close (#452, at the bottom). Issue #177 adds a
    "Collapse all" control to the list header, which has to know which cards in
    view are currently open, the same question `TaskCard` answers for itself.
    The state therefore lives in a framework-free module both sides import, so
@@ -13,7 +14,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { collapseTasks, expandedTaskIds, headerKeyToggles, isTaskExpanded } from "../apps/web/src/expand-state.ts";
+import {
+  collapseNewlyClosed,
+  collapseTasks,
+  expandedTaskIds,
+  headerKeyToggles,
+  isTaskExpanded,
+  newlyClosedIds
+} from "../apps/web/src/expand-state.ts";
 
 /* Only the id is read — expansion no longer looks at status, parties or
    notes, and a test that supplied them would imply it did. */
@@ -113,4 +121,79 @@ test("the card's header key handler goes through headerKeyToggles", () => {
   const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
   const handler = app.slice(app.indexOf("const handleHeaderKey"), app.indexOf("const stopBubble"));
   assert.match(handler, /headerKeyToggles\(\s*e\.key,\s*e\.target,\s*e\.currentTarget\s*\)/);
+});
+
+/* ── #452: collapse once when a task closes ────────────── */
+
+/* The one exception to "nothing closes a card for the viewer": a task that
+   moves from an open status into a closed one collapses, once, when the board
+   sees it happen. `observe` is the loop App runs on every change to its task
+   list — diff against the last snapshot, collapse what just closed, keep the
+   new snapshot — so the rules are checked as a sequence of refreshes. */
+const at = (id, status, taskType = "CONTRACT") => ({ id, status, taskType });
+const observe = (state, tasks) => ({
+  snapshot: new Map(tasks.map((t) => [t.id, t.status])),
+  overrides: collapseNewlyClosed(state.overrides, newlyClosedIds(state.snapshot, tasks))
+});
+const fresh = (overrides) => ({ snapshot: new Map(), overrides });
+
+test("an open card collapses when its task goes from open to Completed, Cancelled or Archived", () => {
+  for (const closed of ["COMPLETED", "CANCELLED", "ARCHIVED"]) {
+    let state = observe(fresh({ a: true }), [at("a", "CLAIMED")]);
+    assert.equal(isTaskExpanded(state.overrides.a), true, "still open while the task is open");
+    state = observe(state, [at("a", closed)]);
+    assert.equal(isTaskExpanded(state.overrides.a), false, `collapsed on ${closed}`);
+  }
+});
+
+test("reopening the card after the close sticks through later refreshes", () => {
+  let state = observe(fresh({ a: true }), [at("a", "CLAIMED")]);
+  state = observe(state, [at("a", "COMPLETED")]);
+  state = { ...state, overrides: { ...state.overrides, a: true } }; // the viewer opens it again
+  const reopened = state.overrides;
+  for (let i = 0; i < 3; i++) state = observe(state, [at("a", "COMPLETED")]);
+  assert.equal(state.overrides, reopened, "same map: no render, no storage write");
+  assert.equal(isTaskExpanded(state.overrides.a), true);
+});
+
+test("a task first seen already closed keeps its stored open card (page load)", () => {
+  const state = observe(fresh({ a: true }), [at("a", "COMPLETED")]);
+  assert.equal(isTaskExpanded(state.overrides.a), true);
+});
+
+test("Completed to Archived is not a close", () => {
+  let state = observe(fresh({ a: true }), [at("a", "COMPLETED")]);
+  state = observe(state, [at("a", "ARCHIVED")]);
+  assert.equal(isTaskExpanded(state.overrides.a), true);
+});
+
+test("Loan Docs at merge-done is not closed, so the card stays open", () => {
+  let state = observe(fresh({ a: true }), [at("a", "CLAIMED", "LOAN_DOCS")]);
+  state = observe(state, [at("a", "MERGE_DONE", "LOAN_DOCS")]);
+  assert.equal(isTaskExpanded(state.overrides.a), true);
+});
+
+test("closing tasks whose cards are already shut changes nothing", () => {
+  const overrides = { a: false };
+  let state = observe(fresh(overrides), [at("a", "CLAIMED"), at("b", "NEW")]);
+  state = observe(state, [at("a", "COMPLETED"), at("b", "CANCELLED")]);
+  assert.equal(state.overrides, overrides, "same map: no render, no storage write");
+});
+
+test("only the task that closed collapses", () => {
+  let state = observe(fresh({ a: true, b: true }), [at("a", "CLAIMED"), at("b", "CLAIMED")]);
+  state = observe(state, [at("a", "COMPLETED"), at("b", "CLAIMED")]);
+  assert.deepEqual(state.overrides, { a: false, b: true });
+});
+
+/* App wiring: the collapse rides the snapshot the green pulse already keeps,
+   and ignores a snapshot taken for a different user, so switching the mock
+   user can't read one viewer's statuses as another's transitions. */
+test("the board collapses closes from the pulse snapshot, scoped to the viewer", () => {
+  const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
+  const start = app.indexOf("const prevStatusesRef");
+  const effect = app.slice(start, app.indexOf("}, [tasks, user.id]);", start));
+  assert.match(effect, /newlyClosedIds\(/);
+  assert.match(effect, /setExpandOverrides\(\(prev\) => collapseNewlyClosed\(prev, /);
+  assert.match(effect, /prevStatusesUserRef\.current === user\.id/);
 });
