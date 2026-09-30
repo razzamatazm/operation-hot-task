@@ -268,6 +268,9 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
   let writes: Promise<unknown> = Promise.resolve();
   /* An arrival under way, which an open waits behind. */
   let arriving: Promise<unknown> | null = null;
+  /* Each Task Draft's newest reopen: an older one landing late says nothing. */
+  const reopens = new Map<string, number>();
+  let presses = 0;
   /* Nobody known yet (#478): Teams sign-in is out, and requests may already go
      out as the person whose Autosave this session never loaded. */
   const known = owner !== "";
@@ -503,6 +506,8 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
 
     async reopen(item) {
       const mine = generation;
+      const press = ++presses;
+      reopens.set(item.id, press);
       let reached = false;
       const noteReached: SavedForLaterRequest = async (path, init) => {
         const answer = await request(path, init);
@@ -510,7 +515,9 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
         return answer as never;
       };
       const latest = await reopenSavedForLaterRequest(noteReached, item);
-      if (mine !== generation) return "skipped";
+      if (reopens.get(item.id) !== press) return "skipped";
+      reopens.delete(item.id);
+      /* The row hears what the fetch found even when the form has moved on (#497). */
       if (!latest) {
         clearUnsavedCopy(storage, owner, item.id);
         onSavedForLaterGone(item.id);
@@ -518,8 +525,8 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
         return "gone";
       }
       onSavedForLaterLatest(latest);
-      /* A New Task still loading gives way: the first form to land wins. */
-      if (state.phase === "open") return "skipped";
+      /* Closed, or New Task pressed or still loading: the first form to land wins. */
+      if (mine !== generation || state.phase === "open") return "skipped";
       generation += 1;
       /* This browser's copy, while the server still holds what it was written
          on. Without the server, `latest` is the board's copy, which may lag

@@ -232,6 +232,60 @@ test("a close while the record is loading leaves the form shut, so a person swit
   assert.equal(ctx.session.getState().phase, "closed");
 });
 
+const pressNewTaskWhileReopening = async (ctx) => {
+  ctx.server.hold = (call) => call.path.startsWith("/saved-for-later/");
+  const reopening = ctx.session.reopen(record());
+  await settle();
+  ctx.server.answer = () => ({ item: null });
+  assert.equal(await ctx.session.open(), true);
+  return { reopening };
+};
+
+test("New Task pressed while a gone record loads: the row goes and the person is told, and New Task stays open", async () => {
+  const ctx = setup();
+  const { reopening } = await pressNewTaskWhileReopening(ctx);
+  ctx.server.answer = () => {
+    throw gone();
+  };
+  ctx.server.held.shift().release();
+  assert.equal(await reopening, "gone");
+  assert.deepEqual(ctx.events.gone, ["sfl-1"]);
+  assert.deepEqual(ctx.events.notices, [["warn", "That Task Draft is gone. It was created or removed somewhere else."]]);
+  assert.equal(openState(ctx.session).mode.kind, "fresh");
+});
+
+test("New Task pressed while a record loads: the row still takes the fresher copy, and New Task stays open", async () => {
+  const ctx = setup();
+  const { reopening } = await pressNewTaskWhileReopening(ctx);
+  const fresher = record({ form: values({ notes: "saved again on another device" }) });
+  ctx.server.answer = () => ({ item: fresher });
+  ctx.server.held.shift().release();
+  assert.equal(await reopening, "skipped");
+  assert.deepEqual(ctx.events.latest, [fresher]);
+  assert.deepEqual(ctx.events.gone, []);
+  assert.equal(openState(ctx.session).mode.kind, "fresh");
+});
+
+test("a draft tapped twice: the first tap's copy landing last never overwrites the second's", async () => {
+  const ctx = setup();
+  ctx.server.hold = () => true;
+  const first = ctx.session.reopen(record());
+  const second = ctx.session.reopen(record());
+  await settle();
+  const [older, newer] = ctx.server.held.splice(0);
+  const fresher = record({ form: values({ notes: "saved again" }) });
+  ctx.server.answer = () => ({ item: fresher });
+  newer.release();
+  assert.equal(await second, "opened");
+  ctx.server.answer = () => {
+    throw unreachable();
+  };
+  older.release();
+  assert.equal(await first, "skipped");
+  assert.deepEqual(ctx.events.latest, [fresher]);
+  assert.equal(openState(ctx.session).values.notes, "saved again");
+});
+
 test("the first to land wins: a record that lands while New Task is still loading opens, and New Task stays shut", async () => {
   const ctx = setup();
   ctx.server.hold = (call) => call.path === "/autosave";
