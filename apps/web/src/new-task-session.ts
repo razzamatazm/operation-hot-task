@@ -133,7 +133,8 @@ export interface NewTaskSession {
   notePendingItem(text: string): void;
   /* Open and unchanged since it opened (or since Start fresh). */
   untouched(): boolean;
-  end<E extends NewTaskEnding>(ending: E): Promise<EndResult<E>>;
+  /* `busy`: another ending is still out, and this one did nothing (#496). */
+  end<E extends NewTaskEnding>(ending: E): Promise<EndResult<E> | "busy">;
   /* Keep editing: the leave question comes down. */
   resume(): void;
   /* Shut and stop writing, forgetting only a form typed back to blank. */
@@ -604,10 +605,12 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
       return state.phase === "open" && !formHasChanges(openedWith, state.values);
     },
 
-    async end<E extends NewTaskEnding>(asked: E): Promise<EndResult<E>> {
+    async end<E extends NewTaskEnding>(asked: E): Promise<EndResult<E> | "busy"> {
       type R = EndResult<E>;
       const ending: NewTaskEnding = asked;
       if (state.phase !== "open") throw new Error("The New Task form is not open.");
+      /* The ending out decides whether the form closes or stays. */
+      if (state.ending) return "busy";
       const { values, pendingItem } = state;
       /* This ending's own form: another may open while it is out, and must not
          be deleted, saved over or shut by it. */
