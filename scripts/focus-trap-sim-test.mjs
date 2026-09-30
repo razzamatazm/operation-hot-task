@@ -61,9 +61,10 @@ const page = () => {
       host.focus(next);
       return active.name;
     },
-    disable(name) {
+    /* Browsers differ on whether a control disabled under focus keeps it. */
+    disable(name, { keepsFocus = false } = {}) {
       nodes.get(name).disabled = true;
-      if (active?.name === name) active = null;
+      if (active?.name === name && !keepsFocus) active = null;
     },
     /* Like a browser: removing the focused element drops focus to the body. */
     unmount(container) {
@@ -213,22 +214,27 @@ const fraudForm = () => {
   p.node("notes", form);
   p.focus(opener);
   p.traps.open(form);
-  return { p, trash, add };
+  return { p, list, trash, add };
 };
 
 test("removing the last Outstanding Item by keyboard, Tab goes on past the list, not to the form's top", () => {
-  const { p, trash } = fraudForm();
+  const { p, list, trash } = fraudForm();
+  p.disable("add-button");
   p.focus(trash);
-  p.unmount(trash);
+  p.unmount(list);
   assert.equal(p.tab(), "add-input");
 });
 
-test("the Add button going disabled under focus hands Tab to the control after it", () => {
-  const { p, add } = fraudForm();
-  p.focus(add);
-  p.disable("add-button");
-  assert.equal(p.tab(), "notes");
-});
+for (const keepsFocus of [false, true]) {
+  for (const [shift, lands] of [[false, "notes"], [true, "add-input"]]) {
+    test(`the Add button going disabled under focus: ${shift ? "Shift+Tab" : "Tab"} lands on ${lands} (${keepsFocus ? "focus stays on it" : "focus drops to the page"})`, () => {
+      const { p, add } = fraudForm();
+      p.focus(add);
+      p.disable("add-button", { keepsFocus });
+      assert.equal(p.tab(shift), lands);
+    });
+  }
+}
 
 /* ── A prompt over a form ────────────────────────────────── */
 

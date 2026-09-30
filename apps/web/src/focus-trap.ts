@@ -26,7 +26,7 @@ interface Trap<N> {
   opener: N | null;
   /* The stop last focused in this trap and the stops as they stood then, so
      Tab can carry on from its place once it's gone (#513). */
-  last?: { node: N; stops: N[] };
+  lastFocused?: { node: N; stops: N[] };
 }
 
 export const createFocusTraps = <N>(host: FocusHost<N>) => {
@@ -41,20 +41,21 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
   };
   const remember = (trap: Trap<N>, node: N | null): void => {
     const stops = host.tabbables(trap.container);
-    if (node !== null && stops.includes(node)) trap.last = { node, stops };
-    else delete trap.last;
+    if (node !== null && stops.includes(node)) trap.lastFocused = { node, stops };
+    else delete trap.lastFocused;
   };
   /* Where Tab goes when the stop that had focus has vanished: the stop after
      the nearest survivor before it (Shift+Tab: before the nearest after). */
   const pastVanished = (trap: Trap<N>, active: N | null, stops: N[], back: boolean): N | undefined => {
-    const last = trap.last;
-    if (last === undefined || stops.includes(last.node) || (active !== null && active !== last.node)) return undefined;
-    const at = last.stops.indexOf(last.node);
-    const side = back ? last.stops.slice(at + 1) : last.stops.slice(0, at).reverse();
-    const anchor = side.find((n) => stops.includes(n));
-    if (anchor === undefined) return back ? stops[stops.length - 1] : stops[0];
-    const i = stops.indexOf(anchor) + (back ? -1 : 1);
-    return stops[i] ?? (back ? stops[stops.length - 1] : stops[0]);
+    const was = trap.lastFocused;
+    if (was === undefined || stops.includes(was.node)) return undefined;
+    if (active !== null && active !== was.node) return undefined;
+    const at = was.stops.indexOf(was.node);
+    const passed = back ? was.stops.slice(at + 1) : was.stops.slice(0, at).reverse();
+    const survivor = passed.find((n) => stops.includes(n));
+    const wrapped = back ? stops[stops.length - 1] : stops[0];
+    if (survivor === undefined) return wrapped;
+    return stops[stops.indexOf(survivor) + (back ? -1 : 1)] ?? wrapped;
   };
 
   return {
