@@ -266,6 +266,26 @@ test("New Task pressed while a record loads: the row still takes the fresher cop
   assert.equal(openState(ctx.session).mode.kind, "fresh");
 });
 
+test("a draft tapped twice: the first tap's copy landing last never overwrites the second's", async () => {
+  const ctx = setup();
+  ctx.server.hold = () => true;
+  const first = ctx.session.reopen(record());
+  const second = ctx.session.reopen(record());
+  await settle();
+  const [older, newer] = ctx.server.held.splice(0);
+  const fresher = record({ form: values({ notes: "saved again" }) });
+  ctx.server.answer = () => ({ item: fresher });
+  newer.release();
+  assert.equal(await second, "opened");
+  ctx.server.answer = () => {
+    throw unreachable();
+  };
+  older.release();
+  assert.equal(await first, "skipped");
+  assert.deepEqual(ctx.events.latest, [fresher]);
+  assert.equal(openState(ctx.session).values.notes, "saved again");
+});
+
 test("the first to land wins: a record that lands while New Task is still loading opens, and New Task stays shut", async () => {
   const ctx = setup();
   ctx.server.hold = (call) => call.path === "/autosave";

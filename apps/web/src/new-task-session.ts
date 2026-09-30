@@ -268,6 +268,9 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
   let writes: Promise<unknown> = Promise.resolve();
   /* An arrival under way, which an open waits behind. */
   let arriving: Promise<unknown> | null = null;
+  /* Each Task Draft's newest reopen: an older one landing late says nothing. */
+  const reopens = new Map<string, number>();
+  let presses = 0;
   /* Nobody known yet (#478): Teams sign-in is out, and requests may already go
      out as the person whose Autosave this session never loaded. */
   const known = owner !== "";
@@ -503,6 +506,8 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
 
     async reopen(item) {
       const mine = generation;
+      const press = ++presses;
+      reopens.set(item.id, press);
       let reached = false;
       const noteReached: SavedForLaterRequest = async (path, init) => {
         const answer = await request(path, init);
@@ -510,6 +515,8 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
         return answer as never;
       };
       const latest = await reopenSavedForLaterRequest(noteReached, item);
+      if (reopens.get(item.id) !== press) return "skipped";
+      reopens.delete(item.id);
       /* The row hears what the fetch found even when the form has moved on (#497). */
       if (!latest) {
         clearUnsavedCopy(storage, owner, item.id);
