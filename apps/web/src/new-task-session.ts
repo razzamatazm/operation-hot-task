@@ -510,7 +510,7 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
         return answer as never;
       };
       const latest = await reopenSavedForLaterRequest(noteReached, item);
-      if (mine !== generation) return "skipped";
+      /* The row hears what the fetch found even when the form has moved on (#497). */
       if (!latest) {
         clearUnsavedCopy(storage, owner, item.id);
         onSavedForLaterGone(item.id);
@@ -518,8 +518,8 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
         return "gone";
       }
       onSavedForLaterLatest(latest);
-      /* A New Task still loading gives way: the first form to land wins. */
-      if (state.phase === "open") return "skipped";
+      /* Closed, or New Task pressed or still loading: the first form to land wins. */
+      if (mine !== generation || state.phase === "open") return "skipped";
       generation += 1;
       /* This browser's copy, while the server still holds what it was written
          on. Without the server, `latest` is the board's copy, which may lag
