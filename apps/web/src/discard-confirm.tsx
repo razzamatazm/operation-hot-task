@@ -28,6 +28,7 @@
  * confirmation uses.
  */
 import { useEffect, useRef } from "react";
+import { useFocusTrap } from "./focus-trap";
 
 /* What the dialog says. A pure function for the reason `mergeConfirmCopy` is
    one: the wording is the promise, so it is asserted directly rather than
@@ -101,6 +102,8 @@ export const DiscardConfirmDialog = ({
 }) => {
   const copy = discardConfirmCopy({ saveForLater: onSaveForLater !== undefined, reopened });
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(panelRef);
 
   /* Focus lands on "Keep editing": this dialog appears over a form somebody was
      typing in, and the answer that throws that away should never be one stray
@@ -127,7 +130,7 @@ export const DiscardConfirmDialog = ({
 
   return (
     <div className="discard-confirm-overlay">
-      <div className="discard-confirm-panel" role="alertdialog" aria-modal="true" aria-label={copy.title}>
+      <div ref={panelRef} tabIndex={-1} className="discard-confirm-panel" role="alertdialog" aria-modal="true" aria-label={copy.title}>
         <h3 className="discard-confirm-title">{copy.title}</h3>
         <p className="discard-confirm-body">{copy.body}</p>
         <div className="discard-confirm-actions">

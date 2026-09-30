@@ -27,6 +27,7 @@
  * it and read the markup back, the same arrangement as `task-form.tsx`.
  */
 import { useEffect, useRef } from "react";
+import { useFocusTrap } from "./focus-trap";
 
 /* "No thanks" travelling back up the save path. A rejection rather than a
    return value because every caller of the save already treats a rejection as
@@ -132,6 +133,8 @@ export const MergeConfirmDialog = ({
 }) => {
   const copy = mergeConfirmCopy(collision, { linkUntouched: Boolean(linkUntouched) });
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(panelRef);
 
   /* Focus lands on "Keep them separate": the destructive answer should never be
      one stray Return away, and this dialog appears over a form the person was
@@ -153,7 +156,7 @@ export const MergeConfirmDialog = ({
 
   return (
     <div className="merge-confirm-overlay">
-      <div className="merge-confirm-panel" role="alertdialog" aria-modal="true" aria-label={copy.title}>
+      <div ref={panelRef} tabIndex={-1} className="merge-confirm-panel" role="alertdialog" aria-modal="true" aria-label={copy.title}>
         <h3 className="merge-confirm-title">{copy.title}</h3>
         <p className="merge-confirm-body">{copy.body}</p>
         <div className="merge-confirm-actions">

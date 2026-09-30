@@ -30,6 +30,7 @@ import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { UNSAVED_CHANGES_NOTE, restoredDraftCopy } from "./create-form-draft";
 import { CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
+import { useFocusTrap } from "./focus-trap";
 import { NewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
@@ -140,6 +141,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
      away the button that was clicked. */
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const folderNameRef = useRef<HTMLInputElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(overlayRef);
   /* A Humperdink arrival (#412) puts focus in the request field, the box an
      LOI's terms land in, so ⌘V lands inside the form and the form's paste
      import takes it. Once, at open, and only on an arrival. After mount, so it
@@ -816,6 +819,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
           Cancel and Escape are the two exits, and since #283 both go through
           `requestClose`, which asks before it throws a filled-in form away. */}
       <div
+        ref={overlayRef}
+        tabIndex={-1}
         className="form-overlay"
         role="dialog"
         aria-modal="true"
