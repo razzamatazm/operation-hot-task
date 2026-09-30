@@ -63,7 +63,8 @@ test("a task the board never showed gives no place to come back to", () => {
    the formatting. */
 test("the confirms hand keyboard Yes presses to the board", () => {
   const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
-  const yesCalls = app.match(/if \(e\.detail === 0\) onFollowFocus\?\.\(task\.id/g) ?? [];
+  assert.match(app, /if \(e\.detail === 0\) onFollowFocus\?\.\(task\.id/, "only a keyboard press is handed on");
+  const yesCalls = app.match(/followIfKeyboard\(e, /g) ?? [];
   assert.equal(yesCalls.length, 2, "both Yes, cancel and the terminal Yes report a keyboard press");
   assert.match(app, /onFollowFocus: followTaskFocus/, "the board passes its follower to every card");
   assert.match(app, /data-court-heading/, "court headings are addressable focus targets");

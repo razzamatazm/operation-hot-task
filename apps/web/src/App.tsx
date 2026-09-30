@@ -1704,6 +1704,10 @@ const TaskCard = memo(({
      mouse opens leave focus alone. */
   const focusMenuOnOpen = useRef(false);
   const armMenuFocus = (e: ReactMouseEvent) => { focusMenuOnOpen.current = e.detail === 0; };
+  /* A keyboard Yes that may move the task hands focus to the board (#506). */
+  const followIfKeyboard = (e: ReactMouseEvent, done: void | Promise<void>): void => {
+    if (e.detail === 0) onFollowFocus?.(task.id, Promise.resolve(done));
+  };
   const menuPlaced = menuOpen && menuPanelStyle.visibility !== "hidden";
   useEffect(() => {
     if (!menuPlaced || !focusMenuOnOpen.current) return;
@@ -2128,7 +2132,7 @@ const TaskCard = memo(({
       {showActions && cancelStage === "confirming" && (
         <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
           <span>Cancel this task?</span>
-          <button type="button" className="btn-sm btn-danger" onClick={(e) => { acknowledgeUnread(); setCancelStage("done"); const settled = onTransition(task.id, "CANCELLED"); if (e.detail === 0) onFollowFocus?.(task.id, settled); }}>
+          <button type="button" className="btn-sm btn-danger" onClick={(e) => { acknowledgeUnread(); setCancelStage("done"); followIfKeyboard(e, onTransition(task.id, "CANCELLED")); }}>
             Yes, cancel
           </button>
           <button type="button" className="btn-sm btn-ghost" data-menu-focus onClick={(e) => { armMenuFocus(e); setCancelStage("idle"); }}>
@@ -2153,7 +2157,7 @@ const TaskCard = memo(({
       <button
         type="button"
         className="btn-sm"
-        onClick={(e) => { const act = pendingTerminal; setPendingTerminal(null); setMenuOpen(false); const settled = Promise.resolve(act.run()); if (e.detail === 0) onFollowFocus?.(task.id, settled); }}
+        onClick={(e) => { const act = pendingTerminal; setPendingTerminal(null); setMenuOpen(false); followIfKeyboard(e, act.run()); }}
       >
         {`Yes, ${pendingTerminal.label.toLowerCase()}`}
       </button>
@@ -3914,13 +3918,19 @@ export const App = () => {
      took the Yes is replaced once the task lands in another section, so the
      board notes where it stood and, when the action has settled (refresh
      included, failed or not), focuses what `focusTargetAfterMove` picks. Only
-     if focus fell to the page: a viewer who moved on in the meantime keeps
-     their place. */
+     if focus is still on the page body and nothing was clicked meanwhile: a
+     viewer who moved on keeps their place. */
   const [followFocus, setFollowFocus] = useState<MovePlace | null>(null);
   const followTaskFocus = useCallback((taskId: string, settled: Promise<void>): void => {
     const place = placeOf(readBoardLayout(document.getElementById(BOARD_PANEL_ID)), taskId);
     if (!place) return;
-    void settled.then(() => setFollowFocus(place));
+    let clicked = false;
+    const onPointer = (): void => { clicked = true; };
+    document.addEventListener("pointerdown", onPointer, { capture: true, once: true });
+    void settled.then(() => {
+      document.removeEventListener("pointerdown", onPointer, { capture: true });
+      if (!clicked) setFollowFocus(place);
+    });
   }, []);
   useEffect(() => {
     if (!followFocus) return;
