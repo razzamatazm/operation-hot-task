@@ -227,14 +227,26 @@ await check("a card first recorded by a pool nag still takes the new owner's hea
   assert.equal(headline(cardOf(updated.at(-1))), "Riley needs an LOI checked");
 });
 
-await check("a released card's headline, which names no owner, is kept", async () => {
-  const { updated, notify } = await setup();
-  await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
-  await notify("CHANNEL_RELEASED", liveTask("AWAITING_ITEMS", { taskType: "FRAUD" }), CASEY);
-  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN", { taskType: "FRAUD" }), AVERY);
-  const card = cardOf(updated.at(-1));
-  assert.equal(headline(card), "Smith-1042 needs a new file checker");
-  assert.ok(texts(card).includes(NOTE));
-});
+for (const status of ["CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"]) {
+  await check(`a released Fraud Check (${status}, nobody holding it) stays a claimable released card`, async () => {
+    const { client, updated, notify } = await setup();
+    await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
+    // Released: the status is untouched and nobody holds it.
+    await notify("CHANNEL_RELEASED", liveTask(status, { taskType: "FRAUD" }), CASEY);
+    await notify("CHANNEL_REQUESTER_CHANGED", handedOver(status, { taskType: "FRAUD" }), AVERY);
+    const card = cardOf(updated.at(-1));
+    assert.equal(headline(card), "Smith-1042 needs a new file checker");
+    assert.ok(texts(card).includes(NOTE));
+    assert.ok(actionTitles(card).some((title) => /Claim/.test(title)), "still claimable");
+    assert.deepEqual(card.refresh.userIds, ["29:riley"]);
+
+    const riley = await client.handleRefreshCard("task-1", RILEY.id);
+    assert.equal(headline(riley), "Smith-1042 needs a new file checker");
+    assert.ok(actionTitles(riley).includes("Cancel Task"), "the new requester gets the Cancel view");
+    const dana = await client.handleRefreshCard("task-1", DANA.id);
+    assert.ok(actionTitles(dana).some((title) => /Claim/.test(title)), "the old requester gets Claim");
+    assert.ok(texts(dana).includes(NOTE));
+  });
+}
 
 console.log(`\n${passed} passed`);

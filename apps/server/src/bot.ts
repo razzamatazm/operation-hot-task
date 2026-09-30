@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, RequesterChange, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatRequesterChangedLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, RequesterChange, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatRequesterChangedLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, isUnclaimed, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -1919,7 +1919,9 @@ export class TeamsBotClient {
       const refresh = refreshBlock(taskId, creatorUserIds);
       return refresh ? { ...card, refresh } : card;
     };
-    if (task.status === "OPEN") {
+    /* A released Fraud Check keeps its in-flight status with nobody holding it,
+       and its card is the claimable released one, not a held card. */
+    if (task.status === "OPEN" || isUnclaimed(task)) {
       // The whole point: the creator gets Cancel, everyone else gets Claim.
       return isCreator
         ? view("creator", creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds, ...requesterChange }))
