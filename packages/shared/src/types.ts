@@ -507,6 +507,9 @@ export interface LoanTask {
   createdAt: string;
   updatedAt: string;
   createdBy: Pick<UserIdentity, "id" | "displayName">;
+  /* Who first raised the task, set by its first requester handover (#454).
+     Display only: every rule reads `createdBy`. */
+  raisedBy?: Pick<UserIdentity, "id" | "displayName">;
   assignee?: Pick<UserIdentity, "id" | "displayName">;
   archivedAt?: string;
   completedAt?: string;
@@ -648,7 +651,7 @@ export interface NotificationEvent {
      CHANNEL_ASSIGNED is the handoff's edit of the root channel card (ADR-0002):
      the new holder named, the Claim button gone. Like CHANNEL_CLAIMED it posts
      nothing and pings nobody. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_ASSIGNED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_REQUESTER" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_ASSIGNED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* What this task's loan was called a moment ago, carried only on
      CARD_CORRECTION (#280). A card records the values it was rendered with, and

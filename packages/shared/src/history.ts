@@ -97,6 +97,9 @@ export const currentAssigneeWasHanded = (history: readonly Pick<TaskHistoryEvent
 export const TASK_COMPLETED_ACTION = "TASK_COMPLETED";
 export const TASK_ARCHIVED_ACTION = "TASK_ARCHIVED";
 
+/* A requester handover (#454). It changes `createdBy`, never the assignee. */
+export const REQUESTER_HANDED_OVER_ACTION = "REQUESTER_HANDED_OVER";
+
 /* The row a message correction writes (#287, ADR-0009 rule 7), carrying the
    author's words on both sides of the change.
 

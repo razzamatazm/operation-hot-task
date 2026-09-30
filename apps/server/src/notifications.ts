@@ -399,7 +399,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     }
 
     if (
-      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE" || event.target === "DM_ASSIGN") &&
+      (event.target === "DM" || event.target === "DM_NOTE" || event.target === "DM_CHAT_SEED" || event.target === "DM_SHARE" || event.target === "DM_ASSIGN" || event.target === "DM_REQUESTER") &&
       !config.enableDmNotifications
     ) {
       return;
@@ -459,6 +459,16 @@ export class TeamsNotificationProvider implements NotificationProvider {
          note — that would double-notify via DM_NOTE. */
       await this.sendTaskDetailDm(event, {
         title: `${event.actor.displayName} assigned ${formatTaskNameLine(event.task.folderName, event.task.taskType)} to you`,
+        withDue: true,
+        withAdvance: true
+      });
+      return;
+    }
+
+    if (event.target === "DM_REQUESTER") {
+      // Requester handover (#454): the handoff's card, told as ownership of the ask.
+      await this.sendTaskDetailDm(event, {
+        title: `${event.actor.displayName} made you the owner of ${formatTaskNameLine(event.task.folderName, event.task.taskType)}`,
         withDue: true,
         withAdvance: true
       });

@@ -235,6 +235,11 @@ export const assignSchema = z.object({
   note: z.string().max(280).optional()
 });
 
+// Requester handover (#454). No note: it's a recovery move, not a conversation.
+export const requesterHandoverSchema = z.object({
+  requesterUserId: z.string().min(1)
+});
+
 export const reviewNoteSchema = z.object({
   text: z.string().min(1).max(1000)
 });

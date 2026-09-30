@@ -1,5 +1,5 @@
 import { app as teamsApp, authentication, clipboard as teamsClipboard } from "@microsoft/teams-js";
-import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, isOooHold, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canEndOooEarly, oooReturnCountdown, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterTask } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChecklistItem, CreateTaskInput, FraudCardAction, Loan, LoanTask, TaskHistoryEvent, TaskStatus, TaskType, TASK_TYPES, TASK_TYPE_LABELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, isOooHold, byAttentionClaim, byInFlightOrder, canAddNoteToTask, canEndOooEarly, oooReturnCountdown, canApproveMerge, currentAssigneeSince, completedBy, archivedBy, canAssignTaskTo, canHandOverRequesterTo, canClaimTask, canCompleteTask, canMarkMergeDone, eligibleAssignees, canDeleteChecklistItem, canEditChecklist, canEditChecklistItemText, checklistSeat, ownChecklistNote, canRestoreTask, canReturnToPool, canTransitionStatus, canUnclaimTask, canUseCheckedPanel, canUseFixedPanel, NEEDS_FIXES_NOTE_REQUIRED, deriveMyLoanIds, formatWallDate, fraudCardActions, handedOffAt, hasUnreadNoteForViewer, isConfirmingLook, isOverdue, inPoolSince, isUnclaimed, isUnclaimedTooLong, isTaskParty, loanEditRefusal, standingInstructionsFor, unreadNoteFor, loanTypeaheadSuggestions, nextFlowStatuses, nextHighlightIndex, pendingPartyFor, readTeamsArrival, restoreTargetStatus, sortChecklist, teamsTaskDeepLink, parseHumperdinkPayload, humperdinkNoteText, URGENCY_LEVELS, canAmendTask, sharedLinkOf, Autosave, SavedForLaterTask } from "@loan-tasks/shared";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, SelectHTMLAttributes } from "react";
 import { placePanel, maxPanelHeight, pinnedScrollTop } from "./panel-placement";
 import { ratingBlock } from "./poop-rating";
@@ -780,7 +780,12 @@ const SharePopover = ({
 const AssignPopover = ({
   label,
   candidates,
-  onAssign
+  onAssign,
+  withNote = true,
+  dialogLabel = "Hand this task to someone",
+  sendingLabel = "Handing off…",
+  doneToast = (name?: string) => (name ? `Handed to ${firstName(name)}` : "Handed off"),
+  failedMessage = "Couldn't hand this off — try again"
 }: {
   /* ACTION_LABELS.ASSIGN on an unclaimed task, ACTION_LABELS.REASSIGN once it
      has an assignee. Picked by the caller, never composed here. */
@@ -790,6 +795,12 @@ const AssignPopover = ({
   candidates: DirectoryUser[];
   /* Fire the handoff. Rejects with the server's message on refusal. */
   onAssign: (targetUserId: string, note?: string) => Promise<void>;
+  // The requester handover (#454) reuses this panel without the note.
+  withNote?: boolean;
+  dialogLabel?: string;
+  sendingLabel?: string;
+  doneToast?: (name?: string) => string;
+  failedMessage?: string;
 }) => {
   const [open, setOpen] = useState(false);
   const [targetId, setTargetId] = useState("");
@@ -826,11 +837,11 @@ const AssignPopover = ({
       const name = candidates.find((c) => c.id === targetId)?.displayName;
       setTargetId("");
       setNote("");
-      showToast(name ? `Handed to ${firstName(name)}` : "Handed off", { variant: "success" });
+      showToast(doneToast(name), { variant: "success" });
       close();
     } catch (err) {
       setState("idle");
-      setError(err instanceof Error ? err.message : "Couldn't hand this off — try again");
+      setError(err instanceof Error ? err.message : failedMessage);
     }
   };
 
@@ -851,7 +862,7 @@ const AssignPopover = ({
           ref={panelRef}
           className="share-pop-panel"
           role="dialog"
-          aria-label="Hand this task to someone"
+          aria-label={dialogLabel}
           style={panelStyle}
           /* Same reason as the share popover: this panel can open inside the
              create-task form, whose Esc handler would bin the whole draft. */
@@ -869,18 +880,20 @@ const AssignPopover = ({
               <option key={p.id} value={p.id}>{p.displayName}</option>
             ))}
           </select>
-          <input
-            className="share-pop-note"
-            type="text"
-            value={note}
-            placeholder="Add a note (optional)"
-            maxLength={280}
-            onChange={(e) => { setNote(e.target.value); setError(null); }}
-          />
+          {withNote && (
+            <input
+              className="share-pop-note"
+              type="text"
+              value={note}
+              placeholder="Add a note (optional)"
+              maxLength={280}
+              onChange={(e) => { setNote(e.target.value); setError(null); }}
+            />
+          )}
           {error && <div className="share-pop-error" role="alert">{error}</div>}
           <div className="share-pop-actions">
             <button type="button" className="btn-sm" disabled={!targetId || state === "sending"} onClick={() => void handleAssign()}>
-              {state === "sending" ? "Handing off…" : label}
+              {state === "sending" ? sendingLabel : label}
             </button>
           </div>
         </div>,
@@ -1465,6 +1478,7 @@ const TaskCard = memo(({
   taskHistory,
   onShare,
   onAssign,
+  onHandOverRequester,
   checklist,
   directory,
   teamsAppId,
@@ -1517,6 +1531,8 @@ const TaskCard = memo(({
   /* Hand the task to someone else (ADR-0002). Rejects with the server's message
      so the popover can show the refusal inline. */
   onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
+  /* Requester handover (#454). Rejects with the server's message. */
+  onHandOverRequester: (taskId: string, requesterUserId: string) => Promise<void>;
   /* Selectable people for the share and handoff pickers (active users). The
      handoff picker needs roles too, so this is DirectoryUser rather than a bare
      id/name pair. */
@@ -1812,6 +1828,10 @@ const TaskCard = memo(({
      and anyone claims it from there, in the open. */
   const assignCandidates = directory.filter((p) =>
     canAssignTaskTo(task, { id: p.id, displayName: p.displayName, roles: p.roles }, user)
+  );
+  // Requester handover (#454): the same rule the server enforces picks the list.
+  const requesterCandidates = directory.filter((p) =>
+    canHandOverRequesterTo(task, { id: p.id, displayName: p.displayName, roles: p.roles }, user)
   );
   /* Two links to this task:
      - `webShareLink` — the plain browser URL. The `#task-<id>` fragment is
@@ -2361,6 +2381,20 @@ const TaskCard = memo(({
     />
   );
 
+  // Requester handover (#454): empty candidates hide it from everyone else.
+  const requesterMenuItemBlock = requesterCandidates.length > 0 && (
+    <AssignPopover
+      label={ACTION_LABELS.HAND_OVER_REQUESTER}
+      candidates={requesterCandidates}
+      onAssign={(requesterUserId) => onHandOverRequester(task.id, requesterUserId)}
+      withNote={false}
+      dialogLabel="Choose this task's new owner"
+      sendingLabel="Changing owner…"
+      doneToast={(name) => (name ? `${firstName(name)} owns this task now` : "Task owner changed")}
+      failedMessage="Couldn't change the owner — try again"
+    />
+  );
+
   /* Actions menu: hamburger next to the row's primary action (see the
      collapsed row below), holding Share plus the secondary ladder
      (Re-open, Add a note, Unclaim, Cancel, Archive, Restore, Undo Merge
@@ -2422,6 +2456,7 @@ const TaskCard = memo(({
     secondaryActionsBlock,
     shareMenuItemBlock,
     assignMenuItemBlock,
+    requesterMenuItemBlock,
     cancelStage !== "idle",
     menuRating,
     menuTimestamps
@@ -2468,6 +2503,7 @@ const TaskCard = memo(({
           {!pendingTerminal && secondaryActionsBlock}
           {!pendingTerminal && shareMenuItemBlock}
           {!pendingTerminal && assignMenuItemBlock}
+          {!pendingTerminal && requesterMenuItemBlock}
           {!pendingTerminal && menuRating}
           {!pendingTerminal && menuTimestamps}
         </div>,
@@ -2816,6 +2852,7 @@ const CardList = ({
   taskHistory,
   onShare,
   onAssign,
+  onHandOverRequester,
   checklist,
   directory,
   teamsAppId,
@@ -2858,6 +2895,7 @@ const CardList = ({
   taskHistory: TaskHistoryApi;
   onShare: (taskId: string, targetUserId: string, note?: string) => Promise<{ delivered: boolean }>;
   onAssign: (taskId: string, assigneeUserId: string, note?: string) => Promise<void>;
+  onHandOverRequester: (taskId: string, requesterUserId: string) => Promise<void>;
   checklist: ChecklistApi;
   directory: DirectoryUser[];
   teamsAppId: string | null;
@@ -2900,6 +2938,7 @@ const CardList = ({
           taskHistory={taskHistory}
           onShare={onShare}
           onAssign={onAssign}
+          onHandOverRequester={onHandOverRequester}
           checklist={checklist}
           directory={directory}
           teamsAppId={teamsAppId}
@@ -4771,6 +4810,17 @@ export const App = () => {
     await refresh();
   }, [user, refresh]);
 
+  // Requester handover (#454). Rethrows the server's refusal for the popover.
+  const onHandOverRequester = useCallback(async (taskId: string, requesterUserId: string): Promise<void> => {
+    await apiRequest<{ task: LoanTask }>(
+      `/tasks/${taskId}/requester`,
+      { method: "POST", body: JSON.stringify({ requesterUserId }) },
+      user
+    );
+    setError(null);
+    await refresh();
+  }, [user, refresh]);
+
   /* Every task the client holds, sorted, with nothing cut: the History window is
      applied in `visibleBoardTasks`, so the loan search can see past it (#391).
      Fraud Check claims are gated to FILE_CHECKERs in the workflow; the UI just
@@ -4906,6 +4956,7 @@ export const App = () => {
       taskHistory: taskHistoryApi,
       onShare,
       onAssign,
+      onHandOverRequester,
       checklist: checklistApi,
       directory,
       teamsAppId,

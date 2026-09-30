@@ -114,7 +114,9 @@ export const ACTION_LABELS = {
      language — this is a point-of-use label, not a second concept. Menu-only,
      never the collapsed row, so neither is bound by the 116px slot. */
   ASSIGN: "Assign",
-  REASSIGN: "Reassign"
+  REASSIGN: "Reassign",
+  // Requester handover (#454). Menu-only, a rare recovery move.
+  HAND_OVER_REQUESTER: "Change Task Owner"
 } as const;
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;

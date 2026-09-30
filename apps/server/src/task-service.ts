@@ -6,6 +6,7 @@ import {
   LoanTask,
   NotificationEvent,
   TASK_ARCHIVED_ACTION,
+  REQUESTER_HANDED_OVER_ACTION,
   TASK_COMPLETED_ACTION,
   REVIEW_NOTE_EDITED_ACTION,
   REVIEW_NOTE_DELETED_ACTION,
@@ -44,6 +45,7 @@ import {
   canUnclaimTask,
   assigneeRefusal,
   handoffRefusal,
+  requesterHandoverRefusal,
   returnToPoolRefusal,
   claimRefusalMessage,
   editChecklistItemText,
@@ -2267,6 +2269,69 @@ export class TaskService {
          the DM_ASSIGN card. */
       await this.evaluateActivitySignals({ now: new Date(now), alertOnNewSignals: false });
     }, { method: "assignTask", taskId: updated.id });
+
+    return updated;
+  }
+
+  // Requester handover (#454): rewrite `createdBy`; TASK_CREATED keeps the raiser.
+  async handOverRequester(params: {
+    taskId: string;
+    target: UserIdentity;
+    actor: UserIdentity;
+  }): Promise<LoanTask> {
+    const task = await this.requireTask(params.taskId);
+    const refusal = requesterHandoverRefusal(task, params.target, params.actor);
+    if (refusal) {
+      throw new Error(refusal);
+    }
+
+    const now = new Date().toISOString();
+    // Read inside the write, so a concurrent change can't be handed over blind.
+    let previous = task.createdBy;
+    const updated = await this.writeTask(task.id, (current) => {
+      const stillRefused = requesterHandoverRefusal(current, params.target, params.actor);
+      if (stillRefused) {
+        throw new Error(stillRefused);
+      }
+      previous = current.createdBy;
+      const detail = `Task owner changed from ${previous.displayName} to ${params.target.displayName} by ${params.actor.displayName}`;
+      return {
+        task: {
+          ...current,
+          raisedBy: current.raisedBy ?? current.createdBy,
+          createdBy: { id: params.target.id, displayName: params.target.displayName },
+          updatedAt: now
+        },
+        event: this.makeHistory(task.id, params.actor, REQUESTER_HANDED_OVER_ACTION, detail)
+      };
+    });
+
+    this.background(async () => {
+      const actor = { id: params.actor.id, displayName: params.actor.displayName };
+      if (params.target.id !== params.actor.id) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor,
+          message: `${params.actor.displayName} made you the owner of ${updated.folderName}`,
+          target: "DM_REQUESTER",
+          recipientUserIds: [params.target.id]
+        });
+      }
+      if (previous.id !== params.actor.id) {
+        await this.notify({
+          type: "TASK_STATUS_CHANGED",
+          task: updated,
+          actor,
+          message: `${firstName(params.actor.displayName)} made ${params.target.displayName} the owner of your task ${updated.folderName}`,
+          target: "DM",
+          recipientUserIds: [previous.id]
+        });
+      }
+      // The old requester's cards still offer requester buttons; re-render them.
+      await this.emitCardSync(updated, [previous.id]);
+      await this.evaluateActivitySignals({ now: new Date(now), alertOnNewSignals: false });
+    }, { method: "handOverRequester", taskId: updated.id });
 
     return updated;
   }
