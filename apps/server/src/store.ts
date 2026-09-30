@@ -145,6 +145,11 @@ export class TaskStore {
     return data.tasks.find((task) => task.id === taskId);
   }
 
+  async findCreatedWithKey({ createKey, creatorId }: { createKey: string; creatorId: string }): Promise<LoanTask | undefined> {
+    const data = await this.file.read();
+    return data.tasks.find((task) => task.createKey === createKey && task.createdBy.id === creatorId);
+  }
+
   /* Read-modify-write in one step. `apply` gets the task as it is RIGHT NOW —
      read in the same step that writes the result — so nothing can land in
      between and be overwritten.

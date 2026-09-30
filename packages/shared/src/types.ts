@@ -476,6 +476,8 @@ export interface UpdateLoanInput {
 
 export interface LoanTask {
   id: string;
+  /** The `createKey` of the Create that filed this task (#495). */
+  createKey?: string;
   /** Live reference to the owning Loan (ADR-0001). Present on every non-OOO
       task; absent on OOO (never loan-related). `folderName`/`humperdinkLink`
       below are a denormalized cache of the linked Loan, kept in sync so all
@@ -606,6 +608,9 @@ export interface CreateTaskInput {
   /** Optional one-liner that rides the recipient's handoff DM card, exactly as
       the share note does. Ignored without `assigneeUserId`. */
   assigneeNote?: string;
+  /** One per open New Task form (#495). A Create sent again with the same key
+      gets back the task the first one filed instead of a second task. */
+  createKey?: string;
 }
 
 export interface UpdateTaskStatusInput {
