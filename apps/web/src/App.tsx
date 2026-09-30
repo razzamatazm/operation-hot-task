@@ -1660,11 +1660,23 @@ const TaskCard = memo(({
       const target = e.target as HTMLElement | null;
       if (target?.closest?.(".share-pop-panel")) return;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && menuPanelRef.current?.contains(target)) return;
+      if (menuPanelRef.current?.contains(document.activeElement)) menuTriggerRef.current?.focus();
       closeMenu();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [menuOpen, closeMenu, menuPanelRef]);
+  }, [menuOpen, closeMenu, menuPanelRef, menuTriggerRef]);
+  /* Opened from the keyboard (#504), focus lands on the first item: the panel
+     is portaled to the end of the body, so Tab from the trigger would walk the
+     rest of the board before reaching it. Waits for the panel to be placed:
+     it renders hidden until then, and a hidden button can't take focus. */
+  const focusMenuOnOpen = useRef(false);
+  const menuPlaced = menuOpen && menuPanelStyle.visibility !== "hidden";
+  useEffect(() => {
+    if (!menuPlaced || !focusMenuOnOpen.current) return;
+    focusMenuOnOpen.current = false;
+    menuPanelRef.current?.querySelector<HTMLElement>("button:not(:disabled), a[href], input, textarea, select")?.focus();
+  }, [menuPlaced, menuPanelRef]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
   /* Who may attach a review note. The shared predicate, not a local copy of the
@@ -2415,7 +2427,12 @@ const TaskCard = memo(({
         aria-label="Task menu"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onClick={(e) => { e.stopPropagation(); if (menuOpen) closeMenu(); else setMenuOpen(true); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (menuOpen) { closeMenu(); return; }
+          focusMenuOnOpen.current = e.detail === 0;
+          setMenuOpen(true);
+        }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <line x1="4" y1="7" x2="20" y2="7" />
