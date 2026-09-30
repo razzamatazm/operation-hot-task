@@ -104,6 +104,15 @@ test("focus that lands behind an open form is brought back into it", () => {
   assert.equal(p.active, "loan");
 });
 
+test("focus pulled behind the form goes back to the field it left", () => {
+  const { p, newTask, form } = boardWithForm();
+  p.focus(newTask);
+  p.traps.open(form);
+  tabs(p, 2);
+  p.focus(p.node("toast-dismiss"));
+  assert.equal(p.active, "save");
+});
+
 test("an overlay with no controls holds focus on itself", () => {
   const p = page();
   const opener = p.node("opener");
@@ -189,20 +198,28 @@ test("a form that focuses its own field before its trap opens still returns focu
   assert.equal(p.active, "new-task");
 });
 
-test("the form closing while its prompt is still up leaves nothing trapped", () => {
-  const { p, newTask, form } = boardWithForm();
-  p.focus(newTask);
-  const closeForm = p.traps.open(form);
-  const prompt = p.node("prompt", undefined, false);
-  const closePrompt = p.traps.open(prompt);
-  p.focus(p.node("discard", prompt));
-  p.unmount(form);
-  p.unmount(prompt);
-  closeForm();
-  closePrompt();
-  assert.equal(p.active, "new-task");
-  assert.equal(p.tab(), "card");
-});
+for (const order of ["form first", "prompt first"]) {
+  test(`Discard taking the form and its prompt down together (${order}) returns focus to New Task`, () => {
+    const { p, newTask, form } = boardWithForm();
+    p.focus(newTask);
+    const closeForm = p.traps.open(form);
+    tabs(p, 3);
+    const prompt = p.node("prompt", undefined, false);
+    const closePrompt = p.traps.open(prompt);
+    p.focus(p.node("discard", prompt));
+    p.unmount(form);
+    p.unmount(prompt);
+    if (order === "form first") {
+      closeForm();
+      closePrompt();
+    } else {
+      closePrompt();
+      closeForm();
+    }
+    assert.equal(p.active, "new-task");
+    assert.equal(p.tab(), "card");
+  });
+}
 
 test("keys other than Tab pass straight through", () => {
   const { p, newTask, form } = boardWithForm();

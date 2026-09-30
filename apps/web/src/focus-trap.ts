@@ -19,6 +19,8 @@ export interface TabKey {
   preventDefault(): void;
 }
 
+const RECENT_FOCUS_KEPT = 8;
+
 interface Trap<N> {
   container: N;
   opener: N | null;
@@ -31,9 +33,8 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
   const recent: N[] = [];
   const top = (): Trap<N> | undefined => stack[stack.length - 1];
   const inside = (trap: Trap<N>, node: N | null): boolean => node !== null && host.contains(trap.container, node);
-  const enter = (trap: Trap<N>, fromEnd: boolean): void => {
-    const stops = host.tabbables(trap.container);
-    host.focus((fromEnd ? stops[stops.length - 1] : stops[0]) ?? trap.container);
+  const enter = (trap: Trap<N>): void => {
+    host.focus(host.tabbables(trap.container)[0] ?? trap.container);
   };
 
   return {
@@ -46,15 +47,20 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
         const at = stack.indexOf(trap);
         if (at === -1) return;
         stack.splice(at, 1);
-        /* Only the trap on top hands focus back; one closing underneath a
-           prompt leaves the prompt holding it. */
-        if (at !== stack.length) return;
+        /* Only the trap on top hands focus back. One closing under a prompt
+           that was opened from inside it passes its own opener up, since the
+           prompt's is going with it. */
+        if (at !== stack.length) {
+          const above = stack[at];
+          if (above !== undefined && above.opener !== null && host.contains(container, above.opener)) above.opener = trap.opener;
+          return;
+        }
         const below = top();
         const opener = trap.opener;
         if (opener !== null && host.isConnected(opener) && (below === undefined || inside(below, opener))) {
           host.focus(opener);
         } else if (below !== undefined) {
-          enter(below, false);
+          enter(below);
         }
       };
     },
@@ -75,13 +81,18 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
       host.focus(target ?? trap.container);
     },
 
-    /* Focus that got behind the top overlay some other way (a script, a
-       screen reader's own cursor) is brought back to it. */
+    /* Focus that got behind the top overlay some other way (a click on a
+       toast, a script) goes back to where it was in the overlay. */
     onFocusIn(target: N): void {
-      recent.push(target);
-      if (recent.length > 8) recent.shift();
       const trap = top();
-      if (trap !== undefined && !inside(trap, target)) enter(trap, false);
+      if (trap !== undefined && !inside(trap, target)) {
+        const was = [...recent].reverse().find((n) => inside(trap, n) && host.isConnected(n));
+        if (was === undefined) enter(trap);
+        else host.focus(was);
+        return;
+      }
+      recent.push(target);
+      if (recent.length > RECENT_FOCUS_KEPT) recent.shift();
     }
   };
 };
