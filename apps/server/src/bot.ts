@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, RequesterChange, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatOwnerChangedLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -232,7 +232,7 @@ export class ThreadStore {
    `assignee` overrides the snapshot's holder for the moment of a claim, where
    the actor who just took the task is the truth the card should show. */
 export const channelCardContext = (
-  task: Pick<LoanTask, "taskType" | "folderName" | "createdBy" | "assignee">,
+  task: Pick<LoanTask, "taskType" | "folderName" | "createdBy" | "assignee" | "requesterChange">,
   assignee?: string
 ): ChannelCardContext => {
   const holder = assignee ?? task.assignee?.displayName;
@@ -240,7 +240,8 @@ export const channelCardContext = (
     taskType: task.taskType,
     folderName: task.folderName,
     createdBy: task.createdBy.displayName,
-    ...(holder ? { assignee: holder } : {})
+    ...(holder ? { assignee: holder } : {}),
+    ...(task.requesterChange ? { requesterChange: task.requesterChange } : {})
   };
 };
 
@@ -678,7 +679,7 @@ const refreshBlock = (taskId: string, creatorUserIds: string[]): Record<string, 
    claim from — so the linkless rendering keeps the original one-tap
    Action.Execute Claim. The invoke handler stays wired for it, and for every
    card posted before this change. */
-const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds?: string[] }): Record<string, unknown> => {
+const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds?: string[]; requesterChange?: RequesterChange }): Record<string, unknown> => {
   const refresh = refreshBlock(opts.taskId, opts.creatorUserIds ?? []);
   const claimUrl = withClaimIntent(opts.openUrl);
   return {
@@ -688,7 +689,8 @@ const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string;
     ...(refresh ? { refresh } : {}),
     body: [
       { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
-      { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true }
+      { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true },
+      ...ownerChangeBlocks(opts.requesterChange)
     ],
     actions: [
       claimUrl
@@ -702,7 +704,7 @@ const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string;
 /* The creator's user-specific view of an OPEN task card: same headline/detail,
    but Cancel instead of Claim (the creator manages, doesn't claim, their own
    task). Keeps the refresh block so the view stays current. */
-const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds: string[] }): Record<string, unknown> => {
+const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; openUrl?: string; creatorUserIds: string[]; requesterChange?: RequesterChange }): Record<string, unknown> => {
   const refresh = refreshBlock(opts.taskId, opts.creatorUserIds);
   return {
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -712,6 +714,7 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
     body: [
       { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
       { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true },
+      ...ownerChangeBlocks(opts.requesterChange),
       { type: "TextBlock", text: "Your task — cancel it if it's no longer needed.", wrap: true, spacing: "Small", isSubtle: true }
     ],
     actions: [
@@ -739,6 +742,11 @@ const nameBlock = (context: ChannelCardContext): Record<string, unknown> => ({
   isSubtle: true
 });
 
+/* The latest owner change, as a subtle line (#512). Every channel card state
+   renders it from the live task, so no later edit or refresh drops it. */
+const ownerChangeBlocks = (change: RequesterChange | undefined): Record<string, unknown>[] =>
+  change ? [{ type: "TextBlock", text: formatOwnerChangedLine(change), wrap: true, spacing: "Small", isSubtle: true }] : [];
+
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card, but
    "Open in Hot Task" stays so the card is still useful after claiming. A task
@@ -754,7 +762,8 @@ const claimedCard = (params: {
   version: "1.4",
   body: [
     { type: "TextBlock", text: params.message, weight: "Bolder", wrap: true, size: "Medium" },
-    nameBlock(params.context)
+    nameBlock(params.context),
+    ...ownerChangeBlocks(params.context.requesterChange)
   ],
   ...openUrlAction(params.openUrl)
 });
@@ -790,7 +799,8 @@ const completedCard = (context: ChannelCardContext, openUrl?: string): Record<st
   version: "1.4",
   body: [
     { type: "TextBlock", text: formatCompletedHeadline(context.assignee, context.createdBy, context.taskType), weight: "Bolder", wrap: true, size: "Medium" },
-    nameBlock(context)
+    nameBlock(context),
+    ...ownerChangeBlocks(context.requesterChange)
   ],
   ...openUrlAction(openUrl)
 });
@@ -805,7 +815,8 @@ const cancelledCard = (context: ChannelCardContext, openUrl?: string): Record<st
   version: "1.4",
   body: [
     { type: "TextBlock", text: formatCancelledHeadline(context.createdBy, context.taskType), weight: "Bolder", wrap: true, size: "Medium" },
-    nameBlock(context)
+    nameBlock(context),
+    ...ownerChangeBlocks(context.requesterChange)
   ],
   ...openUrlAction(openUrl)
 });
@@ -1884,7 +1895,8 @@ export class TeamsBotClient {
     aadObjectId: string | undefined
   ): Record<string, unknown> {
     const creatorUserIds = content.creatorUserIds ?? [];
-    const base = adaptiveTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds });
+    const requesterChange = task?.requesterChange ? { requesterChange: task.requesterChange } : {};
+    const base = adaptiveTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds, ...requesterChange });
     const isCreator = Boolean(aadObjectId) && task?.createdBy.id === aadObjectId;
     /* Which card this viewer was handed, and the three facts that decided it
        (#440). Whether the answer was right is then readable from the log
@@ -1910,7 +1922,7 @@ export class TeamsBotClient {
     if (task.status === "OPEN") {
       // The whole point: the creator gets Cancel, everyone else gets Claim.
       return isCreator
-        ? view("creator", creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds }))
+        ? view("creator", creatorTaskCard({ title: content.title, detail: content.detail, taskId, ...(content.openUrl ? { openUrl: content.openUrl } : {}), creatorUserIds, ...requesterChange }))
         : view("claim", base);
     }
     /* Every terminal/in-flight branch below rebuilds its card from the task, so
@@ -1992,6 +2004,31 @@ export class TeamsBotClient {
     await this.updateTaskCard(taskId, this.channelCardFor(taskId, card, task, undefined));
   }
 
+  /* A requester handover (#512), modelled on `correctChannelCard`: rewrite the
+     snapshot, then edit the posted card(s) in place into the task's current
+     shape. The refresh ids are re-resolved so the Cancel view follows the new
+     owner. The title is swapped only while it is the old owner's headline; a
+     released card's headline names nobody and stays. The change note itself is
+     read from the live task by every card builder. */
+  async markOwnerChanged(taskId: string, content: { title: string; previousTitle: string; creatorAadObjectId: string }): Promise<void> {
+    const thread = await this.threads.get(taskId);
+    if (!thread?.card) {
+      return;
+    }
+    const creatorUserIds = await this.resolveCreatorUserIds(content.creatorAadObjectId);
+    const card: NonNullable<StoredThread["card"]> = {
+      ...thread.card,
+      title: thread.card.title === content.previousTitle ? content.title : thread.card.title,
+      creatorUserIds
+    };
+    await this.threads.save({ ...thread, card });
+    const task = this.taskLookup ? await this.taskLookup(taskId) : undefined;
+    if (!task) {
+      return;
+    }
+    await this.updateTaskCard(taskId, this.channelCardFor(taskId, card, task, undefined));
+  }
+
   /* Correct the stored claim-detail DM snapshot for the same edit. Only the
      snapshot — the posted DM cards are re-rendered from it by the card sync
      that follows, which is the path that already knows each viewer's buttons
@@ -2031,14 +2068,21 @@ export class TeamsBotClient {
      a new one (no channel reference). */
   async repostReopenedTask(
     taskId: string,
-    card: { title: string; detail: string; openUrl?: string; folder: string; creatorAadObjectId?: string }
+    card: { title: string; detail: string; openUrl?: string; folder: string; creatorAadObjectId?: string; requesterChange?: RequesterChange }
   ): Promise<void> {
     if (!this.adapter) {
       return;
     }
     const references = await this.targetChannelReferences();
     const creatorUserIds = await this.resolveCreatorUserIds(card.creatorAadObjectId);
-    const claimable = adaptiveTaskCard({ title: card.title, detail: card.detail, taskId, ...(card.openUrl ? { openUrl: card.openUrl } : {}), creatorUserIds });
+    const claimable = adaptiveTaskCard({
+      title: card.title,
+      detail: card.detail,
+      taskId,
+      ...(card.openUrl ? { openUrl: card.openUrl } : {}),
+      creatorUserIds,
+      ...(card.requesterChange ? { requesterChange: card.requesterChange } : {})
+    });
     const activity = MessageFactory.attachment(CardFactory.adaptiveCard(claimable));
     activity.summary = plainSummary(card.title);
     const posts: StoredThread["posts"] = [];
@@ -2440,13 +2484,14 @@ export class TeamsBotClient {
     title: string,
     detail: string,
     openUrl?: string,
-    creatorAadObjectId?: string
+    creatorAadObjectId?: string,
+    requesterChange?: RequesterChange
   ): Promise<void> {
     if (!this.adapter) {
       return;
     }
     const creatorUserIds = await this.resolveCreatorUserIds(creatorAadObjectId);
-    const card = adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds });
+    const card = adaptiveTaskCard({ title, detail, taskId, ...(openUrl ? { openUrl } : {}), creatorUserIds, ...(requesterChange ? { requesterChange } : {}) });
     const existing = await this.threads.get(taskId);
     const posted = await this.broadcastCard(card, plainSummary(title), "nag");
     if (posted.length === 0) {

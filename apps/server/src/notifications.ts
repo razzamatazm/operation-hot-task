@@ -259,7 +259,8 @@ export class TeamsNotificationProvider implements NotificationProvider {
         event.message,
         card.detail,
         card.openUrl,
-        event.task.createdBy.id
+        event.task.createdBy.id,
+        event.task.requesterChange
       );
       return;
     }
@@ -275,6 +276,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         detail: card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
+        ...(event.task.requesterChange ? { requesterChange: event.task.requesterChange } : {}),
         ...(card.openUrl ? { openUrl: card.openUrl } : {})
       });
       return;
@@ -301,6 +303,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         detail: phase ? [nameLine, `Picks up at: ${phase}`, ...facts].join("\n") : card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
+        ...(event.task.requesterChange ? { requesterChange: event.task.requesterChange } : {}),
         ...(card.openUrl ? { openUrl: card.openUrl } : {})
       });
       return;
@@ -324,6 +327,22 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // edited to name the new holder, with no Claim button left on it.
       if (event.task.assignee) {
         await this.botClient.markTaskAssigned(event.task.id, event.task.assignee.id, channelCardContext(event.task));
+      }
+      return;
+    }
+
+    if (event.target === "CHANNEL_OWNER_CHANGED") {
+      /* A requester handover (#512): the same silent edit, naming the new
+         owner. The old owner's headline is rebuilt so the posted title is only
+         swapped when it is that headline, and a released card's is kept. */
+      const change = event.task.requesterChange;
+      if (change) {
+        const previousOwner = { ...event.task, createdBy: { id: "", displayName: change.from } };
+        await this.botClient.markOwnerChanged(event.task.id, {
+          title: this.buildChannelCard(event.task).title,
+          previousTitle: this.buildChannelCard(previousOwner).title,
+          creatorAadObjectId: event.task.createdBy.id
+        });
       }
       return;
     }

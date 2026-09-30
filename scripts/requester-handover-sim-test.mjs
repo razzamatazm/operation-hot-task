@@ -256,7 +256,18 @@ await check("the new requester is told it's theirs and the old one who took over
   assert.equal(toOld[0].message, "Avery made Riley Newbie the owner of your task Handover Sim");
   const sync = emitted.filter((e) => e.target === "DM_CARD_SYNC");
   assert.ok(sync.some((e) => e.recipientUserIds?.includes(CREATOR.id)), "the old requester's cards re-render");
-  assert.ok(!emitted.some((e) => e.target.startsWith("CHANNEL") || e.target === "ACTIVITY_FEED"), "no channel post");
+  const channel = emitted.filter((e) => e.target.startsWith("CHANNEL") || e.target === "ACTIVITY_FEED");
+  assert.deepEqual(channel.map((e) => e.target), ["CHANNEL_OWNER_CHANGED"], "one in-place card edit, no post or reply");
+  assert.deepEqual(channel[0].task.requesterChange, { by: "Avery Admin", from: "Dana Requester", to: "Riley Newbie" });
+});
+
+await check("the task records only its latest owner change, for the channel card", async () => {
+  const ctx = await setup();
+  const task = await claimedTask(ctx.service);
+  await ctx.service.handOverRequester({ taskId: task.id, target: NEWBIE, actor: ADMIN });
+  const again = await ctx.service.handOverRequester({ taskId: task.id, target: BYSTANDER, actor: NEWBIE });
+  assert.deepEqual(again.requesterChange, { by: "Riley Newbie", from: "Riley Newbie", to: "Pat Bystander" });
+  assert.deepEqual((await ctx.service.getTask(task.id)).requesterChange, again.requesterChange, "persisted");
 });
 
 await check("the old requester who hands it over themselves gets no note about their own move", async () => {

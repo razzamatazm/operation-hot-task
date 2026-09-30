@@ -160,6 +160,11 @@ export const formatCompletedHeadline = (assigneeName: string | undefined, creato
 export const formatCancelledHeadline = (creatorName: string, taskType: TaskType): string =>
   `🚫 ${firstName(creatorName)} cancelled their ${TASK_TYPE_LABELS[taskType]}`;
 
+/* The note a channel card carries once its owner has changed (#512). The same
+   shape whoever made the change, even the old or new owner themselves. */
+export const formatOwnerChangedLine = (change: RequesterChange): string =>
+  `${firstName(change.by)} changed the owner from ${firstName(change.from)} to ${firstName(change.to)}`;
+
 /* The task, named the way every Teams card names it: the file name (an OOO
    task's description) and the type, `Smith-1042 - LOI Check`. The line under a
    channel card's headline, and the title of a DM card. */
@@ -212,6 +217,15 @@ export interface ChannelCardContext {
   createdBy: string;
   /** Display name of whoever holds it now, absent when nobody does. */
   assignee?: string;
+  /** The latest requester handover, shown as a note under the name line. */
+  requesterChange?: RequesterChange;
+}
+
+/* Who handed a task's requester role from whom to whom (#512), display names. */
+export interface RequesterChange {
+  by: string;
+  from: string;
+  to: string;
 }
 
 /* What the requester's completion DM says, by task type (#232).
@@ -510,6 +524,9 @@ export interface LoanTask {
   /* Who first raised the task, set by its first requester handover (#454).
      Display only: every rule reads `createdBy`. */
   raisedBy?: Pick<UserIdentity, "id" | "displayName">;
+  /* The latest requester handover, by display name, for the channel card's
+     change note (#512). Each handover overwrites it. */
+  requesterChange?: RequesterChange;
   assignee?: Pick<UserIdentity, "id" | "displayName">;
   archivedAt?: string;
   completedAt?: string;
@@ -650,8 +667,9 @@ export interface NotificationEvent {
 
      CHANNEL_ASSIGNED is the handoff's edit of the root channel card (ADR-0002):
      the new holder named, the Claim button gone. Like CHANNEL_CLAIMED it posts
-     nothing and pings nobody. */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_REQUESTER" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_ASSIGNED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
+     nothing and pings nobody. CHANNEL_OWNER_CHANGED is the same silent edit
+     for a requester handover (#512). */
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_REQUESTER" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_ASSIGNED" | "CHANNEL_OWNER_CHANGED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* What this task's loan was called a moment ago, carried only on
      CARD_CORRECTION (#280). A card records the values it was rendered with, and
