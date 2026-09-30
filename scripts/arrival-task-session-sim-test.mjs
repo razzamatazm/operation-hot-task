@@ -37,6 +37,7 @@ const { createNewTaskSession, BLANK_CREATE_FORM, draftKey, serializeDraft } = aw
 
 /* ── Fakes ──────────────────────────────────────────────── */
 
+const DROPPED = "Couldn't open the Humperdink task. Your form is still here.";
 const START = Date.parse("2026-09-29T15:00:00Z");
 
 const settle = async () => {
@@ -299,7 +300,7 @@ test("a typed form whose save fails stays open exactly as it was, and the arriva
   assert.equal(state.ending, null);
   assert.deepEqual(
     ctx.events.notices,
-    [["error", "Couldn't open the Humperdink task. Your form is still here."]],
+    [["error", DROPPED]],
     "says the arrival didn't open, not that Save for later failed (#479)"
   );
   assert.equal(ctx.server.calls.filter((call) => call.method === "GET").length, 1, "no move after a failed save");
@@ -325,9 +326,14 @@ test("a reopened Task Draft is left where it is, and the arrival is dropped", as
   const record = { id: "sfl-9", ownerId: "user-1", savedAt: new Date(START).toISOString(), form: values({ notes: "a draft" }) };
   ctx.server.answer = (call) => (call.path === "/saved-for-later/sfl-9" ? { item: record } : undefined);
   await ctx.session.reopen(record);
+  const typed = values({ notes: "a draft, and more" });
+  ctx.session.edit(typed);
   assert.equal(await ctx.session.arrive({ load: ctx.load }), "dropped");
-  assert.equal(openState(ctx.session).mode.kind, "reopened");
+  const state = openState(ctx.session);
+  assert.equal(state.mode.kind, "reopened");
+  assert.deepEqual(state.values, typed, "with its typing");
   assert.deepEqual(ctx.server.writes(), []);
+  assert.deepEqual(ctx.events.notices, [["error", DROPPED]], "and says the arrival didn't open (#494)");
 });
 
 test("a form already ending (a Create out) is left to finish, and the arrival is dropped", async () => {
@@ -339,9 +345,37 @@ test("a form already ending (a Create out) is left to finish, and the arrival is
   await settle();
   assert.equal(await ctx.session.arrive({ load: ctx.load }), "dropped");
   assert.deepEqual(ctx.server.writes(), [], "no Task Draft beside the task");
+  assert.deepEqual(ctx.events.notices, [["error", DROPPED]], "says the arrival didn't open (#494)");
   file();
   await filing;
   assert.equal(ctx.session.getState().phase, "closed");
+});
+
+test("an arrival during a Save for later or a Discard that is still out is dropped, and says so", async () => {
+  for (const kind of ["saveForLater", "discard"]) {
+    const ctx = setup();
+    await ctx.session.open();
+    ctx.session.edit(values({ folderName: "Alvarez" }));
+    await ctx.clock.advance(1000);
+    ctx.server.hold = (call) => call.method !== "GET";
+    const ending = ctx.session.end({ kind });
+    await settle();
+    assert.equal(openState(ctx.session).ending, kind, kind);
+    assert.equal(await ctx.session.arrive({ load: ctx.load }), "dropped", kind);
+    assert.deepEqual(ctx.events.notices, [["error", DROPPED]], kind);
+    ctx.server.hold = null;
+    for (const held of ctx.server.held) held.release();
+    await ending;
+    assert.equal(ctx.session.getState().phase, "closed", kind);
+  }
+});
+
+test("an arrival that opens says nothing", async () => {
+  const ctx = setup();
+  await ctx.session.open();
+  ctx.session.edit(values({ folderName: "Alvarez" }));
+  assert.equal(await ctx.session.arrive({ load: ctx.load }), "opened");
+  assert.deepEqual(ctx.events.notices, []);
 });
 
 test("a New Task still loading when the arrival starts gives way to the LOI Check", async () => {
