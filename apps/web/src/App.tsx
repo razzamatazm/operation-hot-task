@@ -36,6 +36,7 @@ import { useNewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
+import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
@@ -1489,6 +1490,7 @@ const TaskCard = memo(({
   expandOverride,
   courtHeld,
   onSetExpand,
+  onFollowFocus,
   now
 }: {
   task: LoanTask;
@@ -1551,6 +1553,9 @@ const TaskCard = memo(({
      builder does: to say why the row is here after the red dot has gone. */
   courtHeld?: boolean;
   onSetExpand?: (taskId: string, open: boolean, pulled?: boolean) => void;
+  /* A keyboard Yes on a confirm that moves the task (#506): the board keeps
+     focus on the task once `settled` resolves, since this card won't be there. */
+  onFollowFocus?: (taskId: string, settled: Promise<void>) => void;
   /* Ticking clock (ms) for the row's live countdown. */
   now?: number;
 }) => {
@@ -1589,7 +1594,7 @@ const TaskCard = memo(({
      asking that on a row. Cancel could not simply be reused: it is a fixed
      question about a fixed transition, and this one has to name whichever of
      Complete / Confirm / Approve / Archive was pressed. */
-  const [pendingTerminal, setPendingTerminal] = useState<{ label: string; run: () => void } | null>(null);
+  const [pendingTerminal, setPendingTerminal] = useState<{ label: string; run: () => void | Promise<void> } | null>(null);
   useEffect(() => {
     if (cancelStage !== "done") return;
     const id = setTimeout(() => setCancelStage("idle"), 1200);
@@ -1943,7 +1948,7 @@ const TaskCard = memo(({
      Deliberately not `kind`: every branch below already sets `kind: "good"`,
      including the ones that close a task, so the existing field cannot answer
      this question without being redefined under every caller. */
-  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void; blockedReason?: string; terminal?: boolean };
+  type QuickAction = { label: string; kind: "good" | "ghost" | "danger" | "default"; run: () => void | Promise<void>; blockedReason?: string; terminal?: boolean };
   let primaryAction: QuickAction | null = null;
   /* The LOI checker's two exits (#231). Set only on a claimed LOI, for the
      checker holding it, and only when the server would accept BOTH moves —
@@ -1978,7 +1983,7 @@ const TaskCard = memo(({
         label: fraudQuick.label,
         kind: "good",
         terminal: CLOSED_STATUSES.includes(target),
-        run: () => { void onTransition(task.id, target); },
+        run: () => onTransition(task.id, target),
         /* Both carried through under the names shared gives them — the count
            rides alongside the sentence rather than being recomputed here, so the
            narrow action column can't disagree with the tooltip beside it. */
@@ -2012,14 +2017,14 @@ const TaskCard = memo(({
         label: isConfirmingLook(task) ? ACTION_LABELS.CONFIRM : ACTION_LABELS.COMPLETE,
         kind: "good",
         terminal: true,
-        run: () => { void onTransition(task.id, "COMPLETED"); }
+        run: () => onTransition(task.id, "COMPLETED")
       };
     } else if (canApproveMerge(task, user)) {
       primaryAction = { label: ACTION_LABELS.APPROVE_MERGE, kind: "good", run: () => { void onTransition(task.id, "MERGE_APPROVED"); } };
     } else if (task.status === "MERGE_APPROVED" && canCompleteTask(task, user)) {
-      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", terminal: true, run: () => { void onTransition(task.id, "COMPLETED"); } };
+      primaryAction = { label: ACTION_LABELS.COMPLETE, kind: "good", terminal: true, run: () => onTransition(task.id, "COMPLETED") };
     } else if (task.status === "COMPLETED" && isCreator) {
-      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", terminal: true, run: () => { void onTransition(task.id, "ARCHIVED"); } };
+      primaryAction = { label: ACTION_LABELS.ARCHIVE, kind: "ghost", terminal: true, run: () => onTransition(task.id, "ARCHIVED") };
     }
     /* Re-open is intentionally NOT a quick-action — it lives in the
        expanded body. Closed mini rows show Archive (creator-only) or
@@ -2123,7 +2128,7 @@ const TaskCard = memo(({
       {showActions && cancelStage === "confirming" && (
         <div className="task-card-cancel-confirm" role="alertdialog" aria-label="Confirm cancel">
           <span>Cancel this task?</span>
-          <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
+          <button type="button" className="btn-sm btn-danger" onClick={(e) => { acknowledgeUnread(); setCancelStage("done"); const settled = onTransition(task.id, "CANCELLED"); if (e.detail === 0) onFollowFocus?.(task.id, settled); }}>
             Yes, cancel
           </button>
           <button type="button" className="btn-sm btn-ghost" data-menu-focus onClick={(e) => { armMenuFocus(e); setCancelStage("idle"); }}>
@@ -2148,7 +2153,7 @@ const TaskCard = memo(({
       <button
         type="button"
         className="btn-sm"
-        onClick={() => { const act = pendingTerminal; setPendingTerminal(null); setMenuOpen(false); act.run(); }}
+        onClick={(e) => { const act = pendingTerminal; setPendingTerminal(null); setMenuOpen(false); const settled = Promise.resolve(act.run()); if (e.detail === 0) onFollowFocus?.(task.id, settled); }}
       >
         {`Yes, ${pendingTerminal.label.toLowerCase()}`}
       </button>
@@ -2206,7 +2211,7 @@ const TaskCard = memo(({
         <button
           type="button"
           className="btn-sm btn-ghost"
-          onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
+          onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => onEndEarly(task.id) }); }}
         >
           End task
         </button>
@@ -2864,6 +2869,7 @@ const CardList = ({
   expandOverrides,
   courtHolds,
   onSetExpand,
+  onFollowFocus,
   now
 }: {
   tasks: LoanTask[];
@@ -2907,6 +2913,7 @@ const CardList = ({
   expandOverrides?: Record<string, boolean>;
   courtHolds?: CourtHolds;
   onSetExpand?: (taskId: string, open: boolean, pulled?: boolean) => void;
+  onFollowFocus?: (taskId: string, settled: Promise<void>) => void;
   now?: number;
 }) => (
   <div className="card-list card-list-grouped">
@@ -2950,6 +2957,7 @@ const CardList = ({
           {...(expandOverrides?.[task.id] !== undefined ? { expandOverride: expandOverrides[task.id] } : {})}
           courtHeld={isCourtHeld(courtHolds ?? {}, task.id)}
           {...(onSetExpand ? { onSetExpand } : {})}
+          {...(onFollowFocus ? { onFollowFocus } : {})}
         />
       ))
     )}
@@ -3902,6 +3910,26 @@ export const App = () => {
        as it was before the tabs (the user's call on #390). */
     if (open && searchLoanIdRef.current) setFocusTaskId(taskId);
   }, []);
+  /* Keep the keyboard on a task a confirm just moved (#506). The card that
+     took the Yes is replaced once the task lands in another section, so the
+     board notes where it stood and, when the action has settled (refresh
+     included, failed or not), focuses what `focusTargetAfterMove` picks. Only
+     if focus fell to the page: a viewer who moved on in the meantime keeps
+     their place. */
+  const [followFocus, setFollowFocus] = useState<MovePlace | null>(null);
+  const followTaskFocus = useCallback((taskId: string, settled: Promise<void>): void => {
+    const place = placeOf(readBoardLayout(document.getElementById(BOARD_PANEL_ID)), taskId);
+    if (!place) return;
+    void settled.then(() => setFollowFocus(place));
+  }, []);
+  useEffect(() => {
+    if (!followFocus) return;
+    setFollowFocus(null);
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const panel = document.getElementById(BOARD_PANEL_ID);
+    focusBoardTarget(panel, focusTargetAfterMove(followFocus, readBoardLayout(panel)));
+  }, [followFocus]);
   /* Collapse all (#177): one merged write for the whole visible list, not one
      setState per card. The entries it adds are ordinary manual collapses,
      indistinguishable from clicking each row shut — and since nothing clears
@@ -4966,7 +4994,8 @@ export const App = () => {
       pulsingIds,
       expandOverrides,
       courtHolds,
-      onSetExpand: setExpandOverride
+      onSetExpand: setExpandOverride,
+      onFollowFocus: followTaskFocus
     };
     /* The toggle only controls court bucketing — both views render the same
        compact row, so a task looks identical either way. Flat view is the
@@ -4984,7 +5013,7 @@ export const App = () => {
         {sections.map((s) => s.tasks.length > 0 && (
           <section key={s.key} className="court" data-court={s.key}>
             <div className="section-head">
-              <h2>
+              <h2 tabIndex={-1} data-court-heading={s.key}>
                 {s.title}
                 <span className="section-count">{s.tasks.length}</span>
               </h2>
@@ -5173,7 +5202,7 @@ export const App = () => {
                 <NewTaskButton open={newTaskOpen} onClick={() => void newTask.open()} />
               </div>
             </div>
-            <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>
+            <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)} tabIndex={-1}>
               {body === "drafts" ? (
                 <TaskDraftsPage items={savedForLater} autosave={autosave} now={now} onOpen={newTask.reopen} onDelete={newTask.deleteDraft} onOpenAutosave={newTask.open} onDeleteAutosave={newTask.deleteAutosave} />
               ) : body === "search-empty" && searchLoan ? (
