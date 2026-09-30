@@ -24,6 +24,9 @@ const RECENT_FOCUS_KEPT = 8;
 interface Trap<N> {
   container: N;
   opener: N | null;
+  /* The stop last focused in this trap and the stops as they stood then, so
+     Tab can carry on from its place once it's gone (#513). */
+  lastFocused?: { node: N; stops: N[] };
 }
 
 export const createFocusTraps = <N>(host: FocusHost<N>) => {
@@ -36,6 +39,24 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
   const enter = (trap: Trap<N>): void => {
     host.focus(host.tabbables(trap.container)[0] ?? trap.container);
   };
+  const remember = (trap: Trap<N>, node: N | null): void => {
+    const stops = host.tabbables(trap.container);
+    if (node !== null && stops.includes(node)) trap.lastFocused = { node, stops };
+    else delete trap.lastFocused;
+  };
+  /* Where Tab goes when the stop that had focus has vanished: the stop after
+     the nearest survivor before it (Shift+Tab: before the nearest after). */
+  const pastVanished = (trap: Trap<N>, active: N | null, stops: N[], back: boolean): N | undefined => {
+    const was = trap.lastFocused;
+    if (was === undefined || stops.includes(was.node)) return undefined;
+    if (active !== null && active !== was.node) return undefined;
+    const at = was.stops.indexOf(was.node);
+    const passed = back ? was.stops.slice(at + 1) : was.stops.slice(0, at).reverse();
+    const survivor = passed.find((n) => stops.includes(n));
+    const wrapped = back ? stops[stops.length - 1] : stops[0];
+    if (survivor === undefined) return wrapped;
+    return stops[stops.indexOf(survivor) + (back ? -1 : 1)] ?? wrapped;
+  };
 
   return {
     open(container: N): () => void {
@@ -46,6 +67,7 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
       /* Into the overlay, so Escape reaches it at once; a field it focused
          itself is left alone. */
       if (!inside(trap, host.activeElement())) enter(trap);
+      remember(trap, host.activeElement());
       return () => {
         const at = stack.indexOf(trap);
         if (at === -1) return;
@@ -74,8 +96,10 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
       const stops = host.tabbables(trap.container);
       const first = stops[0];
       const last = stops[stops.length - 1];
+      const vanished = pastVanished(trap, active, stops, e.shiftKey);
       let target: N | undefined;
-      if (!inside(trap, active) || active === trap.container || first === undefined) target = e.shiftKey ? last : first;
+      if (vanished !== undefined) target = vanished;
+      else if (!inside(trap, active) || active === trap.container || first === undefined) target = e.shiftKey ? last : first;
       else if (e.shiftKey && active === first) target = last;
       else if (!e.shiftKey && active === last) target = first;
       else return;
@@ -93,6 +117,7 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
         else host.focus(was);
         return;
       }
+      if (trap !== undefined) remember(trap, target);
       recent.push(target);
       if (recent.length > RECENT_FOCUS_KEPT) recent.shift();
     }

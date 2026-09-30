@@ -61,11 +61,15 @@ const page = () => {
       host.focus(next);
       return active.name;
     },
-    disable(name) {
+    /* Browsers differ on whether a control disabled under focus keeps it. */
+    disable(name, { keepsFocus = false } = {}) {
       nodes.get(name).disabled = true;
+      if (active?.name === name && !keepsFocus) active = null;
     },
+    /* Like a browser: removing the focused element drops focus to the body. */
     unmount(container) {
       for (const n of nodes.values()) if (within(container, n)) n.connected = false;
+      if (active !== null && !active.connected) active = null;
     }
   };
 };
@@ -151,6 +155,86 @@ test("Shift+Tab from the form's own background goes to its last control, not the
   p.focus(form);
   assert.equal(p.tab(true), "cancel");
 });
+
+/* ── The focused control goes away (#513) ────────────────── */
+
+/* A form over A, B, C, D, with focus on `at` when it is removed. */
+const formLosing = (at) => {
+  const p = page();
+  const opener = p.node("opener");
+  const form = p.node("form", undefined, false);
+  const stops = Object.fromEntries(["A", "B", "C", "D"].map((name) => [name, p.node(name, form)]));
+  p.node("after-form");
+  p.focus(opener);
+  p.traps.open(form);
+  p.focus(stops[at]);
+  p.unmount(stops[at]);
+  assert.equal(p.active, null, "removing the focused control drops focus to the page");
+  return p;
+};
+
+for (const [gone, shift, lands] of [
+  ["C", false, "D"],
+  ["C", true, "B"],
+  ["D", false, "A"],
+  ["D", true, "C"],
+  ["A", true, "D"],
+  ["A", false, "B"]
+]) {
+  test(`${shift ? "Shift+Tab" : "Tab"} after focused ${gone} is removed lands on ${lands}`, () => {
+    assert.equal(formLosing(gone).tab(shift), lands);
+  });
+}
+
+test("after a removed control, Tab carries on from there and keeps cycling the form", () => {
+  const p = page();
+  const opener = p.node("opener");
+  const form = p.node("form", undefined, false);
+  p.node("A", form);
+  const b = p.node("B", form);
+  p.node("C", form);
+  p.focus(opener);
+  p.traps.open(form);
+  p.focus(b);
+  p.unmount(b);
+  assert.equal(p.tab(), "C");
+  assert.equal(p.tab(), "A", "and the trap keeps cycling");
+});
+
+/* The Fraud form's Outstanding Items: trash per item, then the add row. */
+const fraudForm = () => {
+  const p = page();
+  const opener = p.node("opener");
+  const form = p.node("form", undefined, false);
+  p.node("task-type", form);
+  const list = p.node("items", form, false);
+  const trash = p.node("remove-item", list);
+  p.node("add-input", form);
+  const add = p.node("add-button", form);
+  p.node("notes", form);
+  p.focus(opener);
+  p.traps.open(form);
+  return { p, list, trash, add };
+};
+
+test("removing the last Outstanding Item by keyboard, Tab goes on past the list, not to the form's top", () => {
+  const { p, list, trash } = fraudForm();
+  p.disable("add-button");
+  p.focus(trash);
+  p.unmount(list);
+  assert.equal(p.tab(), "add-input");
+});
+
+for (const keepsFocus of [false, true]) {
+  for (const [shift, lands] of [[false, "notes"], [true, "add-input"]]) {
+    test(`the Add button going disabled under focus: ${shift ? "Shift+Tab" : "Tab"} lands on ${lands} (${keepsFocus ? "focus stays on it" : "focus drops to the page"})`, () => {
+      const { p, add } = fraudForm();
+      p.focus(add);
+      p.disable("add-button", { keepsFocus });
+      assert.equal(p.tab(shift), lands);
+    });
+  }
+}
 
 /* ── A prompt over a form ────────────────────────────────── */
 
