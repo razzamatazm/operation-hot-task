@@ -734,10 +734,10 @@ export const requesterHandoverOfferRefusal = (
     return "This task is closed — its owner can't be changed";
   }
   if (task.taskType === "OOO") {
-    return "Coverage Notes belong to the person who is out — their owner can't be changed";
+    return "Coverage Notes belong to the person who is out — the owner can't be changed";
   }
   if (!isTaskParty(task, actor) && !actor.roles.includes("ADMIN")) {
-    return "Only the task owner, whoever is working it, or an admin can change who owns this task";
+    return "Only the task owner, whoever is working it, or an admin can change the owner";
   }
   return undefined;
 };

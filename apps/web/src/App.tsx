@@ -776,7 +776,8 @@ const AssignPopover = ({
   withNote = true,
   dialogLabel = "Hand this task to someone",
   sendingLabel = "Handing off…",
-  doneToast = (name?: string) => (name ? `Handed to ${firstName(name)}` : "Handed off")
+  doneToast = (name?: string) => (name ? `Handed to ${firstName(name)}` : "Handed off"),
+  failedMessage = "Couldn't hand this off — try again"
 }: {
   /* ACTION_LABELS.ASSIGN on an unclaimed task, ACTION_LABELS.REASSIGN once it
      has an assignee. Picked by the caller, never composed here. */
@@ -791,6 +792,7 @@ const AssignPopover = ({
   dialogLabel?: string;
   sendingLabel?: string;
   doneToast?: (name?: string) => string;
+  failedMessage?: string;
 }) => {
   const [open, setOpen] = useState(false);
   const [targetId, setTargetId] = useState("");
@@ -831,7 +833,7 @@ const AssignPopover = ({
       close();
     } catch (err) {
       setState("idle");
-      setError(err instanceof Error ? err.message : "Couldn't hand this off — try again");
+      setError(err instanceof Error ? err.message : failedMessage);
     }
   };
 
@@ -2381,6 +2383,7 @@ const TaskCard = memo(({
       dialogLabel="Choose this task's new owner"
       sendingLabel="Changing owner…"
       doneToast={(name) => (name ? `${firstName(name)} owns this task now` : "Task owner changed")}
+      failedMessage="Couldn't change the owner — try again"
     />
   );
 
