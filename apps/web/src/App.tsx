@@ -4174,7 +4174,7 @@ export const App = () => {
   /* A Humperdink arrival (#412, #413, #420), once the person is known. The
      session puts aside a form opened while sign-in was out, moves an unfinished
      new task to Task Drafts, has the drafts load, and opens the LOI Check.
-     Silent unless that form's save fails. An answer that comes back after the dev user picker
+     Silent unless an open form keeps it from opening. An answer that comes back after the dev user picker
      switched person opens nothing. */
   useEffect(() => {
     if (!arrivalPending || !user.id) return;

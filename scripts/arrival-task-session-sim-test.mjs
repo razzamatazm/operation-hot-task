@@ -370,6 +370,15 @@ test("an arrival during a Save for later or a Discard that is still out is dropp
   }
 });
 
+test("a second arrival while an LOI Check is open is dropped, and says so", async () => {
+  const ctx = setup();
+  await ctx.session.arrive({ load: ctx.load });
+  ctx.session.edit({ ...openState(ctx.session).values, notes: "typed" });
+  assert.equal(await ctx.session.arrive({ load: ctx.load }), "dropped");
+  assert.equal(openState(ctx.session).values.notes, "typed");
+  assert.deepEqual(ctx.events.notices, [["error", DROPPED]]);
+});
+
 test("an arrival that opens says nothing", async () => {
   const ctx = setup();
   await ctx.session.open();
