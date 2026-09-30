@@ -286,6 +286,12 @@ for (const [file, cls] of [
   });
 }
 
+test("loan suggestions are not Tab stops, so Tab leaves the folder name for the next field", () => {
+  const option = source("loan-suggestion-list.tsx").match(/<button[\s\S]*?onMouseDown/)?.[0] ?? "";
+  assert.match(option, /role="option"/);
+  assert.match(option, /tabIndex=\{-1\}/);
+});
+
 test("Edit Task hands focus to the row's menu button before the menu goes, so closing the form returns there", () => {
   assert.match(source("App.tsx"), /menuTriggerRef\.current\?\.focus\(\); closeMenu\(\); onEditTask\(task\.id\);/);
 });

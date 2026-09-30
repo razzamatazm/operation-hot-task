@@ -36,6 +36,9 @@ export const LoanSuggestionList = ({
         <button
           type="button"
           id={optionId(i)}
+          /* Off the Tab order: the box drives the list with arrows. Tab onto an
+             option lost focus when the box's blur closed the list under it. */
+          tabIndex={-1}
           role="option"
           aria-selected={i === highlight}
           className={`loan-typeahead-option${i === highlight ? " loan-typeahead-option-active" : ""}`}
