@@ -17,7 +17,7 @@ const page = () => {
   let active = null;
   let traps;
   const node = (name, parent = null, tabbable = true) => {
-    const n = { name, parent, tabbable, connected: true };
+    const n = { name, parent, tabbable, connected: true, disabled: false };
     nodes.set(name, n);
     return n;
   };
@@ -29,8 +29,10 @@ const page = () => {
     activeElement: () => active,
     contains: within,
     isConnected: (n) => n.connected,
-    tabbables: (container) => [...nodes.values()].filter((n) => n.tabbable && n.connected && n !== container && within(container, n)),
+    tabbables: (container) => [...nodes.values()].filter((n) => n.tabbable && n.connected && !n.disabled && n !== container && within(container, n)),
+    /* Like a browser: a detached or disabled element doesn't take focus. */
     focus: (n) => {
+      if (!n.connected || n.disabled) return;
       active = n;
       traps.onFocusIn(n);
     }
@@ -59,6 +61,9 @@ const page = () => {
       host.focus(next);
       return active.name;
     },
+    disable(name) {
+      nodes.get(name).disabled = true;
+    },
     unmount(container) {
       for (const n of nodes.values()) if (within(container, n)) n.connected = false;
     }
@@ -80,13 +85,30 @@ const boardWithForm = () => {
 
 const tabs = (p, count, shift = false) => Array.from({ length: count }, () => p.tab(shift));
 
+/* ── Opening moves focus in ──────────────────────────────── */
+
+test("opening the form moves focus onto its first control, so Escape reaches it straight away", () => {
+  const { p, newTask, form } = boardWithForm();
+  p.focus(newTask);
+  p.traps.open(form);
+  assert.equal(p.active, "loan");
+});
+
+test("a form that focused its own field as it opened keeps that field", () => {
+  const { p, newTask, form } = boardWithForm();
+  p.focus(newTask);
+  p.focus(p.node("notes", form));
+  p.traps.open(form);
+  assert.equal(p.active, "notes");
+});
+
 /* ── Tab stays in the overlay ────────────────────────────── */
 
 test("Tab past the form's last control comes back to its first, never onto the board", () => {
   const { p, newTask, form } = boardWithForm();
   p.focus(newTask);
   p.traps.open(form);
-  assert.deepEqual(tabs(p, 7), ["loan", "save", "cancel", "loan", "save", "cancel", "loan"]);
+  assert.deepEqual(tabs(p, 7), ["save", "cancel", "loan", "save", "cancel", "loan", "save"]);
 });
 
 test("Shift+Tab before the form's first control goes round to its last", () => {
@@ -108,7 +130,7 @@ test("focus pulled behind the form goes back to the field it left", () => {
   const { p, newTask, form } = boardWithForm();
   p.focus(newTask);
   p.traps.open(form);
-  tabs(p, 2);
+  tabs(p, 1);
   p.focus(p.node("toast-dismiss"));
   assert.equal(p.active, "save");
 });
@@ -136,7 +158,7 @@ test("with a prompt over the form, Tab cycles the prompt and never reaches the f
   const { p, newTask, form } = boardWithForm();
   p.focus(newTask);
   p.traps.open(form);
-  tabs(p, 3);
+  tabs(p, 2);
   const prompt = p.node("prompt", undefined, false);
   const keep = p.node("keep-editing", prompt);
   p.node("discard", prompt);
@@ -150,7 +172,7 @@ test("Keep editing puts focus back on the form control that raised the prompt", 
   const { p, newTask, form } = boardWithForm();
   p.focus(newTask);
   p.traps.open(form);
-  tabs(p, 3);
+  tabs(p, 2);
   assert.equal(p.active, "cancel");
   const prompt = p.node("prompt", undefined, false);
   const keep = p.node("keep-editing", prompt);
@@ -160,6 +182,23 @@ test("Keep editing puts focus back on the form control that raised the prompt", 
   closePrompt();
   assert.equal(p.active, "cancel");
   assert.equal(p.tab(), "loan", "and the form's own trap is back in charge");
+});
+
+test("Keep them separate lands in the form even though the Save that raised it is still disabled", () => {
+  const { p, newTask, form } = boardWithForm();
+  p.focus(newTask);
+  p.traps.open(form);
+  tabs(p, 1);
+  assert.equal(p.active, "save");
+  const prompt = p.node("merge-prompt", undefined, false);
+  const separate = p.node("keep-separate", prompt);
+  const closePrompt = p.traps.open(prompt);
+  p.focus(separate);
+  p.disable("save");
+  p.unmount(prompt);
+  closePrompt();
+  assert.equal(p.active, "loan");
+  assert.equal(p.tab(true), "cancel", "and the form's trap holds Tab");
 });
 
 test("a prompt raised with nothing focused hands focus into the form when it closes", () => {
@@ -203,7 +242,7 @@ for (const order of ["form first", "prompt first"]) {
     const { p, newTask, form } = boardWithForm();
     p.focus(newTask);
     const closeForm = p.traps.open(form);
-    tabs(p, 3);
+    tabs(p, 2);
     const prompt = p.node("prompt", undefined, false);
     const closePrompt = p.traps.open(prompt);
     p.focus(p.node("discard", prompt));

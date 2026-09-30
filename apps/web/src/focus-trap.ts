@@ -43,6 +43,9 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
       const opener = candidates.find((n): n is N => n !== null && !host.contains(container, n)) ?? null;
       const trap: Trap<N> = { container, opener };
       stack.push(trap);
+      /* Into the overlay, so Escape reaches it at once; a field it focused
+         itself is left alone. */
+      if (!inside(trap, host.activeElement())) enter(trap);
       return () => {
         const at = stack.indexOf(trap);
         if (at === -1) return;
@@ -57,11 +60,10 @@ export const createFocusTraps = <N>(host: FocusHost<N>) => {
         }
         const below = top();
         const opener = trap.opener;
-        if (opener !== null && host.isConnected(opener) && (below === undefined || inside(below, opener))) {
-          host.focus(opener);
-        } else if (below !== undefined) {
-          enter(below);
-        }
+        if (opener !== null && host.isConnected(opener) && (below === undefined || inside(below, opener))) host.focus(opener);
+        /* An opener that couldn't take focus (gone, or a Save disabled while
+           its request is out) leaves it on the overlay underneath. */
+        if (below !== undefined && (opener === null || host.activeElement() !== opener)) enter(below);
       };
     },
 
