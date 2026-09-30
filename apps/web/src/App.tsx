@@ -8,7 +8,7 @@ import { createTokenCache, sendWithToken } from "./auth-token";
 import { ADMIN_REQUEST_TIMEOUT_MS, withRequestTimeout } from "./request-timeout";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
-import { ExpandOverrides, collapseTasks, expandedTaskIds, isTaskExpanded } from "./expand-state";
+import { ExpandOverrides, collapseTasks, expandedTaskIds, headerKeyToggles, isTaskExpanded } from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, showForTab, tabForLink, tabForShow, visibleBoardTasks } from "./board-filter";
 import { AdminMenuSection, AppPage, BackToTasks } from "./app-pages";
@@ -1660,11 +1660,29 @@ const TaskCard = memo(({
       const target = e.target as HTMLElement | null;
       if (target?.closest?.(".share-pop-panel")) return;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && menuPanelRef.current?.contains(target)) return;
+      if (menuPanelRef.current?.contains(document.activeElement)) menuTriggerRef.current?.focus();
       closeMenu();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [menuOpen, closeMenu, menuPanelRef]);
+  }, [menuOpen, closeMenu, menuPanelRef, menuTriggerRef]);
+  /* Opened or switched to a confirm from the keyboard (#504), focus follows
+     into the panel: it is portaled to the end of the body, so Tab from the
+     control that opened it would walk the rest of the board first. A confirm
+     lands on its safe answer (`data-menu-focus`), anything else on the first
+     item. Waits for the panel to be placed: it renders hidden until then, and
+     a hidden button can't take focus. A pointer click has `detail` 1+, so
+     mouse opens leave focus alone. */
+  const focusMenuOnOpen = useRef(false);
+  const armMenuFocus = (e: ReactMouseEvent) => { focusMenuOnOpen.current = e.detail === 0; };
+  const menuPlaced = menuOpen && menuPanelStyle.visibility !== "hidden";
+  useEffect(() => {
+    if (!menuPlaced || !focusMenuOnOpen.current) return;
+    focusMenuOnOpen.current = false;
+    const panel = menuPanelRef.current;
+    (panel?.querySelector<HTMLElement>("[data-menu-focus]")
+      ?? panel?.querySelector<HTMLElement>("button:not(:disabled), a[href], input, textarea, select"))?.focus();
+  }, [menuPlaced, menuPanelRef, cancelStage, pendingTerminal]);
   const isAssignee = task.assignee?.id === user.id;
   const isCreator = task.createdBy.id === user.id;
   /* Who may attach a review note. The shared predicate, not a local copy of the
@@ -1849,7 +1867,7 @@ const TaskCard = memo(({
     setExpanded(!expanded);
   };
   const handleHeaderKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
+    if (!headerKeyToggles(e.key, e.target, e.currentTarget)) return;
     e.preventDefault();
     acknowledgeUnread();
     setExpanded(!expanded);
@@ -2080,7 +2098,7 @@ const TaskCard = memo(({
           <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("done"); void onTransition(task.id, "CANCELLED"); }}>
             Yes, cancel
           </button>
-          <button type="button" className="btn-sm btn-ghost" onClick={() => setCancelStage("idle")}>
+          <button type="button" className="btn-sm btn-ghost" data-menu-focus onClick={(e) => { armMenuFocus(e); setCancelStage("idle"); }}>
             Keep
           </button>
         </div>
@@ -2106,7 +2124,7 @@ const TaskCard = memo(({
       >
         {`Yes, ${pendingTerminal.label.toLowerCase()}`}
       </button>
-      <button type="button" className="btn-sm btn-ghost" onClick={() => setPendingTerminal(null)}>
+      <button type="button" className="btn-sm btn-ghost" data-menu-focus onClick={(e) => { armMenuFocus(e); setPendingTerminal(null); }}>
         Keep open
       </button>
     </div>
@@ -2144,7 +2162,7 @@ const TaskCard = memo(({
     <>
       {fraudMenuActions}
       {task.status === "OPEN" && isCreator && (
-        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+        <button type="button" className="btn-sm btn-danger" onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setCancelStage("confirming"); }}>
           Cancel Task
         </button>
       )}
@@ -2160,7 +2178,7 @@ const TaskCard = memo(({
         <button
           type="button"
           className="btn-sm btn-ghost"
-          onClick={() => { acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
+          onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
         >
           End task
         </button>
@@ -2179,7 +2197,7 @@ const TaskCard = memo(({
         </button>
       )}
       {task.status === "CLAIMED" && isCreator && !isAssignee && (
-        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+        <button type="button" className="btn-sm btn-danger" onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setCancelStage("confirming"); }}>
           Cancel
         </button>
       )}
@@ -2205,12 +2223,12 @@ const TaskCard = memo(({
         </button>
       )}
       {task.status === "MERGE_DONE" && (isCreator || isAssignee) && (
-        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+        <button type="button" className="btn-sm btn-danger" onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setCancelStage("confirming"); }}>
           Cancel
         </button>
       )}
       {task.status === "MERGE_APPROVED" && (isCreator || isAssignee) && (
-        <button type="button" className="btn-sm btn-danger" onClick={() => { acknowledgeUnread(); setCancelStage("confirming"); }}>
+        <button type="button" className="btn-sm btn-danger" onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setCancelStage("confirming"); }}>
           Cancel
         </button>
       )}
@@ -2415,7 +2433,12 @@ const TaskCard = memo(({
         aria-label="Task menu"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onClick={(e) => { e.stopPropagation(); if (menuOpen) closeMenu(); else setMenuOpen(true); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (menuOpen) { closeMenu(); return; }
+          armMenuFocus(e);
+          setMenuOpen(true);
+        }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <line x1="4" y1="7" x2="20" y2="7" />
@@ -2729,6 +2752,7 @@ const TaskCard = memo(({
                      way the row's Cancel already does — one confirm component
                      for the row, not a second one. Everything else fires. */
                   if (primaryAction!.terminal) {
+                    armMenuFocus(e);
                     setPendingTerminal({ label: primaryAction!.label, run: primaryAction!.run });
                     setMenuOpen(true);
                   } else {
@@ -2750,7 +2774,7 @@ const TaskCard = memo(({
             <button
               type="button"
               className="btn-sm btn-danger task-card-quick-action task-card-quick-action-cancel"
-              onClick={(e) => { e.stopPropagation(); acknowledgeUnread(); setCancelStage("confirming"); setMenuOpen(true); }}
+              onClick={(e) => { e.stopPropagation(); armMenuFocus(e); acknowledgeUnread(); setCancelStage("confirming"); setMenuOpen(true); }}
             >
               {ACTION_LABELS.CANCEL}
             </button>
