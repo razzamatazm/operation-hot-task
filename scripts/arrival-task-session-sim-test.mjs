@@ -22,7 +22,6 @@ writeFileSync(
   entry,
   `export * from ${src("new-task-session.ts")};\n` +
     `export { BLANK_CREATE_FORM } from ${src("create-form-state.ts")};\n` +
-    `export { arrivalPasteStep } from ${src("humperdink-arrival.ts")};\n` +
     `export { draftKey, serializeDraft } from ${src("create-form-draft.ts")};\n`
 );
 const bundle = join(scratch, "arrival-task-session.mjs");
@@ -34,7 +33,7 @@ await build({
   external: ["react", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { createNewTaskSession, BLANK_CREATE_FORM, arrivalPasteStep, draftKey, serializeDraft } = await import(pathToFileURL(bundle).href);
+const { createNewTaskSession, BLANK_CREATE_FORM, draftKey, serializeDraft } = await import(pathToFileURL(bundle).href);
 
 /* ── Fakes ──────────────────────────────────────────────── */
 
@@ -360,11 +359,10 @@ test("a New Task still loading when the arrival starts gives way to the LOI Chec
 
 test("an arrival for a person who has since left opens nothing", async () => {
   const ctx = setup();
-  let gone = false;
   ctx.server.hold = (call) => call.method === "GET";
-  const arriving = ctx.session.arrive({ load: ctx.load, unless: () => gone });
+  const arriving = ctx.session.arrive({ load: ctx.load });
   await settle();
-  gone = true;
+  ctx.session.retire();
   ctx.server.held[0].release();
   assert.equal(await arriving, "skipped");
   assert.equal(ctx.session.getState().phase, "closed");
@@ -404,15 +402,10 @@ test("New Task pressed after the arrival settled opens as usual once the LOI Che
 test("the LOI Check fills from the clipboard only while nobody has touched it", async () => {
   const ctx = setup();
   await ctx.session.arrive({ load: ctx.load });
-  const step = (loansLoaded) => arrivalPasteStep({ paste: "payload", loansLoaded, untouched: ctx.session.untouched() });
-
-  assert.equal(ctx.session.untouched(), true);
-  assert.equal(step(false), "wait", "waits for the loans list");
-  assert.equal(step(true), "apply");
+  assert.equal(ctx.session.untouched(), true, "a fill applies");
 
   ctx.session.edit({ ...openState(ctx.session).values, notes: "typed first" });
-  assert.equal(ctx.session.untouched(), false);
-  assert.equal(step(true), "drop", "typing that got there first is kept");
+  assert.equal(ctx.session.untouched(), false, "typing that got there first is kept");
 
   ctx.session.edit({ ...openState(ctx.session).values, notes: "" });
   assert.equal(ctx.session.untouched(), true, "back to how it opened");

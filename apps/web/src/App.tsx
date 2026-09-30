@@ -21,8 +21,8 @@ import { CheckIcon, TrashIcon } from "./icons";
 import { NoLoanToCorrect, saveTaskEdit } from "./save-task-edit";
 import { DirectoryUser, TaskForm } from "./task-form";
 import { TaskDraftsPage, taskDraftsCount, withUnsaved } from "./saved-for-later";
-import { SavedForLaterRequest, forgetAutosaveRequest, loadAutosaveRequest, removeSavedForLaterRequest } from "./saved-for-later-requests";
-import { autosaveCopy, filedForgetOwed, browserDraftStorage, clearDraft, clearUnsavedCopy, newerAutosave, readDraftCopy, oweFiledForget } from "./create-form-draft";
+import { SavedForLaterRequest } from "./saved-for-later-requests";
+import { browserDraftStorage } from "./create-form-draft";
 import { readArrivalClipboard } from "./humperdink-arrival";
 import { useNewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMessages } from "./thread";
@@ -4001,10 +4001,6 @@ export const App = () => {
      name, which on a shared machine is the whole of the privacy promise. */
   const [savedForLater, setSavedForLater] = useState<SavedForLaterTask[]>([]);
   const savedForLaterOwner = useRef(user.id);
-  /* Whether a form is up, readable from inside an async handler. Tapping a row
-     waits on a fetch, and a New Task opened during that wait must not have its
-     typing swapped out for the record when the fetch lands. */
-  const formOpenNow = useRef(false);
   const loadSavedForLater = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ items: SavedForLaterTask[] }>("/saved-for-later", { method: "GET" }, user);
@@ -4017,59 +4013,25 @@ export const App = () => {
   }, [user]);
 
   /* The viewer's autosave (#371): the new task form's typing, kept on the
-     server like a Saved for Later task and listed beside them on the Task
-     Drafts tab. Loaded with them, and again on the way into New Task so the
-     form opens on the latest.
-
-     Held as the newer of the server's copy and this browser's offline one, so
-     typing the server never got still shows on the tab, and opens. A server
-     that could not be asked leaves what App already held in the running. Same
-     owner check as the list: an answer for the previous person is dropped. */
+     server and listed beside the Task Drafts. The session reports it. */
   const [autosave, setAutosave] = useState<Autosave | null>(null);
-  const loadAutosave = useCallback(async (): Promise<void> => {
-    const { reached, item } = await loadAutosaveRequest(savedForLaterRequestFor(user));
-    if (user.id !== savedForLaterOwner.current) return;
-    const offline = readDraftCopy(browserDraftStorage(), user.id);
-    const filed = filedForgetOwed(browserDraftStorage(), user.id);
-    const at = Date.now();
-    setAutosave((current) => {
-      const best = newerAutosave(autosaveCopy(filed ? null : reached ? item : current, at), offline, reached);
-      return best ? { ownerId: user.id, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null;
-    });
-  }, [user]);
-  const autosaveNow = useRef(autosave);
-  autosaveNow.current = autosave;
 
-  /* The New Task form's session (#467), one per signed-in person. Its
-     answers are dropped once the person has changed, like every load above. */
+  /* The New Task form's session (#467), one per signed-in person. It stops
+     reporting once the person has changed. */
   const newTask = useNewTaskSession({
     owner: user.id,
     request: savedForLaterRequestFor(user),
     storage: browserDraftStorage(),
-    onAutosave: (item) => {
-      if (user.id === savedForLaterOwner.current) setAutosave(item);
-    },
-    onSavedForLater: (saved, replaced) => {
-      if (saved.ownerId === savedForLaterOwner.current) {
-        setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== replaced)]);
-      }
-    },
-    onSavedForLaterLatest: (latest) => {
-      if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved)));
-    },
-    onSavedForLaterUnsaved: (id, unsaved) => {
-      if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.map((saved) => (saved.id === id ? withUnsaved(saved, unsaved) : saved)));
-    },
-    onSavedForLaterGone: (id) => {
-      if (user.id === savedForLaterOwner.current) setSavedForLater((current) => current.filter((saved) => saved.id !== id));
-    },
-    notify: (message, variant) => {
-      if (user.id === savedForLaterOwner.current) showToast(message, { variant });
-    }
+    onAutosave: setAutosave,
+    onSavedForLater: (saved, replaced) =>
+      setSavedForLater((current) => [saved, ...current.filter((item) => item.id !== saved.id && item.id !== replaced)]),
+    onSavedForLaterLatest: (latest) => setSavedForLater((current) => current.map((saved) => (saved.id === latest.id ? latest : saved))),
+    onSavedForLaterUnsaved: (id, unsaved) => setSavedForLater((current) => current.map((saved) => (saved.id === id ? withUnsaved(saved, unsaved) : saved))),
+    onSavedForLaterGone: (id) => setSavedForLater((current) => current.filter((saved) => saved.id !== id)),
+    notify: (message, variant) => showToast(message, { variant })
   });
   const newTaskOpen = useNewTaskSessionState(newTask, (state) => state.phase === "open");
   const newTaskKind = useNewTaskSessionState(newTask, (state) => (state.phase === "open" ? state.mode.kind : null));
-  formOpenNow.current = newTaskOpen;
 
   /* Runtime client config. Unauthenticated and independent of SSO, so it runs
      on its own rather than waiting on the Teams handshake — /me stays about
@@ -4205,7 +4167,7 @@ export const App = () => {
        put the moved task back as an Autosaved row. */
     if (!arrivalPending) {
       loadSavedForLater().catch(() => {});
-      loadAutosave().catch(() => {});
+      newTask.refreshAutosave().catch(() => {});
     }
   }, [user.id]);
 
@@ -4220,9 +4182,8 @@ export const App = () => {
     void newTask.arrive({
       load: () => {
         loadSavedForLater().catch(() => {});
-        loadAutosave().catch(() => {});
-      },
-      unless: () => user.id !== savedForLaterOwner.current
+        newTask.refreshAutosave().catch(() => {});
+      }
     });
   }, [arrivalPending, user.id]);
 
@@ -4296,65 +4257,6 @@ export const App = () => {
     await refresh();
     await loadLoans();
   };
-
-  /* Tapping a Saved for Later row (#344). Opens the create form on the latest
-     save of that record rather than the list's copy, since another device may
-     have saved it again since the board loaded. One that has gone (created or
-     removed somewhere else) comes off the list with a word about why, instead
-     of opening a form for a record that no longer exists. An answer that comes
-     back after the person switched is dropped, like every Saved for Later load. */
-  const openSavedForLater = useCallback(async (item: SavedForLaterTask): Promise<void> => {
-    await newTask.reopen(item, { unless: () => formOpenNow.current });
-  }, [newTask]);
-
-  /* Deleting one from the board (#345), once the row's question was answered
-     yes. For good: no undo. The server first, then the list, so a delete that
-     did not land leaves the row where it was, with a word about it. One already
-     gone (created or deleted on another device) counts as deleted. The count
-     and the section's hiding follow the list on their own. An answer that comes
-     back after the person switched is dropped, like every Saved for Later load.
-     Resolves true only when the row was taken off, which is how the section
-     knows to move focus on to the next row. */
-  const deleteSavedForLater = useCallback(async (item: SavedForLaterTask): Promise<boolean> => {
-    const removed = await removeSavedForLaterRequest(savedForLaterRequestFor(user), item.id);
-    if (user.id !== savedForLaterOwner.current) return false;
-    if (!removed) {
-      showToast("Couldn't delete that Task Draft. Try again.", { variant: "error" });
-      return false;
-    }
-    clearUnsavedCopy(browserDraftStorage(), user.id, item.id);
-    setSavedForLater((current) => current.filter((saved) => saved.id !== item.id));
-    return true;
-  }, [user, showToast]);
-
-  /* Opening New Task (#371). The button and the Task Drafts tab's Autosaved row
-     are the same way in, so tapping the row opens exactly what New Task would.
-     The latest autosave is asked for first, so typing done on another device
-     since sign-in is what the form opens on; a server that does not answer in
-     time opens on what App already holds. A form opened while that was out is
-     left alone. So is one already up: the keyboard reaches the button and the
-     row behind it (#474). */
-  const openNewTask = useCallback(async (): Promise<void> => {
-    if (formOpenNow.current) return;
-    await newTask.open({ held: autosaveNow.current, unless: () => formOpenNow.current });
-  }, [newTask]);
-
-  /* The Autosaved row's delete (#371), once its question was answered yes. The
-     server first, then this browser's offline copy and the row, so a delete that
-     did not land leaves the row where it was, with a word about it, the way a
-     draft's does. */
-  const deleteAutosave = useCallback(async (): Promise<boolean> => {
-    const removed = await forgetAutosaveRequest(savedForLaterRequestFor(user));
-    if (removed) oweFiledForget(browserDraftStorage(), user.id, false);
-    if (user.id !== savedForLaterOwner.current) return false;
-    if (!removed) {
-      showToast("Couldn't delete the autosaved task. Try again.", { variant: "error" });
-      return false;
-    }
-    clearDraft(browserDraftStorage(), user.id);
-    setAutosave(null);
-    return true;
-  }, [user, showToast]);
 
   const onClaim = useCallback(async (taskId: string): Promise<void> => {
     try {
@@ -4720,17 +4622,12 @@ export const App = () => {
      form was open on. A refusal (a link already on another loan, #262's 409) is
      toasted and rethrown, so the form stays open with the typing still in it. */
   const saveLoanFields = useCallback(async (loanId: string, taskId: string, fields: { name?: string; humperdinkLink?: string }, ask?: { linkUntouched: true }): Promise<void> => {
-    const link = fields.humperdinkLink?.trim();
     try {
       await patchLoan(loanId, {
         taskId,
         ...(fields.name !== undefined ? { name: fields.name.trim() } : {}),
-        // Saved straight from the keyboard, the field's own blur-time
-        // prefixing may never have run. Normalized here so a bare host isn't
-        // stored as a relative link.
-        ...(fields.humperdinkLink !== undefined
-          ? { humperdinkLink: link && !/^https?:\/\//i.test(link) ? `https://${link}` : link }
-          : {})
+        // The server's link rule adds a missing https://.
+        ...(fields.humperdinkLink !== undefined ? { humperdinkLink: fields.humperdinkLink.trim() } : {})
       }, ask);
       /* The task list is refetched by the caller, once for the whole save
          (#261) — refetching it here as well would fetch it twice for any save
@@ -5093,14 +4990,9 @@ export const App = () => {
 
       {error && <p className="error-bar">{error}</p>}
 
-      {/* New Task form (issue #72): its input state lives in the child, so
-          typing never re-renders App or the task list. Mounted only while
-          open; unmounting on close throws that state away — which is why the
-          form asks before it calls `onClose` on anything a person has typed
-          into (#283), and why it autosaves as it is typed so a reload or a
-          closed tab can be picked back up (#284), on the server since #371.
-          Both of those live in the child; App holds "is it open" and the
-          autosave the form opens on, which the Task Drafts tab also lists. */}
+      {/* New Task form (issue #72): mounted while its session is open. The
+          session holds its values, autosaves them and ends it (#467), so
+          typing never re-renders App or the task list. */}
       {newTaskOpen && (
         <TaskForm
           key={`new:${newTask.owner}:${newTaskKind}`}
@@ -5189,12 +5081,12 @@ export const App = () => {
                   isAdmin={isAdmin}
                   onOpenPage={setActiveTab}
                 />
-                <NewTaskButton open={newTaskOpen} onClick={() => void openNewTask()} />
+                <NewTaskButton open={newTaskOpen} onClick={() => void newTask.open()} />
               </div>
             </div>
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)}>
               {body === "drafts" ? (
-                <TaskDraftsPage items={savedForLater} autosave={autosave} now={now} onOpen={openSavedForLater} onDelete={deleteSavedForLater} onOpenAutosave={openNewTask} onDeleteAutosave={deleteAutosave} />
+                <TaskDraftsPage items={savedForLater} autosave={autosave} now={now} onOpen={newTask.reopen} onDelete={newTask.deleteDraft} onOpenAutosave={newTask.open} onDeleteAutosave={newTask.deleteAutosave} />
               ) : body === "search-empty" && searchLoan ? (
                 <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
               ) : body === "mine-empty" ? (

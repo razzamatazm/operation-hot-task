@@ -42,8 +42,9 @@ writeFileSync(
     `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
     `export { TaskDraftsPage, SavedForLaterDeleteConfirm, taskDraftsCount, withUnsaved } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later.tsx"))};\n` +
     `export { BoardTabs } from ${JSON.stringify(join(REPO, "apps/web/src/board-tabs.tsx"))};\n` +
-    `export { draftKey, serializeDraft, DRAFT_MAX_AGE_MS } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
-    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, unsavedAction, loadAutosaveRequest, keepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n` +
+    `export { draftKey, serializeDraft } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-draft.ts"))};\n` +
+    `export { initialCreateForm } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-state.ts"))};\n` +
+    `export { saveForLaterRequest, reopenSavedForLaterRequest, removeSavedForLaterRequest, keepUnsavedRequest, discardUnsavedRequest, loadAutosaveRequest, stampedKeepAutosaveRequest, forgetAutosaveRequest } from ${JSON.stringify(join(REPO, "apps/web/src/saved-for-later-requests.ts"))};\n` +
     `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n`
 );
 const bundle = join(scratch, "saved-for-later.mjs");
@@ -66,15 +67,14 @@ const {
   withUnsaved,
   draftKey,
   serializeDraft,
-  DRAFT_MAX_AGE_MS,
+  initialCreateForm,
   saveForLaterRequest,
   reopenSavedForLaterRequest,
   removeSavedForLaterRequest,
   keepUnsavedRequest,
   discardUnsavedRequest,
-  unsavedAction,
   loadAutosaveRequest,
-  keepAutosaveRequest,
+  stampedKeepAutosaveRequest,
   forgetAutosaveRequest,
   createNewTaskSession
 } = await import(pathToFileURL(bundle).href);
@@ -93,7 +93,14 @@ test.beforeEach(() => storage.clear());
 
 const USER = { id: "user-1", displayName: "Dana Requester", roles: ["LOAN_OFFICER"] };
 
-const renderForm = (props) =>
+/* A blank New Task form, as its session holds it. */
+const blankSession = () => {
+  const session = createNewTaskSession({ owner: "", request: async () => ({}), storage: null });
+  session.adopt(initialCreateForm());
+  return session;
+};
+
+const renderForm = (props = {}) =>
   renderToStaticMarkup(
     createElement(ToastProvider, null, createElement(TaskForm, {
       loans: [],
@@ -102,7 +109,7 @@ const renderForm = (props) =>
       tasks: [],
       onClose: () => {},
       onCreate: async () => {},
-      onSaveForLater: async () => {},
+      ...(props.edit || props.session ? {} : { session: blankSession() }),
       ...props
     }))
   );
@@ -166,14 +173,13 @@ test("edit mode has no Save for later", () => {
   assert.match(html, />Save<\/button>/, "the edit form's own Save is still there");
 });
 
-test("pressing it saves the form, then clears the autosave, then closes — and only once the save landed", () => {
-  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
+/* Save, then clear the Autosave, then close, and only once the save landed, is
+   the session's Save for later, driven in new-task-session-sim-test. */
+test("pressing it ends the form through its session's Save for later, and a failure is said", () => {
+  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
   assert.ok(body, "the form has a saveForLater handler");
-  const saving = body.indexOf("await onSaveForLater(");
-  const forgetting = body.indexOf("forgetDraft();");
-  const closing = body.indexOf("onClose();");
-  assert.ok(saving >= 0 && forgetting > saving && closing > forgetting, "save, then forget the autosave, then close");
-  assert.ok(body.indexOf("catch") > closing, "a failed save skips both and leaves the form open");
+  assert.match(body, /await session\.end\(\{ kind: "saveForLater" \}\);/);
+  assert.match(body, /catch \(err\) \{\s*showToast\(/, "a failed save is said, and the form stays open");
   assert.match(FORM_SOURCE, /onClick=\{saveForLater\}/, "the button is what calls it");
 });
 
@@ -195,7 +201,7 @@ test("the form opened from Humperdink is the same create form, so it has the but
 });
 
 test("a save lands in the board's list straight away, without a reload", () => {
-  const handler = APP_SOURCE.match(/onSavedForLater: \(saved, replaced\) => \{[\s\S]*?\n    \},/)?.[0];
+  const handler = APP_SOURCE.match(/onSavedForLater: \(saved, replaced\) =>[\s\S]*?\n    onSavedForLaterLatest/)?.[0];
   assert.ok(handler, "App hears of every Save for later from the session");
   assert.match(SESSION_SOURCE, /saveForLaterRequest\(/, "the save itself is the request helper's, driven below against a fake server");
   assert.match(handler, /setSavedForLater\(/, "the saved item goes into the list the section renders");
@@ -340,17 +346,16 @@ test("removing one takes its row off the page, and removing the last leaves the 
   assert.match(renderSection([]), /No task drafts\./);
 });
 
-test("confirming removes it from the server, then from the section; a failure says so and leaves the row", () => {
-  const handler = APP_SOURCE.match(/const deleteSavedForLater = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.ok(handler, "App has a deleteSavedForLater handler");
-  const removing = handler.indexOf("removeSavedForLaterRequest(savedForLaterRequestFor(user), item.id)");
-  const refused = handler.indexOf("if (!removed)");
-  const toasting = handler.indexOf("showToast(");
-  const dropping = handler.indexOf("setSavedForLater(");
-  assert.ok(removing >= 0, "it asks the server through the one removal helper");
-  assert.ok(refused > removing && toasting > refused && dropping > toasting, "a refusal toasts and returns before the row is dropped");
-  assert.match(handler, /return false;\s*\}\s*(?:clearUnsavedCopy\([^;]*\);\s*)?setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== item\.id\)\);\s*return true;/);
-  assert.match(handler, /if \(user\.id !== savedForLaterOwner\.current\) return false;/, "an answer for the previous person is dropped");
+test("confirming removes it from the server, then from the section; a failure says so and leaves the row", async () => {
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onDelete=\{newTask\.deleteDraft\}/, "the row deletes through the session");
+  const gone = [];
+  const notices = [];
+  const make = (answers) =>
+    createNewTaskSession({ owner: USER.id, storage: null, request: fakeServer(answers).request, onSavedForLaterGone: (id) => gone.push(id), notify: (message) => notices.push(message) });
+  assert.equal(await make({ "DELETE /saved-for-later/a": undefined }).deleteDraft(item("a", 5)), true);
+  assert.deepEqual([gone, notices], [["a"], []], "the row leaves the section");
+  assert.equal(await make({ "DELETE /saved-for-later/a": httpError(500) }).deleteDraft(item("a", 5)), false);
+  assert.deepEqual([gone, notices], [["a"], ["Couldn't delete that Task Draft. Try again."]], "a refusal is said, and the row stays");
 });
 
 test("a row with no loan typed says No loan yet", () => {
@@ -456,17 +461,17 @@ test("the Autosaved row's bin asks the same question a draft's does, and never o
 });
 
 test("the Autosaved seven days are the server's seven days", () => {
-  assert.equal(DRAFT_MAX_AGE_MS, AUTOSAVE_MAX_AGE_MS);
+  const draft = readFileSync(join(REPO, "apps/web/src/create-form-draft.ts"), "utf8");
+  assert.match(draft, /import \{ AUTOSAVE_MAX_AGE_MS \} from "@loan-tasks\/shared";/, "the offline copy ages on the shared number");
+  assert.doesNotMatch(draft, /24 \* 60 \* 60 \* 1000/, "with no second copy of it");
+  assert.equal(AUTOSAVE_MAX_AGE_MS, 7 * 24 * 60 * 60 * 1000);
 });
 
 test("tapping the Autosaved row opens New Task exactly as the New Task button does, on the latest autosave", () => {
-  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpenAutosave=\{openNewTask\}/);
-  assert.match(APP_SOURCE, /<NewTaskButton open=\{newTaskOpen\} onClick=\{[^}]*openNewTask\(\)/, "the button takes the same way in");
-  const opener = APP_SOURCE.match(/const openNewTask = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.ok(opener, "App has an openNewTask");
-  /* The session asks the server for the latest Autosave first, and `unless`
-     leaves a form opened meanwhile alone: driven in new-task-session-sim-test. */
-  assert.match(opener, /await newTask\.open\(\{ held: autosaveNow\.current, unless: \(\) => formOpenNow\.current \}\)/, "asks for the latest autosave first, and leaves a form opened meanwhile alone");
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpenAutosave=\{newTask\.open\}/);
+  assert.match(APP_SOURCE, /<NewTaskButton open=\{newTaskOpen\} onClick=\{\(\) => void newTask\.open\(\)\} \/>/, "the button takes the same way in");
+  /* The session asks the server for the latest Autosave first, and leaves a
+     form already up alone: driven in new-task-session-sim-test. */
   const newTaskMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.match(newTaskMount, /session=\{newTask\}/, "a New Task gets the session and its autosave");
   /* A reopened record opens through the session, whose reopened mode has no
@@ -478,20 +483,11 @@ test("App loads the autosave with the drafts, empties it on every identity chang
   const identity = APP_SOURCE.slice(APP_SOURCE.indexOf("savedForLaterOwner.current = user.id;"));
   const block = identity.slice(0, identity.indexOf("}, [user.id]);"));
   assert.ok(block.indexOf("setAutosave(null)") >= 0 && block.indexOf("setAutosave(null)") < block.indexOf("if (!user.id) return;"), "emptied before anything loads");
-  assert.match(block, /loadAutosave\(\)/, "and loaded with the drafts");
-  const loader = APP_SOURCE.match(/const loadAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.ok(loader, "App has a loadAutosave");
-  assert.match(loader, /loadAutosaveRequest\(/);
-  assert.match(loader, /if \(user\.id !== savedForLaterOwner\.current\) return;/, "an answer for the previous person is dropped");
-  assert.match(loader, /readDraftCopy\(browserDraftStorage\(\), user\.id\)/, "this browser's offline copy is weighed too");
-  assert.match(loader, /newerAutosave\(/);
+  assert.match(block, /newTask\.refreshAutosave\(\)/, "and loaded with the drafts, weighed against this browser's offline copy by the session");
 });
 
 test("App's autosave callbacks are silent: typing never toasts or re-renders the board", async () => {
-  const onAutosave = APP_SOURCE.match(/onAutosave: \(item\) => \{[\s\S]*?\n    \},/)?.[0];
-  assert.ok(onAutosave, "App hears of the Autosave from the session");
-  assert.match(onAutosave, /setAutosave\(item\)/, "a form that ended takes the row with it");
-  assert.doesNotMatch(onAutosave, /showToast|setSavedForLater/);
+  assert.match(APP_SOURCE, /onAutosave: setAutosave,/, "App hears of the Autosave from the session, and only sets the row");
 
   const calls = [];
   const events = [];
@@ -517,17 +513,10 @@ test("App's autosave callbacks are silent: typing never toasts or re-renders the
   assert.deepEqual(events, [["autosave", null]], "taking the row with it, silently");
 });
 
-test("deleting the Autosaved row forgets it on the server and in this browser; a failure says so and keeps the row", () => {
-  const handler = APP_SOURCE.match(/const deleteAutosave = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.ok(handler, "App has a deleteAutosave");
-  assert.match(handler, /forgetAutosaveRequest\(/);
-  assert.match(handler, /if \(user\.id !== savedForLaterOwner\.current\) return false;/);
-  const refused = handler.indexOf("if (!removed)");
-  const toast = handler.indexOf("showToast(");
-  const local = handler.indexOf("clearDraft(browserDraftStorage(), user.id)");
-  const dropped = handler.indexOf("setAutosave(null)");
-  assert.ok(refused >= 0 && toast > refused && local > toast && dropped > toast, "refused: toast and keep; otherwise both copies go");
-  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onDeleteAutosave=\{deleteAutosave\}/);
+/* Both copies going, and a refusal said with the row kept, are driven in
+   new-task-session-sim-test. */
+test("deleting the Autosaved row goes through the session", () => {
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onDeleteAutosave=\{newTask\.deleteAutosave\}/);
 });
 
 test("saving a new form for later leaves one draft and no Autosaved row", async () => {
@@ -635,13 +624,9 @@ test("a reopened form keeps the Save for later button, pressable straight away, 
 /* Which record Save for later and Create act on, and that neither touches the
    Autosave, is driven through the session in reopened-task-session-sim-test. */
 test("a reopened form is filed through the one payload every create form uses, and its session ends it", () => {
-  assert.match(
-    FORM_SOURCE,
-    /storage: edit \|\| session \? null : browserDraftStorage\(\)/,
-    "no storage seat of its own, so no ending can clear or overwrite an unrelated autosave"
-  );
-  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<boolean> => \{([\s\S]*?)\n  \};/)?.[1];
-  assert.match(body, /if \(session\) return saveSessionForLater\(session, values\);/, "Save for later goes through the session");
+  assert.doesNotMatch(FORM_SOURCE, /browserDraftStorage/, "no storage seat of its own, so no ending can clear or overwrite an unrelated autosave");
+  const body = FORM_SOURCE.match(/const saveForLater = async \(\): Promise<void> => \{([\s\S]*?)\n  \};/)?.[1];
+  assert.match(body, /await session\.end\(\{ kind: "saveForLater" \}\);/, "Save for later goes through the session");
   const submit = FORM_SOURCE.match(/const handleSubmit = async \([\s\S]*?\n  \};/)?.[0];
   assert.match(submit, /await session\.end\(\{\s*kind: "create",/, "Create goes through the session, which removes the record once the task exists");
   assert.equal(
@@ -652,11 +637,9 @@ test("a reopened form is filed through the one payload every create form uses, a
 });
 
 test("App opens a reopened record through the New Task session", () => {
-  const opener = APP_SOURCE.match(/const openSavedForLater = useCallback\([\s\S]*?\n  \}, \[[^\]]*\]\);/)?.[0];
-  assert.ok(opener, "App has an openSavedForLater handler");
   /* Fetching the latest first, and leaving a form opened meanwhile alone, are
      driven in reopened-task-session-sim-test. */
-  assert.match(opener, /await newTask\.reopen\(item, \{ unless: \(\) => formOpenNow\.current \}\)/);
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpen=\{newTask\.reopen\}/);
   const createMount = APP_SOURCE.match(/\{newTaskOpen && \(\s*<TaskForm([\s\S]*?)\/>/)?.[1];
   assert.doesNotMatch(createMount, /reopened/, "the create form is never handed a record");
 });
@@ -712,43 +695,11 @@ test("the Autosaved row never carries the marker", () => {
   assert.doesNotMatch(html, /saved-row-unsaved/);
 });
 
-test("the writes go out one at a time, and every ending waits for them before it acts", () => {
-  assert.match(FORM_SOURCE, /const unsavedWrites = useRef<Promise<unknown>>\(Promise\.resolve\(\)\)/, "one queue per form");
-  assert.match(FORM_SOURCE, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "each write chains on the last");
-  const settle = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const settleUnsaved"));
-  const settleBody = settle.slice(0, settle.indexOf("\n  };"));
-  assert.match(settleBody, /ending\.current = true;/, "an ending stops further writes");
-  assert.match(settleBody, /await unsavedWrites\.current;/, "and lets the one in flight land first");
-  for (const [name, call] of [
-    ["const saveForLater", "await onSaveForLater("],
-    ["const handleSubmit", "await onCreate("],
-    ["const confirmDiscard", "onClose();"]
-  ]) {
-    const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
-    const fnBody = fn.slice(0, fn.indexOf("\n  };"));
-    assert.ok(fnBody.indexOf("await settleUnsaved()") >= 0, `${name} settles the writes`);
-    assert.ok(fnBody.indexOf("await settleUnsaved()") < fnBody.indexOf(call), `${name} settles them before it acts`);
-  }
-  for (const name of ["const saveForLater", "const handleSubmit"]) {
-    const fn = FORM_SOURCE.slice(FORM_SOURCE.indexOf(name));
-    const failed = fn.slice(fn.indexOf("} catch {") + "} catch {".length);
-    assert.match(
-      failed.slice(0, failed.indexOf("}")),
-      /ending\.current = false;/,
-      `${name}: a failure leaves the form open, keeping typing again`
-    );
-  }
-});
-
 /* ── Cancel always asks when there is anything in it (#365) ── */
 
 test("Cancel on an unchanged reopened Saved for Later task asks, with Save for later pressable in the prompt", async () => {
-  const { cancelAsks, initialCreateForm } = await import(pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href);
-  assert.equal(
-    cancelAsks({ editing: false, reopened: true, opened: FULL_FORM, fresh: initialCreateForm(), current: FULL_FORM }),
-    true,
-    "nothing changed since it opened, and it still asks"
-  );
+  /* That it asks with nothing changed is the session's, driven in
+     reopened-task-session-sim-test. */
   // The prompt's Save for later is the footer's, pressable exactly when the
   // footer's is, and the footer's is pressable on an unchanged reopened form.
   const [, disabled] = (await renderReopened(reopened(FULL_FORM), { directory: DIRECTORY })).match(FOOT_ORDER);
@@ -775,36 +726,27 @@ test("Discard from that prompt removes the saved record itself, with no second q
 });
 
 test("Cancel on a new task restored from the autosave and left untouched asks", async () => {
-  const { cancelAsks, initialCreateForm } = await import(pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href);
   const restored = { ...FORM, notes: "half a thought" };
-  assert.equal(cancelAsks({ editing: false, reopened: false, opened: restored, fresh: initialCreateForm(), current: restored }), true);
-  assert.equal(
-    cancelAsks({ editing: false, reopened: false, opened: initialCreateForm(), fresh: initialCreateForm(), current: initialCreateForm() }),
-    false,
-    "a completely empty one still closes without a prompt"
-  );
-});
-
-test("what a reopened form sends is decided against its last send, as a truth table", () => {
-  const cases = [
-    [{ differsFromSave: false, differsFromSent: false, sentExists: false }, "keep", "the save, nothing sent: nothing to do"],
-    [{ differsFromSave: false, differsFromSent: true, sentExists: true }, "clear", "typed back to the save after a send: clear it"],
-    [{ differsFromSave: true, differsFromSent: false, sentExists: false }, "write", "new typing, nothing sent yet"],
-    [{ differsFromSave: true, differsFromSent: true, sentExists: true }, "write", "more typing since the last send"],
-    [{ differsFromSave: true, differsFromSent: false, sentExists: true }, "keep", "exactly what was last sent, including typing it opened on"]
-  ];
-  for (const [state, expected, why] of cases) assert.equal(unsavedAction(state), expected, why);
+  const autosave = { ownerId: USER.id, savedAt: new Date().toISOString(), form: restored };
+  const kept = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: autosave }) });
+  await kept.open();
+  assert.equal(await kept.end({ kind: "cancel" }), "asked");
+  const empty = createNewTaskSession({ owner: USER.id, storage: null, request: async () => ({ item: null }) });
+  await empty.open();
+  assert.equal(await empty.end({ kind: "cancel" }), "closed", "a completely empty one still closes without a prompt");
 });
 
 test("App says out loud what the session reports, and the Task Drafts tab follows its records", () => {
   const deps = APP_SOURCE.match(/const newTask = useNewTaskSession\(\{([\s\S]*?)\n  \}\);/)?.[1];
-  assert.match(deps, /notify: \(message, variant\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) showToast\(message, \{ variant \}\);/);
-  assert.match(deps, /onSavedForLaterGone: \(id\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\);/);
-  assert.match(deps, /onSavedForLaterLatest: \(latest\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(/);
+  /* A session whose person has changed says nothing more: driven in
+     new-task-session-sim-test. */
+  assert.match(deps, /notify: \(message, variant\) => showToast\(message, \{ variant \}\)/);
+  assert.match(deps, /onSavedForLaterGone: \(id\) => setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\)/);
+  assert.match(deps, /onSavedForLaterLatest: \(latest\) => setSavedForLater\(\(current\) => current\.map\(/);
   assert.match(deps, /item\.id !== saved\.id && item\.id !== replaced/, "a save replaces the record it was reopened from");
   assert.match(
     deps,
-    /onSavedForLaterUnsaved: \(id, unsaved\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.map\(\(saved\) => \(saved\.id === id \? withUnsaved\(saved, unsaved\) : saved\)\)\);/,
+    /onSavedForLaterUnsaved: \(id, unsaved\) => setSavedForLater\(\(current\) => current\.map\(\(saved\) => \(saved\.id === id \? withUnsaved\(saved, unsaved\) : saved\)\)\)/,
     "unsaved typing that landed marks the row as it stands now (#475)"
   );
 });
@@ -820,7 +762,7 @@ test("withUnsaved sets or clears only the unsaved typing, leaving the row's save
 
 test("saving a reopened one again goes through the one request helper", () => {
   const session = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
-  assert.match(session, /saveForLaterRequest\(request, ending\.values \?\? values, id\)/);
+  assert.match(session, /saveForLaterRequest\(request, form, id\)/);
 });
 
 /* The three requests, driven against a fake server. */
@@ -935,10 +877,11 @@ test("a server that never answers does not hold New Task shut: the load gives up
 
 test("typing is autosaved to the server, and a write that did not land says so without throwing mid-sentence", async () => {
   const ok = fakeServer({ "PUT /autosave": (init) => ({ item: { ...AUTOSAVE, form: JSON.parse(init.body).form } }) });
-  assert.equal(await keepAutosaveRequest(ok.request, { ...FULL_FORM, notes: "typed" }), true);
+  const landed = async (server, form) => (await stampedKeepAutosaveRequest(server.request, form)).landed;
+  assert.equal(await landed(ok, { ...FULL_FORM, notes: "typed" }), true);
   assert.deepEqual(ok.calls, ["PUT /autosave"]);
-  assert.equal(await keepAutosaveRequest(fakeServer({ "PUT /autosave": new Error("offline") }).request, FULL_FORM), false);
-  assert.equal(await keepAutosaveRequest(fakeServer({ "PUT /autosave": httpError(500) }).request, FULL_FORM), false);
+  assert.equal(await landed(fakeServer({ "PUT /autosave": new Error("offline") }), FULL_FORM), false);
+  assert.equal(await landed(fakeServer({ "PUT /autosave": httpError(500) }), FULL_FORM), false);
 });
 
 test("forgetting the autosave takes it off the server, and a failure says so without throwing", async () => {
@@ -1091,8 +1034,8 @@ test("switching tabs swaps the body: the Task Drafts page lists every draft, nev
   const page = block.match(/<TaskDraftsPage([\s\S]*?)\/>/)?.[1];
   assert.ok(page, "the drafts tab renders the Task Drafts page");
   assert.match(page, /items=\{savedForLater\}/, "straight from the list App loaded, which no search or Mine ever touches");
-  assert.match(page, /onOpen=\{openSavedForLater\}/, "reopen as before");
-  assert.match(page, /onDelete=\{deleteSavedForLater\}/, "delete as before");
+  assert.match(page, /onOpen=\{newTask\.reopen\}/, "reopen as before");
+  assert.match(page, /onDelete=\{newTask\.deleteDraft\}/, "delete as before");
   assert.match(block, /role="tabpanel" id=\{BOARD_PANEL_ID\} aria-labelledby=\{boardTabId\(boardTab\)\}/);
   assert.equal((APP_SOURCE.match(/<TaskDraftsPage\b/g) ?? []).length, 1, "mounted in one place");
 });

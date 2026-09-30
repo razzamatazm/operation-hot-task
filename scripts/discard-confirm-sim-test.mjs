@@ -31,7 +31,7 @@ import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { cancelAsks, editFormValues, initialCreateForm } from "../apps/web/src/create-form-state.ts";
+import { editFormValues, formHasChanges } from "../apps/web/src/create-form-state.ts";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 
@@ -188,22 +188,22 @@ const fnBody = (name) => {
    session in reopened-task-session-sim-test. */
 test("Discard on a reopened form goes to its session, once: a second press does nothing", () => {
   const body = fnBody("const confirmDiscard");
-  assert.match(body, /if \(session\) \{\s*if \(!discarding\) await session\.end\(\{ kind: "discard" \}\);\s*return;/);
+  assert.match(body, /else if \(!discarding\) await session\.end\(\{ kind: "discard" \}\);/);
   const discard = SESSION_SOURCE.slice(SESSION_SOURCE.indexOf('case "discard":'));
   const branch = discard.slice(0, discard.indexOf('case "create":'));
   assert.ok(branch.indexOf('patch({ ending: "discard" });') < branch.indexOf("await "), "the answers shut before anything is awaited");
   assert.doesNotMatch(branch, /discardUnsavedRequest|saveForLaterRequest|keepUnsavedRequest/, "nothing clears only the slot or writes the save");
 });
 
-test("a reopened Task Draft's Discard uses the row's own removal, and the tab drops it only for its owner", () => {
+test("a reopened Task Draft's Discard uses the row's own removal, and the tab drops it", () => {
   const APP_SOURCE = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  assert.match(SESSION_SOURCE, /if \(await removeSavedForLaterRequest\(request, id\)\) onSavedForLaterGone\?\.\(id\);/, "the same removal the row's delete uses, which counts a 404 as gone");
-  assert.match(APP_SOURCE, /onSavedForLaterGone: \(id\) => \{\s*if \(user\.id === savedForLaterOwner\.current\) setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\);/, "the row leaves the tab, and the count with it, only for the person it belongs to");
+  assert.match(SESSION_SOURCE, /if \(await removeSavedForLaterRequest\(request, id\)\) onSavedForLaterGone\(id\);/, "the same removal the row's delete uses, which counts a 404 as gone");
+  assert.match(APP_SOURCE, /onSavedForLaterGone: \(id\) => setSavedForLater\(\(current\) => current\.filter\(\(saved\) => saved\.id !== id\)\)/, "the row leaves the tab, and the count with it");
 });
 
-test("a new task's Discard and edit mode's still close on the first answer, with no second question", () => {
+test("edit mode's Discard still closes on the first answer, with no second question", () => {
   const body = fnBody("const confirmDiscard");
-  assert.match(body, /\}\s*setDiscarding\(true\);\s*forgetDraft\(\);\s*await settleUnsaved\(\);\s*onClose\(\);\s*$/, "forget the autosave, settle, close, as before");
+  assert.match(body, /if \(!session\) onClose\(\);/, "an edit form just closes");
   assert.match(FORM_SOURCE, /\{discardAsk && <DiscardConfirmDialog onConfirm=\{confirmDiscard\}/, "the first prompt is unchanged");
 });
 
@@ -221,10 +221,7 @@ test("while a Discard is being carried out, every answer is shut and Escape does
   assert.equal([...html.matchAll(/<button type="button" class="btn-sm btn-[a-z]+" disabled="">/g)].length, 3, "all three answers");
   const key = DIALOG_SOURCE.slice(DIALOG_SOURCE.indexOf("const onKey"));
   assert.match(key.slice(0, key.indexOf("};")), /if \(!busy\) onCancel\(\);/);
-  const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
-  const own = confirm.slice(confirm.indexOf("setDiscarding(true);"), confirm.indexOf("\n  };"));
-  assert.ok(own.indexOf("setDiscarding(true);") === 0 && own.indexOf("await ") > 0, "shut before anything is awaited");
-  assert.match(FORM_SOURCE, /const discarding = live \? live\.ending === "discard" : ownDiscarding;/, "a session's Discard shuts them from its own state");
+  assert.match(FORM_SOURCE, /const discarding = live\?\.ending === "discard";/, "the session's Discard shuts them from its own state");
   assert.match(FORM_SOURCE, /busy=\{discarding\} onCancel=\{dismissAsk\}/);
 });
 
@@ -242,7 +239,7 @@ test("the form offers Save for later in the prompt on a create form only, and ed
     /\{\.\.\.\(offersSaveForLater \? \{ onSaveForLater: saveFromPrompt, saveForLaterDisabled: !worthSavingForLater, reopened: reopened !== undefined \} : \{\}\)\}/,
     "the three-way prompt is the create form's, with the footer button's own availability"
   );
-  assert.match(FORM_SOURCE, /const offersSaveForLater = !editing && \(session !== undefined \|\| onSaveForLater !== undefined\);/, "a create form only");
+  assert.match(FORM_SOURCE, /const offersSaveForLater = !editing && session !== undefined;/, "a create form only");
   const fromPrompt = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const saveFromPrompt"));
   const body = fromPrompt.slice(0, fromPrompt.indexOf("};"));
   assert.match(body, /dismissAsk\(\);/, "the prompt comes down, so a failed save leaves the form in view");
@@ -293,43 +290,20 @@ test("Cancel and Escape are the same door, so they cannot answer differently", (
 });
 
 /* When the exit asks (#365). Edit mode asks once something moved since the form
-   opened, as it always has. A create form asks whenever there is anything in it:
-   a reopened Saved for Later task always, and a new one whenever it differs from
-   a blank form, which is the Save for later button's own test. Whether it
-   changed since it opened no longer matters there, so a form restored from the
-   autosave and left alone still asks. */
-test("when Cancel asks, as a truth table over the three ways a form opens", () => {
-  const BLANK = initialCreateForm();
-  const TYPED = { ...BLANK, folderName: "Whitfield 4471", notes: "half a thought" };
-  const SAVED = { ...BLANK, folderName: "Baker - Pier 9", taskType: "FRAUD", urgency: "ORANGE" };
-  const TASK_VALUES = () => editFormValues(TASK);
-  const EDITED = { ...TASK_VALUES(), notes: "Loan Amount: $2,400,000" };
-  const cases = [
-    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: BLANK }, false, "a completely empty new task closes without a prompt"],
-    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: BLANK, pendingItemText: "   " }, false, "a seeder box holding only spaces is still empty"],
-    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: TYPED }, true, "a new task with typing in it asks"],
-    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: BLANK, pendingItemText: "Missing appraisal" }, true, "a half-typed outstanding item is something in it"],
-    [{ editing: false, reopened: false, opened: TYPED, fresh: BLANK, current: TYPED }, true, "a new task restored from the autosave and left untouched asks"],
-    [{ editing: false, reopened: false, opened: BLANK, fresh: BLANK, current: { ...BLANK, taskType: "VALUE" } }, true, "a changed task type on its own is something in it"],
-    [{ editing: false, reopened: true, opened: SAVED, fresh: BLANK, current: SAVED }, true, "an unchanged reopened Saved for Later task asks"],
-    [{ editing: false, reopened: true, opened: SAVED, fresh: BLANK, current: { ...SAVED, notes: "more" } }, true, "a changed reopened one asks, as before"],
-    [{ editing: true, reopened: false, opened: TASK_VALUES(), fresh: TASK_VALUES(), current: TASK_VALUES() }, false, "edit mode, unchanged, closes silently as before"],
-    [{ editing: true, reopened: false, opened: TASK_VALUES(), fresh: TASK_VALUES(), current: EDITED }, true, "edit mode, changed, asks as before"]
-  ];
-  for (const [state, expected, why] of cases) assert.equal(cancelAsks(state), expected, why);
+   opened, as it always has. A New Task form asks its session, which asks
+   whenever there is anything in it: driven in new-task-session-sim-test and
+   reopened-task-session-sim-test. */
+test("edit mode's Cancel asks once something moved since the form opened", () => {
+  const opened = editFormValues(TASK);
+  assert.equal(formHasChanges(opened, editFormValues(TASK)), false, "unchanged closes silently");
+  assert.equal(formHasChanges(opened, { ...opened, notes: "Loan Amount: $2,400,000" }), true, "changed asks");
 });
 
-test("the exit asks through that one rule, and closes on the spot when it says no", () => {
+test("the exit asks the session or that rule, and closes on the spot when it says no", () => {
   const close = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const requestClose"));
   const body = close.slice(0, close.indexOf("};"));
-  assert.match(
-    body,
-    /cancelAsks\(\{ editing, reopened: reopened !== undefined, opened: openedWith\.current, fresh: opening\.fresh, current: form, pendingItemText: seedDraft \}\)/,
-    "edit mode against the values it opened with, a create form against a blank one, the seeder's half-typed item counted in both"
-  );
-  assert.match(body, /setDiscardAsk\(true\)/, "a form with something to lose asks");
-  assert.match(body, /return;\s*\}\s*onClose\(\);/, "anything else closes on the spot");
-  assert.doesNotMatch(body, /sendUnsaved/, "a reopened form never takes the silent exit, so it has nothing to send on the way out");
+  assert.match(body, /if \(session\) \{\s*void session\.end\(\{ kind: "cancel" \}\);\s*return;\s*\}/, "a New Task form asks its session");
+  assert.match(body, /if \(formHasChanges\(openedWith\.current, form\)\) setEditAsk\(true\);\s*else onClose\(\);/, "an edit form against the values it opened with");
   assert.match(FORM_SOURCE, /const openedWith = useRef\(form\)/, "the opening values are captured once, at open");
 });
 
@@ -343,9 +317,9 @@ test("saying yes closes the form, and is where the draft is deliberately forgott
   const line = mount.slice(0, mount.indexOf("\n"));
   assert.match(line, /onConfirm=\{confirmDiscard\}/, "confirming goes through one named function");
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
-  assert.match(confirm.slice(0, confirm.indexOf("};")), /onClose\(\);/, "which still does what closing always did");
+  assert.match(confirm.slice(0, confirm.indexOf("};")), /onClose\(\);/, "which still closes an edit form");
   assert.match(line, /onCancel=\{dismissAsk\}/, "declining only lowers the prompt");
-  assert.match(FORM_SOURCE, /const dismissAsk = \(\): void => \(session \? session\.resume\(\) : setDiscardAsk\(false\)\);/, "and lowering it is all declining does");
+  assert.match(FORM_SOURCE, /const dismissAsk = \(\): void => \(session \? session\.resume\(\) : setEditAsk\(false\)\);/, "and lowering it is all declining does");
   assert.doesNotMatch(
     line.slice(line.indexOf("onCancel")),
     /onClose/,

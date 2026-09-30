@@ -10,20 +10,19 @@ import {
   autosaveCopy,
   clearDraft,
   clearUnsavedCopy,
-  draftAction,
   filedForgetOwed,
   newerAutosave,
   oweFiledForget,
   readDraftCopy,
   readUnsavedCopy,
+  typedOver,
   writeDraft,
   writeUnsavedCopy
 } from "./create-form-draft";
-import type { UnsavedCopyBase } from "./create-form-draft";
+import type { AutosaveCopy, UnsavedCopyBase } from "./create-form-draft";
 import type { DraftStorage } from "./create-form-draft";
 import { formHasChanges, initialCreateForm } from "./create-form-state";
 import type { CreateFormValues } from "./create-form-state";
-import { moveAutosaveAside } from "./humperdink-arrival";
 import {
   AUTOSAVE_LOAD_TIMEOUT_MS,
   UNSAVED_SAVE_DEBOUNCE_MS,
@@ -35,8 +34,7 @@ import {
   removeSavedForLaterRequest,
   reopenSavedForLaterRequest,
   saveForLaterRequest,
-  stampedKeepAutosaveRequest,
-  unsavedAction
+  stampedKeepAutosaveRequest
 } from "./saved-for-later-requests";
 import type { RequestTimers, SavedForLaterRequest } from "./saved-for-later-requests";
 
@@ -96,14 +94,16 @@ export type NewTaskSessionState =
       asking: boolean;
       /* The ending under way, if any. */
       ending: NewTaskEndingKind | null;
+      /* The Fraud seeder's half-typed item, which Save for later folds in. */
+      pendingItem: string;
     };
 
 export type NewTaskEnding =
   | { kind: "create"; file: () => Promise<void> }
-  | { kind: "saveForLater"; values?: CreateFormValues }
+  | { kind: "saveForLater" }
   | { kind: "discard" }
   | { kind: "startFresh" }
-  | { kind: "cancel"; pendingItemText?: string };
+  | { kind: "cancel" };
 
 type EndResult<E extends NewTaskEnding> = E extends { kind: "saveForLater" }
   ? SavedForLaterTask
@@ -115,23 +115,21 @@ export interface NewTaskSession {
   readonly owner: string;
   getState(): NewTaskSessionState;
   subscribe(listener: () => void): () => void;
-  /* Resolves true once the form is open. `held` is the Autosave App already
-     has, used when the server doesn't answer in time. `unless` is asked once
-     the Autosave is in; true leaves the form shut (another form got there). */
-  open(options?: { held?: Autosave | null; unless?: () => boolean }): Promise<boolean>;
+  /* Resolves true once the form is open, on the newer Autosave. A server that
+     doesn't answer in time leaves the one this session last reported. False
+     when a form is already up or another got there first. */
+  open(): Promise<boolean>;
   /* Opens on a Task Draft's latest copy, or on `item` when the server can't be
-     reached. `unless` as for `open`. */
-  reopen(item: SavedForLaterTask, options?: { unless?: () => boolean }): Promise<ReopenOutcome>;
+     reached. */
+  reopen(item: SavedForLaterTask): Promise<ReopenOutcome>;
   /* A Humperdink arrival (#412, #413, #420): puts aside a fresh form opened
      while the tab loaded, moves a worthwhile Autosave to Task Drafts, calls
-     `load`, then opens a blank LOI Check. An open press waits for it. `unless`
-     is asked after the move; true opens nothing and skips `load`. */
-  arrive(options: { load: () => void; unless?: () => boolean }): Promise<ArrivalOutcome>;
+     `load`, then opens a blank LOI Check. An open press waits for it. */
+  arrive(options: { load: () => void }): Promise<ArrivalOutcome>;
   /* A form typed into while nobody was known, carried into this session. It
      never writes or forgets the Autosave. */
-  adopt(values: CreateFormValues): void;
+  adopt(values: CreateFormValues, pendingItem?: string): void;
   edit(values: CreateFormValues): void;
-  /* The Fraud seeder's half-typed item, which Save for later folds in. */
   notePendingItem(text: string): void;
   /* Open and unchanged since it opened (or since Start fresh). */
   untouched(): boolean;
@@ -142,12 +140,21 @@ export interface NewTaskSession {
   close(): void;
   /* Whether the form differs from a blank one, the yardstick for Cancel asking
      and for Save for later being offered. */
-  hasTyping(pendingItemText?: string): boolean;
+  hasTyping(): boolean;
+  /* The Task Drafts tab's Autosaved row: the newer Autosave, reported through
+     `onAutosave`. */
+  refreshAutosave(): Promise<void>;
+  /* The Autosaved row's delete. True once it is gone. */
+  deleteAutosave(): Promise<boolean>;
+  /* A Task Draft row's delete. True once it is gone. */
+  deleteDraft(item: Pick<SavedForLaterTask, "id">): Promise<boolean>;
+  /* The person changed: nothing more is reported to App. */
+  retire(): void;
 }
 
 /* The form as Save for later keeps it: a Fraud Check's half-typed item folded
    into its list, as Create folds it. */
-export const withPendingItem = (values: CreateFormValues, pendingItemText: string): CreateFormValues => {
+const withPendingItem = (values: CreateFormValues, pendingItemText: string): CreateFormValues => {
   const item = values.taskType === "FRAUD" ? pendingItemText.trim() : "";
   return item ? { ...values, initialItems: [...values.initialItems, item] } : values;
 };
@@ -157,24 +164,82 @@ const browserClock: NewTaskSessionClock = { ...browserTimers, now: () => Date.no
 const CLOSED: NewTaskSessionState = { phase: "closed" };
 
 /* Whether the server still holds the record a browser copy was written on. */
-const sameBase = (base: UnsavedCopyBase, latest: SavedForLaterTask): boolean => {
-  if (base.savedAt !== latest.savedAt) return false;
-  if (base.unsaved === undefined) return true;
-  return base.unsaved && latest.unsaved ? !formHasChanges(base.unsaved, latest.unsaved) : !base.unsaved && !latest.unsaved;
+const sameBase = (base: UnsavedCopyBase, latest: SavedForLaterTask): boolean =>
+  typedOver(
+    base.unsaved === undefined ? { savedAt: Date.parse(base.savedAt) } : { savedAt: Date.parse(base.savedAt), unsaved: base.unsaved },
+    { savedAt: Date.parse(latest.savedAt), unsaved: latest.unsaved ?? null }
+  );
+
+/* What a form does about its typing now, one rule for the Autosave and a
+   reopened record's unsaved slot: typing back to `base` clears a copy out
+   there, typing that differs from the copy out there is written, and anything
+   else is left, so opening a copy never restarts its clock. */
+const writeStep = (base: CreateFormValues, stored: CreateFormValues | null, values: CreateFormValues): "write" | "keep" | "clear" => {
+  if (!formHasChanges(base, values)) return stored ? "clear" : "keep";
+  return !stored || formHasChanges(stored, values) ? "write" : "keep";
 };
 
-export const createNewTaskSession = ({
-  owner,
-  request,
-  storage,
-  clock = browserClock,
-  onAutosave,
-  onSavedForLater,
-  onSavedForLaterLatest,
-  onSavedForLaterUnsaved,
-  onSavedForLaterGone,
-  notify
-}: NewTaskSessionDeps): NewTaskSession => {
+/* Before a Humperdink arrival's LOI Check opens (#413), a worthwhile Autosave
+   becomes a Task Draft, in the one write Save for later makes, which clears the
+   slot too. `held`: the server couldn't be asked, the save failed or didn't
+   answer in time, and both copies stay exactly where they were. */
+type AutosaveMove = { kind: "none" } | { kind: "moved" } | { kind: "held" };
+
+const moveAutosaveAside = async (
+  request: SavedForLaterRequest,
+  storage: DraftStorage | null,
+  owner: string,
+  clock: NewTaskSessionClock,
+  filed: boolean
+): Promise<AutosaveMove> => {
+  const { reached, item } = await loadAutosaveRequest(request, AUTOSAVE_LOAD_TIMEOUT_MS, clock);
+  if (!reached) return { kind: "held" };
+  const now = clock.now();
+  const kept = newerAutosave(autosaveCopy(filed ? null : item, now), readDraftCopy(storage, owner, now));
+  if (!kept || !formHasChanges(initialCreateForm(), kept.values)) return { kind: "none" };
+  let timer: unknown;
+  const gaveUp = new Promise<null>((resolve) => {
+    timer = clock.setTimeout(() => resolve(null), AUTOSAVE_LOAD_TIMEOUT_MS);
+  });
+  const saving = saveForLaterRequest(request, kept.values);
+  try {
+    if (!(await Promise.race([saving, gaveUp]))) {
+      /* Still out: if it lands later, the slot is empty and the task is on Task
+         Drafts, so the offline copy goes then rather than coming back beside it. */
+      saving.then(() => clearDraft(storage, owner), () => {});
+      return { kind: "held" };
+    }
+    clearDraft(storage, owner);
+    return { kind: "moved" };
+  } catch {
+    return { kind: "held" };
+  } finally {
+    clock.clearTimeout(timer);
+  }
+};
+
+export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession => {
+  const { owner, request, storage, clock = browserClock } = deps;
+  /* Once the person changes, nothing still out reports back to App. */
+  let retired = false;
+  const tell =
+    <A extends unknown[]>(pick: (deps: NewTaskSessionDeps) => ((...args: A) => void) | undefined) =>
+    (...args: A): void => {
+      if (!retired) pick(deps)?.(...args);
+    };
+  const onSavedForLater = tell((d) => d.onSavedForLater);
+  const onSavedForLaterLatest = tell((d) => d.onSavedForLaterLatest);
+  const onSavedForLaterUnsaved = tell((d) => d.onSavedForLaterUnsaved);
+  const onSavedForLaterGone = tell((d) => d.onSavedForLaterGone);
+  const notify = tell((d) => d.notify);
+  /* The owner's Autosave as last reported, what an open falls back on when the
+     server doesn't answer in time. */
+  let lastAutosave: Autosave | null = null;
+  const reportAutosave = tell((d) => d.onAutosave);
+  const onAutosave = (autosave: Autosave | null): void => {
+    lastAutosave = autosave;
+    reportAutosave(autosave);
+  };
   let state: NewTaskSessionState = CLOSED;
   const listeners = new Set<() => void>();
   /* Bumped by every open and close, so a load or timer from an earlier open
@@ -184,8 +249,9 @@ export const createNewTaskSession = ({
   /* What this open measures "moved since open" against: the restored values,
      or the blank after Start fresh. */
   let openedWith = fresh;
-  /* Whether an Autosave is out there, as far as this session knows. */
-  let onDisk = false;
+  /* The Autosave out there, on the server or offline, as far as this session
+     knows, or null for none. */
+  let stored: CreateFormValues | null = null;
   let mode: NewTaskMode = { kind: "fresh" };
   /* A reopened record's unsaved typing as last sent, or null for none. */
   let sent: CreateFormValues | null = null;
@@ -199,7 +265,6 @@ export const createNewTaskSession = ({
   let timer: unknown = null;
   /* Writes, one after another, so an older one never lands after a newer one. */
   let writes: Promise<unknown> = Promise.resolve();
-  let pendingItem = "";
   /* An arrival under way, which an open waits behind. */
   let arriving: Promise<unknown> | null = null;
   /* Nobody known yet (#478): Teams sign-in is out, and requests may already go
@@ -242,7 +307,7 @@ export const createNewTaskSession = ({
   };
 
   const keep = (values: CreateFormValues): void => {
-    onDisk = true;
+    stored = values;
     const mine = ++asked;
     writes = writes
       .then(async () => {
@@ -265,12 +330,12 @@ export const createNewTaskSession = ({
     if (!seated()) return;
     const mine = (forgotAt = ++asked);
     clearDraft(storage, owner);
-    onDisk = false;
+    stored = null;
     serverAt = null;
     owe(true);
     writes = writes
       .then(async () => {
-        onAutosave?.(null);
+        onAutosave(null);
         if ((await forgetAutosaveRequest(request)) && mine === forgotAt && owed()) owe(false);
       })
       .catch(() => {});
@@ -280,11 +345,7 @@ export const createNewTaskSession = ({
      when a send goes out; one that fails puts it back unless a newer one went. */
   const sendUnsaved = (record: SavedForLaterTask, values: CreateFormValues): void => {
     const before = sent;
-    const action = unsavedAction({
-      differsFromSave: formHasChanges(record.form, values),
-      differsFromSent: before !== null && formHasChanges(before, values),
-      sentExists: before !== null
-    });
+    const action = writeStep(record.form, before, values);
     if (action === "keep") {
       /* Nothing to send; the copy goes once the server is known to hold this. */
       writes = writes.then(() => {
@@ -299,7 +360,7 @@ export const createNewTaskSession = ({
         if (next ? await keepUnsavedRequest(request, record.id, next) : await discardUnsavedRequest(request, record.id)) {
           base = { savedAt: record.savedAt, unsaved: next };
           dropCopy(record.id);
-          onSavedForLaterUnsaved?.(record.id, next);
+          onSavedForLaterUnsaved(record.id, next);
           return;
         }
         if (sent === next) sent = before;
@@ -315,8 +376,8 @@ export const createNewTaskSession = ({
   };
 
   const removeRecord = async (id: string, failed: string): Promise<void> => {
-    if (await removeSavedForLaterRequest(request, id)) onSavedForLaterGone?.(id);
-    else notify?.(failed, "warn");
+    if (await removeSavedForLaterRequest(request, id)) onSavedForLaterGone(id);
+    else notify(failed, "warn");
   };
 
   const tick = (): void => {
@@ -327,11 +388,7 @@ export const createNewTaskSession = ({
       return;
     }
     if (!seated()) return;
-    const action = draftAction({
-      changedFromBlank: formHasChanges(fresh, state.values),
-      movedSinceOpen: formHasChanges(openedWith, state.values),
-      onDisk
-    });
+    const action = writeStep(fresh, stored, state.values);
     if (action === "write") keep(state.values);
     else if (action === "clear") forget();
   };
@@ -339,7 +396,7 @@ export const createNewTaskSession = ({
   /* A form typed back to blank and shut before its clear went out still
      forgets its Autosave. */
   const shutEmptied = (): void => {
-    if (state.phase === "open" && !state.ending && onDisk && !formHasChanges(fresh, state.values)) forget();
+    if (state.phase === "open" && !state.ending && stored && !formHasChanges(fresh, state.values)) forget();
     shut();
   };
 
@@ -395,6 +452,23 @@ export const createNewTaskSession = ({
     return !settled || owed();
   };
 
+  /* The newer of the server's Autosave and this browser's offline copy. A
+     server that wasn't reached leaves the one last reported in the running. */
+  const newestAutosave = (reached: boolean, item: Autosave | null, filed: boolean): { best: AutosaveCopy | null; offline: AutosaveCopy | null } => {
+    const now = clock.now();
+    const offline = readDraftCopy(storage, owner, now);
+    const server = filed ? null : reached ? item : lastAutosave;
+    return { best: newerAutosave(autosaveCopy(server, now), offline, reached), offline };
+  };
+  const reportNewest = (best: AutosaveCopy | null): void =>
+    onAutosave(best ? { ownerId: owner, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null);
+
+  const opened = (next: NewTaskMode, values: CreateFormValues, options: { restored?: boolean; pendingItem?: string } = {}): void => {
+    carriedFromSignIn = false;
+    mode = next;
+    set({ phase: "open", mode, values, restored: options.restored ?? false, asking: false, ending: null, pendingItem: options.pendingItem ?? "" });
+  };
+
   const session: NewTaskSession = {
     owner,
     getState: () => state,
@@ -403,7 +477,7 @@ export const createNewTaskSession = ({
       return () => listeners.delete(listener);
     },
 
-    async open({ held = null, unless } = {}) {
+    async open() {
       if (arriving) await arriving;
       if (state.phase !== "closed") return false;
       generation += 1;
@@ -413,30 +487,20 @@ export const createNewTaskSession = ({
       if (mine !== generation) return false;
       const { reached, item } = known && !filed ? await loadAutosaveRequest(request, undefined, clock) : { reached: false, item: null };
       if (mine !== generation) return false;
-      const now = clock.now();
-      const server = filed ? null : reached ? item : held;
-      const offline = known ? readDraftCopy(storage, owner, now) : null;
-      const best = known ? newerAutosave(autosaveCopy(server, now), offline, reached) : null;
+      const { best, offline } = known ? newestAutosave(reached, item, filed) : { best: null, offline: null };
       /* Unreached, the server is as the offline copy last knew it: a write
          landing from here would have removed that copy. */
       const stamp = item ? Date.parse(item.savedAt) : null;
       serverAt = filed ? null : !reached ? offline?.over : Number.isNaN(stamp) ? undefined : stamp;
-      if (known) onAutosave?.(best ? { ownerId: owner, savedAt: new Date(best.savedAt).toISOString(), form: best.values } : null);
-      if (unless?.()) {
-        shut();
-        return false;
-      }
+      if (known) reportNewest(best);
       fresh = initialCreateForm();
       openedWith = best?.values ?? fresh;
-      onDisk = best !== null;
-      pendingItem = "";
-      carriedFromSignIn = false;
-      mode = { kind: "fresh" };
-      set({ phase: "open", mode, values: openedWith, restored: best !== null, asking: false, ending: null });
+      stored = best?.values ?? null;
+      opened({ kind: "fresh" }, openedWith, { restored: best !== null });
       return true;
     },
 
-    async reopen(item, { unless } = {}) {
+    async reopen(item) {
       const mine = generation;
       let reached = false;
       const noteReached: SavedForLaterRequest = async (path, init) => {
@@ -448,58 +512,55 @@ export const createNewTaskSession = ({
       if (mine !== generation) return "skipped";
       if (!latest) {
         clearUnsavedCopy(storage, owner, item.id);
-        onSavedForLaterGone?.(item.id);
-        notify?.("That Task Draft is gone. It was created or removed somewhere else.", "warn");
+        onSavedForLaterGone(item.id);
+        notify("That Task Draft is gone. It was created or removed somewhere else.", "warn");
         return "gone";
       }
-      onSavedForLaterLatest?.(latest);
+      onSavedForLaterLatest(latest);
       /* A New Task still loading gives way: the first form to land wins. */
-      if (state.phase === "open" || unless?.()) return "skipped";
+      if (state.phase === "open") return "skipped";
       generation += 1;
       /* This browser's copy, while the server still holds what it was written
          on. Without the server, `latest` is the board's copy, which may lag
          the server's unsaved typing: only a newer save outranks the copy. */
-      const stored = readUnsavedCopy(storage, owner, latest.id);
-      const copy = stored && sameBase(stored.base, latest) ? stored.values : null;
-      if (stored && !copy && reached) clearUnsavedCopy(storage, owner, latest.id);
+      const kept = readUnsavedCopy(storage, owner, latest.id);
+      const copy = kept && sameBase(kept.base, latest) ? kept.values : null;
+      if (kept && !copy && reached) clearUnsavedCopy(storage, owner, latest.id);
       const source = copy ?? latest.unsaved ?? latest.form;
       fresh = initialCreateForm();
       openedWith = { ...source, initialItems: [...source.initialItems] };
-      onDisk = false;
-      pendingItem = "";
+      stored = null;
       sent = latest.unsaved ?? null;
       if (reached) base = { savedAt: latest.savedAt, unsaved: sent };
-      else base = copy && stored ? stored.base : { savedAt: latest.savedAt };
-      copied = stored !== null && (copy !== null || !reached);
+      else base = copy && kept ? kept.base : { savedAt: latest.savedAt };
+      copied = kept !== null && (copy !== null || !reached);
       const { unsaved: _, ...saved } = latest;
       const record = copy ? (formHasChanges(latest.form, copy) ? { ...saved, unsaved: copy } : saved) : latest;
-      carriedFromSignIn = false;
-      mode = { kind: "reopened", record };
-      set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
+      opened({ kind: "reopened", record }, openedWith);
       if (copy) sendUnsaved(latest, copy);
       return "opened";
     },
 
-    async arrive({ load, unless }) {
+    async arrive({ load }) {
       const run = (async (): Promise<ArrivalOutcome> => {
         if (state.phase === "open") {
           if (mode.kind !== "fresh" || state.ending) {
             load();
             return "dropped";
           }
-          if (!session.hasTyping(pendingItem)) shut();
+          if (!session.hasTyping()) shut();
           else {
             try {
-              await session.end({ kind: "saveForLater", values: withPendingItem(state.values, pendingItem) });
+              await session.end({ kind: "saveForLater" });
             } catch {
-              notify?.("Couldn't open the Humperdink task. Your form is still here.", "error");
+              notify("Couldn't open the Humperdink task. Your form is still here.", "error");
               load();
               return "dropped";
             }
           }
         }
-        const moved = known ? await moveAutosaveAside(request, storage, owner, { now: clock.now(), timers: clock }) : { kind: "held" as const };
-        if (unless?.()) return "skipped";
+        const moved = known ? await moveAutosaveAside(request, storage, owner, clock, owed()) : { kind: "held" as const };
+        if (retired) return "skipped";
         load();
         /* A New Task that opened while the move was out keeps the screen; one
            still loading gives way. */
@@ -507,11 +568,8 @@ export const createNewTaskSession = ({
         generation += 1;
         fresh = initialCreateForm({ taskType: "LOI" });
         openedWith = fresh;
-        onDisk = false;
-        pendingItem = "";
-        carriedFromSignIn = false;
-        mode = { kind: "arrival", held: moved.kind === "held" };
-        set({ phase: "open", mode, values: openedWith, restored: false, asking: false, ending: null });
+        stored = null;
+        opened({ kind: "arrival", held: moved.kind === "held" }, openedWith);
         return "opened";
       })();
       arriving = run;
@@ -522,16 +580,14 @@ export const createNewTaskSession = ({
       }
     },
 
-    adopt(values) {
+    adopt(values, pendingItem = "") {
       if (state.phase !== "closed") return;
       generation += 1;
       fresh = initialCreateForm();
       openedWith = fresh;
-      onDisk = false;
-      pendingItem = "";
+      stored = null;
+      opened({ kind: "fresh" }, values, { pendingItem });
       carriedFromSignIn = true;
-      mode = { kind: "fresh" };
-      set({ phase: "open", mode, values, restored: false, asking: false, ending: null });
     },
 
     edit(values) {
@@ -541,7 +597,7 @@ export const createNewTaskSession = ({
     },
 
     notePendingItem(text) {
-      pendingItem = text;
+      patch({ pendingItem: text });
     },
 
     untouched() {
@@ -552,7 +608,7 @@ export const createNewTaskSession = ({
       type R = EndResult<E>;
       const ending: NewTaskEnding = asked;
       if (state.phase !== "open") throw new Error("The New Task form is not open.");
-      const values = state.values;
+      const { values, pendingItem } = state;
       /* This ending's own form: another may open while it is out, and must not
          be deleted, saved over or shut by it. */
       const current = mode;
@@ -562,7 +618,7 @@ export const createNewTaskSession = ({
       };
       switch (ending.kind) {
         case "cancel":
-          if (current.kind !== "reopened" && !formHasChanges(fresh, values, ending.pendingItemText)) {
+          if (current.kind !== "reopened" && !session.hasTyping()) {
             shutEmptied();
             return "closed" as R;
           }
@@ -573,7 +629,7 @@ export const createNewTaskSession = ({
           stopTimer();
           openedWith = initialCreateForm();
           forget();
-          patch({ values: openedWith, restored: false, asking: false });
+          patch({ values: openedWith, restored: false, asking: false, pendingItem: "" });
           return undefined as R;
         case "discard":
           stopTimer();
@@ -592,7 +648,7 @@ export const createNewTaskSession = ({
         case "create":
           if (!known) {
             /* The form swallows a failed Create, leaving word to whoever failed it. */
-            notify?.("Still signing in. Try Create again in a moment.", "error");
+            notify("Still signing in. Try Create again in a moment.", "error");
             throw new Error("Still signing in. Try Create again in a moment.");
           }
           await settleThen(mine, "create", ending.file);
@@ -607,23 +663,24 @@ export const createNewTaskSession = ({
           return undefined as R;
         case "saveForLater": {
           if (!known) throw new Error("Still signing in. Try Save for later again in a moment.");
+          const form = withPendingItem(values, pendingItem);
           if (current.kind === "reopened") {
             const { id } = current.record;
-            const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values, id));
+            const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, form, id));
             dropCopy(id);
-            onSavedForLater?.(saved, id);
+            onSavedForLater(saved, id);
             shutMine();
             return saved as R;
           }
           const clearsAutosave = seated();
-          const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, ending.values ?? values, undefined, clearsAutosave));
+          const saved = await settleThen(mine, "saveForLater", () => saveForLaterRequest(request, form, undefined, clearsAutosave));
           if (clearsAutosave) {
             clearDraft(storage, owner);
-            onDisk = false;
+            stored = null;
             if (owed()) owe(false);
-            onAutosave?.(null);
+            onAutosave(null);
           }
-          onSavedForLater?.(saved);
+          onSavedForLater(saved);
           shutMine();
           return saved as R;
         }
@@ -640,34 +697,71 @@ export const createNewTaskSession = ({
       else generation += 1;
     },
 
-    hasTyping(pendingItemText = "") {
-      return state.phase === "open" && formHasChanges(fresh, state.values, pendingItemText);
+    hasTyping() {
+      return state.phase === "open" && formHasChanges(fresh, state.values, state.pendingItem);
+    },
+
+    async refreshAutosave() {
+      if (!known) return;
+      const { reached, item } = await loadAutosaveRequest(request, undefined, clock);
+      reportNewest(newestAutosave(reached, item, owed()).best);
+    },
+
+    async deleteAutosave() {
+      const removed = await forgetAutosaveRequest(request);
+      if (removed) owe(false);
+      if (retired) return false;
+      if (!removed) {
+        notify("Couldn't delete the autosaved task. Try again.", "error");
+        return false;
+      }
+      clearDraft(storage, owner);
+      onAutosave(null);
+      return true;
+    },
+
+    async deleteDraft({ id }) {
+      const removed = await removeSavedForLaterRequest(request, id);
+      if (retired) return false;
+      if (!removed) {
+        notify("Couldn't delete that Task Draft. Try again.", "error");
+        return false;
+      }
+      clearUnsavedCopy(storage, owner, id);
+      onSavedForLaterGone(id);
+      return true;
+    },
+
+    retire() {
+      retired = true;
     }
   };
   return session;
 };
 
-/* Once sign-in names the person, typing from a form opened before that moves
-   into their session rather than closing with the old one (#478). */
-export const carrySignInForm = (from: NewTaskSession, to: NewTaskSession): void => {
+/* When the person changes, the old session closes and says nothing more, and
+   once sign-in names the person, typing from a form opened before that, the
+   Fraud seeder's half-typed item with it, moves into their session rather
+   than closing with the old one (#478). */
+export const handOver = (from: NewTaskSession, to: NewTaskSession): void => {
   const state = from.getState();
-  if (from.owner !== "" || state.phase !== "open" || state.ending || !from.hasTyping()) return;
-  to.adopt(state.values);
+  if (from.owner === "" && state.phase === "open" && !state.ending && from.hasTyping()) to.adopt(state.values, state.pendingItem);
+  from.close();
+  from.retire();
 };
 
 /* ── React ──────────────────────────────────────────────── */
 
-/* One session per person, made when they are first seen and closed when the
-   person changes (the dev user picker). The deps are read once, at creation, so
-   a later render's callbacks can never act for the new person. Closed by
-   comparing with the last one rather than in an effect cleanup, which StrictMode
-   and a dev hot reload also run, and which would shut a form mid-typing. */
+/* One session per person, made when they are first seen and handed over from
+   when the person changes (the dev user picker, or sign-in). The deps are read
+   once, at creation. Handed over by comparing with the last one rather than in
+   an effect cleanup, which StrictMode and a dev hot reload also run, and which
+   would shut a form mid-typing. */
 export const useNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession => {
   const session = useMemo(() => createNewTaskSession(deps), [deps.owner]);
   const previous = useRef<NewTaskSession | null>(null);
   useEffect(() => {
-    if (previous.current && previous.current !== session) carrySignInForm(previous.current, session);
-    if (previous.current && previous.current !== session) previous.current.close();
+    if (previous.current && previous.current !== session) handOver(previous.current, session);
     previous.current = session;
   }, [session]);
   return session;

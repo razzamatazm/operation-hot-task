@@ -210,9 +210,13 @@ test("a reopened record has no Autosave seat, and no browser copy once its send 
 
 test("a form already up when the fetch lands keeps the screen", async () => {
   const ctx = setup();
-  ctx.server.answer = () => ({ item: record() });
-  assert.equal(await ctx.session.reopen(record(), { unless: () => true }), "skipped");
-  assert.equal(ctx.session.getState().phase, "closed");
+  ctx.server.answer = (call) => (call.path === "/autosave" ? { item: null } : { item: record() });
+  await ctx.session.open();
+  ctx.session.edit(values({ notes: "a new task" }));
+  assert.equal(await ctx.session.reopen(record()), "skipped");
+  const state = openState(ctx.session);
+  assert.equal(state.mode.kind, "fresh");
+  assert.equal(state.values.notes, "a new task");
   assert.deepEqual(ctx.events.latest, [record()], "the row still takes the latest copy");
 });
 
@@ -513,11 +517,6 @@ test("a record found gone on reopen takes its copy with it", async () => {
   assert.equal(after.storage.items.size, 0);
 });
 
-test("deleting a Task Draft from the board removes its copy", () => {
-  const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  assert.match(app, /removeSavedForLaterRequest\(savedForLaterRequestFor\(user\), item\.id\);[\s\S]{0,400}clearUnsavedCopy\(browserDraftStorage\(\), user\.id, item\.id\)/);
-});
-
 /* ── Ending ─────────────────────────────────────────────── */
 
 test("Create files the task after the send still out, then deletes the record", async () => {
@@ -595,7 +594,8 @@ test("Save for later writes onto the same record, leaving the Autosave alone", a
   await reopen(ctx, record({ unsaved: values({ notes: "unsaved" }) }));
   const saved = record({ savedAt: new Date(START).toISOString(), form: values({ notes: "saved now" }) });
   ctx.server.answer = (call) => (call.method === "PUT" ? { item: saved } : {});
-  const item = await ctx.session.end({ kind: "saveForLater", values: values({ notes: "saved now" }) });
+  ctx.session.edit(values({ notes: "saved now" }));
+  const item = await ctx.session.end({ kind: "saveForLater" });
   assert.equal(item, saved);
   assert.deepEqual(ctx.server.writes(), [["PUT", "/saved-for-later/sfl-1"]]);
   assert.deepEqual(ctx.server.calls.at(-1).body, { form: values({ notes: "saved now" }) });
@@ -683,6 +683,6 @@ test("the Autosaved row pressed while a reopened task is up leaves it open, and 
 /* App's wiring, read out of the source like the other session suites. */
 test("App reopens a Task Draft through the session, and has no second form for it", () => {
   const app = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
-  assert.match(app, /newTask\.reopen\(item, \{ unless: \(\) => formOpenNow\.current \}\)/);
+  assert.match(app, /<TaskDraftsPage[^>]*onOpen=\{newTask\.reopen\}/);
   assert.doesNotMatch(app, /reopenSavedForLaterRequest|setReopened|onDeleteReopened|onKeepUnsaved/);
 });

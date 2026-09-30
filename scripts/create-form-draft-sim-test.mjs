@@ -18,12 +18,10 @@ import test from "node:test";
 
 import {
   DRAFT_KEY_PREFIX,
-  DRAFT_MAX_AGE_MS,
   DRAFT_VERSION,
   autosaveCopy,
   browserDraftStorage,
   clearDraft,
-  draftAction,
   draftFieldNames,
   draftKey,
   newerAutosave,
@@ -32,8 +30,10 @@ import {
   readDraftCopy,
   restoredDraftCopy,
   serializeDraft,
+  typedOver,
   writeDraft
 } from "../apps/web/src/create-form-draft.ts";
+import { AUTOSAVE_MAX_AGE_MS } from "@loan-tasks/shared";
 import {
   BLANK_CREATE_FORM,
   createLoanId,
@@ -167,7 +167,7 @@ test("a draft is one per person, under the app's existing key convention", () =>
 });
 
 test("seven days is the shelf life, so a Friday draft is there on Monday", () => {
-  assert.equal(DRAFT_MAX_AGE_MS, 7 * DAY);
+  assert.equal(AUTOSAVE_MAX_AGE_MS, 7 * DAY);
 });
 
 test("what is written is the version, the time and the values", () => {
@@ -390,49 +390,26 @@ test("a draft carrying extra keys comes back as the form's fields only", () => {
   assert.deepEqual(parseDraft(raw, NOW), FILLED);
 });
 
-/* ── When the form saves, keeps or clears ───────────────── */
-
-/* The decision the save timer makes, as a truth table. It lives out here rather
-   than in the effect precisely so the promises about it — opening a draft does
-   not restart its seven days, an untouched form never deletes one — are asked
-   directly instead of by rendering a form and waiting 400ms. */
-test("work worth keeping, with something moved since the form opened, is written", () => {
-  assert.equal(draftAction({ changedFromBlank: true, movedSinceOpen: true, onDisk: false }), "write");
-  assert.equal(draftAction({ changedFromBlank: true, movedSinceOpen: true, onDisk: true }), "write");
-});
-
-test("a restored draft nobody has touched is left alone, so opening it does not restart its seven days", () => {
-  assert.equal(draftAction({ changedFromBlank: true, movedSinceOpen: false, onDisk: true }), "keep");
-});
-
-test("a form typed into and then emptied back out clears the copy behind it", () => {
-  assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: true, onDisk: true }), "clear");
-});
-
-/* The Humperdink-prefill case: a form that differs from nothing and never wrote
-   anything must not delete a draft that some other sitting saved. */
-test("an untouched form with nothing of its own on disk does nothing at all", () => {
-  assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: false, onDisk: false }), "keep");
-  assert.equal(draftAction({ changedFromBlank: false, movedSinceOpen: true, onDisk: false }), "keep");
-});
-
-/* The whole of "worth saving" is #283's predicate against a blank-slate open,
-   which is what makes the ticket's named case — a task type and nothing else —
-   enough on its own. */
-test("changing only the task type is enough for a draft to be saved", () => {
-  const fresh = initialCreateForm();
-  const typePicked = { ...fresh, taskType: "OOO" };
-  assert.equal(
-    draftAction({
-      changedFromBlank: formHasChanges(fresh, typePicked),
-      movedSinceOpen: formHasChanges(fresh, typePicked),
-      onDisk: false
-    }),
-    "write"
-  );
+/* When the form writes, keeps or clears is the New Task session's, tested
+   through it in `scripts/new-task-session-sim-test.mjs`. */
+test("a draft holding only a changed task type comes back that way", () => {
+  const typePicked = { ...initialCreateForm(), taskType: "OOO" };
   const storage = fakeStorage();
   writeDraft(storage, "user-1", typePicked, NOW);
-  assert.equal(readDraft(storage, "user-1", NOW).taskType, "OOO", "and it comes back that way");
+  assert.equal(readDraft(storage, "user-1", NOW).taskType, "OOO");
+});
+
+/* ── One clock-free rule for offline copies (#470, #476) ── */
+
+test("an offline copy is the newer while the server still holds exactly what it was typed over", () => {
+  const typed = { ...initialCreateForm(), notes: "typed" };
+  assert.equal(typedOver({ savedAt: 5 }, { savedAt: 5 }), true, "same stamp, nothing else known");
+  assert.equal(typedOver({ savedAt: 5 }, { savedAt: 6 }), false, "the server moved on");
+  assert.equal(typedOver({ savedAt: null }, { savedAt: null }), true, "typed over nothing, still nothing");
+  assert.equal(typedOver({ savedAt: 5, unsaved: null }, { savedAt: 5, unsaved: null }), true);
+  assert.equal(typedOver({ savedAt: 5, unsaved: typed }, { savedAt: 5, unsaved: { ...typed } }), true, "compared by value");
+  assert.equal(typedOver({ savedAt: 5, unsaved: null }, { savedAt: 5, unsaved: typed }), false, "unsaved typing landed since");
+  assert.equal(typedOver({ savedAt: 5, unsaved: typed }, { savedAt: 5, unsaved: null }), false, "and was cleared since");
 });
 
 /* ── A loan the draft picked, a week later ──────────────── */

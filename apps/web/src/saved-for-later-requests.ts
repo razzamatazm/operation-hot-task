@@ -99,12 +99,9 @@ export const loadAutosaveRequest = async (
   }
 };
 
-/* The new task form's typing, written as it is typed. True when it landed. */
-export const keepAutosaveRequest = async (request: SavedForLaterRequest, form: SavedForLaterForm): Promise<boolean> =>
-  (await stampedKeepAutosaveRequest(request, form)).landed;
-
-/* The same write, with the server's stamp on the copy it now holds, in epoch
-   milliseconds, or undefined when the answer didn't carry one (#470). */
+/* The new task form's typing, written as it is typed: whether it landed, and
+   the server's stamp on the copy it now holds, in epoch milliseconds, or
+   undefined when the answer didn't carry one (#470). */
 export const stampedKeepAutosaveRequest = async (
   request: SavedForLaterRequest,
   form: SavedForLaterForm
@@ -147,34 +144,10 @@ export const reopenSavedForLaterRequest = async (
   }
 };
 
-/* How long a reopened form waits after the last keystroke before sending its
-   typing (#348). A second rather than the browser autosave's 400ms, because
-   each one is a request and a write to the server's file; still short enough
-   that a closed tab loses at most the last second of typing. */
+/* How long a New Task form waits after the last keystroke before writing its
+   typing (#348, #371). Each write is a request, and a closed tab loses at most
+   the last second. */
 export const UNSAVED_SAVE_DEBOUNCE_MS = 1000;
-
-/* What a reopened form should do about its unsaved typing right now (#348).
-   Not the autosave's `draftAction`, whose "keep" assumes the stored copy is the
-   one the form opened on. Here the form sends as it goes, so the question is
-   against what it last sent:
-
-   • `clear` when the form is back to exactly the save and something unsaved is
-     out there, so a reopen shows the save again.
-   • `write` when the form differs from the save and from what was last sent.
-   • `keep` otherwise: nothing to send, or it has already been sent.
-
-   The three answers come in as booleans (each a `formHasChanges` answer) so
-   this module keeps its type-only imports. */
-export type UnsavedAction = "write" | "keep" | "clear";
-
-export const unsavedAction = (state: {
-  differsFromSave: boolean;
-  differsFromSent: boolean;
-  sentExists: boolean;
-}): UnsavedAction => {
-  if (!state.differsFromSave) return state.sentExists ? "clear" : "keep";
-  return !state.sentExists || state.differsFromSent ? "write" : "keep";
-};
 
 /* Typing on a reopened form that nobody saved (#348, ADR-0011 rule 5), sent to
    that record's unsaved slot as it is typed. Beside the save, never over it, and

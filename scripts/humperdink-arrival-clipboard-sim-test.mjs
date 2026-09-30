@@ -13,8 +13,8 @@
    Three techniques, the arrangement the other arrival tests use:
 
    1. DRIVEN. The reader (`readArrivalClipboard`) is handed a fake Teams
-      clipboard, and the step that decides when the text is applied
-      (`arrivalPasteStep`) is a pure function.
+      clipboard. Whether the form is still untouched is the session's, driven
+      in `scripts/arrival-task-session-sim-test.mjs`.
    2. RENDERED. The form, through `react-dom/server`.
    3. READ OUT OF THE SOURCE. Effects don't run in a static render, so the
       form's and App's wiring is asserted against the source.
@@ -42,7 +42,7 @@ const entry = join(scratch, "entry.tsx");
 const src = (file) => JSON.stringify(join(WEB, file));
 writeFileSync(
   entry,
-  `export { readArrivalClipboard, arrivalPasteStep } from ${src("humperdink-arrival.ts")};\n` +
+  `export { readArrivalClipboard } from ${src("humperdink-arrival.ts")};\n` +
     `export { TaskForm } from ${src("task-form.tsx")};\n` +
     `export { ToastProvider } from ${src("toast.tsx")};\n` +
     `export { createNewTaskSession } from ${src("new-task-session.ts")};\n`
@@ -57,7 +57,7 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { readArrivalClipboard, arrivalPasteStep, TaskForm, ToastProvider, createNewTaskSession } = await import(pathToFileURL(bundle).href);
+const { readArrivalClipboard, TaskForm, ToastProvider, createNewTaskSession } = await import(pathToFileURL(bundle).href);
 
 const PAYLOAD = JSON.stringify({
   kind: "hot-task-humperdink",
@@ -144,25 +144,6 @@ test("text that isn't a Send to Hot Task payload is nothing", async () => {
   }
 });
 
-/* ── When the text is applied ───────────────────────────── */
-
-test("a payload read before the loans list loads waits for it", () => {
-  assert.equal(arrivalPasteStep({ paste: PAYLOAD, loansLoaded: false, untouched: true }), "wait");
-  assert.equal(arrivalPasteStep({ paste: PAYLOAD, loansLoaded: true, untouched: true }), "apply");
-});
-
-test("nothing read is nothing to do, loaded or not", () => {
-  assert.equal(arrivalPasteStep({ paste: null, loansLoaded: false, untouched: true }), "wait");
-  assert.equal(arrivalPasteStep({ paste: null, loansLoaded: true, untouched: true }), "wait");
-});
-
-/* The fill is for a form nobody has started on. Somebody who already pasted or
-   typed by the time the loans came back keeps what they did. */
-test("a form somebody has already started on is left alone", () => {
-  assert.equal(arrivalPasteStep({ paste: PAYLOAD, loansLoaded: true, untouched: false }), "drop");
-  assert.equal(arrivalPasteStep({ paste: PAYLOAD, loansLoaded: false, untouched: false }), "wait", "still waits for the loans first");
-});
-
 /* ── The form (read out of the source) ──────────────────── */
 
 const effectAfter = (source, needle) => {
@@ -182,10 +163,9 @@ test("the form reads the clipboard once, at open, and only on a Humperdink arriv
 });
 
 test("the form applies it through its own paste import, once the loans have loaded", () => {
-  const apply = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*const step = arrivalPasteStep\(([\s\S]*?)\n  \}, \[arrivalPaste, loansLoaded\]\);/)?.[0];
-  assert.ok(apply, "an effect keyed on the text and the loans");
-  assert.match(apply, /loansLoaded/);
-  assert.match(apply, /untouched: !imported && session !== undefined && session\.untouched\(\)/);
+  const apply = FORM_SOURCE.match(/useEffect\(\(\) => \{\s*if \(arrivalPaste === null \|\| !loansLoaded\) return;([\s\S]*?)\n  \}, \[arrivalPaste, loansLoaded\]\);/)?.[0];
+  assert.ok(apply, "an effect keyed on the text and the loans, waiting for both");
+  assert.match(apply, /if \(!imported && session\?\.untouched\(\)\) importFromHumperdink\(arrivalPaste\);/, "only on a form nobody has started on");
   assert.match(apply, /importFromHumperdink\(arrivalPaste\)/);
   assert.doesNotMatch(apply, /parseHumperdinkPayload|applyImportedLoan/, "not a second copy of the import");
   assert.doesNotMatch(apply, /onCreate|onSaveForLater|apiRequest/, "nothing is created until Create");

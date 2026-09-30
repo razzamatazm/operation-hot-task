@@ -14,14 +14,14 @@
    is value-in/value-out over a storage object a test can fake, which is the
    ticket's "testable without rendering the form".
 
-   Framework-free, with `CreateFormValues` imported type-only, so it type-strips
-   straight into `scripts/create-form-draft-sim-test.mjs` with no build — the
-   same arrangement `create-form-state.ts` and `expand-state.ts` are in.
+   Framework-free, so it type-strips straight into
+   `scripts/create-form-draft-sim-test.mjs`.
 
    Deliberately NOT here: whether the current form is worth saving at all. That
    is `formHasChanges` in `create-form-state.ts`, the same predicate the discard
    prompt asks (#283), and asking it twice in two places is how the prompt and
    the draft would come to disagree about what "untouched" means. */
+import { AUTOSAVE_MAX_AGE_MS } from "@loan-tasks/shared";
 import type { CreateFormValues } from "./create-form-state";
 
 /* One draft per person, under the app's existing `loan-tasks:<thing>:<userId>`
@@ -36,12 +36,6 @@ import type { CreateFormValues } from "./create-form-state";
 export const DRAFT_KEY_PREFIX = "loan-tasks:create-draft:";
 
 export const draftKey = (userId: string): string => `${DRAFT_KEY_PREFIX}${userId}`;
-
-/* Seven days, per the ticket: long enough that a Friday interruption is still
-   there on Monday, short enough that nothing genuinely stale ever reappears.
-   Measured from the last write, so a draft someone keeps coming back to keeps
-   living. */
-export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /* Bumped only if the stored shape changes incompatibly. An unrecognised version
    reads as no draft, which is the same silent blank form as no draft at all —
@@ -190,7 +184,7 @@ const parseDraftCopy = (raw: string | null, now: number): AutosaveCopy | null =>
   const record = parsed as Partial<StoredDraft>;
   if (record.version !== DRAFT_VERSION) return null;
   if (typeof record.savedAt !== "number" || !Number.isFinite(record.savedAt)) return null;
-  if (now - record.savedAt >= DRAFT_MAX_AGE_MS) return null;
+  if (now - record.savedAt >= AUTOSAVE_MAX_AGE_MS) return null;
   const values = formValuesOf(record.values);
   if (!values) return null;
   const over = record.over === null || (typeof record.over === "number" && Number.isFinite(record.over)) ? record.over : undefined;
@@ -208,7 +202,7 @@ export const autosaveCopy = (
 ): AutosaveCopy | null => {
   if (!item) return null;
   const savedAt = Date.parse(item.savedAt);
-  if (!Number.isFinite(savedAt) || now - savedAt >= DRAFT_MAX_AGE_MS) return null;
+  if (!Number.isFinite(savedAt) || now - savedAt >= AUTOSAVE_MAX_AGE_MS) return null;
   const values = formValuesOf(item.form);
   return values ? { values, savedAt } : null;
 };
@@ -222,9 +216,8 @@ export const autosaveCopy = (
 
    The two stamps come from different clocks, so an offline copy that knows
    which server copy it was typed over is weighed by that instead, when the
-   server was reached (#470): still that copy, and the offline one is newer;
-   anything else, and the server moved on since. A held copy may be App's, not
-   the server's, so it is weighed by clock. */
+   server was reached (#470), by `typedOver`. A held copy may not be the
+   server's, so it is weighed by clock. */
 export const newerAutosave = (
   server: AutosaveCopy | null,
   offline: AutosaveCopy | null,
@@ -232,8 +225,25 @@ export const newerAutosave = (
 ): AutosaveCopy | null => {
   if (!server) return offline;
   if (!offline) return server;
-  if (reached && offline.over !== undefined) return offline.over === server.savedAt ? offline : server;
+  if (reached && offline.over !== undefined) return typedOver({ savedAt: offline.over }, { savedAt: server.savedAt }) ? offline : server;
   return offline.savedAt > server.savedAt ? offline : server;
+};
+
+/* What the server held when an offline copy was typed over it: its stamp, null
+   for nothing there, and for a Task Draft its unsaved typing (null for none,
+   absent when not known). */
+export interface CopyBase {
+  savedAt: number | null;
+  unsaved?: CreateFormValues | null;
+}
+
+/* The one clock-free rule for an offline copy, the Autosave's (#470) and a
+   reopened Task Draft's (#476) alike: it is the newer while the server still
+   holds exactly what it was typed over, and loses once it holds anything else. */
+export const typedOver = (base: CopyBase, server: CopyBase): boolean => {
+  if (base.savedAt !== server.savedAt) return false;
+  if (base.unsaved === undefined) return true;
+  return base.unsaved && server.unsaved ? JSON.stringify(pickValues(base.unsaved)) === JSON.stringify(pickValues(server.unsaved)) : !base.unsaved && !server.unsaved;
 };
 
 /* This person's draft, or `null`. Prunes on the way past: a record that came
@@ -304,41 +314,6 @@ export const writeDraft = (
     /* storage unavailable or full — degrade silently */
     return false;
   }
-};
-
-/* ── What the form should do about its draft right now ─────
-   The decision the save timer makes, lifted out of the effect so it can be
-   asked as a truth table instead of by rendering a form and waiting. Three
-   answers, and the middle one is why this isn't a one-liner:
-
-   • `write` — the form differs from what a blank-slate open would have given
-     AND something has moved since it opened. That is work worth keeping.
-   • `keep` — it differs from blank but nothing has moved since it opened, so
-     this IS the restored draft, byte for byte. Writing it again would only push
-     its seven days out, turning "untouched for a week" into "not opened for a
-     week", which is not what was promised. Also the answer for an untouched
-     form with no draft behind it: nothing to save, nothing to delete.
-   • `clear` — there is nothing worth keeping and there is a draft on disk. A
-     form typed into and then emptied back out has been un-done, and leaving the
-     old values waiting to reappear would be a form that ignores what someone
-     just did. Only when a draft is actually out there: an untouched form must
-     never clear one, or opening New Task prefilled from a Humperdink link would
-     silently bin last Tuesday's work.
-
-   `changedFromBlank` and `movedSinceOpen` are both `formHasChanges` answers
-   (`create-form-state.ts`) — the same predicate the discard prompt asks, taken
-   from two different yardsticks. They are passed in rather than computed here
-   because importing that module for a value would cost this one its type-only
-   imports, which is what lets it run in a test with no build. */
-export type DraftAction = "write" | "keep" | "clear";
-
-export const draftAction = (state: {
-  changedFromBlank: boolean;
-  movedSinceOpen: boolean;
-  onDisk: boolean;
-}): DraftAction => {
-  if (state.changedFromBlank) return state.movedSinceOpen ? "write" : "keep";
-  return state.onDisk ? "clear" : "keep";
 };
 
 /* Forget this person's draft. The one call behind every way a draft is meant to

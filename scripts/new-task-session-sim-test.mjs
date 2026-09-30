@@ -20,7 +20,8 @@ const src = (file) => JSON.stringify(join(REPO, "apps/web/src", file));
 writeFileSync(
   entry,
   `export * from ${src("new-task-session.ts")};\n` +
-    `export { draftKey, serializeDraft, DRAFT_MAX_AGE_MS } from ${src("create-form-draft.ts")};\n` +
+    `export { draftKey, serializeDraft } from ${src("create-form-draft.ts")};\n` +
+    `export { AUTOSAVE_MAX_AGE_MS } from "@loan-tasks/shared";\n` +
     `export { BLANK_CREATE_FORM } from ${src("create-form-state.ts")};\n`
 );
 const bundle = join(scratch, "new-task-session.mjs");
@@ -32,7 +33,7 @@ await build({
   external: ["react", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { createNewTaskSession, draftKey, serializeDraft, DRAFT_MAX_AGE_MS, BLANK_CREATE_FORM } = await import(
+const { createNewTaskSession, handOver, draftKey, serializeDraft, AUTOSAVE_MAX_AGE_MS, BLANK_CREATE_FORM } = await import(
   pathToFileURL(bundle).href
 );
 
@@ -188,8 +189,13 @@ test("a tie goes to the server's copy", async () => {
 });
 
 test("a server that does not answer in time opens on the Autosave already held, weighed against the offline copy", async () => {
-  const { session, clock } = setup({ reach: false, offline: { values: values({ notes: "offline" }), ageMs: 10 * 60_000 } });
-  const opening = session.open({ held: serverCopy(values({ notes: "held since sign-in" }), 60_000) });
+  const { session, server, clock } = setup({
+    autosave: serverCopy(values({ notes: "held since sign-in" }), 60_000),
+    offline: { values: values({ notes: "offline" }), ageMs: 10 * 60_000 }
+  });
+  await session.refreshAutosave();
+  server.reach = false;
+  const opening = session.open();
   await settle();
   assert.equal(session.getState().phase, "opening");
   await clock.advance(2000);
@@ -198,7 +204,7 @@ test("a server that does not answer in time opens on the Autosave already held, 
 });
 
 test("7-day expiry: a copy seven days old from either side opens blank, and the offline one is removed", async () => {
-  const week = DRAFT_MAX_AGE_MS;
+  const week = AUTOSAVE_MAX_AGE_MS;
   const { session, storage, key } = setup({
     autosave: serverCopy(values({ notes: "a week on the server" }), week),
     offline: { values: values({ notes: "a week offline" }), ageMs: week }
@@ -210,7 +216,7 @@ test("7-day expiry: a copy seven days old from either side opens blank, and the 
 });
 
 test("7-day expiry: a copy a minute short of seven days still comes back", async () => {
-  const { session } = setup({ autosave: serverCopy(values({ notes: "six days and change" }), DRAFT_MAX_AGE_MS - 60_000) });
+  const { session } = setup({ autosave: serverCopy(values({ notes: "six days and change" }), AUTOSAVE_MAX_AGE_MS - 60_000) });
   await session.open();
   assert.equal(openState(session).values.notes, "six days and change");
 });
@@ -231,10 +237,107 @@ test("a close while the Autosave is loading leaves the form shut", async () => {
   assert.equal(session.getState().phase, "closed");
 });
 
-test("an `unless` that says another form got there first leaves this one shut", async () => {
-  const { session } = setup();
-  assert.equal(await session.open({ unless: () => true }), false);
-  assert.equal(session.getState().phase, "closed");
+/* ── The Task Drafts tab's Autosaved row ────────────────── */
+
+test("refreshAutosave reports the newer of the server's copy and the offline one", async () => {
+  const { session, events } = setup({
+    autosave: serverCopy(values({ notes: "older on the server" }), 10 * 60_000),
+    offline: { values: values({ notes: "newer offline" }), ageMs: 60_000 }
+  });
+  await session.refreshAutosave();
+  assert.equal(events.autosave.at(-1).form.notes, "newer offline");
+});
+
+test("refreshAutosave with the server unreachable keeps what it last learned, weighed against the offline copy", async () => {
+  const { session, server, clock, events } = setup({ autosave: serverCopy(values({ notes: "from the server" }), 60_000) });
+  await session.refreshAutosave();
+  server.reach = false;
+  const refreshing = session.refreshAutosave();
+  await clock.advance(2000);
+  await refreshing;
+  assert.equal(events.autosave.at(-1).form.notes, "from the server");
+});
+
+test("refreshAutosave reports nothing for a filed task whose forget is still owed", async () => {
+  const { session, server, storage, events } = setup({ autosave: serverCopy(values({ notes: "the filed task" }), 60_000) });
+  storage.setItem("loan-tasks:autosave-filed:user-1", "1");
+  await session.refreshAutosave();
+  assert.equal(events.autosave.at(-1), null);
+  assert.equal(server.autosave.form.notes, "the filed task", "a refresh doesn't send the forget");
+});
+
+test("deleteAutosave forgets the server copy and this browser's, and reports the row gone", async () => {
+  const { session, server, storage, key, events } = setup({ offline: { values: values({ notes: "offline" }), ageMs: 60_000 } });
+  storage.setItem("loan-tasks:autosave-filed:user-1", "1");
+  assert.equal(await session.deleteAutosave(), true);
+  assert.deepEqual(server.writes().map((call) => [call.method, call.path]), [["DELETE", "/autosave"]]);
+  assert.equal(storage.getItem(key), null);
+  assert.equal(storage.getItem("loan-tasks:autosave-filed:user-1"), null, "nothing is owed any more");
+  assert.equal(events.autosave.at(-1), null);
+});
+
+test("a deleteAutosave that fails leaves both copies and says so", async () => {
+  const notices = [];
+  const env = setup({ offline: { values: values({ notes: "offline" }), ageMs: 60_000 } });
+  const session = createNewTaskSession({
+    owner: "user-1",
+    request: env.server.request,
+    storage: env.storage,
+    clock: env.clock,
+    notify: (message, variant) => notices.push([variant, message])
+  });
+  env.server.answer = () => {
+    throw Object.assign(new Error("offline"), { status: 0 });
+  };
+  assert.equal(await session.deleteAutosave(), false);
+  assert.notEqual(env.storage.getItem(env.key), null);
+  assert.deepEqual(notices, [["error", "Couldn't delete the autosaved task. Try again."]]);
+});
+
+test("deleteDraft takes a Task Draft off the server, drops its offline typing, and reports it gone", async () => {
+  const gone = [];
+  const env = setup();
+  const session = createNewTaskSession({ owner: "user-1", request: env.server.request, storage: env.storage, clock: env.clock, onSavedForLaterGone: (id) => gone.push(id) });
+  env.storage.setItem("loan-tasks:unsaved-copy:user-1:sfl-1", "{}");
+  assert.equal(await session.deleteDraft({ id: "sfl-1" }), true);
+  assert.deepEqual(env.server.writes().map((call) => [call.method, call.path]), [["DELETE", "/saved-for-later/sfl-1"]]);
+  assert.equal(env.storage.getItem("loan-tasks:unsaved-copy:user-1:sfl-1"), null);
+  assert.deepEqual(gone, ["sfl-1"]);
+});
+
+test("a deleteDraft that fails keeps the row and says so", async () => {
+  const gone = [];
+  const notices = [];
+  const env = setup();
+  const session = createNewTaskSession({
+    owner: "user-1",
+    request: env.server.request,
+    storage: env.storage,
+    clock: env.clock,
+    onSavedForLaterGone: (id) => gone.push(id),
+    notify: (message, variant) => notices.push([variant, message])
+  });
+  env.server.answer = () => {
+    throw Object.assign(new Error("offline"), { status: 0 });
+  };
+  assert.equal(await session.deleteDraft({ id: "sfl-1" }), false);
+  assert.deepEqual(gone, []);
+  assert.deepEqual(notices, [["error", "Couldn't delete that Task Draft. Try again."]]);
+});
+
+test("a retired session reports nothing more to App, whatever is still out", async () => {
+  const { session, server, clock, events } = setup();
+  await session.open();
+  server.hold = (call) => call.method === "DELETE";
+  session.edit(values({ notes: "typed" }));
+  await clock.advance(1000);
+  const before = events.autosave.length;
+  const deleting = session.deleteAutosave();
+  session.retire();
+  server.held.shift().release();
+  await deleting;
+  await settle();
+  assert.equal(events.autosave.length, before);
 });
 
 /* #470: the server stamps its Autosave with its own clock, the offline copy is
@@ -327,7 +430,7 @@ test("an open that can't reach the server weighs the copy App held by clock, so 
   await type("typed offline");
   session.close();
   server.reach = false;
-  const opening = session.open({ held });
+  const opening = session.open();
   await settle();
   await clock.advance(5000);
   await opening;
@@ -348,6 +451,14 @@ test("one second after typing stops, the form writes to the server Autosave", as
   await clock.advance(1);
   assert.deepEqual(server.writes().map((call) => [call.method, call.path, call.body.form.notes]), [["PUT", "/autosave", "ab"]]);
   assert.equal(openState(session).values.notes, "ab");
+});
+
+test("changing only the task type is typing worth keeping", async () => {
+  const { session, server, clock } = setup();
+  await session.open();
+  session.edit(values({ taskType: "OOO" }));
+  await clock.advance(1000);
+  assert.deepEqual(server.writes().map((call) => [call.method, call.body.form.taskType]), [["PUT", "OOO"]]);
 });
 
 test("writes run one at a time: a newer write waits for the one still out", async () => {
@@ -401,6 +512,16 @@ test("typing a restored form back to blank clears both copies", async () => {
   assert.equal(storage.getItem(key), null);
   assert.deepEqual(server.writes().map((call) => [call.method, call.path]), [["DELETE", "/autosave"]]);
   assert.equal(events.autosave.at(-1), null);
+});
+
+test("typing a restored form away and back again writes the restored values back over the typing", async () => {
+  const { session, server, clock } = setup({ autosave: serverCopy(values({ notes: "restored" }), 60_000) });
+  await session.open();
+  session.edit(values({ notes: "restored, then more" }));
+  await clock.advance(1000);
+  session.edit(values({ notes: "restored" }));
+  await clock.advance(1000);
+  assert.deepEqual(server.writes().map((call) => call.body.form.notes), ["restored, then more", "restored"]);
 });
 
 test("an untouched blank form never clears anything", async () => {
@@ -480,14 +601,14 @@ test("a Create whose forget fails: the next New Task opens blank, not on the fil
 test("a Create whose forget fails still opens blank after a reload, reached or not", async () => {
   const { server, storage, clock } = await fileWithForgetFailing();
   const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
-  await reloaded.open({ held: server.autosave });
+  await reloaded.open();
   assert.deepEqual(openState(reloaded).values, BLANK_CREATE_FORM);
   assert.equal(openState(reloaded).restored, false);
 
   const unreached = fakeServer({ autosave: server.autosave, reach: false });
   unreached.answer = server.answer;
   const offline = createNewTaskSession({ owner: "user-1", request: unreached.request, storage, clock });
-  const opening = offline.open({ held: server.autosave });
+  const opening = offline.open();
   await clock.advance(5000);
   assert.equal(await opening, true);
   assert.deepEqual(openState(offline).values, BLANK_CREATE_FORM);
@@ -500,7 +621,7 @@ test("the filed task's server Autosave is forgotten once the server is reachable
     return {};
   };
   const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
-  await reloaded.open({ held: server.autosave });
+  await reloaded.open();
   assert.equal(server.autosave, null, "the owed forget went out on the way in");
   assert.deepEqual(openState(reloaded).values, BLANK_CREATE_FORM);
   reloaded.close();
@@ -596,11 +717,11 @@ test("Save for later goes out as one request that also clears the Autosave", asy
   const { session, server, storage, key, events } = setup({ offline: { values: values({ notes: "later" }), ageMs: 60_000 } });
   await session.open();
   server.answer = (call) => (call.path === "/saved-for-later" ? { item: saved } : {});
-  const item = await session.end({ kind: "saveForLater", values: values({ notes: "later", initialItems: ["folded"] }) });
+  const item = await session.end({ kind: "saveForLater" });
   await settle();
   assert.equal(item, saved);
   assert.deepEqual(server.writes().map((call) => [call.method, call.path, call.body]), [
-    ["POST", "/saved-for-later", { form: values({ notes: "later", initialItems: ["folded"] }), clearAutosave: true }]
+    ["POST", "/saved-for-later", { form: values({ notes: "later" }), clearAutosave: true }]
   ]);
   assert.equal(storage.getItem(key), null);
   assert.deepEqual(events.savedForLater, [saved]);
@@ -679,18 +800,46 @@ test("Cancel asks on a restored form left untouched, and on a half-typed outstan
 
   const pending = setup();
   await pending.session.open();
-  assert.equal(await pending.session.end({ kind: "cancel", pendingItemText: "  " }), "closed");
+  pending.session.notePendingItem("  ");
+  assert.equal(await pending.session.end({ kind: "cancel" }), "closed", "a box holding only spaces holds nothing");
   await pending.session.open();
-  assert.equal(await pending.session.end({ kind: "cancel", pendingItemText: "W-2" }), "asked");
+  pending.session.notePendingItem("W-2");
+  assert.equal(await pending.session.end({ kind: "cancel" }), "asked");
 });
 
 test("hasTyping is the yardstick Save for later is offered on", async () => {
   const { session } = setup();
   await session.open();
   assert.equal(session.hasTyping(), false);
-  assert.equal(session.hasTyping("W-2"), true);
+  session.notePendingItem("W-2");
+  assert.equal(session.hasTyping(), true);
+  session.notePendingItem("");
   session.edit(values({ urgency: "RED" }));
   assert.equal(session.hasTyping(), true);
+});
+
+test("the half-typed item lives in the session: it is on the state, Start fresh empties it, and a new open starts without it", async () => {
+  const { session } = setup({ offline: { values: values({ taskType: "FRAUD" }), ageMs: 60_000 } });
+  await session.open();
+  assert.equal(openState(session).pendingItem, "");
+  session.notePendingItem("Missing W-2");
+  assert.equal(openState(session).pendingItem, "Missing W-2");
+  await session.end({ kind: "startFresh" });
+  assert.equal(openState(session).pendingItem, "");
+  session.notePendingItem("Missing W-2");
+  session.close();
+  await session.open();
+  assert.equal(openState(session).pendingItem, "");
+});
+
+test("Save for later folds a Fraud Check's half-typed item into its list", async () => {
+  const { session, server } = setup();
+  await session.open();
+  server.answer = (call) => ({ item: { id: "sfl-1", ownerId: "user-1", savedAt: new Date(START).toISOString(), form: call.body.form } });
+  session.edit(values({ taskType: "FRAUD", initialItems: ["Bank statement"] }));
+  session.notePendingItem("  Missing W-2 ");
+  const saved = await session.end({ kind: "saveForLater" });
+  assert.deepEqual(saved.form.initialItems, ["Bank statement", "Missing W-2"]);
 });
 
 test("subscribers hear every change of state", async () => {
@@ -717,8 +866,8 @@ const realServer = (server, clock) => {
   };
 };
 
-const openWithin = async (session, clock, options) => {
-  const opening = session.open(options);
+const openWithin = async (session, clock) => {
+  const opening = session.open();
   await settle();
   await clock.advance(5000);
   assert.equal(await opening, true);
@@ -751,12 +900,12 @@ test("Discard with the server unreachable: the next New Task opens blank", async
   await settle();
   assert.equal(storage.getItem(key), null, "the write that failed after the discard did not put a copy back");
   assert.equal(server.autosave.form.notes, "throw this away", "nothing reached the server");
-  const state = await openWithin(session, clock, { held: server.autosave });
+  const state = await openWithin(session, clock);
   assert.deepEqual(state.values, BLANK_CREATE_FORM);
   assert.equal(state.restored, false);
 
   const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
-  assert.deepEqual((await openWithin(reloaded, clock, { held: server.autosave })).values, BLANK_CREATE_FORM);
+  assert.deepEqual((await openWithin(reloaded, clock)).values, BLANK_CREATE_FORM);
 });
 
 test("Start fresh with the server unreachable: the next New Task opens blank", async () => {
@@ -768,7 +917,7 @@ test("Start fresh with the server unreachable: the next New Task opens blank", a
   assert.equal(storage.getItem(key), null);
   assert.deepEqual(openState(session).values, BLANK_CREATE_FORM);
   session.close();
-  const state = await openWithin(session, clock, { held: server.autosave });
+  const state = await openWithin(session, clock);
   assert.deepEqual(state.values, BLANK_CREATE_FORM);
   assert.equal(state.restored, false);
 });
@@ -782,7 +931,7 @@ test("Start fresh offline, then new typing kept offline: that typing is what com
   await clock.advance(1000);
   session.close();
   await clock.advance(60_000);
-  assert.equal((await openWithin(session, clock, { held: server.autosave })).values.notes, "the one I want");
+  assert.equal((await openWithin(session, clock)).values.notes, "the one I want");
 });
 
 test("emptying a restored form and pressing Cancel within the second: the next New Task opens blank", async () => {
@@ -815,7 +964,7 @@ test("emptying a restored form and pressing Cancel within the second, offline: t
   assert.equal(await session.end({ kind: "cancel" }), "closed");
   await settle();
   assert.equal(storage.getItem(key), null);
-  assert.deepEqual((await openWithin(session, clock, { held: server.autosave })).values, BLANK_CREATE_FORM);
+  assert.deepEqual((await openWithin(session, clock)).values, BLANK_CREATE_FORM);
 });
 
 test("emptying a restored form and closing it from the header within the second, offline: the next New Task opens blank", async () => {
@@ -830,7 +979,7 @@ test("emptying a restored form and closing it from the header within the second,
   session.close();
   await settle();
   assert.equal(storage.getItem(key), null);
-  assert.deepEqual((await openWithin(session, clock, { held: server.autosave })).values, BLANK_CREATE_FORM);
+  assert.deepEqual((await openWithin(session, clock)).values, BLANK_CREATE_FORM);
 });
 
 test("closing a restored form that still has typing forgets nothing", async () => {
@@ -863,7 +1012,7 @@ test("an earlier forget that lands doesn't settle a later one that fails", async
   await ending;
   await settle();
   const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
-  assert.deepEqual((await openWithin(reloaded, clock, { held: server.autosave })).values, BLANK_CREATE_FORM);
+  assert.deepEqual((await openWithin(reloaded, clock)).values, BLANK_CREATE_FORM);
 });
 
 test("a blank form never restored, cancelled within the second, forgets nothing", async () => {
@@ -885,7 +1034,7 @@ test("when the server comes back, its stale Autosave of the discarded typing is 
   server.reach = true;
   assert.equal(server.autosave.form.notes, "throw this away");
   const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
-  const state = await openWithin(reloaded, clock, { held: server.autosave });
+  const state = await openWithin(reloaded, clock);
   assert.deepEqual(state.values, BLANK_CREATE_FORM);
   assert.equal(server.autosave, null, "the owed forget went out on the way in");
   reloaded.close();
@@ -911,7 +1060,7 @@ test("a write that lands after Discard, whose forget then fails, doesn't cancel 
   await settle();
   assert.equal(server.autosave.form.notes, "throw this away", "the write landed, the forget didn't");
   const reloaded = createNewTaskSession({ owner: "user-1", request: server.request, storage, clock });
-  assert.deepEqual((await openWithin(reloaded, clock, { held: server.autosave })).values, BLANK_CREATE_FORM);
+  assert.deepEqual((await openWithin(reloaded, clock)).values, BLANK_CREATE_FORM);
 });
 
 /* ── Ownership ──────────────────────────────────────────── */
@@ -975,7 +1124,9 @@ test("New Task pressed again while the form is open leaves it open, and its typi
   await session.open();
   session.edit(values({ notes: "half typed" }));
   await clock.advance(500);
+  const gets = server.calls.filter((call) => call.method === "GET").length;
   assert.equal(await session.open(), false);
+  assert.equal(server.calls.filter((call) => call.method === "GET").length, gets, "nothing is fetched for a form already up");
   assert.equal(openState(session).values.notes, "half typed");
   await clock.advance(500);
   assert.deepEqual(server.writes().map((call) => [call.method, call.path, call.body.form.notes]), [["PUT", "/autosave", "half typed"]]);
@@ -986,9 +1137,22 @@ test("App's New Task button and Autosaved row only ever open, never close or swa
   const button = app.match(/<NewTaskButton open=\{newTaskOpen\} onClick=\{([^\n]*)\} \/>/);
   assert.ok(button, "the button is wired in App");
   assert.doesNotMatch(button[1], /close|setFormOpen/, "the button never shuts a form");
+  assert.match(button[1], /newTask\.open\(\)/, "it opens through the session");
   assert.match(app, /className="form-toggle" aria-haspopup="dialog" aria-disabled=\{open\}/, "it says it does nothing while a form is up, not that it collapses one");
-  const openNewTask = app.slice(app.indexOf("const openNewTask = useCallback("), app.indexOf("}, [newTask]);", app.indexOf("const openNewTask = useCallback(")));
-  assert.match(openNewTask, /if \(formOpenNow\.current\) return;/, "a form already up is left alone before anything is fetched");
+  assert.match(app, /<TaskDraftsPage[^>]*onOpenAutosave=\{newTask\.open\}/, "the Autosaved row is the same way in");
+});
+
+test("a person's change hands over: the old session closes and reports nothing more", async () => {
+  const first = setup();
+  await first.session.open();
+  first.session.edit(values({ notes: "Dana's typing" }));
+  const second = setup({ owner: "user-2" });
+  handOver(first.session, second.session);
+  assert.equal(first.session.getState().phase, "closed");
+  assert.equal(second.session.getState().phase, "closed", "a known person's typing isn't carried to the next one");
+  const before = first.events.autosave.length;
+  await first.session.refreshAutosave();
+  assert.equal(first.events.autosave.length, before);
 });
 
 /* The hook's effects can't run in a static render, so App's wiring of the
@@ -998,6 +1162,6 @@ test("App keeps one session per person, and the hook closes the old one when the
   const session = readFileSync(join(REPO, "apps/web/src/new-task-session.ts"), "utf8");
   assert.match(app, /useNewTaskSession\(\{\s*owner: user\.id,\s*request: savedForLaterRequestFor\(user\),/);
   assert.match(session, /useMemo\(\(\) => createNewTaskSession\(deps\), \[deps\.owner\]\)/);
-  assert.match(session, /if \(previous\.current && previous\.current !== session\) previous\.current\.close\(\);/, "the old person's session is closed once the new one is in");
+  assert.match(session, /if \(previous\.current && previous\.current !== session\) handOver\(previous\.current, session\);/, "the old person's session is handed over from once the new one is in");
   assert.match(app, /\{newTaskOpen && \(\s*<TaskForm\s*key=\{`new:\$\{newTask\.owner\}[^`]*`\}/, "the form is the session's, so a new person's closed session unmounts it");
 });
