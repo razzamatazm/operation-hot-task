@@ -188,7 +188,7 @@ await check("pooled Tuesday 19:00: not nagged at 08:30 or 08:45 Wednesday, nagge
 
   assert.equal((await service.runMaintenance(pdt(WED, "08:50"))).nagged, 1);
   await service.settleBackgroundWork();
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /^Nobody's taken .* after 20 minutes, who's got it\?$/);
 });
 
 await check("pooled Tuesday 10:00: nagged at 10:20, unchanged", async () => {
@@ -205,7 +205,7 @@ await check("pooled Friday 15:25: nothing over the weekend, first nag Monday 08:
 
   assert.equal((await service.runMaintenance(pdt(MON, "08:45"))).nagged, 1);
   await service.settleBackgroundWork();
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /^Nobody's taken .* after 20 minutes, who's got it\?$/);
 });
 
 await check("pooled Friday 15:10:30: 19.5 office minutes by close, so the nag waits for Monday 08:30:30", async () => {
@@ -222,7 +222,7 @@ await check("pooled Friday 15:10:30: 19.5 office minutes by close, so the nag wa
   assert.equal(await sweepEvery5(service, pdt(FRI, "15:15"), pdt(MON, "08:30")), 0);
   assert.equal((await service.runMaintenance(pdt(MON, "08:35"))).nagged, 1);
   await service.settleBackgroundWork();
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /^Nobody's taken .* after 20 minutes, who's got it\?$/);
 });
 
 await check("nagged at 17:20: the next nag is not due at 08:30, and is at 08:40", async () => {
@@ -234,7 +234,7 @@ await check("nagged at 17:20: the next nag is not due at 08:30, and is at 08:40"
   assert.equal((await service.runMaintenance(pdt(WED, "08:40"))).nagged, 1);
   await service.settleBackgroundWork();
   assert.equal((await store.findTask("t1")).poolNagCount, 2);
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 40 minutes/);
+  assert.match(nagsIn(events)[0].message, /^Nobody's taken .* after 40 minutes, who's got it\?$/);
 });
 
 await check("a reopened task with spent asks still quotes the lower, office-minute mark", async () => {
@@ -248,7 +248,7 @@ await check("a reopened task with spent asks still quotes the lower, office-minu
   const { service, events } = await boot([task]);
   assert.equal((await service.runMaintenance(pdt(WED, "08:50"))).nagged, 1);
   await service.settleBackgroundWork();
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /^Nobody's taken .* after 20 minutes, who's got it\?$/);
 });
 
 /* ------------------------------------------------------------ the backfill */
