@@ -870,7 +870,7 @@ export const ThreadMessages = ({
   onEditMessage,
   onDeleteMessage
 }: {
-  task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "createdAt" | "reviewNotes" | "status">;
+  task: Pick<LoanTask, "taskType" | "notes" | "createdBy" | "raisedBy" | "createdAt" | "reviewNotes" | "status">;
   viewerId: string;
   canReply: boolean;
   /* The two writes this file can make (#287, #288). Optional so a renderer with
@@ -985,6 +985,8 @@ export const ThreadMessages = ({
      "No messages yet" under a visible `Message deleted` reads as a bug. The
      collapsed row's reply count is the same length, counted in `App.tsx`. */
   const replies = Array.isArray(task.reviewNotes) ? task.reviewNotes : [];
+  // The ask was written by whoever raised it, even after a requester handover.
+  const raiser = task.raisedBy ?? task.createdBy;
   if (!opensWithOriginatingNote && replies.length === 0) {
     return (
       <div className="msgs-empty">
@@ -995,10 +997,10 @@ export const ThreadMessages = ({
   return (
     <div className="msgs-list" ref={listRef} onPointerDown={onListPointerDown} onKeyDown={onListKeyDown}>
       {opensWithOriginatingNote && (
-        <div className="msg" title={bylineOf(task.createdBy.displayName, task.createdAt)}>
-          <ExpandAvatar id={task.createdBy.id} name={task.createdBy.displayName} />
+        <div className="msg" title={bylineOf(raiser.displayName, task.createdAt)}>
+          <ExpandAvatar id={raiser.id} name={raiser.displayName} />
           <div className="msg-body">
-            <span className="sr-only">{bylineOf(task.createdBy.displayName, task.createdAt)}</span>
+            <span className="sr-only">{bylineOf(raiser.displayName, task.createdAt)}</span>
             <div className="msg-line">
               <div className="msg-bubble">{originatingNote}</div>
             </div>

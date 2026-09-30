@@ -722,6 +722,54 @@ export const canAssignTaskTo = (
   actor: Pick<UserIdentity, "id">
 ): boolean => handoffRefusal(task, targetUser, actor) === undefined;
 
+// Who may raise a task of this type. Filing is open to every person today.
+export const canRaiseTaskType = (_taskType: TaskType, user: UserIdentity): boolean => !isSystem(user);
+
+// Requester handover (#454): may this actor make the move on this task at all.
+export const requesterHandoverOfferRefusal = (
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
+  actor: UserIdentity
+): string | undefined => {
+  if (CLOSED_STATUSES.includes(task.status)) {
+    return "This task is closed — its requester can't be changed";
+  }
+  if (task.taskType === "OOO") {
+    return "Coverage Notes belong to the person who is out — they can't be handed over";
+  }
+  if (!isTaskParty(task, actor) && !actor.roles.includes("ADMIN")) {
+    return "Only this task's requester, whoever is working it, or an admin can hand over the requester role";
+  }
+  return undefined;
+};
+
+// May this actor make this person the requester: a reason, or undefined for yes.
+export const requesterHandoverRefusal = (
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
+  target: UserIdentity,
+  actor: UserIdentity
+): string | undefined => {
+  const offer = requesterHandoverOfferRefusal(task, actor);
+  if (offer) {
+    return offer;
+  }
+  if (task.createdBy.id === target.id) {
+    return `${target.displayName} is already this task's requester`;
+  }
+  if (isCurrentHolder(task, target)) {
+    return `${target.displayName} is working this task — a task takes a second pair of hands`;
+  }
+  if (!canRaiseTaskType(task.taskType, target)) {
+    return `${target.displayName} can't raise a ${TASK_TYPE_LABELS[task.taskType]}`;
+  }
+  return undefined;
+};
+
+export const canHandOverRequesterTo = (
+  task: Pick<LoanTask, "taskType" | "createdBy" | "assignee" | "status">,
+  target: UserIdentity,
+  actor: UserIdentity
+): boolean => requesterHandoverRefusal(task, target, actor) === undefined;
+
 /* Who may put a claimed task back in the pool (#208).
 
    The creator's counterpart to the handoff. With self-assignment gone, a task

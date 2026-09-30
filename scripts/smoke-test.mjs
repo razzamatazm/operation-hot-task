@@ -1075,6 +1075,27 @@ const run = async () => {
     assert.match(selfHandoffByOther.json.error ?? "", /hand a task to yourself/, "and points at the move that replaced it");
     pushPass("nobody can hand a task to themselves, creator or not");
 
+    // Requester handover (#454): the route refuses with the shared sentence.
+    const bystanderHandover = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/requester`, {
+      user: users.otherOfficer,
+      body: { requesterUserId: users.otherOfficer.id }
+    });
+    expectStatus(bystanderHandover.status, 400, "a bystander can't hand over the requester role", bystanderHandover.json);
+    assert.match(bystanderHandover.json.error ?? "", /Only this task's requester/);
+    const toAssignee = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/requester`, {
+      user: users.creator,
+      body: { requesterUserId: users.fileChecker.id }
+    });
+    expectStatus(toAssignee.status, 400, "the assignee can't become the requester", toAssignee.json);
+    assert.match(toAssignee.json.error ?? "", /second pair of hands/);
+    const handedOver = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/requester`, {
+      user: users.admin,
+      body: { requesterUserId: users.otherOfficer.id }
+    });
+    expectStatus(handedOver.status, 200, "an admin hands over the requester role", handedOver.json);
+    assert.equal(handedOver.json.task.createdBy.id, users.otherOfficer.id);
+    pushPass("the requester role can be handed over, and the route refuses who can't");
+
     /* The replacement route end to end: the creator frees a claimed task, and
        somebody else picks it up from the pool through the front door. */
     const poolTask = await request(server.baseUrl, "POST", "/tasks", {

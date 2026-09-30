@@ -18,6 +18,7 @@ import {
   amendOooDatesSchema,
   amendUrgencySchema,
   assignSchema,
+  requesterHandoverSchema,
   checklistItemCheckedSchema,
   checklistItemNoteSchema,
   checklistItemTextSchema,
@@ -914,6 +915,29 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       res.json({ task: updated });
     } catch (error) {
       sendError(res, error, "Failed to assign task");
+    }
+  });
+
+  /* Requester handover (#454): make someone else the task's requester. Who may
+     do it and to whom is `requesterHandoverRefusal`, enforced in the service. */
+  router.post("/tasks/:taskId/requester", async (req, res) => {
+    try {
+      const actor = await getActor(req);
+      const { requesterUserId } = requesterHandoverSchema.parse(req.body);
+      const task = await service.getTask(req.params.taskId);
+      if (!task) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+      const target = await userStore.get(requesterUserId);
+      if (!target || target.active === false) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      const updated = await service.handOverRequester({ taskId: task.id, target, actor });
+      res.json({ task: updated });
+    } catch (error) {
+      sendError(res, error, "Failed to hand over the requester role");
     }
   });
 
