@@ -550,20 +550,20 @@ export const createNewTaskSession = (deps: NewTaskSessionDeps): NewTaskSession =
     },
 
     async arrive({ load }) {
+      const drop = (): ArrivalOutcome => {
+        notify("Couldn't open the Humperdink task. Your form is still here.", "error");
+        load();
+        return "dropped";
+      };
       const run = (async (): Promise<ArrivalOutcome> => {
         if (state.phase === "open") {
-          if (mode.kind !== "fresh" || state.ending) {
-            load();
-            return "dropped";
-          }
+          if (mode.kind !== "fresh" || state.ending) return drop();
           if (!session.hasTyping()) shut();
           else {
             try {
               await session.end({ kind: "saveForLater" });
             } catch {
-              notify("Couldn't open the Humperdink task. Your form is still here.", "error");
-              load();
-              return "dropped";
+              return drop();
             }
           }
         }
