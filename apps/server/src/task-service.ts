@@ -63,6 +63,7 @@ import {
   firstName,
   formatNewTaskHeadline,
   formatOooHeadline,
+  formatPoolNagHeadline,
   formatWallDate,
   ACTION_LABELS,
   emptyRequestFieldRefusal,
@@ -2403,7 +2404,7 @@ export class TaskService {
               type: "TASK_REMINDER",
               task: effect.task,
               actor: { id: SYSTEM_ACTOR.id, displayName: SYSTEM_ACTOR.displayName },
-              message: `${effect.task.folderName} is still unclaimed after ${effect.nagMarkMinutes} minutes, who's taking it?`,
+              message: formatPoolNagHeadline(effect.task.createdBy.displayName, effect.task.taskType, effect.task.folderName, effect.nagMarkMinutes),
               target: "CHANNEL_NAG"
             }, now);
             break;

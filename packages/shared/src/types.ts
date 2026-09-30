@@ -173,6 +173,11 @@ export const formatTaskNameLine = (folderName: string, taskType: TaskType): stri
 export const formatReleasedHeadline = (folderName: string): string =>
   `${folderName} needs a new file checker`;
 
+/* The pool nag (ADR-0005). Names who asked (#460): by the time the room is
+   being chased, the original post that said so has scrolled away. */
+export const formatPoolNagHeadline = (creatorName: string, taskType: TaskType, folderName: string, minutes: number): string =>
+  `Nobody's taken ${possessive(creatorName)} ${TASK_TYPE_LABELS[taskType]} on ${folderName} after ${minutes} minutes, who's got it?`;
+
 /* What the person picking a released check up would be walking into. Phrased
    from the incoming checker's side, because the card exists to get somebody to
    take it and "which half is done" is the question they'd ask. Only the live

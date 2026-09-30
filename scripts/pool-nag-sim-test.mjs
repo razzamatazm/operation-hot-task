@@ -288,7 +288,7 @@ await check("a restart does not delay the first nag of a task too young to have 
   // So it still nags on its original schedule rather than twenty minutes later:
   // filed at 10:00, restarted at 10:12, nagged at 10:25.
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1, "the restart cost it nothing");
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /after 20 minutes, who.s got it\?/);
 });
 
 await check("the backfill is idempotent, and leaves the second boot alone", async () => {
@@ -332,7 +332,7 @@ await check("a task filed after the backfill nags on the normal cadence", async 
   const result = await service.runMaintenance(AT_1025);
   assert.equal(result.nagged, 1);
   assert.equal(nagsIn(events).length, 1);
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /after 20 minutes, who.s got it\?/);
   assert.equal((await store.findTask(filed.id)).poolNagCount, 1);
 });
 
@@ -349,8 +349,8 @@ await check("each nag quotes its twenty-minute mark, however late the sweep reac
 
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
   assert.equal((await service.runMaintenance(AT_1050)).nagged, 1);
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
-  assert.match(nagsIn(events)[1].message, /still unclaimed after 40 minutes/);
+  assert.match(nagsIn(events)[0].message, /after 20 minutes, who.s got it\?/);
+  assert.match(nagsIn(events)[1].message, /after 40 minutes, who.s got it\?/);
 });
 
 await check("the marks stay twenty apart as the sweep's lateness compounds", async () => {
@@ -369,7 +369,7 @@ await check("the marks stay twenty apart as the sweep's lateness compounds", asy
   for (const at of [AT_1025, AT_1050, AT_1115, AT_1140]) {
     assert.equal((await service.runMaintenance(at)).nagged, 1);
   }
-  assert.match(nagsIn(events)[3].message, /still unclaimed after 80 minutes/, "the fourth ask, not 100 elapsed");
+  assert.match(nagsIn(events)[3].message, /after 80 minutes, who.s got it\?/, "the fourth ask, not 100 elapsed");
 });
 
 await check("a reopened task's first nag counts from the reopen, not from its spent asks", async () => {
@@ -390,7 +390,7 @@ await check("a reopened task's first nag counts from the reopen, not from its sp
   await rebaseOnto(store, AT_1000);
 
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
-  assert.match(nagsIn(events)[0].message, /still unclaimed after 20 minutes/);
+  assert.match(nagsIn(events)[0].message, /after 20 minutes, who.s got it\?/);
   assert.equal((await store.findTask(task.id)).poolNagCount, 3, "and the ceiling still counts the older asks");
 });
 
@@ -519,8 +519,13 @@ await check("a task handed back says how long it has been up for grabs, not how 
   assert.equal((await service.runMaintenance(AT_1025)).nagged, 1);
   assert.match(
     nagsIn(events)[0].message,
-    /still unclaimed after 20 minutes/,
+    /after 20 minutes, who.s got it\?/,
     "counted from re-entering the pool, not from when it was filed"
+  );
+  // #460: still the requester's task, not the checker who handed it back.
+  assert.equal(
+    nagsIn(events)[0].message,
+    "Nobody's taken Dana's Value Check on Old Folder after 20 minutes, who's got it?"
   );
 
   const stored = await store.findTask(task.id);
