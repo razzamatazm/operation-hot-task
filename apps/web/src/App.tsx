@@ -2178,7 +2178,7 @@ const TaskCard = memo(({
         <button
           type="button"
           className="btn-sm btn-ghost"
-          onClick={() => { acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
+          onClick={(e) => { armMenuFocus(e); acknowledgeUnread(); setPendingTerminal({ label: "End", run: () => { void onEndEarly(task.id); } }); }}
         >
           End task
         </button>
