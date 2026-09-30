@@ -8,7 +8,15 @@ import { createTokenCache, sendWithToken } from "./auth-token";
 import { ADMIN_REQUEST_TIMEOUT_MS, withRequestTimeout } from "./request-timeout";
 import { SwitchableUser, chooseDevUser, loadDevUsers } from "./dev-users";
 import { TaskEdit } from "./create-form-state";
-import { ExpandOverrides, collapseTasks, expandedTaskIds, headerKeyToggles, isTaskExpanded } from "./expand-state";
+import {
+  ExpandOverrides,
+  collapseNewlyClosed,
+  collapseTasks,
+  expandedTaskIds,
+  headerKeyToggles,
+  isTaskExpanded,
+  newlyClosedIds
+} from "./expand-state";
 import { CourtHolds, holdCourt, isCourtHeld, releaseCourt } from "./court-latch";
 import { BOARD_HISTORY_CHOICES, BOARD_HISTORY_DEFAULT, BOARD_HISTORY_KEY, BOARD_SHOW_KEY, BoardHistory, BoardShow, boardBody, isOnMineBoard, isWithinHistory, parseBoardHistory, parseBoardShow, showForTab, tabForLink, tabForShow, visibleBoardTasks } from "./board-filter";
 import { AdminMenuSection, AppPage, BackToTasks } from "./app-pages";
@@ -3936,7 +3944,9 @@ export const App = () => {
      or a new note dropped the override so the default-open rule could
      re-decide — but with cards no longer opening themselves there is no rule
      to re-apply, and dropping the override just collapsed a card the viewer
-     had deliberately opened. An expand is now the viewer's alone. */
+     had deliberately opened. An expand is now the viewer's alone, with one
+     exception (#452): a card collapses once when the board sees its task
+     close, in the pulse effect below. */
 
   /* "Celebrating" — a task the current viewer created that just hit a
      completion milestone (COMPLETED, or LOAN_DOCS MERGE_DONE). The task
@@ -3949,6 +3959,10 @@ export const App = () => {
   const [pulsingIds, setPulsingIds] = useState<Set<string>>(() => new Set());
   const prevStatusesRef = useRef<Map<string, TaskStatus>>(new Map());
   useEffect(() => {
+    /* Collapse cards whose task just closed (#452), off the same snapshot and
+       seen-this-session rule as the pulse. */
+    const closedIds = newlyClosedIds(prevStatusesRef.current, tasks);
+    if (closedIds.length > 0) setExpandOverrides((prev) => collapseNewlyClosed(prev, closedIds));
     const next = new Map<string, TaskStatus>();
     const newlyPulsing: string[] = [];
     for (const t of tasks) {

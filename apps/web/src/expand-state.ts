@@ -3,14 +3,18 @@
    One rule, one owner. A card is expanded if and only if the viewer expanded
    it (#161): there is no default-open rule, nothing derives expansion from
    status or notes, and nothing clears an override behind the viewer's back.
+   One exception (#452): a card collapses once when the board sees its task
+   close — see `newlyClosedIds`.
+
    The module exists because two consumers ask the same question and must
    agree — `TaskCard` decides whether to render itself open, and the list
    header's "Collapse all" control (#177) needs to know which cards in view are
    open so it can sit quiet when there is nothing to collapse.
 
-   Type-only imports keep this module runnable under node's TS type stripping,
-   which is how `scripts/expand-state-sim-test.mjs` exercises it. */
-import type { LoanTask } from "@loan-tasks/shared";
+   Plain TS with no JSX, so it runs under node's TS type stripping, which is
+   how `scripts/expand-state-sim-test.mjs` exercises it. */
+import { CLOSED_STATUSES } from "@loan-tasks/shared";
+import type { LoanTask, TaskStatus } from "@loan-tasks/shared";
 
 /* Per-user manual overrides: task id → true (the viewer opened it) / false
    (the viewer closed it). An absent entry means closed, same as `false`; the
@@ -65,3 +69,29 @@ export const collapseTasks = (prev: ExpandOverrides, taskIds: string[]): ExpandO
   }
   return changed ? next : prev;
 };
+
+/* Tasks that went from an open status to a closed one since `prev`, the
+   status snapshot the board took on its last look. A task missing from the
+   snapshot has no "before", so a first sight — page load, a user switch —
+   never counts, and a closed-to-closed move (Completed → Archived) isn't a
+   close. Firing only on the change is what lets the viewer reopen the card
+   afterwards and have it stay open. */
+export const newlyClosedIds = (
+  prev: ReadonlyMap<string, TaskStatus>,
+  tasks: Pick<LoanTask, "id" | "status">[]
+): string[] =>
+  tasks
+    .filter((t) => {
+      const before = prev.get(t.id);
+      return before !== undefined && !CLOSED_STATUSES.includes(before) && CLOSED_STATUSES.includes(t.status);
+    })
+    .map((t) => t.id);
+
+/* Collapse the cards of tasks that just closed. Only cards that are open get
+   written, so closing a task whose card was never touched adds no entry and
+   leaves the map (and storage) as it was. */
+export const collapseNewlyClosed = (prev: ExpandOverrides, closedIds: string[]): ExpandOverrides =>
+  collapseTasks(
+    prev,
+    closedIds.filter((id) => isTaskExpanded(prev[id]))
+  );
