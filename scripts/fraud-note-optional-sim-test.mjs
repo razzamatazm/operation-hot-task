@@ -98,9 +98,18 @@ const formEntry = join(scratch, "form-entry.tsx");
 writeFileSync(
   formEntry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
-    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n`
+    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n` +
+    `export { initialCreateForm } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-state.ts"))};\n`
 );
-const { TaskForm, ToastProvider } = await bundle(formEntry, "task-form.mjs");
+const { TaskForm, ToastProvider, createNewTaskSession, initialCreateForm } = await bundle(formEntry, "task-form.mjs");
+
+/* A New Task form opened on `values`, as its session holds them. */
+const newTaskOn = (values) => {
+  const session = createNewTaskSession({ owner: "", request: async () => ({}), storage: null });
+  session.adopt(initialCreateForm(values));
+  return session;
+};
 
 const storage = new Map();
 globalThis.window = {
@@ -152,8 +161,8 @@ const filing = (overrides = {}) => ({
   ...overrides
 });
 
-/* The create form, opened on one task type. `initialValues` is how the form is
-   told what to open with, and the type is the only thing this file varies. */
+/* The create form, opened on one task type through its session; the type is
+   the only thing this file varies. */
 const renderForm = (values) =>
   renderToStaticMarkup(
     createElement(
@@ -166,7 +175,7 @@ const renderForm = (values) =>
         tasks: [],
         onClose: () => {},
         onCreate: async () => {},
-        initialValues: values
+        session: newTaskOn(values)
       })
     )
   );

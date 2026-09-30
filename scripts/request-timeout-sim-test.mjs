@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import test, { mock } from "node:test";
 
 import { ADMIN_REQUEST_TIMEOUT_MS, REQUEST_TIMEOUT_MS, withRequestTimeout } from "../apps/web/src/request-timeout.ts";
-import { keepAutosaveRequest } from "../apps/web/src/saved-for-later-requests.ts";
+import { stampedKeepAutosaveRequest } from "../apps/web/src/saved-for-later-requests.ts";
 
 const never = () => new Promise(() => {});
 
@@ -55,7 +55,7 @@ test("a hung autosave write reports not landed, and the next write in the queue 
   let queue = Promise.resolve();
   for (let i = 0; i < 2; i++) {
     queue = queue.then(async () => {
-      results.push(await keepAutosaveRequest(request, {}));
+      results.push((await stampedKeepAutosaveRequest(request, {})).landed);
     });
   }
   await queue;

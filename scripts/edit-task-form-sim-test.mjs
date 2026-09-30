@@ -500,7 +500,8 @@ const entry = join(scratch, "entry.tsx");
 writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
-    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n`
+    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n`
 );
 const formModule = join(scratch, "task-form.mjs");
 await build({
@@ -512,7 +513,14 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider } = await import(pathToFileURL(formModule).href);
+const { TaskForm, ToastProvider, createNewTaskSession } = await import(pathToFileURL(formModule).href);
+
+/* A New Task form opened on `values`, as its session holds them. */
+const newTaskOn = (values) => {
+  const session = createNewTaskSession({ owner: "", request: async () => ({}), storage: null });
+  session.adopt(initialCreateForm(values));
+  return session;
+};
 
 const DIRECTORY = [
   { id: ASSIGNEE.id, displayName: ASSIGNEE.displayName, roles: ["FILE_CHECKER"] },
@@ -621,7 +629,7 @@ const notesHeading = (html) => html.match(/<label class="span-full">([^<]*)<text
 
 test("the create form heads the request field with what belongs in it, on every type", () => {
   for (const taskType of TASK_TYPES) {
-    assert.equal(notesHeading(render({ initialValues: { taskType } })), HEADINGS[taskType], taskType);
+    assert.equal(notesHeading(render({ session: newTaskOn({ taskType }) })), HEADINGS[taskType], taskType);
   }
 });
 
@@ -966,7 +974,7 @@ test("the terms box goes tall on edit, and mono only on an LOI", () => {
    the clipboard, and a box beside Create Task read as one more field to fill. */
 test("the create form draws no Humperdink paste box on any type", () => {
   for (const taskType of ["LOI", "BUDDY_CHAT", "VALUE", "FRAUD", "LOAN_DOCS", "OOO"]) {
-    const html = render({ initialValues: { taskType } });
+    const html = render({ session: newTaskOn({ taskType }) });
     assert.ok(!html.includes("task-form-import"), `${taskType} has no paste box`);
     assert.ok(!html.includes("then paste here"), `${taskType} has no paste instruction`);
     assert.ok(!html.includes("Paste from Humperdink"), `${taskType} has no paste label`);

@@ -34,7 +34,7 @@ await build({
   external: ["react", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { createNewTaskSession, carrySignInForm, BLANK_CREATE_FORM, DRAFT_KEY_PREFIX, draftKey, serializeDraft } = await import(
+const { createNewTaskSession, handOver, BLANK_CREATE_FORM, DRAFT_KEY_PREFIX, draftKey, serializeDraft } = await import(
   pathToFileURL(bundle).href
 );
 
@@ -142,8 +142,7 @@ const setup = () => {
   const signingIn = make("");
   const signIn = async ({ arrival = true } = {}) => {
     const dana = make("user-1");
-    carrySignInForm(signingIn, dana);
-    signingIn.close();
+    handOver(signingIn, dana);
     if (arrival) await dana.arrive({ load: () => loads.push(dana.getState().phase) });
     await clock.advance(5000);
     return dana;
@@ -254,11 +253,7 @@ test("App carries the sign-in form over before the arrival effect runs", () => {
   const arrival = app.indexOf("if (!arrivalPending || !user.id) return;");
   assert.ok(hook > 0 && arrival > 0, "both are found");
   assert.ok(hook < arrival, "the session's hook, and its hand-over effect, come before the arrival effect");
-  assert.match(
-    session,
-    /previous\.current !== session\) carrySignInForm\(previous\.current, session\);\s*if \(previous\.current && previous\.current !== session\) previous\.current\.close\(\);/,
-    "the typing is carried before the old session closes"
-  );
+  assert.match(session, /previous\.current !== session\) handOver\(previous\.current, session\);/, "the hook hands over");
 });
 
 /* ── Once the person is known ───────────────────────────── */
@@ -283,6 +278,28 @@ test("with no arrival, the sign-in form's typing stays on screen in the person's
   assert.ok(ctx.server.keepsBeforeReload(), "the carried form never writes or clears the Autosave");
 });
 
+test("a Fraud Check's half-typed item crosses the sign-in handoff with the form, and Save for later keeps it", async () => {
+  const ctx = setup();
+  await ctx.signingIn.open();
+  ctx.signingIn.edit(values({ taskType: "FRAUD", folderName: "Alvarez" }));
+  ctx.signingIn.notePendingItem("Missing W-2");
+  ctx.server.signedIn = true;
+  const dana = await ctx.signIn({ arrival: false });
+  assert.equal(dana.getState().pendingItem, "Missing W-2", "still in the seeder's box");
+  const saved = await dana.end({ kind: "saveForLater" });
+  assert.deepEqual(saved.form.initialItems, ["Missing W-2"]);
+});
+
+test("a sign-in form holding nothing but a half-typed item is still carried", async () => {
+  const ctx = setup();
+  await ctx.signingIn.open();
+  ctx.signingIn.notePendingItem("Missing W-2");
+  ctx.server.signedIn = true;
+  const dana = await ctx.signIn({ arrival: false });
+  assert.equal(dana.getState().phase, "open");
+  assert.equal(dana.getState().pendingItem, "Missing W-2");
+});
+
 test("an untouched sign-in form isn't carried, and the person's own New Task opens on their Autosave", async () => {
   const ctx = setup();
   await ctx.signingIn.open();
@@ -303,7 +320,7 @@ test("a known person's session hands nothing on when the dev picker switches per
   await first.open();
   first.edit(WINDOW_TYPING);
   const second = createNewTaskSession({ owner: "user-2", request: server.request, storage, clock });
-  carrySignInForm(first, second);
+  handOver(first, second);
   assert.equal(second.getState().phase, "closed");
 });
 

@@ -28,7 +28,9 @@ const entry = join(scratch, "entry.tsx");
 writeFileSync(
   entry,
   `export { TaskForm } from ${JSON.stringify(join(REPO, "apps/web/src/task-form.tsx"))};\n` +
-    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n`
+    `export { ToastProvider } from ${JSON.stringify(join(REPO, "apps/web/src/toast.tsx"))};\n` +
+    `export { createNewTaskSession } from ${JSON.stringify(join(REPO, "apps/web/src/new-task-session.ts"))};\n` +
+    `export { initialCreateForm } from ${JSON.stringify(join(REPO, "apps/web/src/create-form-state.ts"))};\n`
 );
 const bundle = join(scratch, "task-form.mjs");
 await build({
@@ -40,7 +42,14 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider } = await import(pathToFileURL(bundle).href);
+const { TaskForm, ToastProvider, createNewTaskSession, initialCreateForm } = await import(pathToFileURL(bundle).href);
+
+/* A New Task form opened on `values`, as its session holds them. */
+const newTaskOn = (values) => {
+  const session = createNewTaskSession({ owner: "", request: async () => ({}), storage: null });
+  session.adopt(initialCreateForm(values));
+  return session;
+};
 
 const TERMS = `Loan Amount: $2,340,000
 Term: 24 months + two 6-month extensions
@@ -91,7 +100,7 @@ const panels = [
   ["Edit Task — a checker correcting the terms", "Not the filer, so no urgency and no poop tray: neither is theirs to move.", render({ user: { ...CHECKER, roles: ["FILE_CHECKER"] }, edit: { task: loiTask(), onSave: async () => {} } })],
   ["Edit Task — someone who may not touch the loan", "Both loan boxes read-only, and the footer carries the reason instead of the shared-record line.", render({ edit: { task: loiTask(), onSave: async () => {}, loanRefusal: "Only the person who requested this task or the person working it can change its loan's name or link" } })],
   ["Edit Task — an out-of-office task", "No loan, so no link and nothing about a shared record; the two dates take the timing slot.", render({ edit: { task: { id: "t-ooo", taskType: "OOO", notes: "Back on the 9th, Suzie is covering.", folderName: "Two weeks in Lisbon", startDate: "2026-09-14", returnDate: "2026-09-28", urgency: "GREEN", points: 1, createdBy: CREATOR }, onSave: async () => {} } })],
-  ["New Task — a Fraud Check", "The outstanding-items seeder, filing only.", render({ initialValues: { taskType: "FRAUD" } })]
+  ["New Task — a Fraud Check", "The outstanding-items seeder, filing only.", render({ session: newTaskOn({ taskType: "FRAUD" }) })]
 ];
 
 const css = readFileSync(join(REPO, "apps/web/src/styles.css"), "utf8");

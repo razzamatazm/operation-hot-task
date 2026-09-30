@@ -315,10 +315,8 @@ test("App hands the create form the arrival, and every other way in clears it", 
   assert.match(newTaskMount, /session=\{newTask\}/, "the arrival rides the session the form is handed");
   const onClose = newTaskMount.match(/onClose=\{([^}]*)\}/)?.[1];
   assert.equal(onClose, "newTask.close", "closing the form ends the arrival");
-  const openNewTask = APP_SOURCE.match(/const openNewTask = useCallback\(async \(\): Promise<void> => \{([\s\S]*?)\n  \}/)?.[1];
-  assert.match(openNewTask, /newTask\.open\(/, "New Task opens its own session's form");
-  const openSaved = APP_SOURCE.match(/const openSavedForLater = useCallback\(([\s\S]*?)\n  \}, \[/)?.[1];
-  assert.match(openSaved, /newTask\.reopen\(/, "reopening a draft opens the session's form, which is never an arrival");
+  assert.match(APP_SOURCE, /<NewTaskButton open=\{newTaskOpen\} onClick=\{\(\) => void newTask\.open\(\)\} \/>/, "New Task opens its own session's form");
+  assert.match(APP_SOURCE, /<TaskDraftsPage[^>]*onOpen=\{newTask\.reopen\}/, "reopening a draft opens the session's form, which is never an arrival");
 });
 
 /* #198's create-form intent is gone whole: the field, its reader and the

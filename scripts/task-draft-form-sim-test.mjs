@@ -14,10 +14,9 @@
  *    corrupt draft does not, one person never gets another's, edit mode ignores
  *    the whole thing — because restoring happens in the state initializer.
  * 2. READ OUT OF THE SOURCE. `renderToStaticMarkup` runs no effects and fires no
- *    events, so the save timer, the clear-on-create and the clear-on-discard
- *    cannot be executed here. Which function each path calls is asserted against
- *    `task-form.tsx` itself, the way `edit-task-form-sim-test.mjs` and
- *    `discard-confirm-sim-test.mjs` assert routing they cannot run.
+ *    events, so that each ending goes to the session is asserted against
+ *    `task-form.tsx` itself. The saving, forgetting and restoring those endings
+ *    do are the New Task session's, driven in `new-task-session-sim-test.mjs`.
  *
  * What is left for a person: typing into a real browser and watching the draft
  * appear, closing the tab, and coming back. Named in the PR report.
@@ -57,11 +56,11 @@ await build({
   external: ["react", "react/jsx-runtime", "@loan-tasks/shared"],
   logLevel: "silent"
 });
-const { TaskForm, ToastProvider, DRAFT_VERSION, draftAction, draftKey, restoredDraftCopy, serializeDraft, browserDraftStorage, createNewTaskSession } =
+const { TaskForm, ToastProvider, DRAFT_VERSION, draftKey, restoredDraftCopy, serializeDraft, browserDraftStorage, createNewTaskSession } =
   await import(pathToFileURL(bundle).href);
 /* Straight from source, no bundle: both modules import their types type-only,
    so node strips them as they stand. Only the form needs building. */
-const { BLANK_CREATE_FORM, formHasChanges } = await import(
+const { BLANK_CREATE_FORM } = await import(
   pathToFileURL(join(REPO, "apps/web/src/create-form-state.ts")).href
 );
 
@@ -83,10 +82,10 @@ const DIRECTORY = [
 ];
 
 /* A fresh New Task form opens through its session (#467), the way App opens
-   it: this browser's storage, and a server whose Autosave is `autosave`. Every
-   other form (edit, prefilled) renders as it is handed. */
+   it: this browser's storage, and a server whose Autosave is `autosave`. An
+   edit form renders as it is handed. */
 const render = async ({ autosave = null, ...props } = {}) => {
-  const fresh = !props.edit && !props.initialValues && !props.humperdinkArrival && !props.reopened;
+  const fresh = !props.edit;
   let session;
   if (fresh) {
     session = createNewTaskSession({
@@ -234,10 +233,7 @@ test("a server autosave seven days old does not come back", async () => {
   assert.ok(!html.includes(restoredDraftCopy().note), "and nothing is said about one");
 });
 
-test("a prefilled form and an edit form ignore the server autosave", async () => {
-  const prefilled = await render({ autosave: serverAutosave(FILLED), initialValues: { folderName: "Whitfield 4471" } });
-  assert.match(prefilled, /value="Whitfield 4471"/);
-  assert.doesNotMatch(prefilled, /Second TD needs confirming/);
+test("an edit form ignores the server autosave", async () => {
   const editing = await render({ autosave: serverAutosave(FILLED), edit: { task: TASK, onSave: async () => {} } });
   assert.doesNotMatch(editing, /Second TD needs confirming/);
 });
@@ -315,15 +311,9 @@ test("the form opened on an existing task restores no draft", async () => {
   assert.doesNotMatch(html, /Second TD needs confirming/);
 });
 
-test("edit mode has nowhere to save a draft to, rather than a rule not to", () => {
-  const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
-  assert.match(
-    seat.slice(0, seat.indexOf("}));")),
-    /storage: edit \|\| session \? null : browserDraftStorage\(\)/,
-    "edit mode's storage is null, so every draft call is already a no-op"
-  );
-  assert.match(FORM_SOURCE, /const autosaveSeat = !edit && !session;/, "nor a seat on the server's autosave");
-  assert.match(FORM_SOURCE, /if \(!autosaveSeat\) return;/, "and the save effect leaves immediately too");
+test("the form keeps no copy of its own: only a New Task session saves one", () => {
+  assert.doesNotMatch(FORM_SOURCE, /browserDraftStorage|writeDraft|clearDraft|readDraft/, "no browser copy");
+  assert.doesNotMatch(FORM_SOURCE, /onKeepAutosave|onForgetAutosave|keepAutosave|forgetAutosave/, "and no server one");
 });
 
 test("an edit form leaves an existing draft alone rather than clearing it", async () => {
@@ -370,122 +360,24 @@ test("a storage that throws on every call still renders the form", async () => {
 /* The ticket is explicit: the failure being survived is the one where nothing
    runs on the way out, so the draft cannot depend on an exit path. */
 test("the draft is written as the person types, on a timer, not on the way out", () => {
-  const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("── Keeping the draft (#284)"));
-  const body = effect.slice(0, effect.indexOf("}, [form,"));
-  assert.match(body, /window\.setTimeout\(/, "a trailing debounce");
-  assert.match(body, /UNSAVED_SAVE_DEBOUNCE_MS/, "the debounce a reopened form's typing is written on, since each write is a request (#371)");
-  assert.match(body, /keepAutosave\(form\)/, "saving the whole form");
-  assert.match(body, /if \(ending\.current\) return;/, "and never once Create, Save for later or Discard has begun");
-  assert.match(
-    effect.slice(0, effect.indexOf("]);") + 3),
-    /\}, \[form, autosaveSeat, opening\.fresh\]\);/,
-    "keyed on the values, so every change restarts the timer"
-  );
-  assert.doesNotMatch(
-    FORM_SOURCE.replace(/\/\*[\s\S]*?\*\//g, ""),
-    /addEventListener\(\s*"(beforeunload|pagehide|visibilitychange)"/,
-    "nothing hangs off leaving the page — that is the event this ticket assumes never arrives"
-  );
-});
-
-/* `formHasChanges` is #283's predicate and the ticket says to reuse it — one
-   answer to "has anything been done here", so the prompt and the draft can
-   never disagree. Measured against a blank-slate open, which is what makes a
-   changed task type on its own enough. */
-/* The write/keep/clear rule itself is `draftAction`, tested as a truth table in
-   `create-form-draft-sim-test.mjs`; what is asserted here is that the effect
-   asks it, and with which two yardsticks. Both are `formHasChanges` — #283's
-   predicate, which the ticket says to reuse — so the prompt and the draft can
-   never disagree about what "untouched" means. */
-test("worth saving is the discard prompt's own check, against a blank-slate open", () => {
-  const effect = FORM_SOURCE.slice(FORM_SOURCE.indexOf("── Keeping the draft (#284)"));
-  const body = effect.slice(0, effect.indexOf("}, [form,"));
-  assert.match(body, /changedFromBlank: formHasChanges\(opening\.fresh, form\)/, "different from a form opened fresh");
-  assert.match(body, /movedSinceOpen: formHasChanges\(openedWith\.current, form\)/, "and something moved since");
-  assert.match(body, /onDisk: draftStored\.current/, "and whether there is a copy out there already");
-  assert.match(body, /forgetDraft\(\);/, "a form emptied back out forgets it, on the server and in this browser");
-});
-
-/* #371: the server holds the autosave, and this browser only what the server
-   did not take, so a tab that reloads while the server is down still loses
-   nothing and nobody is told about it on every keystroke. */
-test("a write goes to the server, and this browser keeps a copy only when the server did not take it", () => {
-  const keep = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const keepAutosave"));
-  const body = keep.slice(0, keep.indexOf("\n  };"));
-  assert.ok(body.length > 0, "the form has a keepAutosave");
-  assert.match(body, /draftStored\.current = true;/, "there is a copy out there now, on one side or the other");
-  assert.match(body, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "queued behind the last write, in the queue every ending waits on");
-  assert.match(body, /await autosaveCalls\.keep\(values\)/, "the server first");
-  assert.match(
-    FORM_SOURCE,
-    /const \[autosaveCalls\] = useState\(\(\) => \(\{ keep: onKeepAutosave, forget: onForgetAutosave \}\)\);/,
-    "through the calls App handed over at open, so a person switched in mid-form never gets the first person's typing"
-  );
-  assert.match(body, /if \(landed\) clearDraft\(draftSeat\.storage, draftSeat\.userId\);/, "landed: the browser's copy goes");
-  assert.match(body, /else writeDraft\(draftSeat\.storage, draftSeat\.userId, values\);/, "did not: the browser keeps it");
-  assert.doesNotMatch(body, /showToast/, "and nothing is said either way");
-});
-
-test("forgetting the autosave forgets it on the server and in this browser, and only a new task form touches the server's", () => {
-  const forget = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const forgetDraft"));
-  const body = forget.slice(0, forget.indexOf("\n  };"));
-  assert.match(body, /clearDraft\(draftSeat\.storage, draftSeat\.userId\);/, "this browser's copy");
-  assert.match(body, /if \(!autosaveSeat\) return;/, "a reopened or edit form stops there");
-  assert.match(body, /unsavedWrites\.current = unsavedWrites\.current\s*\.then\(/, "after any write still out, so none lands after it");
-  assert.match(body, /autosaveCalls\.forget\(\)/, "and the server's, the one belonging to whoever opened the form");
-});
-
-/* Not asked for by the ticket, which never contemplates opening New Task
-   prefilled; it is the answer to a case the code can reach. A form opened with
-   values is someone asking for a task about a particular loan, and answering
-   that with last Tuesday's half-written task about a different one would be the
-   wrong form. Their draft is left alone rather than restored or destroyed, so a
-   plain New Task still gets it back. */
-test("a form opened prefilled shows the prefill, and leaves the draft where it is", async () => {
-  saveDraft(USER.id, FILLED);
-  const html = await render({ initialValues: { folderName: "Whitfield 4471" } });
-  assert.match(html, /value="Whitfield 4471"/, "what the caller asked for");
-  assert.doesNotMatch(html, /Adams - Harbor/, "not the draft");
-  assert.doesNotMatch(html, /Second TD needs confirming/);
-  assert.equal(storage.size, 1, "which is still there for the next plain New Task");
-  assert.match(await render(), /Second TD needs confirming/, "and comes back on one");
-});
-
-/* The saved copy is keyed to whoever opened the form, not to whoever is signed
-   in when the timer fires — the mock user picker can change that mid-form, and
-   writing Dana's typing under Sam's name is the one thing the per-user key
-   exists to prevent. */
-test("the draft's owner is pinned at open, not read live", () => {
-  const seat = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const [draftSeat]"));
-  assert.match(seat.slice(0, seat.indexOf("}));")), /userId: user\.id/);
-  const after = FORM_SOURCE.slice(FORM_SOURCE.indexOf("}));", FORM_SOURCE.indexOf("const [draftSeat]")));
-  assert.doesNotMatch(after, /(read|write|clear)Draft(Copy)?\([^)]*user\.id/, "no draft call reads the live user");
+  /* The timer is the session's, driven in new-task-session-sim-test. */
+  for (const source of [FORM_SOURCE, SESSION_SOURCE]) {
+    assert.doesNotMatch(
+      source.replace(/\/\*[\s\S]*?\*\//g, ""),
+      /addEventListener\(\s*"(beforeunload|pagehide|visibilitychange)"/,
+      "nothing hangs off leaving the page — that is the event this ticket assumes never arrives"
+    );
+  }
 });
 
 /* ── How the forgetting is wired ────────────────────────── */
 
-test("there is one way to forget a draft, and every ending goes through it", () => {
-  assert.match(FORM_SOURCE, /const forgetDraft = \(\): void => \{/, "one named thing");
-  assert.equal(
-    FORM_SOURCE.match(/forgetDraft\(\);/g).length,
-    4,
-    "used by exactly the three endings a form without a session has (a create, the discard prompt, and Save for later (#343, ADR-0011 rule 5)) and a form emptied back out"
-  );
-  /* Start fresh (#285) only exists on a restored form, which only a New Task
-     session opens (#467); its forgetting is driven in new-task-session-sim-test. */
-  assert.match(FORM_SOURCE.slice(FORM_SOURCE.indexOf("const startFresh")), /session\?\.end\(\{ kind: "startFresh" \}\)/);
-});
-
-test("creating the task clears the draft, and only on success", () => {
-  const submit = FORM_SOURCE.slice(FORM_SOURCE.indexOf("await onCreate("));
-  const untilCatch = submit.slice(0, submit.indexOf("} catch {"));
-  assert.match(untilCatch, /forgetDraft\(\);/, "the draft goes once the task exists");
-  assert.ok(
-    untilCatch.indexOf("forgetDraft();") < untilCatch.indexOf("onClose();"),
-    "before the form closes, while it still has its seat"
-  );
-  const failed = submit.slice(submit.indexOf("} catch {"));
-  assert.doesNotMatch(failed.slice(0, failed.indexOf("}")), /forgetDraft/, "a failed create keeps it for the retry");
+/* What each ending forgets, and only on success, is driven in
+   new-task-session-sim-test. */
+test("every ending of a New Task form goes to its session", () => {
+  for (const kind of ["create", "discard", "saveForLater", "startFresh", "cancel"]) {
+    assert.match(FORM_SOURCE, new RegExp(`session\\??\\.end\\(\\{\\s*kind: "${kind}"`), kind);
+  }
 });
 
 test("confirming the discard prompt clears the draft; declining leaves it", () => {
@@ -493,11 +385,10 @@ test("confirming the discard prompt clears the draft; declining leaves it", () =
   const line = mount.slice(0, mount.indexOf("\n"));
   assert.match(line, /onConfirm=\{confirmDiscard\}/, "the yes is the deliberate forget");
   assert.match(line, /onCancel=\{dismissAsk\}/, "the no only lowers the prompt");
-  assert.doesNotMatch(line.slice(line.indexOf("onCancel")), /forgetDraft|onClose/, "it clears and closes nothing");
+  assert.doesNotMatch(line.slice(line.indexOf("onCancel")), /session\.end|onClose/, "it clears and closes nothing");
   const confirm = FORM_SOURCE.slice(FORM_SOURCE.indexOf("const confirmDiscard"));
   const body = confirm.slice(0, confirm.indexOf("};"));
-  assert.match(body, /forgetDraft\(\);/);
-  assert.match(body, /onClose\(\);/, "and then closes, as Cancel always has");
+  assert.match(body, /session\.end\(\{ kind: "discard" \}\)/, "the session forgets it and closes");
 });
 
 /* ── Saying so, and the way out (#285) ──────────────────── */
@@ -525,11 +416,6 @@ test("a form that fell back to blank says nothing about a draft", async () => {
   assert.ok(!(await render()).includes(NOTE), "an expired draft");
   storage.set(draftKey(USER.id), "{ this is not a draft");
   assert.ok(!(await render()).includes(NOTE), "a garbled one");
-});
-
-test("a prefilled form says nothing — it took the caller's values, not the draft", async () => {
-  saveDraft(USER.id, FILLED);
-  assert.ok(!(await render({ initialValues: { folderName: "Whitfield 4471" } })).includes(NOTE));
 });
 
 test("edit mode says nothing, having restored nothing", async () => {
@@ -560,12 +446,37 @@ test("the line is keyed to how the form opened, not to what is in it now", () =>
   const block = mount.slice(0, mount.indexOf("</div>"));
   assert.doesNotMatch(block, /\bform\.[a-z]/i, "no field of the current values is consulted");
   assert.match(FORM_SOURCE, /const restoredNote = live\?\.restored \?\? false;/, "read from the New Task session");
-  assert.match(SESSION_SOURCE, /restored: best !== null/, "set once from how the form opened");
-  assert.match(SESSION_SOURCE, /mode = \{ kind: "reopened", record(?:: [^;]+)? \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "a reopened Task Draft never has the line");
-  assert.match(SESSION_SOURCE, /mode = \{ kind: "arrival", held: moved\.kind === "held" \};\s*set\(\{ phase: "open", mode, values: openedWith, restored: false,/, "nor does an arrival's LOI Check");
-  assert.match(SESSION_SOURCE, /carriedFromSignIn = true;\s*mode = \{ kind: "fresh" \};\s*set\(\{ phase: "open", mode, values, restored: false,/, "nor does a form carried over from sign-in");
-  assert.equal((SESSION_SOURCE.match(/restored: (?!boolean)/g) ?? []).length, 5, "and moved by exactly one thing: Start fresh");
-  assert.match(SESSION_SOURCE, /case "startFresh":[\s\S]*?restored: false/);
+});
+
+test("only a New Task opened on an Autosave has the line, it survives typing, and only Start fresh takes it down", async () => {
+  const RECORD = { id: "sfl-1", ownerId: USER.id, savedAt: new Date().toISOString(), form: FILLED };
+  const make = () =>
+    createNewTaskSession({
+      owner: USER.id,
+      storage: null,
+      request: async (path) => (path === "/autosave" ? { item: serverAutosave(FILLED, 60000) } : { item: RECORD })
+    });
+  const restored = (session) => session.getState().restored;
+
+  const fresh = make();
+  await fresh.open();
+  assert.equal(restored(fresh), true, "set from how the form opened");
+  fresh.edit({ ...FILLED, notes: "and more" });
+  assert.equal(restored(fresh), true, "typing leaves it up");
+  await fresh.end({ kind: "startFresh" });
+  assert.equal(restored(fresh), false, "Start fresh takes it down");
+
+  const reopened = make();
+  await reopened.reopen(RECORD);
+  assert.equal(restored(reopened), false, "a reopened Task Draft never has the line");
+
+  const arrival = make();
+  await arrival.arrive({ load: () => {} });
+  assert.equal(restored(arrival), false, "nor does an arrival's LOI Check");
+
+  const carried = make();
+  carried.adopt(FILLED);
+  assert.equal(restored(carried), false, "nor does a form carried over from sign-in");
 });
 
 test("Start fresh empties the form, forgets the draft, and asks nothing first", () => {
@@ -573,13 +484,12 @@ test("Start fresh empties the form, forgets the draft, and asks nothing first", 
   const body = fresh.slice(0, fresh.indexOf("\n  };"));
   /* Blanking the values, forgetting both copies and taking the line down are the
      session's Start fresh, driven in new-task-session-sim-test. */
-  assert.match(body, /session\?\.end\(\{ kind: "startFresh" \}\)/, "every field goes back to the blank form, and the saved copy is deleted");
-  assert.match(body, /setSeedDraft\(""\)/, "the outstanding-items box too");
+  assert.match(body, /session\?\.end\(\{ kind: "startFresh" \}\)/, "every field and the outstanding-items box go back to blank, and the saved copy is deleted");
   /* Every field, per the criterion — including what is not in the values
-     object: the FRAUD seeder's box above, and what a Humperdink import left. */
+     object: what a Humperdink import left. */
   assert.match(body, /setImported\(false\)/, "the import's announcement is taken back");
   assert.match(body, /setImportedNote\(""\)/, "with nothing left of the note it wrote");
-  assert.doesNotMatch(body, /setDiscardAsk|DiscardConfirm/, "no confirmation — one press is the whole thing");
+  assert.doesNotMatch(body, /setEditAsk|DiscardConfirm/, "no confirmation — one press is the whole thing");
 });
 
 /* The button removes itself: the line has nothing to say over an empty form, so
@@ -601,34 +511,4 @@ test("Start fresh leaves focus inside the form, on the field a new task starts i
      typeahead. */
   const typeahead = FORM_SOURCE.slice(FORM_SOURCE.indexOf('<span className="loan-typeahead">'));
   assert.match(typeahead.slice(0, typeahead.indexOf("/>")), /ref=\{folderNameRef\}/);
-});
-
-/* After Start fresh the form is blank and there is no draft on disk, so the
-   effect must read "keep" — nothing to write, nothing to clear — and the first
-   keystroke after it must read "write". Both fall out of the two yardsticks
-   being re-pointed at the blank form, which is why `openedWith` moves with it;
-   left pointing at the restored values, an untouched blank form would look
-   changed and immediately re-save the thing that was just thrown away. */
-test("typing after Start fresh starts a new draft, and a straight Cancel asks nothing", () => {
-  const blank = { ...BLANK_CREATE_FORM, initialItems: [] };
-  assert.equal(
-    draftAction({
-      changedFromBlank: formHasChanges(blank, blank),
-      movedSinceOpen: formHasChanges(blank, blank),
-      onDisk: false
-    }),
-    "keep",
-    "a form just emptied writes nothing and clears nothing"
-  );
-  assert.equal(formHasChanges(blank, blank), false, "so Cancel closes without a prompt");
-  const typed = { ...blank, notes: "a brand new task" };
-  assert.equal(
-    draftAction({
-      changedFromBlank: formHasChanges(blank, typed),
-      movedSinceOpen: formHasChanges(blank, typed),
-      onDisk: false
-    }),
-    "write",
-    "and the next keystroke starts a new draft as normal"
-  );
 });

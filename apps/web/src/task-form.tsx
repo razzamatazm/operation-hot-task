@@ -9,11 +9,10 @@
    about what a person sees in this form, and a component inside a 5,000-line
    file that imports the Teams SDK cannot be rendered in a test.
 
-   All form-input state lives here; App keeps only "is it open" and "which task
-   is being edited", and mounts this child while one of those is true. The side
-   effects stay on App behind the single stable `onCreate` / `edit.onSave`
-   callbacks, so this component stays presentational — it builds the payload
-   and closes on success.
+   A new task's values, and every way its form ends, live in its New Task
+   session (#467); edit mode keeps its own here. The side effects stay on App
+   behind the single stable `onCreate` / `edit.onSave` callbacks, so this
+   component builds the payload and closes on success.
 
    Edit mode is deliberately the same form rather than a second one. Two
    surfaces that file and correct the same fields are two surfaces that drift.
@@ -28,12 +27,10 @@
    correcting it. */
 import { ACTION_LABELS, CreateTaskInput, Loan, LoanTask, TASK_TYPES, TASK_TYPE_LABELS, TaskType, URGENCY_LEVELS, URGENCY_TIMEFRAMES, UrgencyLevel, UserIdentity, UserRole, deriveMyLoanIds, eligibleAssignees, fraudFilingRefusal, getNotesFieldLabel, humperdinkNoteText, loanTypeaheadSuggestions, nextHighlightIndex, parseHumperdinkPayload } from "@loan-tasks/shared";
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { UNSAVED_CHANGES_NOTE, browserDraftStorage, clearDraft, draftAction, restoredDraftCopy, writeDraft } from "./create-form-draft";
-import { CreateFormInitialValues, CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, cancelAsks, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
+import { UNSAVED_CHANGES_NOTE, restoredDraftCopy } from "./create-form-draft";
+import { CreateFormValues, EditableTask, TaskEdit, applyImportedLoan, createLoanId, editFormValues, editRefusal, formHasChanges, initialCreateForm, taskEdit, touchesSharedLoan } from "./create-form-state";
 import { DiscardConfirmDialog } from "./discard-confirm";
-import { arrivalPasteStep } from "./humperdink-arrival";
-import { UNSAVED_SAVE_DEBOUNCE_MS } from "./saved-for-later-requests";
-import { NewTaskSession, useNewTaskSessionState, withPendingItem } from "./new-task-session";
+import { NewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
 import { useToast } from "./toast";
@@ -104,34 +101,10 @@ interface TaskFormProps {
      created; rejects only when the create itself fails (App has already shown
      the error toast) so the form stays open for a retry. */
   onCreate: (payload: CreateTaskInput, shareWithUserId: string, note?: string) => Promise<void>;
-  /* Put this new task aside (#343, ADR-0011): App keeps the whole form on the
-     server and lists it in the board's Saved for Later section. Resolves once it
-     is saved; rejects only when the save fails (App has already shown the
-     error) so the form stays open. Absent means no Save for later button, and
-     App never passes it to edit mode.
-
-     `clearAutosave` is whether this form has a seat on the autosave (#371,
-     #413): a new form's save clears the slot in the same write, and a form
-     without a seat leaves it alone. */
-  onSaveForLater?: (form: CreateFormValues, clearAutosave?: boolean) => Promise<void>;
   /* A New Task form's session (#467): a fresh form, a reopened Task Draft
      (#469) or a Humperdink arrival's LOI Check (#473), what it opens on, where
      its typing goes, and every way it ends. */
   session?: NewTaskSession;
-  /* Writes a new task form's typing to the server's autosave, as it is typed
-     (#371). Resolves whether it landed, and never rejects: it runs off a timer
-     mid-sentence, and a write that did not land is kept in this browser instead,
-     silently. */
-  onKeepAutosave?: (form: CreateFormValues) => Promise<boolean>;
-  /* Forgets the server's autosave: a create, a discard, Start fresh, Save for
-     later, or a form emptied back out. Never rejects. */
-  onForgetAutosave?: () => Promise<boolean>;
-  /* Values the form opens with (#194). Omitted — the everyday case — opens it
-     blank, exactly as before. The defaults and the FRAUD seeder / recipient
-     picker / OOO date fields all live in `create-form-state.ts`; see there for
-     why only this subset is openable. Ignored in edit mode, which takes its
-     values from the task. */
-  initialValues?: CreateFormInitialValues;
   /* Reads the clipboard for a Humperdink arrival (#415, ADR-0012): the text if
      it is a Send to Hot Task payload, null for anything else, and never
      rejects. App hands it over only to an arrival's form, and the form
@@ -141,11 +114,12 @@ interface TaskFormProps {
   /* Whether App's loans list has loaded (#415). The arrival's clipboard import
      waits for it, so it runs against the loans a manual paste would see. */
   loansLoaded?: boolean;
-  /* Present → edit mode (#260). Absent → the create form, unchanged. */
+  /* Present → edit mode (#260). Absent → the create form, which runs on
+     `session`. */
   edit?: TaskFormEdit;
 }
 
-export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onSaveForLater, initialValues, readClipboard, loansLoaded = false, edit, session, onKeepAutosave, onForgetAutosave }: TaskFormProps) => {
+export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, readClipboard, loansLoaded = false, edit, session }: TaskFormProps) => {
   const { showToast } = useToast();
   const editing = edit !== undefined;
   const sessionState = useNewTaskSessionState(session, (state) => state);
@@ -172,96 +146,21 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     if (!humperdinkArrival) return;
     notesRef.current?.focus();
   }, []);
-  /* Where this form's saved draft lives (#284), decided once at open and never
-     re-read. Two things are pinned here rather than looked up as needed:
-
-     The storage object, because a locked-down Teams profile can throw on the
-     `window.localStorage` property itself; `browserDraftStorage` turns that into
-     `null`, which every draft function takes as "do nothing, quietly".
-
-     The person, because the mock user picker can switch who is signed in while
-     this form is open. Keying off the live `user.id` would then save what is on
-     screen — which is the first person's typing — under the second person's
-     name, the one thing the per-user key exists to prevent. The draft belongs to
-     whoever opened the form; the other person's own draft is read when they open
-     it themselves, on the next mount.
-
-     Null storage in edit mode is the whole of "edit mode saves no draft": there
-     is nothing to switch off further down, because there is nowhere to write. */
-  const [draftSeat] = useState<{ storage: ReturnType<typeof browserDraftStorage>; userId: string }>(() => ({
-    storage: edit || session ? null : browserDraftStorage(),
-    userId: user.id
-  }));
-  /* Whether this form has a seat on the server's autosave (#371): a new task
-     form does, and a reopened or edit form does not, for the reasons it has no
-     browser storage above. A session's form writes through its session.
-     Nothing further down reads, writes or forgets the server's autosave
-     without it. */
-  const autosaveSeat = !edit && !session;
-  /* The server calls behind that seat, pinned at open for the reason the seat's
-     user id is. App's callbacks follow whoever is signed in now, and the dev
-     user picker can change that mid-form; held from open, they write and forget
-     the autosave of the person who opened the form, never the next person's. */
-  const [autosaveCalls] = useState(() => ({ keep: onKeepAutosave, forget: onForgetAutosave }));
-  /* What the form opens with, worked out once. Lazy, so re-renders don't rebuild
-     it and a changing `initialValues` identity can't reset a half-typed form:
-     the values seed the form once, at open. Reopening remounts this component,
-     which is when new initial values — or a newly saved draft — take effect.
-
-     Three ways in. Edit mode takes the task's own values. A create form with a
-     saved draft takes the draft (#284). Anything else opens as it always has.
-
-     `fresh` is what a blank-slate open would have produced, kept because it is
-     the yardstick for "is there a draft worth keeping" — measuring against
-     `openedWith` instead would call a restored draft unchanged and quietly stop
-     saving it. Since #365 it is also a create form's yardstick for the discard
-     prompt, which asks whenever there is anything in the form; edit mode's
-     prompt still asks whether anything moved since it opened (#283).
-
-     A form opened with `initialValues` deliberately ignores any draft: those
-     values come from someone asking for a task about a specific loan, and
-     answering that with last Tuesday's half-written task about a different one
-     would be the wrong form entirely. Their draft is left where it is. */
-  const [opening] = useState<{ values: CreateFormValues; fresh: CreateFormValues }>(() => {
-    if (edit) {
-      const values = editFormValues(edit.task);
-      return { values, fresh: values };
-    }
-    const fresh = initialCreateForm(initialValues);
-    return { values: fresh, fresh };
-  });
-  /* A fresh New Task form's values live in its session; every other form keeps
-     its own. */
-  const [ownForm, setOwnForm] = useState<CreateFormValues>(opening.values);
-  const form = live ? live.values : ownForm;
+  /* A New Task form's values live in its session; edit mode keeps its own,
+     seeded once from the task. */
+  const [editValues, setEditValues] = useState<CreateFormValues>(() => (edit ? editFormValues(edit.task) : initialCreateForm()));
+  const form = live ? live.values : editValues;
   const setForm = (next: CreateFormValues | ((current: CreateFormValues) => CreateFormValues)): void => {
     if (!session) {
-      setOwnForm(next);
+      setEditValues(next);
       return;
     }
     const now = session.getState();
     if (now.phase === "open") session.edit(typeof next === "function" ? next(now.values) : next);
   };
-  /* The form exactly as it opened, kept so closing it can ask whether anything
-     has been done to it since (#283). A ref rather than state because it never
-     changes while the form is up: the same object the lazy initializer above
-     produced, captured on the first render and read on the way out. */
+  /* An edit form exactly as it opened, kept so closing it can ask whether
+     anything has been done to it since (#283). */
   const openedWith = useRef(form);
-  /* Does this person have an autosave out there, on the server or in this
-     browser, as far as this form knows (#284, #371)? True at open when the form
-     was restored from one, and kept honest by
-     the effect below. It is what stops an untouched form clearing a draft it
-     never wrote — and what makes emptying a restored form back out clear the
-     copy behind it rather than leave the old values waiting to reappear. */
-  const draftStored = useRef(false);
-  /* Those writes, one after another, so an older one can never land after a
-     newer one. Every ending waits on this before it acts (`settleUnsaved`). */
-  const unsavedWrites = useRef<Promise<unknown>>(Promise.resolve());
-  /* Set once Save for later, Create or Discard has begun, so a timer that fires
-     while one of them is out cannot put typing back on a record that ending is
-     about to save, remove or clear. Unset again when the ending fails and the
-     form stays open. */
-  const ending = useRef(false);
   /* Is the "we brought this back" line up (#285)? True for a form that opened on
      a restored draft, and false again once Start fresh has emptied it — the line
      describes where the values on screen came from, and after Start fresh they
@@ -274,18 +173,17 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
   const restoredNote = live?.restored ?? false;
   /* Is the "discard this task?" prompt up (#283)? Set by an exit taken on a
      form that has something in it; see `requestClose` below. */
-  const [ownDiscardAsk, setDiscardAsk] = useState(false);
-  const discardAsk = live ? live.asking : ownDiscardAsk;
-  const dismissAsk = (): void => (session ? session.resume() : setDiscardAsk(false));
-  /* Is a Discard being carried out (#348, #388)? It waits on the typing writes,
-     and on a reopened Task Draft the delete on the server, and the answers stay
-     shut until it is done so a second press cannot race it. */
-  const [ownDiscarding, setDiscarding] = useState(false);
-  const discarding = live ? live.ending === "discard" : ownDiscarding;
+  const [editAsk, setEditAsk] = useState(false);
+  const discardAsk = live ? live.asking : editAsk;
+  const dismissAsk = (): void => (session ? session.resume() : setEditAsk(false));
+  /* Is a Discard being carried out (#348, #388)? The answers stay shut until it
+     is done so a second press cannot race it. */
+  const discarding = live?.ending === "discard";
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
-     from the committed `form.initialItems` list. */
-  const [seedDraft, setSeedDraft] = useState("");
-  useEffect(() => session?.notePendingItem(seedDraft), [seedDraft]);
+     from the committed `form.initialItems` list. Kept in the session, so it
+     crosses the sign-in handoff with the form. */
+  const seedDraft = live?.pendingItem ?? "";
+  const setSeedDraft = (text: string): void => session?.notePendingItem(text);
   /* The Fraud filing refusal spans two boxes but is shown on one (#302), so
      the note's custom validity has to clear when the *other* box moves.
      Without this, someone refused for saying nothing, who then itemises a
@@ -313,11 +211,10 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      didn't register my click," and a disabled `Creating…` corrects that. Edit
      mode's Save rides the same flag for the same reason. */
   const [submitting, setSubmitting] = useState(false);
-  /* Save for later's own in-flight flag (#343), for the reason `submitting`
-     exists: held for the whole save so a second press can't store two copies,
-     and doubling as the button's `Saving…`. Create waits on it too. */
-  const [ownSavingForLater, setSavingForLater] = useState(false);
-  const savingForLater = ownSavingForLater || live?.ending === "saveForLater";
+  /* Save for later under way (#343), for the reason `submitting` exists: a
+     second press can't store two copies, and it is the button's `Saving…`.
+     Create waits on it too. */
+  const savingForLater = live?.ending === "saveForLater";
   /* Humperdink import (#194). There is no box for it since 2026-09-14: a Send to
      Hot Task payload pasted into any field on an LOI Check being filed is the import,
      and any other paste lands where it was pasted. The one other way in is a
@@ -422,14 +319,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Only on a form nobody has started on: a paste or typing that got there
      first is kept. Files nothing; Create still does that. */
   useEffect(() => {
-    const step = arrivalPasteStep({
-      paste: arrivalPaste,
-      loansLoaded,
-      untouched: !imported && session !== undefined && session.untouched()
-    });
-    if (step === "wait" || arrivalPaste === null) return;
+    if (arrivalPaste === null || !loansLoaded) return;
     setArrivalPaste(null);
-    if (step === "apply") importFromHumperdink(arrivalPaste);
+    if (!imported && session?.untouched()) importFromHumperdink(arrivalPaste);
   }, [arrivalPaste, loansLoaded]);
 
   /* Loans that are "mine" for the create-form shortlist (#55): any loan linked
@@ -520,94 +412,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
     }
   }, [directory.length, recipientCandidates, form.recipientUserId]);
 
-  /* ── Keeping the draft (#284) ───────────────────────────────
-     The form saves itself as it is typed into, settling shortly after the
-     typing stops. Not on unmount and not on `beforeunload`: the case this
-     exists for is the tab that goes away without running anything, so a save
-     that depends on an exit path is a save that isn't there when it matters.
-
-     One timer per change, cancelled by the next one, which makes this a plain
-     trailing debounce — a sentence costs one write rather than forty. The
-     cleanup also runs on unmount, so a create or a discard that clears the
-     draft can never be overwritten a moment later by a keystroke's leftover
-     timer.
-
-     Write, keep or clear is `draftAction`, decided over there rather than in
-     here so the rule — including "opening a draft does not restart its seven
-     days" and "an untouched form never clears one" — can be asked as a truth
-     table instead of by rendering a form and waiting. The two questions it
-     takes are both `formHasChanges` (#283), from two yardsticks: against a
-     blank-slate open, which is what makes a changed task type on its own worth
-     saving, and against the values this form opened with.
-
-     Since #371 the copy is kept on the server, so it follows the person to
-     another device and the Task Drafts tab can list it. Each write is a request
-     now, so it settles on the one-second debounce a reopened form's typing is
-     written on rather than the 400ms a browser write could afford.
-
-     This browser keeps a copy only of what the server did not take
-     (`keepAutosave`): a write that lands removes it, a write that fails writes
-     it. So a server that cannot be reached behaves like the form always did, a
-     reload still loses nothing, and nobody is told about it on every keystroke.
-     Storage that is missing, locked down or full is handled inside the local
-     write and clear themselves, silently.
-
-     Writes go into one queue (`unsavedWrites`), so every ending, which waits on that queue, can never be followed by a write
-     that puts the typing back. The timer does nothing once an ending has
-     begun, for the same reason. */
-  const keepAutosave = (values: CreateFormValues): void => {
-    draftStored.current = true;
-    unsavedWrites.current = unsavedWrites.current
-      .then(async () => {
-        const landed = autosaveCalls.keep ? await autosaveCalls.keep(values) : false;
-        if (landed) clearDraft(draftSeat.storage, draftSeat.userId);
-        else writeDraft(draftSeat.storage, draftSeat.userId, values);
-      })
-      .catch(() => {});
-  };
-
-  /* The draft is done with. Every ending a person can mean by it — the task got
-     filed, they confirmed the discard prompt, Start fresh, Save for later — and
-     a form emptied back out go through here, so none of them can grow its own
-     idea of what forgetting a draft involves. Both copies go: this browser's at
-     once, and the server's after any write still out, so none lands after it. A
-     reopened or edit form has no seat on the server's and stops at the first. */
-  const forgetDraft = (): void => {
-    clearDraft(draftSeat.storage, draftSeat.userId);
-    draftStored.current = false;
-    if (!autosaveSeat) return;
-    unsavedWrites.current = unsavedWrites.current
-      .then(async () => {
-        if (autosaveCalls.forget) await autosaveCalls.forget();
-      })
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    if (!autosaveSeat) return;
-    const timer = window.setTimeout(() => {
-      if (ending.current) return;
-      const action = draftAction({
-        changedFromBlank: formHasChanges(opening.fresh, form),
-        movedSinceOpen: formHasChanges(openedWith.current, form),
-        onDisk: draftStored.current
-      });
-      if (action === "write") keepAutosave(form);
-      else if (action === "clear") forgetDraft();
-    }, UNSAVED_SAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [form, autosaveSeat, opening.fresh]);
-
-  /* Before Save for later, Create or Discard acts (#348, #388): no
-     further unsaved typing is sent, and the one already out lands first.
-     Otherwise a keystroke's write could reach the server after the ending and
-     put typing back on a record just saved, or bring back one just deleted.
-     Instant on a form that never wrote any. */
-  const settleUnsaved = async (): Promise<void> => {
-    ending.current = true;
-    await unsavedWrites.current;
-  };
-
   /* "Start fresh" (#285): the restored draft was not what they wanted, so the
      form becomes the one they expected to open — empty, with nothing saved
      behind it.
@@ -616,20 +420,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      not ask for, pressing it is the whole of the intent, and a misfire costs
      nothing that is not one keystroke from being saved again.
 
-     `opening.fresh` rather than `BLANK_CREATE_FORM` because it is already the
-     form's own idea of a blank-slate open, and it is the yardstick the draft
-     effect measures against. Copied rather than aliased so the state object and
-     the yardstick can never become the same object.
-
-     `openedWith` moves with it, and that is the subtle half. It is what the save
-     timer measures "has anything happened here" against; left pointing at the
-     restored values, an emptied form would read as heavily changed, and the
-     timer would immediately save the blank over the draft that was just deleted.
-     Re-pointed at the blank, it answers "nothing to lose", and the next
-     keystroke starts a new draft exactly as it would on any other new form.
-     Cancel on a create form measures against the blank form instead (#365), so
-     an emptied one closes without asking either way.
-
+     The session empties the form and the seeder's box, and forgets the copy.
      The typeahead's own three pieces of state go too: they are the folder name
      box's uncommitted half, and a suggestion list left open over an emptied
      field is the old loan still on screen. */
@@ -652,7 +443,6 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
        the clears rather than land after them. */
     folderNameRef.current?.focus();
     void session?.end({ kind: "startFresh" });
-    setSeedDraft("");
     setLoanQuery("");
     setLoanSuggestOpen(false);
     setLoanHighlight(-1);
@@ -721,8 +511,9 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       await handleSave();
       return;
     }
-    const rawLink = form.humperdinkLink.trim();
-    const normalizedLink = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
+    if (!session) return;
+    /* Sent as typed; the server's link rule adds a missing https://. */
+    const link = form.humperdinkLink.trim();
     // Which loan this is filed against, or nothing — in which case the server
     // resolves the typed name and link (ADR-0001). One rule, in
     // `create-form-state.ts`, because a restored draft (#284) can carry a pick
@@ -758,7 +549,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
       notes: form.notes,
       ...(keepLoanId ? { loanId: keepLoanId } : {}),
       ...(form.taskType === "OOO" ? { startDate: form.startDate, returnDate: form.returnDate } : { urgency: form.urgency }),
-      ...(form.taskType !== "OOO" && normalizedLink ? { humperdinkLink: normalizedLink } : {}),
+      ...(form.taskType !== "OOO" && link ? { humperdinkLink: link } : {}),
       ...(form.points > 0 ? { points: form.points } : {}),
       ...(seededItems.length > 0 ? { initialItems: seededItems.map((text) => ({ text })) } : {}),
       // The two branches are deliberately asymmetric. A handoff rides the create
@@ -774,28 +565,16 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
 
     setSubmitting(true);
     try {
-      // App owns persist + post-create share + refresh; on success we close,
-      // which unmounts this child and discards the draft. A create
-      // failure rejects here (App already toasted) — keep the form open.
-      // onCreate deliberately resolves only after the share follow-up too, so
-      // the pending state spans the whole wait rather than going idle-looking
-      // mid-flight.
-      if (session) {
-        await session.end({
-          kind: "create",
-          file: () => onCreate(payload, assignAtCreate ? "" : form.recipientUserId, form.recipientNote.trim() || undefined)
-        });
-        return;
-      }
-      await settleUnsaved();
-      await onCreate(payload, assignAtCreate ? "" : form.recipientUserId, form.recipientNote.trim() || undefined);
-      /* The task exists now, so the copy of it kept against losing it is over
-         (#284) — the next New Task opens blank. Only on success: a create that
-         failed leaves the form open to retry, and its draft with it. */
-      forgetDraft();
-      onClose();
+      // App owns persist + post-create share + refresh; the session forgets the
+      // Autosave and closes. A create failure rejects here (App already
+      // toasted) — keep the form open. onCreate deliberately resolves only after
+      // the share follow-up too, so the pending state spans the whole wait
+      // rather than going idle-looking mid-flight.
+      await session.end({
+        kind: "create",
+        file: () => onCreate(payload, assignAtCreate ? "" : form.recipientUserId, form.recipientNote.trim() || undefined)
+      });
     } catch {
-      ending.current = false;
       /* create failed — App surfaced the error; leave the form open to retry */
     } finally {
       // In `finally`, not the catch: an exception must never strand the form
@@ -943,23 +722,15 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      me out of here" — so they must ask the same question, and routing them
      through one function is what stops the two answers drifting apart.
 
-     When it asks is `cancelAsks` (#365). Edit mode asks once something moved
-     since it opened, measured against the task rather than a blank form. A
-     create form asks whenever there is anything in it: a reopened Saved for
-     Later task always, a new one whenever it differs from a blank form, so only
-     a completely empty one closes on the first press. The FRAUD seeder's
-     half-typed item counts in both, being typing that would be lost. A session's
-     form (a fresh one, or a reopened Task Draft) asks its session instead. */
+     Edit mode asks once something moved since it opened (#365). A New Task
+     form asks its session. */
   const requestClose = (): void => {
     if (session) {
-      void session.end({ kind: "cancel", pendingItemText: seedDraft });
+      void session.end({ kind: "cancel" });
       return;
     }
-    if (cancelAsks({ editing, reopened: reopened !== undefined, opened: openedWith.current, fresh: opening.fresh, current: form, pendingItemText: seedDraft })) {
-      setDiscardAsk(true);
-      return;
-    }
-    onClose();
+    if (formHasChanges(openedWith.current, form)) setEditAsk(true);
+    else onClose();
   };
 
   /* "Yes, discard it." The deliberate forget, and the reason the prompt shipped
@@ -971,14 +742,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      On a reopened Task Draft (#388, #399) the session deletes the record, and
      the prompt stays up reading `Deleting…` until it is done. */
   const confirmDiscard = async (): Promise<void> => {
-    if (session) {
-      if (!discarding) await session.end({ kind: "discard" });
-      return;
-    }
-    setDiscarding(true);
-    forgetDraft();
-    await settleUnsaved();
-    onClose();
+    if (!session) onClose();
+    else if (!discarding) await session.end({ kind: "discard" });
   };
 
   /* ── Save for later (#343, ADR-0011) ─────────────────────────
@@ -996,39 +761,14 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
      Once the save has landed the autosave is cleared, since nothing is at risk
      any more, and the form closes. A failed save does neither: App has shown
      the error and the form stays open with everything in it. */
-  const worthSavingForLater = session ? session.hasTyping(seedDraft) : formHasChanges(opening.fresh, form, seedDraft);
-  const offersSaveForLater = !editing && (session !== undefined || onSaveForLater !== undefined);
-  /* Resolves whether the save landed and the form closed. */
-  const saveSessionForLater = async (newTask: NewTaskSession, values: CreateFormValues): Promise<boolean> => {
-    setSavingForLater(true);
+  const worthSavingForLater = session?.hasTyping() ?? false;
+  const offersSaveForLater = !editing && session !== undefined;
+  const saveForLater = async (): Promise<void> => {
+    if (!session || editing || submitting || savingForLater) return;
     try {
-      await newTask.end({ kind: "saveForLater", values });
-      return true;
+      await session.end({ kind: "saveForLater" });
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to save for later", { variant: "error" });
-      return false;
-    } finally {
-      setSavingForLater(false);
-    }
-  };
-  const saveForLater = async (): Promise<boolean> => {
-    if (!offersSaveForLater || submitting || savingForLater) return false;
-    const values = withPendingItem(form, seedDraft);
-    if (session) return saveSessionForLater(session, values);
-    if (!onSaveForLater) return false;
-    setSavingForLater(true);
-    try {
-      await settleUnsaved();
-      await onSaveForLater(values, autosaveSeat);
-      forgetDraft();
-      onClose();
-      return true;
-    } catch {
-      ending.current = false;
-      /* save failed — App surfaced the error; leave the form open to retry */
-      return false;
-    } finally {
-      setSavingForLater(false);
     }
   };
 
@@ -1046,9 +786,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, onS
           z-index is measured against the app and not against the inside of a
           modal — it has to clear the form (50) and a toast (60).
 
-          The yes is `confirmDiscard`: it forgets the saved draft (#284) and then
-          closes, which is what closing has always done. The no is only the
-          prompt coming down — it closes nothing and forgets nothing.
+          The yes is `confirmDiscard`. The no is only the prompt coming down —
+          it closes nothing and forgets nothing.
 
           A create form's prompt also offers Save for later (#348), available
           exactly when the footer's is. Edit mode's is the two-way prompt. */}
