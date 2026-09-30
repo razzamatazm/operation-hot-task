@@ -259,7 +259,8 @@ export class TeamsNotificationProvider implements NotificationProvider {
         event.message,
         card.detail,
         card.openUrl,
-        event.task.createdBy.id
+        event.task.createdBy.id,
+        event.task.requesterChange
       );
       return;
     }
@@ -275,6 +276,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         detail: card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
+        ...(event.task.requesterChange ? { requesterChange: event.task.requesterChange } : {}),
         ...(card.openUrl ? { openUrl: card.openUrl } : {})
       });
       return;
@@ -301,6 +303,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
         detail: phase ? [nameLine, `Picks up at: ${phase}`, ...facts].join("\n") : card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
+        ...(event.task.requesterChange ? { requesterChange: event.task.requesterChange } : {}),
         ...(card.openUrl ? { openUrl: card.openUrl } : {})
       });
       return;
@@ -325,6 +328,17 @@ export class TeamsNotificationProvider implements NotificationProvider {
       if (event.task.assignee) {
         await this.botClient.markTaskAssigned(event.task.id, event.task.assignee.id, channelCardContext(event.task));
       }
+      return;
+    }
+
+    if (event.target === "CHANNEL_REQUESTER_CHANGED") {
+      /* A requester handover (#512): the same silent edit, naming the new
+         requester. A released card's headline names nobody, so it is kept. */
+      await this.botClient.markRequesterChanged(event.task.id, {
+        title: this.buildChannelCard(event.task).title,
+        keepTitle: formatReleasedHeadline(event.task.folderName),
+        creatorAadObjectId: event.task.createdBy.id
+      });
       return;
     }
 
