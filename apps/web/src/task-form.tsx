@@ -179,6 +179,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
   /* Is a Discard being carried out (#348, #388)? The answers stay shut until it
      is done so a second press cannot race it. */
   const discarding = live?.ending === "discard";
+  /* Any ending out: the others do nothing until it settles (#496). */
+  const endingOut = Boolean(live?.ending);
   /* Draft text for the FRAUD outstanding-items seeder input (#69), separate
      from the committed `form.initialItems` list. Kept in the session, so it
      crosses the sign-in handoff with the form. */
@@ -441,6 +443,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
        the typeahead query from the value it can see — which at this instant is
        still the restored loan. Focusing first lets that write be overtaken by
        the clears rather than land after them. */
+    if (endingOut) return;
     folderNameRef.current?.focus();
     void session?.end({ kind: "startFresh" });
     setLoanQuery("");
@@ -848,7 +851,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
                   Task, and this is the quiet way out for somebody who did not
                   want the draft back. It runs on the press — see `startFresh`
                   for why it asks nothing first. */}
-              <button type="button" className="btn-sm btn-ghost" onClick={startFresh}>
+              <button type="button" className="btn-sm btn-ghost" onClick={startFresh} disabled={endingOut}>
                 {restoredCopy.action}
               </button>
             </div>
@@ -1267,7 +1270,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
             <div className="task-form-foot-actions">
               {/* Cancel asks first on a form with anything in it (#283). Same
                   door as Escape, so the two can never answer differently. */}
-              <button type="button" className="btn-ghost" onClick={requestClose}>Cancel</button>
+              <button type="button" disabled={endingOut} className="btn-ghost" onClick={requestClose}>Cancel</button>
               {/* Save for later (#343): the create form only, between the two
                   exits and in the secondary style, so Create Task stays the
                   one filled button. */}

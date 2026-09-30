@@ -544,8 +544,7 @@ test("a Create still out when another draft is reopened deletes its own record a
   let file;
   const ending = ctx.session.end({ kind: "create", file: () => new Promise((resolve) => (file = resolve)) });
   await settle();
-  await ctx.session.end({ kind: "cancel" });
-  await ctx.session.end({ kind: "discard" });
+  ctx.session.close();
   assert.equal(await reopen(ctx, record({ id: "sfl-B" })), "opened");
   ctx.server.calls.length = 0;
   file();
@@ -587,6 +586,61 @@ test("a Create that fails keeps the form and the record, and typing is sent agai
   ctx.session.edit(values({ notes: "fixed" }));
   await ctx.clock.advance(1000);
   assert.deepEqual(ctx.server.writes(), [["PUT", "/saved-for-later/sfl-1/unsaved"]]);
+});
+
+/* #496: while one ending is out, the others do nothing. */
+const createStillOut = async (ctx) => {
+  let fail;
+  const ending = ctx.session.end({ kind: "create", file: () => new Promise((_, reject) => (fail = () => reject(new Error("refused")))) });
+  await settle();
+  return { ending, fail: () => fail() };
+};
+
+test("Cancel and Discard while Create is out leave the record alone, and a Create that then fails keeps the form and its typing", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  ctx.session.edit(values({ notes: "typed" }));
+  const create = await createStillOut(ctx);
+  assert.equal(await ctx.session.end({ kind: "cancel" }), "busy");
+  assert.equal(openState(ctx.session).asking, false, "no leave question while Create is out");
+  assert.equal(await ctx.session.end({ kind: "discard" }), "busy");
+  assert.equal(openState(ctx.session).ending, "create");
+  create.fail();
+  await assert.rejects(create.ending, /refused/);
+  assert.deepEqual(ctx.server.writes(), [], "the Task Draft is never deleted");
+  assert.deepEqual(ctx.events.gone, []);
+  const state = openState(ctx.session);
+  assert.equal(state.values.notes, "typed");
+  assert.equal(state.ending, null);
+  assert.equal(state.mode.record.id, "sfl-1");
+});
+
+test("Save for later and a second Create while Create is out do nothing", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  const create = await createStillOut(ctx);
+  const filed = [];
+  assert.equal(await ctx.session.end({ kind: "saveForLater" }), "busy");
+  assert.equal(await ctx.session.end({ kind: "create", file: async () => filed.push("again") }), "busy");
+  create.fail();
+  await assert.rejects(create.ending, /refused/);
+  assert.deepEqual(filed, []);
+  assert.deepEqual(ctx.server.writes(), []);
+  assert.equal(openState(ctx.session).ending, null);
+});
+
+test("Create while Discard is out does nothing, and the Discard still closes", async () => {
+  const ctx = setup();
+  await reopen(ctx);
+  ctx.server.hold = (call) => call.method === "DELETE";
+  const discard = ctx.session.end({ kind: "discard" });
+  await settle();
+  const filed = [];
+  assert.equal(await ctx.session.end({ kind: "create", file: async () => filed.push("task") }), "busy");
+  ctx.server.held.shift().release();
+  await discard;
+  assert.deepEqual(filed, []);
+  assert.equal(ctx.session.getState().phase, "closed");
 });
 
 test("Save for later writes onto the same record, leaving the Autosave alone", async () => {

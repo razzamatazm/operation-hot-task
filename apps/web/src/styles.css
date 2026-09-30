@@ -1307,6 +1307,14 @@ button.btn-ghost:hover {
   background: var(--brand-soft);
 }
 
+/* Inert the way `button.btn-warn:disabled` is, and no tint under the cursor. */
+button.btn-ghost:disabled,
+button.btn-ghost:disabled:hover {
+  background: transparent;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Collapse all (#177) sits inert when nothing in that list is expanded —
    faded rather than removed, so the header's controls don't shift under the
    cursor as cards open and close. Faded via `opacity`, matching

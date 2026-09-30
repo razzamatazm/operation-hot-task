@@ -567,6 +567,57 @@ test("a Create that fails keeps the form open with both copies, and typing is sa
   assert.deepEqual(server.writes().map((call) => call.method), ["PUT", "PUT"]);
 });
 
+test("Cancel, Discard and Start fresh while Create is out leave the Autosave alone, and a Create that then fails keeps the form (#496)", async () => {
+  const { session, server, storage, clock, key } = setup({ offline: { values: values({ notes: "restored" }), ageMs: 60_000 } });
+  await session.open();
+  session.edit(values({ notes: "restored, then more" }));
+  await clock.advance(1000);
+  server.answer = () => {
+    throw new Error("Failed to fetch");
+  };
+  session.edit(values({ notes: "restored, then more, offline" }));
+  await clock.advance(1000);
+  const copy = storage.getItem(key);
+  assert.notEqual(copy, null, "the typing is held offline");
+  server.answer = () => ({});
+  server.calls.length = 0;
+  let fail;
+  const ending = session.end({ kind: "create", file: () => new Promise((_, reject) => (fail = () => reject(new Error("refused")))) });
+  await settle();
+  assert.equal(await session.end({ kind: "cancel" }), "busy");
+  assert.equal(openState(session).asking, false);
+  assert.equal(await session.end({ kind: "discard" }), "busy");
+  assert.equal(await session.end({ kind: "startFresh" }), "busy");
+  assert.equal(await session.end({ kind: "saveForLater" }), "busy");
+  fail();
+  await assert.rejects(ending, /refused/);
+  await settle();
+  assert.deepEqual(server.writes(), [], "nothing forgets the Autosave");
+  assert.equal(storage.getItem(key), copy, "and the offline copy is untouched");
+  const state = openState(session);
+  assert.equal(state.values.notes, "restored, then more, offline");
+  assert.equal(state.ending, null);
+  assert.equal(state.restored, true);
+});
+
+test("Create and Save for later while Discard is out do nothing, and the Discard still closes (#496)", async () => {
+  const { session, server, clock } = setup();
+  await session.open();
+  session.edit(values({ notes: "gone soon" }));
+  await clock.advance(1000);
+  server.hold = (call) => call.method === "DELETE";
+  const discard = session.end({ kind: "discard" });
+  await settle();
+  const filed = [];
+  assert.equal(await session.end({ kind: "create", file: async () => filed.push("task") }), "busy");
+  assert.equal(await session.end({ kind: "saveForLater" }), "busy");
+  server.held.shift().release();
+  await discard;
+  assert.deepEqual(filed, []);
+  assert.deepEqual(server.writes().map((call) => [call.method, call.path]), [["PUT", "/autosave"], ["DELETE", "/autosave"]]);
+  assert.equal(session.getState().phase, "closed");
+});
+
 /* #472: a Create whose forget never reached the server. The server still holds
    the filed task as its Autosave. */
 const fileWithForgetFailing = async ({ owner = "user-1" } = {}) => {
