@@ -131,6 +131,8 @@ const clampPoints = (points: number): number => Math.max(0, Math.min(5, Math.tru
    mid-sentence. */
 const sentenceCase = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
+const inFlightKeyFor = (user: UserIdentity, createKey: string): string => `${user.id}\u0000${createKey}`;
+
 export class TaskService {
   /* Post-response fan-out currently in flight (#119), one chain per task id.
      Every entry has already had its rejection handled by `background`, so
@@ -189,21 +191,29 @@ export class TaskService {
       return this.fileNewTask(input, user, assignee);
     }
     // A retry after a browser timeout (#468) gets the task already filed; the key is stored on the task, so this survives a restart.
-    const inFlightKey = `${user.id}\u0000${createKey}`;
+    const inFlightKey = inFlightKeyFor(user, createKey);
     const inFlight = this.creatingByKey.get(inFlightKey);
     if (inFlight) {
       return inFlight;
     }
-    const filing = (async () => {
-      const filed = await this.store.findCreatedWithKey({ createKey, creatorId: user.id });
-      return filed ?? this.fileNewTask(input, user, assignee);
-    })();
+    const filing = (async () =>
+      (await this.store.findCreatedWithKey({ createKey, creatorId: user.id })) ?? this.fileNewTask(input, user, assignee))();
     this.creatingByKey.set(inFlightKey, filing);
     try {
       return await filing;
     } finally {
       this.creatingByKey.delete(inFlightKey);
     }
+  }
+
+  /* The task this creator already filed (or is filing) under `createKey`, so the
+     route can answer a retry before re-checking things that may have changed
+     since, like whether the handoff recipient is still active. */
+  async alreadyCreated(createKey: string | undefined, user: UserIdentity): Promise<LoanTask | undefined> {
+    if (!createKey) {
+      return undefined;
+    }
+    return this.creatingByKey.get(inFlightKeyFor(user, createKey)) ??this.store.findCreatedWithKey({ createKey, creatorId: user.id });
   }
 
   private async fileNewTask(input: CreateTaskInput, user: UserIdentity, assignee?: UserIdentity): Promise<LoanTask> {

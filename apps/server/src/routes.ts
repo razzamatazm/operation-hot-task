@@ -505,6 +505,11 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     try {
       const input = toCreateInput(req.body);
       const user = await getActor(req);
+      const filed = await service.alreadyCreated(input.createKey, user);
+      if (filed) {
+        res.status(201).json({ task: filed });
+        return;
+      }
       // Handoff at creation (ADR-0002): resolve the recipient so the task is
       // born assigned in one operation rather than created-then-assigned.
       // Eligibility is NOT checked here — ADR-0003 moved it into

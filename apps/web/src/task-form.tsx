@@ -163,7 +163,11 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
   /* An edit form exactly as it opened, kept so closing it can ask whether
      anything has been done to it since (#283). */
   const openedWith = useRef(form);
+  // A plain re-press of Create reuses its key (#495); a new opening, Start fresh or an import is a new task and starts clean.
   const lastCreate = useRef<CreateAttempt | null>(null);
+  useEffect(() => {
+    lastCreate.current = null;
+  }, [live?.mode]);
   /* Is the "we brought this back" line up (#285)? True for a form that opened on
      a restored draft, and false again once Start fresh has emptied it — the line
      describes where the values on screen came from, and after Start fresh they
@@ -286,6 +290,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
       return true;
     }
     const noteText = humperdinkNoteText(result.payload);
+    lastCreate.current = null;
     setForm((c) => applyImportedLoan(c, result.payload, { noteText, previousNoteText: importedNote }));
     setImportedNote(noteText);
     // Keep the typeahead in step with the name the import just wrote, and shut
@@ -448,6 +453,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
        the clears rather than land after them. */
     if (endingOut) return;
     folderNameRef.current?.focus();
+    lastCreate.current = null;
     void session?.end({ kind: "startFresh" });
     setLoanQuery("");
     setLoanSuggestOpen(false);
