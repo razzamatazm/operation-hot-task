@@ -14,6 +14,7 @@ import { TaskStore } from "../apps/server/dist/store.js";
 import { SseHub } from "../apps/server/dist/sse.js";
 import { TaskService } from "../apps/server/dist/task-service.js";
 import {
+  ACTION_LABELS,
   canHandOverRequesterTo,
   isTaskParty,
   requesterHandoverOfferRefusal,
@@ -81,6 +82,10 @@ const claimedTask = async (service, overrides = {}) => {
 
 console.log("Requester handover (#454) — TaskService sim");
 
+await check("the action is called Change Task Owner", async () => {
+  assert.equal(ACTION_LABELS.HAND_OVER_REQUESTER, "Change Task Owner");
+});
+
 await check("the requester, the assignee and an admin may each hand it over", async () => {
   for (const actor of [CREATOR, WORKER, ADMIN]) {
     const ctx = await setup();
@@ -122,7 +127,7 @@ await check("the assignee, the current requester and someone who can't raise it 
     );
   }
   assert.match(requesterHandoverRefusal(task, WORKER, ADMIN), /Sam Officer is working this task/);
-  assert.match(requesterHandoverRefusal(task, CREATOR, ADMIN), /Dana Requester is already this task's requester/);
+  assert.match(requesterHandoverRefusal(task, CREATOR, ADMIN), /Dana Requester already owns this task/);
   assert.equal((await ctx.service.getTask(task.id)).createdBy.id, CREATOR.id, "nothing moved");
 });
 
@@ -231,8 +236,7 @@ await check("history records who handed it over, from whom, to whom and when", a
   const row = history.find((e) => e.action === "REQUESTER_HANDED_OVER");
   assert.ok(row, "a handover row exists");
   assert.equal(row.by.id, WORKER.id);
-  assert.match(row.detail, /Dana Requester/);
-  assert.match(row.detail, /Riley Newbie/);
+  assert.equal(row.detail, "Task owner changed from Dana Requester to Riley Newbie by Sam Officer");
   assert.ok(!Number.isNaN(Date.parse(row.at)));
   assert.ok(history.some((e) => e.action === "TASK_CREATED" && e.by.id === CREATOR.id), "who raised it stays on record");
 });
@@ -246,10 +250,10 @@ await check("the new requester is told it's theirs and the old one who took over
   const toNew = emitted.filter((e) => e.target === "DM_REQUESTER");
   assert.equal(toNew.length, 1);
   assert.deepEqual(toNew[0].recipientUserIds, [NEWBIE.id]);
+  assert.equal(toNew[0].message, "Avery Admin made you the owner of Handover Sim");
   const toOld = emitted.filter((e) => e.target === "DM" && e.recipientUserIds?.includes(CREATOR.id));
   assert.equal(toOld.length, 1, "the old requester gets one note");
-  assert.match(toOld[0].message, /Riley Newbie/);
-  assert.match(toOld[0].message, /Avery/);
+  assert.equal(toOld[0].message, "Avery made Riley Newbie the owner of your task Handover Sim");
   const sync = emitted.filter((e) => e.target === "DM_CARD_SYNC");
   assert.ok(sync.some((e) => e.recipientUserIds?.includes(CREATOR.id)), "the old requester's cards re-render");
   assert.ok(!emitted.some((e) => e.target.startsWith("CHANNEL") || e.target === "ACTIVITY_FEED"), "no channel post");
@@ -278,7 +282,7 @@ await check("it can be handed over twice, including back to the original request
   assert.equal(again.raisedBy.id, CREATOR.id, "who first raised it is kept for display");
 });
 
-await check("an admin who takes the role themselves gets no 'made you the requester' card", async () => {
+await check("an admin who takes the role themselves gets no 'made you the owner' card", async () => {
   const ctx = await setup();
   const task = await claimedTask(ctx.service);
   const { result, emitted } = await capture(ctx, () =>

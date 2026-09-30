@@ -116,7 +116,7 @@ export const ACTION_LABELS = {
   ASSIGN: "Assign",
   REASSIGN: "Reassign",
   // Requester handover (#454). Menu-only, a rare recovery move.
-  HAND_OVER_REQUESTER: "Hand over requester"
+  HAND_OVER_REQUESTER: "Change Task Owner"
 } as const;
 
 export type ActionLabelKey = keyof typeof ACTION_LABELS;

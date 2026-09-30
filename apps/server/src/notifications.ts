@@ -468,7 +468,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
     if (event.target === "DM_REQUESTER") {
       // Requester handover (#454): the handoff's card, told as ownership of the ask.
       await this.sendTaskDetailDm(event, {
-        title: `${event.actor.displayName} made you the requester on ${formatTaskNameLine(event.task.folderName, event.task.taskType)}`,
+        title: `${event.actor.displayName} made you the owner of ${formatTaskNameLine(event.task.folderName, event.task.taskType)}`,
         withDue: true,
         withAdvance: true
       });

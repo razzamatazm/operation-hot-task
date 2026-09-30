@@ -1080,8 +1080,8 @@ const run = async () => {
       user: users.otherOfficer,
       body: { requesterUserId: users.otherOfficer.id }
     });
-    expectStatus(bystanderHandover.status, 400, "a bystander can't hand over the requester role", bystanderHandover.json);
-    assert.match(bystanderHandover.json.error ?? "", /Only this task's requester/);
+    expectStatus(bystanderHandover.status, 400, "a bystander can't change the task owner", bystanderHandover.json);
+    assert.match(bystanderHandover.json.error ?? "", /Only the task owner/);
     const toAssignee = await request(server.baseUrl, "POST", `/tasks/${fraudHandoffId}/requester`, {
       user: users.creator,
       body: { requesterUserId: users.fileChecker.id }
@@ -1092,9 +1092,9 @@ const run = async () => {
       user: users.admin,
       body: { requesterUserId: users.otherOfficer.id }
     });
-    expectStatus(handedOver.status, 200, "an admin hands over the requester role", handedOver.json);
+    expectStatus(handedOver.status, 200, "an admin changes the task owner", handedOver.json);
     assert.equal(handedOver.json.task.createdBy.id, users.otherOfficer.id);
-    pushPass("the requester role can be handed over, and the route refuses who can't");
+    pushPass("the task owner can be changed, and the route refuses who can't");
 
     /* The replacement route end to end: the creator frees a claimed task, and
        somebody else picks it up from the pool through the front door. */

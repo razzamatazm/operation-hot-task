@@ -2294,7 +2294,7 @@ export class TaskService {
         throw new Error(stillRefused);
       }
       previous = current.createdBy;
-      const detail = `Requester handed over from ${previous.displayName} to ${params.target.displayName} by ${params.actor.displayName}`;
+      const detail = `Task owner changed from ${previous.displayName} to ${params.target.displayName} by ${params.actor.displayName}`;
       return {
         task: {
           ...current,
@@ -2313,7 +2313,7 @@ export class TaskService {
           type: "TASK_STATUS_CHANGED",
           task: updated,
           actor,
-          message: `${params.actor.displayName} made you the requester on ${updated.folderName}`,
+          message: `${params.actor.displayName} made you the owner of ${updated.folderName}`,
           target: "DM_REQUESTER",
           recipientUserIds: [params.target.id]
         });
@@ -2323,7 +2323,7 @@ export class TaskService {
           type: "TASK_STATUS_CHANGED",
           task: updated,
           actor,
-          message: `${firstName(params.actor.displayName)} handed your request ${updated.folderName} to ${params.target.displayName}, who is its requester now`,
+          message: `${firstName(params.actor.displayName)} made ${params.target.displayName} the owner of your task ${updated.folderName}`,
           target: "DM",
           recipientUserIds: [previous.id]
         });

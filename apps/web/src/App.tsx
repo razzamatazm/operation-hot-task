@@ -2378,9 +2378,9 @@ const TaskCard = memo(({
       candidates={requesterCandidates}
       onAssign={(requesterUserId) => onHandOverRequester(task.id, requesterUserId)}
       withNote={false}
-      dialogLabel="Make someone else this task's requester"
-      sendingLabel="Handing over…"
-      doneToast={(name) => (name ? `${firstName(name)} is the requester now` : "Requester handed over")}
+      dialogLabel="Choose this task's new owner"
+      sendingLabel="Changing owner…"
+      doneToast={(name) => (name ? `${firstName(name)} owns this task now` : "Task owner changed")}
     />
   );
 

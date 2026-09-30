@@ -731,13 +731,13 @@ export const requesterHandoverOfferRefusal = (
   actor: UserIdentity
 ): string | undefined => {
   if (CLOSED_STATUSES.includes(task.status)) {
-    return "This task is closed — its requester can't be changed";
+    return "This task is closed — its owner can't be changed";
   }
   if (task.taskType === "OOO") {
-    return "Coverage Notes belong to the person who is out — they can't be handed over";
+    return "Coverage Notes belong to the person who is out — their owner can't be changed";
   }
   if (!isTaskParty(task, actor) && !actor.roles.includes("ADMIN")) {
-    return "Only this task's requester, whoever is working it, or an admin can hand over the requester role";
+    return "Only the task owner, whoever is working it, or an admin can change who owns this task";
   }
   return undefined;
 };
@@ -753,7 +753,7 @@ export const requesterHandoverRefusal = (
     return offer;
   }
   if (task.createdBy.id === target.id) {
-    return `${target.displayName} is already this task's requester`;
+    return `${target.displayName} already owns this task`;
   }
   if (isCurrentHolder(task, target)) {
     return `${target.displayName} is working this task — a task takes a second pair of hands`;

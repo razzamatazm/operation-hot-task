@@ -937,7 +937,7 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
       const updated = await service.handOverRequester({ taskId: task.id, target, actor });
       res.json({ task: updated });
     } catch (error) {
-      sendError(res, error, "Failed to hand over the requester role");
+      sendError(res, error, "Failed to change the task owner");
     }
   });
 
