@@ -4,13 +4,15 @@
    it (#161): there is no default-open rule, nothing derives expansion from
    status or notes, and nothing clears an override behind the viewer's back.
    One exception (#452): a card collapses once when the board sees its task
-   close — see `newlyClosedIds`. The module exists because two consumers ask the same question and must
+   close — see `newlyClosedIds`.
+
+   The module exists because two consumers ask the same question and must
    agree — `TaskCard` decides whether to render itself open, and the list
    header's "Collapse all" control (#177) needs to know which cards in view are
    open so it can sit quiet when there is nothing to collapse.
 
-   Plain TS with no JSX keeps this module runnable under node's TS type
-   stripping (shared resolves to its built dist), which is how `scripts/expand-state-sim-test.mjs` exercises it. */
+   Plain TS with no JSX, so it runs under node's TS type stripping, which is
+   how `scripts/expand-state-sim-test.mjs` exercises it. */
 import { CLOSED_STATUSES } from "@loan-tasks/shared";
 import type { LoanTask, TaskStatus } from "@loan-tasks/shared";
 

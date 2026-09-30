@@ -187,13 +187,13 @@ test("only the task that closed collapses", () => {
 });
 
 /* App wiring: the collapse rides the snapshot the green pulse already keeps,
-   and ignores a snapshot taken for a different user, so switching the mock
-   user can't read one viewer's statuses as another's transitions. */
-test("the board collapses closes from the pulse snapshot, scoped to the viewer", () => {
+   so it inherits the pulse's rules — nothing on load, and a user switch
+   clears the snapshot. */
+test("the board collapses closes from the pulse snapshot", () => {
   const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
   const start = app.indexOf("const prevStatusesRef");
   const effect = app.slice(start, app.indexOf("}, [tasks, user.id]);", start));
-  assert.match(effect, /newlyClosedIds\(/);
-  assert.match(effect, /setExpandOverrides\(\(prev\) => collapseNewlyClosed\(prev, /);
-  assert.match(effect, /prevStatusesUserRef\.current === user\.id/);
+  assert.match(effect, /newlyClosedIds\(prevStatusesRef\.current, tasks\)/);
+  assert.match(effect, /setExpandOverrides\(\(prev\) => collapseNewlyClosed\(prev, closedIds\)\)/);
+  assert.match(app, /useEffect\(\(\) => \{\s*prevStatusesRef\.current = new Map\(\);/, "a user switch clears the snapshot");
 });

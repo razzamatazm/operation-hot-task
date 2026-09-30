@@ -3958,16 +3958,10 @@ export const App = () => {
     t.status === "COMPLETED" || (t.taskType === "LOAN_DOCS" && t.status === "MERGE_DONE");
   const [pulsingIds, setPulsingIds] = useState<Set<string>>(() => new Set());
   const prevStatusesRef = useRef<Map<string, TaskStatus>>(new Map());
-  /* Whose board the snapshot was taken on. On a mock-user switch this effect
-     runs before the reset below, so without it the new viewer's first look
-     would diff against the old viewer's statuses. */
-  const prevStatusesUserRef = useRef(user.id);
   useEffect(() => {
-    /* Collapse cards whose task just closed (#452), on the same
+    /* Collapse cards whose task just closed (#452), off the same snapshot and
        seen-this-session rule as the pulse. */
-    const seen = prevStatusesUserRef.current === user.id ? prevStatusesRef.current : new Map<string, TaskStatus>();
-    const closedIds = newlyClosedIds(seen, tasks);
-    prevStatusesUserRef.current = user.id;
+    const closedIds = newlyClosedIds(prevStatusesRef.current, tasks);
     if (closedIds.length > 0) setExpandOverrides((prev) => collapseNewlyClosed(prev, closedIds));
     const next = new Map<string, TaskStatus>();
     const newlyPulsing: string[] = [];
