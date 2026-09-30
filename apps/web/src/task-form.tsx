@@ -34,6 +34,8 @@ import { NewTaskSession, useNewTaskSessionState } from "./new-task-session";
 import { InfoIcon, LockIcon, TrashIcon } from "./icons";
 import { LoanSuggestionList } from "./loan-suggestion-list";
 import { useToast } from "./toast";
+import { keyCreateAttempt } from "./create-key";
+import type { CreateAttempt } from "./create-key";
 
 /* Said to a screen reader when a Humperdink import lands, since the fields
    filling is the only other sign of it. */
@@ -161,6 +163,7 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
   /* An edit form exactly as it opened, kept so closing it can ask whether
      anything has been done to it since (#283). */
   const openedWith = useRef(form);
+  const lastCreate = useRef<CreateAttempt | null>(null);
   /* Is the "we brought this back" line up (#285)? True for a form that opened on
      a restored draft, and false again once Start fresh has emptied it — the line
      describes where the values on screen came from, and after Start fresh they
@@ -565,6 +568,8 @@ export const TaskForm = ({ loans, directory, user, tasks, onClose, onCreate, rea
       ...(assignAtCreate ? { assigneeUserId: form.recipientUserId } : {}),
       ...(assignAtCreate && form.recipientNote.trim() ? { assigneeNote: form.recipientNote.trim() } : {})
     };
+    lastCreate.current = keyCreateAttempt(lastCreate.current, payload);
+    payload.createKey = lastCreate.current.key;
 
     setSubmitting(true);
     try {

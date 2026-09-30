@@ -57,7 +57,8 @@ export const createTaskSchema = z.object({
   // Handoff at creation (ADR-0002): the task is born assigned to this user and
   // lands CLAIMED. The route resolves the id and checks recipient eligibility.
   assigneeUserId: z.string().min(1).optional(),
-  assigneeNote: z.string().max(280).optional()
+  assigneeNote: z.string().max(280).optional(),
+  createKey: z.string().min(1).max(100).optional()
 }).superRefine((value, ctx) => {
   const hasFolderName = Boolean(value.folderName?.trim());
   const hasLoanName = Boolean(value.loanName?.trim());

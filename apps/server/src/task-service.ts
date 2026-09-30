@@ -138,6 +138,10 @@ export class TaskService {
      stays bounded by the number of tasks being acted on right now. */
   private readonly backgroundChains = new Map<string, Promise<void>>();
 
+  /* Creates still filing, by creator and `createKey` (#495), so a retry that
+     lands mid-write joins the first attempt instead of racing it. */
+  private readonly creatingByKey = new Map<string, Promise<LoanTask>>();
+
   constructor(
     private readonly store: TaskStore,
     private readonly notifier: NotificationProvider,
@@ -180,6 +184,29 @@ export class TaskService {
        recipient's live roles. */
     assignee?: UserIdentity
   ): Promise<LoanTask> {
+    const { createKey } = input;
+    if (!createKey) {
+      return this.fileNewTask(input, user, assignee);
+    }
+    // A retry after a browser timeout (#468) gets the task already filed; the key is stored on the task, so this survives a restart.
+    const inFlightKey = `${user.id}\u0000${createKey}`;
+    const inFlight = this.creatingByKey.get(inFlightKey);
+    if (inFlight) {
+      return inFlight;
+    }
+    const filing = (async () => {
+      const filed = await this.store.findCreatedWithKey({ createKey, creatorId: user.id });
+      return filed ?? this.fileNewTask(input, user, assignee);
+    })();
+    this.creatingByKey.set(inFlightKey, filing);
+    try {
+      return await filing;
+    } finally {
+      this.creatingByKey.delete(inFlightKey);
+    }
+  }
+
+  private async fileNewTask(input: CreateTaskInput, user: UserIdentity, assignee?: UserIdentity): Promise<LoanTask> {
     const now = new Date();
     const isOoo = input.taskType === "OOO";
     const urgency = isOoo ? "GREEN" : input.urgency ?? "GREEN";
@@ -263,6 +290,7 @@ export class TaskService {
 
     const task: LoanTask = {
       id: uuid(),
+      ...(input.createKey ? { createKey: input.createKey } : {}),
       ...(loanId ? { loanId } : {}),
       folderName: resolvedFolderName,
       loanName: resolvedFolderName,

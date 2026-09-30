@@ -70,7 +70,8 @@ const toCreateInput = (body: unknown) => {
     ...(parsed.humperdinkLink ? { humperdinkLink: parsed.humperdinkLink } : {}),
     ...(parsed.initialItems && parsed.initialItems.length > 0 ? { initialItems: parsed.initialItems } : {}),
     ...(parsed.assigneeUserId ? { assigneeUserId: parsed.assigneeUserId } : {}),
-    ...(parsed.assigneeUserId && parsed.assigneeNote?.trim() ? { assigneeNote: parsed.assigneeNote.trim() } : {})
+    ...(parsed.assigneeUserId && parsed.assigneeNote?.trim() ? { assigneeNote: parsed.assigneeNote.trim() } : {}),
+    ...(parsed.createKey ? { createKey: parsed.createKey } : {})
   };
 };
 
