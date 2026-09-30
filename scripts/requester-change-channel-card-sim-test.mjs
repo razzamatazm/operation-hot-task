@@ -54,7 +54,7 @@ const handedOver = (status, over = {}) =>
   liveTask(status, { createdBy: RILEY, requesterChange: { by: AVERY.displayName, from: DANA.displayName, to: RILEY.displayName }, ...over });
 
 const setup = async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "owner-change-card-sim-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "requester-change-card-sim-"));
   const dataFile = path.join(dir, "bot-references.json");
   const reference = {
     serviceUrl: "https://example.invalid",
@@ -123,7 +123,7 @@ await check("an open task's card is edited in place to name the new owner, with 
   await notify("CHANNEL", liveTask("OPEN"), DANA);
   assert.equal(headline(cardOf(posted[0])), "Dana needs an LOI checked");
 
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("OPEN"), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN"), AVERY);
   assert.equal(posted.length, 1, "no new post");
   assert.equal(replies.length, 0, "no thread reply");
   const card = cardOf(updated.at(-1));
@@ -137,7 +137,7 @@ await check("on an open task the Cancel view moves from the old owner to the new
   await notify("CHANNEL", liveTask("OPEN"), DANA);
   assert.deepEqual(cardOf(posted[0]).refresh.userIds, ["29:dana"]);
 
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("OPEN"), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN"), AVERY);
   assert.deepEqual(cardOf(updated.at(-1)).refresh.userIds, ["29:riley"], "only the new owner is fetched a personal view");
 
   const riley = await client.handleRefreshCard("task-1", RILEY.id);
@@ -156,7 +156,7 @@ await check("a claimed task's card names the new owner and carries the note, sti
   await notify("CHANNEL", liveTask("OPEN"), DANA);
   await notify("CHANNEL_CLAIMED", liveTask("CLAIMED", { assignee: CASEY }), CASEY);
 
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("CLAIMED", { assignee: CASEY }), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("CLAIMED", { assignee: CASEY }), AVERY);
   assert.equal(posted.length, 1);
   assert.equal(replies.length, 0);
   const card = cardOf(updated.at(-1));
@@ -168,7 +168,7 @@ await check("a claimed task's card names the new owner and carries the note, sti
 await check("every later edit, repost, nag and refresh keeps the new owner and the note", async () => {
   const { client, posted, updated, notify } = await setup();
   await notify("CHANNEL", liveTask("OPEN"), DANA);
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("OPEN"), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN"), AVERY);
 
   await notify("CHANNEL_NAG", handedOver("OPEN"), AVERY, "Nobody's taken Riley's LOI Check on Smith-1042 after 30 minutes, who's got it?");
   const nag = cardOf(posted.at(-1));
@@ -201,12 +201,12 @@ await check("every later edit, repost, nag and refresh keeps the new owner and t
 await check("two owner changes in a row show only the latest", async () => {
   const { updated, notify } = await setup();
   await notify("CHANNEL", liveTask("OPEN"), DANA);
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("OPEN"), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN"), AVERY);
   const second = liveTask("OPEN", {
     createdBy: PAT,
     requesterChange: { by: RILEY.displayName, from: RILEY.displayName, to: PAT.displayName }
   });
-  await notify("CHANNEL_OWNER_CHANGED", second, RILEY);
+  await notify("CHANNEL_REQUESTER_CHANGED", second, RILEY);
   const card = cardOf(updated.at(-1));
   assert.equal(headline(card), "Pat needs an LOI checked");
   assert.ok(texts(card).includes("Riley changed the owner from Riley to Pat"));
@@ -216,15 +216,22 @@ await check("two owner changes in a row show only the latest", async () => {
 
 await check("a task with no channel post is left alone", async () => {
   const { posted, updated, replies, notify } = await setup();
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("CLAIMED", { assignee: CASEY }), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("CLAIMED", { assignee: CASEY }), AVERY);
   assert.equal(posted.length + updated.length + replies.length, 0);
+});
+
+await check("a card first recorded by a pool nag still takes the new owner's headline", async () => {
+  const { updated, notify } = await setup();
+  await notify("CHANNEL_NAG", liveTask("OPEN"), DANA, "Nobody's taken Dana's LOI Check on Smith-1042 after 30 minutes, who's got it?");
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN"), AVERY);
+  assert.equal(headline(cardOf(updated.at(-1))), "Riley needs an LOI checked");
 });
 
 await check("a released card's headline, which names no owner, is kept", async () => {
   const { updated, notify } = await setup();
   await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
   await notify("CHANNEL_RELEASED", liveTask("AWAITING_ITEMS", { taskType: "FRAUD" }), CASEY);
-  await notify("CHANNEL_OWNER_CHANGED", handedOver("OPEN", { taskType: "FRAUD" }), AVERY);
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("OPEN", { taskType: "FRAUD" }), AVERY);
   const card = cardOf(updated.at(-1));
   assert.equal(headline(card), "Smith-1042 needs a new file checker");
   assert.ok(texts(card).includes(NOTE));

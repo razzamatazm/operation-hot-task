@@ -2330,7 +2330,7 @@ export class TaskService {
         });
       }
       // Silent in-place edit of the channel card: new owner, change note (#512).
-      await this.notify({ type: "TASK_STATUS_CHANGED", task: updated, actor, message: "", target: "CHANNEL_OWNER_CHANGED" });
+      await this.notify({ type: "TASK_STATUS_CHANGED", task: updated, actor, message: "", target: "CHANNEL_REQUESTER_CHANGED" });
       // The old requester's cards still offer requester buttons; re-render them.
       await this.emitCardSync(updated, [previous.id]);
       await this.evaluateActivitySignals({ now: new Date(now), alertOnNewSignals: false });

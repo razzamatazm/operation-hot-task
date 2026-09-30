@@ -257,7 +257,7 @@ await check("the new requester is told it's theirs and the old one who took over
   const sync = emitted.filter((e) => e.target === "DM_CARD_SYNC");
   assert.ok(sync.some((e) => e.recipientUserIds?.includes(CREATOR.id)), "the old requester's cards re-render");
   const channel = emitted.filter((e) => e.target.startsWith("CHANNEL") || e.target === "ACTIVITY_FEED");
-  assert.deepEqual(channel.map((e) => e.target), ["CHANNEL_OWNER_CHANGED"], "one in-place card edit, no post or reply");
+  assert.deepEqual(channel.map((e) => e.target), ["CHANNEL_REQUESTER_CHANGED"], "one in-place card edit, no post or reply");
   assert.deepEqual(channel[0].task.requesterChange, { by: "Avery Admin", from: "Dana Requester", to: "Riley Newbie" });
 });
 

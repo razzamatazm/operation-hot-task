@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, RequesterChange, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatOwnerChangedLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
+import { ACTION_LABELS, CLOSED_STATUSES, ChannelCardContext,FraudCardAction, LoanTask, RequesterChange, TASK_TYPE_LABELS, TaskCardRecipient, TaskStatus, TaskType, URGENCY_TIMEFRAMES, UserIdentity, botAdvanceFor, formatBornAssignedHeadline, formatCancelledHeadline, formatClaimedHeadline, formatCompletedHeadline, formatHumperdinkCardLine, formatRequesterChangedLine, formatPoops, formatTaskNameLine, formatWallDate, fraudCardActions, noteBodyText, statusDisplayName, withClaimIntent } from "@loan-tasks/shared";
 import { Activity, ActivityHandler, BotFrameworkAdapter, CardFactory, ConversationAccount, ConversationParameters, ConversationReference, InvokeResponse, MessageFactory, TeamsInfo, TextFormatTypes, TurnContext } from "botbuilder";
 import { Express } from "express";
 import { taskDeepLink } from "./deep-link.js";
@@ -690,7 +690,7 @@ const adaptiveTaskCard = (opts: { title: string; detail: string; taskId: string;
     body: [
       { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
       { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true },
-      ...ownerChangeBlocks(opts.requesterChange)
+      ...requesterChangeBlocks(opts.requesterChange)
     ],
     actions: [
       claimUrl
@@ -714,7 +714,7 @@ const creatorTaskCard = (opts: { title: string; detail: string; taskId: string; 
     body: [
       { type: "TextBlock", text: opts.title, weight: "Bolder", wrap: true, size: "Medium" },
       { type: "TextBlock", text: opts.detail, wrap: true, spacing: "Small", isSubtle: true },
-      ...ownerChangeBlocks(opts.requesterChange),
+      ...requesterChangeBlocks(opts.requesterChange),
       { type: "TextBlock", text: "Your task — cancel it if it's no longer needed.", wrap: true, spacing: "Small", isSubtle: true }
     ],
     actions: [
@@ -744,8 +744,8 @@ const nameBlock = (context: ChannelCardContext): Record<string, unknown> => ({
 
 /* The latest owner change, as a subtle line (#512). Every channel card state
    renders it from the live task, so no later edit or refresh drops it. */
-const ownerChangeBlocks = (change: RequesterChange | undefined): Record<string, unknown>[] =>
-  change ? [{ type: "TextBlock", text: formatOwnerChangedLine(change), wrap: true, spacing: "Small", isSubtle: true }] : [];
+const requesterChangeBlocks = (change: RequesterChange | undefined): Record<string, unknown>[] =>
+  change ? [{ type: "TextBlock", text: formatRequesterChangedLine(change), wrap: true, spacing: "Small", isSubtle: true }] : [];
 
 /* Card the original message is refreshed to after a successful claim — the
    Claim button is gone so the task can't be double-claimed from the card, but
@@ -763,7 +763,7 @@ const claimedCard = (params: {
   body: [
     { type: "TextBlock", text: params.message, weight: "Bolder", wrap: true, size: "Medium" },
     nameBlock(params.context),
-    ...ownerChangeBlocks(params.context.requesterChange)
+    ...requesterChangeBlocks(params.context.requesterChange)
   ],
   ...openUrlAction(params.openUrl)
 });
@@ -800,7 +800,7 @@ const completedCard = (context: ChannelCardContext, openUrl?: string): Record<st
   body: [
     { type: "TextBlock", text: formatCompletedHeadline(context.assignee, context.createdBy, context.taskType), weight: "Bolder", wrap: true, size: "Medium" },
     nameBlock(context),
-    ...ownerChangeBlocks(context.requesterChange)
+    ...requesterChangeBlocks(context.requesterChange)
   ],
   ...openUrlAction(openUrl)
 });
@@ -816,7 +816,7 @@ const cancelledCard = (context: ChannelCardContext, openUrl?: string): Record<st
   body: [
     { type: "TextBlock", text: formatCancelledHeadline(context.createdBy, context.taskType), weight: "Bolder", wrap: true, size: "Medium" },
     nameBlock(context),
-    ...ownerChangeBlocks(context.requesterChange)
+    ...requesterChangeBlocks(context.requesterChange)
   ],
   ...openUrlAction(openUrl)
 });
@@ -2007,10 +2007,10 @@ export class TeamsBotClient {
   /* A requester handover (#512), modelled on `correctChannelCard`: rewrite the
      snapshot, then edit the posted card(s) in place into the task's current
      shape. The refresh ids are re-resolved so the Cancel view follows the new
-     owner. The title is swapped only while it is the old owner's headline; a
-     released card's headline names nobody and stays. The change note itself is
-     read from the live task by every card builder. */
-  async markOwnerChanged(taskId: string, content: { title: string; previousTitle: string; creatorAadObjectId: string }): Promise<void> {
+     requester. The title is swapped unless it is `keepTitle`, the released
+     headline, which names nobody. The change note itself is read from the live
+     task by every card builder. */
+  async markRequesterChanged(taskId: string, content: { title: string; keepTitle: string; creatorAadObjectId: string }): Promise<void> {
     const thread = await this.threads.get(taskId);
     if (!thread?.card) {
       return;
@@ -2018,7 +2018,7 @@ export class TeamsBotClient {
     const creatorUserIds = await this.resolveCreatorUserIds(content.creatorAadObjectId);
     const card: NonNullable<StoredThread["card"]> = {
       ...thread.card,
-      title: thread.card.title === content.previousTitle ? content.title : thread.card.title,
+      title: thread.card.title === content.keepTitle ? thread.card.title : content.title,
       creatorUserIds
     };
     await this.threads.save({ ...thread, card });

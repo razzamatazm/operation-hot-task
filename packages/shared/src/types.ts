@@ -162,7 +162,7 @@ export const formatCancelledHeadline = (creatorName: string, taskType: TaskType)
 
 /* The note a channel card carries once its owner has changed (#512). The same
    shape whoever made the change, even the old or new owner themselves. */
-export const formatOwnerChangedLine = (change: RequesterChange): string =>
+export const formatRequesterChangedLine = (change: RequesterChange): string =>
   `${firstName(change.by)} changed the owner from ${firstName(change.from)} to ${firstName(change.to)}`;
 
 /* The task, named the way every Teams card names it: the file name (an OOO
@@ -667,9 +667,9 @@ export interface NotificationEvent {
 
      CHANNEL_ASSIGNED is the handoff's edit of the root channel card (ADR-0002):
      the new holder named, the Claim button gone. Like CHANNEL_CLAIMED it posts
-     nothing and pings nobody. CHANNEL_OWNER_CHANGED is the same silent edit
+     nothing and pings nobody. CHANNEL_REQUESTER_CHANGED is the same silent edit
      for a requester handover (#512). */
-  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_REQUESTER" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_ASSIGNED" | "CHANNEL_OWNER_CHANGED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
+  target: "IN_APP" | "DM" | "DM_NOTE" | "DM_CHAT_SEED" | "DM_SHARE" | "DM_ASSIGN" | "DM_REQUESTER" | "DM_CARD_SYNC" | "CARD_CORRECTION" | "CHANNEL" | "CHANNEL_THREAD" | "CHANNEL_CLAIMED" | "CHANNEL_ASSIGNED" | "CHANNEL_REQUESTER_CHANGED" | "CHANNEL_COMPLETED" | "CHANNEL_CANCELLED" | "CHANNEL_REOPENED" | "CHANNEL_RELEASED" | "CHANNEL_NAG" | "ACTIVITY_FEED";
   recipientUserIds?: string[];
   /* What this task's loan was called a moment ago, carried only on
      CARD_CORRECTION (#280). A card records the values it was rendered with, and
