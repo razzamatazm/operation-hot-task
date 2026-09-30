@@ -2362,7 +2362,7 @@ const TaskCard = memo(({
     <button
       type="button"
       className="btn-sm btn-ghost"
-      onClick={() => { closeMenu(); onEditTask(task.id); }}
+      onClick={() => { menuTriggerRef.current?.focus(); closeMenu(); onEditTask(task.id); }}
     >
       Edit Task
     </button>
