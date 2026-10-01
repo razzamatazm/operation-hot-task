@@ -2009,10 +2009,9 @@ export class TeamsBotClient {
   /* A requester handover (#512), modelled on `correctChannelCard`: rewrite the
      snapshot, then edit the posted card(s) in place into the task's current
      shape. The refresh ids are re-resolved so the Cancel view follows the new
-     requester. The title is swapped unless it is `keepTitle`, the released
-     headline, which names nobody. The change note itself is read from the live
-     task by every card builder. */
-  async markRequesterChanged(taskId: string, content: { title: string; keepTitle: string; creatorAadObjectId: string }): Promise<void> {
+     requester. The change note itself is read from the live task by every card
+     builder. */
+  async markRequesterChanged(taskId: string, content: { title: string; creatorAadObjectId: string }): Promise<void> {
     const thread = await this.threads.get(taskId);
     if (!thread?.card) {
       return;
@@ -2020,7 +2019,7 @@ export class TeamsBotClient {
     const creatorUserIds = await this.resolveCreatorUserIds(content.creatorAadObjectId);
     const card: NonNullable<StoredThread["card"]> = {
       ...thread.card,
-      title: thread.card.title === content.keepTitle ? thread.card.title : content.title,
+      title: content.title,
       creatorUserIds
     };
     await this.threads.save({ ...thread, card });
@@ -2097,7 +2096,12 @@ export class TeamsBotClient {
     const storedCard = { title: card.title, detail: card.detail, ...(card.openUrl ? { openUrl: card.openUrl } : {}), creatorUserIds };
     if (posts.length === 0) {
       // No new thread could be posted — fall back to flipping the old card back
-      // to claimable so the Claim button at least returns somewhere.
+      // to claimable so the Claim button at least returns somewhere, and record
+      // what it now says so a later edit starts from it (#516).
+      const thread = await this.threads.get(taskId);
+      if (thread) {
+        await this.threads.save({ ...thread, card: { ...thread.card, ...storedCard } });
+      }
       await this.updateTaskCard(taskId, claimable);
       return;
     }

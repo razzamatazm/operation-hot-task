@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatBornAssignedHeadline, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, taskCardRecipients } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatBornAssignedHeadline, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, isUnclaimed, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, channelCardContext, loanCardValues, noteCardDetailsFromTask, recentNoteThread, taskFactLines } from "./bot.js";
@@ -12,6 +12,11 @@ export interface NotificationProvider {
      #41 share) report delivered-vs-not instead of dropping silently. */
   canReachDm(userId: string): Promise<boolean>;
 }
+
+/* A Fraud Check whose checker let it go partway (#516): nobody holds it, but
+   its status is still one of the live fraud phases a release leaves it in. */
+const isReleasedFraudCheck = (task: NotificationEvent["task"]): boolean =>
+  task.taskType === "FRAUD" && isUnclaimed(task) && FRAUD_RELEASE_PHASE[task.status] !== undefined;
 
 const sendWebhook = async (payload: { title: string; text: string }): Promise<void> => {
   if (!config.webhookUrl) {
@@ -64,7 +69,12 @@ export class TeamsNotificationProvider implements NotificationProvider {
      re-open as it did at creation, regardless of who triggered the change. */
   private buildChannelCard(task: NotificationEvent["task"]): { title: string; detail: string; summary: string; openUrl?: string } {
     const openUrl = taskDeepLink(task.id, task.folderName);
-    const headline = formatNewTaskHeadline(firstName(task.createdBy.displayName), task.taskType);
+    /* A released Fraud Check keeps the released headline through every refresh
+       (#516). Read from the live task, so a rename or an owner change can't
+       mistake it for a new request whatever the stored card last said. */
+    const headline = isReleasedFraudCheck(task)
+      ? formatReleasedHeadline(task.folderName)
+      : formatNewTaskHeadline(firstName(task.createdBy.displayName), task.taskType);
     if (task.taskType === "OOO") {
       return {
         title: formatOooHeadline(task.createdBy.displayName, task.startDate ?? task.dueAt, task.returnDate ?? task.dueAt),
@@ -299,7 +309,7 @@ export class TeamsNotificationProvider implements NotificationProvider {
       // The name line stays first, where a loan rename looks for it.
       const [nameLine, ...facts] = card.detail.split("\n");
       await this.botClient.repostReopenedTask(event.task.id, {
-        title: formatReleasedHeadline(event.task.folderName),
+        title: card.title,
         detail: phase ? [nameLine, `Picks up at: ${phase}`, ...facts].join("\n") : card.detail,
         folder: event.task.folderName,
         creatorAadObjectId: event.task.createdBy.id,
@@ -333,10 +343,9 @@ export class TeamsNotificationProvider implements NotificationProvider {
 
     if (event.target === "CHANNEL_REQUESTER_CHANGED") {
       /* A requester handover (#512): the same silent edit, naming the new
-         requester. A released card's headline names nobody, so it is kept. */
+         requester. A released card's headline names nobody, so it stays. */
       await this.botClient.markRequesterChanged(event.task.id, {
         title: this.buildChannelCard(event.task).title,
-        keepTitle: formatReleasedHeadline(event.task.folderName),
         creatorAadObjectId: event.task.createdBy.id
       });
       return;

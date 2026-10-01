@@ -82,9 +82,14 @@ const setup = async () => {
   const updated = [];
   const replies = [];
   let nextId = 0;
+  // Teams refusing new threads, so a release repost falls back to an in-place edit (#516).
+  const threads = { failing: false };
   client.adapter.createConnectorClient = () => ({
     conversations: {
       createConversation: async (params) => {
+        if (threads.failing) {
+          throw new Error("Teams refused the new thread");
+        }
         nextId += 1;
         posted.push({ params, activity: params.activity });
         return { id: `19:thread-${nextId}`, activityId: `activity-${nextId}` };
@@ -113,7 +118,7 @@ const setup = async () => {
     live = task;
     await notifier.notify({ type: "TASK_STATUS_CHANGED", task, actor, message, target, createdAt: new Date().toISOString() });
   };
-  return { client, posted, updated, replies, notify };
+  return { client, posted, updated, replies, notify, threads };
 };
 
 console.log("Owner change channel card sim (#512)");
@@ -248,5 +253,48 @@ for (const status of ["CLAIMED", "AWAITING_ITEMS", "PENDING_APPROVAL"]) {
     assert.ok(texts(dana).includes(NOTE));
   });
 }
+
+/* #516: the released headline is read from the live task, so it survives a
+   release whose fresh thread couldn't be posted, and a loan rename. */
+await check("a released Fraud Check whose repost fell back keeps its released headline through an owner change", async () => {
+  const { client, posted, updated, notify, threads } = await setup();
+  await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
+  await notify("CHANNEL_CLAIMED", liveTask("CLAIMED", { taskType: "FRAUD", assignee: CASEY }), CASEY);
+  threads.failing = true;
+  await notify("CHANNEL_RELEASED", liveTask("AWAITING_ITEMS", { taskType: "FRAUD" }), CASEY);
+  assert.equal(posted.length, 1, "no fresh thread");
+  assert.equal(headline(cardOf(updated.at(-1))), "Smith-1042 needs a new file checker", "the fallback edit");
+  const refreshed = await client.handleRefreshCard("task-1", PAT.id);
+  assert.equal(headline(refreshed), "Smith-1042 needs a new file checker", "the recorded card matches the fallback edit");
+
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("AWAITING_ITEMS", { taskType: "FRAUD" }), AVERY);
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "Smith-1042 needs a new file checker");
+  assert.ok(texts(card).includes(NOTE));
+  assert.ok(actionTitles(card).some((title) => /Claim/.test(title)), "still claimable");
+});
+
+const rename = async (notify, task) =>
+  notify("CARD_CORRECTION", task, { id: "system", displayName: "Hot Task" });
+
+await check("a released Fraud Check renamed afterwards reads the new name in its released headline", async () => {
+  const { updated, notify } = await setup();
+  await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
+  await notify("CHANNEL_RELEASED", liveTask("CLAIMED", { taskType: "FRAUD" }), CASEY);
+  await rename(notify, liveTask("CLAIMED", { taskType: "FRAUD", folderName: "Smith-2000" }));
+  const card = cardOf(updated.at(-1));
+  assert.equal(headline(card), "Smith-2000 needs a new file checker");
+  assert.match(texts(card)[1], /^Smith-2000 - Fraud Check\nPicks up at: the initial pass/);
+
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("CLAIMED", { taskType: "FRAUD", folderName: "Smith-2000" }), AVERY);
+  assert.equal(headline(cardOf(updated.at(-1))), "Smith-2000 needs a new file checker", "an owner change after the rename");
+});
+
+await check("a rename leaves an unreleased task's headline as it was", async () => {
+  const { updated, notify } = await setup();
+  await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
+  await rename(notify, liveTask("OPEN", { taskType: "FRAUD", folderName: "Smith-2000" }));
+  assert.equal(headline(cardOf(updated.at(-1))), "Dana needs a Fraud Check");
+});
 
 console.log(`\n${passed} passed`);
