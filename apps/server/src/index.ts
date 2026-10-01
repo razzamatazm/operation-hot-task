@@ -200,15 +200,15 @@ const bootstrap = async (): Promise<void> => {
     console.log(`bot_enabled=${botClient.isEnabled()}`);
   });
 
-  process.on("SIGTERM", () => {
+  /* close() alone waits on open live streams, which never end on their own,
+     so a restart hung until the platform force-killed the process. */
+  const shutdown = (): void => {
     clearInterval(scheduler);
     server.close();
-  });
-
-  process.on("SIGINT", () => {
-    clearInterval(scheduler);
-    server.close();
-  });
+    server.closeAllConnections();
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 };
 
 bootstrap().catch((error) => {
