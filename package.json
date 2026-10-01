@@ -47,6 +47,7 @@
     "test:auth-token": "node --test scripts/auth-token-sim-test.mjs",
     "test:request-timeout": "node --test scripts/request-timeout-sim-test.mjs",
     "test:task-snapshot-merge": "node --test scripts/task-snapshot-merge-sim-test.mjs",
+    "pretest:stream-ticket": "node scripts/assert-dist-fresh.mjs",
     "test:stream-ticket": "node --test scripts/stream-ticket-sim-test.mjs",
     "test:expand-state": "node --test scripts/expand-state-sim-test.mjs",
     "test:move-focus": "node --test scripts/move-focus-sim-test.mjs",

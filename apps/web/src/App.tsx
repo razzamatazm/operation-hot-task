@@ -4338,14 +4338,28 @@ export const App = () => {
   useEffect(() => {
     /* Same gate as the task fetch: the ticket request needs a signed-in person. */
     if (!user.id) return;
-    return openLiveStream({
+    /* A reconnect reloads the list. The board's copies predate the gap, so only
+       changes streamed while the reload is in flight may override it. */
+    const reloadsInFlight = new Set<Map<string, LoanTask>>();
+    let stopped = false;
+    const stop = openLiveStream({
       fetchTicket: () => apiRequest<{ ticket: string }>("/stream-ticket", { method: "POST" }, user).then((data) => data.ticket),
       connect: (ticket) => new EventSource(`${API_BASE}/stream?ticket=${encodeURIComponent(ticket)}`),
       onReconnected: () => {
-        refresh().catch(() => {});
+        const streamedDuringReload = new Map<string, LoanTask>();
+        reloadsInFlight.add(streamedDuringReload);
+        apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user)
+          .then((data) => {
+            if (stopped) return;
+            setTasks(mergeTaskSnapshot([...streamedDuringReload.values()], data.tasks));
+            setError(null);
+          })
+          .catch(() => {})
+          .finally(() => reloadsInFlight.delete(streamedDuringReload));
       },
       onTaskChanged: (data) => {
         const incoming = JSON.parse(data) as LoanTask;
+        for (const streamedDuringReload of reloadsInFlight) streamedDuringReload.set(incoming.id, incoming);
         setTasks((current) => {
           const idx = current.findIndex((t) => t.id === incoming.id);
           if (idx === -1) return [incoming, ...current];
@@ -4355,6 +4369,10 @@ export const App = () => {
         });
       }
     });
+    return () => {
+      stopped = true;
+      stop();
+    };
   }, [user.id]);
 
   /* Create-form submit seam (issue #72). <TaskForm> owns the form state

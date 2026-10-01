@@ -47,3 +47,23 @@ test("a task created after the list was read is kept, newest first", () => {
   const merged = mergeTaskSnapshot([created], snapshot);
   assert.deepEqual(merged.map((t) => t.id), ["new", "a"]);
 });
+
+/* After a stream reconnect the board reloads the list (#519 review). Only what
+   streamed in during that reload may override it: the board's own copies are
+   from before the gap, so a rename missed in the gap must come from the list. */
+test("a reconnect reload merges only what streamed during it", () => {
+  const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /setTasks\(mergeTaskSnapshot\(\[\.\.\.streamedDuringReload\.values\(\)\], data\.tasks\)\)/);
+  assert.match(app, /streamedDuringReload\.set\(incoming\.id, incoming\)/);
+});
+
+test("a rename missed in the gap comes from the list; a change during the reload is kept", () => {
+  const listed = [
+    task("renamed", "2026-10-01T10:00:00.000Z", { loanName: "New name" }),
+    task("changed", "2026-10-01T10:00:00.000Z", { status: "OPEN" })
+  ];
+  const streamedDuringReload = [task("changed", "2026-10-01T10:06:00.000Z", { status: "CLAIMED" })];
+  const merged = mergeTaskSnapshot(streamedDuringReload, listed);
+  assert.equal(merged.find((t) => t.id === "renamed").loanName, "New name");
+  assert.equal(merged.find((t) => t.id === "changed").status, "CLAIMED");
+});
