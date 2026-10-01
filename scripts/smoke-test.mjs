@@ -494,7 +494,7 @@ const run = async () => {
     });
     expectStatus(reclaimByOther.status, 200, "claim by other officer", reclaimByOther.json);
 
-    const details = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}`);
+    const details = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}`, { user: users.creator });
     expectStatus(details.status, 200, "task details", details.json);
     assert.ok(Array.isArray(details.json.allowedTransitions), "allowedTransitions must be returned");
     pushPass("task details returns allowed transitions");
@@ -630,7 +630,7 @@ const run = async () => {
     expectStatus(reopened.status, 200, "creator reopens completed task", reopened.json);
     assert.equal(reopened.json.task.status, "CLAIMED", "reopened task retains assignee as CLAIMED");
     assert.equal(reopened.json.task.reopenedFrom, "COMPLETED", "reopen remembers prior closed status");
-    const reopenedDetails = await request(server.baseUrl, "GET", `/tasks/${restoreId}`);
+    const reopenedDetails = await request(server.baseUrl, "GET", `/tasks/${restoreId}`, { user: users.creator });
     assert.ok(
       reopenedDetails.json.allowedTransitions.includes("COMPLETED"),
       "restore target is offered as an allowed transition"
@@ -1887,6 +1887,13 @@ const run = async () => {
     const directoryOnSso = await request(ssoServer.baseUrl, "GET", "/users/directory");
     expectStatus(directoryOnSso.status, 401, "directory needs a token with SSO configured", directoryOnSso.json);
     pushPass("the dev roster route does not exist once SSO is configured");
+
+    // Task and loan reads used to answer anyone who knew the address.
+    for (const path of ["/tasks", "/tasks/any-id", "/tasks/any-id/history", "/loans", "/loans/any-id"]) {
+      const anonymous = await request(ssoServer.baseUrl, "GET", path);
+      expectStatus(anonymous.status, 401, `${path} needs a token with SSO configured`, anonymous.json);
+    }
+    pushPass("task and loan reads need a token once SSO is configured");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {

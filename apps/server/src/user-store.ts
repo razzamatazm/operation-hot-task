@@ -37,6 +37,20 @@ const toIdentity = (user: PersistedUser): UserIdentity => ({
   ...(user.email ? { email: user.email } : {})
 });
 
+/* How stale "last seen" may get before a request saves a new one. The admin
+   list shows it as "N minutes ago", so five minutes is invisible there. */
+const LAST_SEEN_RESOLUTION_MS = 5 * 60_000;
+
+/* Everything but `lastSeenAt`. */
+const sameUser = (a: PersistedUser, b: PersistedUser): boolean =>
+  a.displayName === b.displayName &&
+  a.email === b.email &&
+  a.active === b.active &&
+  a.createdAt === b.createdAt &&
+  a.teamsUserId === b.teamsUserId &&
+  a.roles.length === b.roles.length &&
+  a.roles.every((role, i) => role === b.roles[i]);
+
 /* Built on `JsonFile`, so a lookup waits behind a save (#339). That matters
    here more than it looks: the user record is saved on every authenticated
    request, so a lookup landing mid-save — and failing that request — was not a
@@ -106,12 +120,18 @@ export class UserStore {
         ...(existing?.teamsUserId ? { teamsUserId: existing.teamsUserId } : {})
       };
 
+      resolved = toIdentity(record);
+      /* Nothing but a fresh "last seen" to write: skip the save. The board
+         fires several requests at once on load, and each one rewriting the
+         file kept them queued behind each other. */
+      if (existing && sameUser(existing, record) && Date.parse(now) - Date.parse(existing.lastSeenAt) < LAST_SEEN_RESOLUTION_MS) {
+        return undefined;
+      }
       if (index >= 0) {
         data.users[index] = record;
       } else {
         data.users.push(record);
       }
-      resolved = toIdentity(record);
       return data;
     });
     return resolved;

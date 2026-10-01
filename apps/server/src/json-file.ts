@@ -88,9 +88,26 @@ export class JsonFile<T> {
     });
   }
 
+  /* Re-reading every file on every request was most of a request's time on
+     Azure, where the data directory is a network share. A stat is one cheap
+     round trip; the text is only fetched again when size or mtime moved, so a
+     file a test or an operator rewrites underneath the server is still seen. */
+  private async readText(): Promise<string> {
+    const stat = await fs.stat(this.filePath);
+    const cached = this.cached;
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.text;
+    }
+    const text = await fs.readFile(this.filePath, "utf8");
+    this.cached = { text, mtimeMs: stat.mtimeMs, size: stat.size };
+    return text;
+  }
+
+  private cached: { text: string; mtimeMs: number; size: number } | null = null;
+
   private async load(): Promise<T> {
     try {
-      const parsed: unknown = JSON.parse(await fs.readFile(this.filePath, "utf8"));
+      const parsed: unknown = JSON.parse(await this.readText());
       return this.options.decode ? this.options.decode(parsed) : (parsed as T);
     } catch (error) {
       if (this.options.lenient) {
@@ -102,7 +119,11 @@ export class JsonFile<T> {
 
   private async save(value: T): Promise<void> {
     const encoded = this.options.encode ? this.options.encode(value) : value;
-    await fs.writeFile(this.filePath, JSON.stringify(encoded, null, 2), "utf8");
+    const text = JSON.stringify(encoded, null, 2);
+    this.cached = null;
+    await fs.writeFile(this.filePath, text, "utf8");
+    const stat = await fs.stat(this.filePath);
+    this.cached = { text, mtimeMs: stat.mtimeMs, size: stat.size };
   }
 
   /* One operation at a time, in call order. The chain is kept settled and

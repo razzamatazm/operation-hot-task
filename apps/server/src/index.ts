@@ -1,6 +1,7 @@
 import { config as appConfig } from "./config.js";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { ActivityFeedStateStore } from "./activity-feed-state.js";
+import compression from "compression";
 import cors from "cors";
 import express from "express";
 import fs from "node:fs";
@@ -143,6 +144,15 @@ const bootstrap = async (): Promise<void> => {
     })
     .catch((error) => console.error("handoff_card_repair_failed", error));
 
+  /* The app's code, styles and task list went out uncompressed: about three
+     times the bytes. The event stream is left alone, since compressing it
+     buffers events instead of sending them as they happen. */
+  app.use(
+    compression({
+      filter: (req, res) =>
+        !String(res.getHeader("Content-Type") ?? "").startsWith("text/event-stream") && compression.filter(req, res)
+    })
+  );
   app.use(cors());
   app.use(express.json());
 
@@ -161,8 +171,21 @@ const bootstrap = async (): Promise<void> => {
     });
     console.log(`serving_frontend=false dev_mode=true redirect_web_port=${appConfig.webPort}`);
   } else if (fs.existsSync(indexFile)) {
-    app.use(express.static(resolvedFrontendDist));
+    /* Built files under assets/ carry a content hash in their name, so a
+       release never reuses one: the browser may keep them for good. The page
+       itself must be checked every open, or it would point at old assets. */
+    app.use(
+      express.static(resolvedFrontendDist, {
+        setHeaders: (res, filePath) => {
+          res.setHeader(
+            "Cache-Control",
+            filePath.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache"
+          );
+        }
+      })
+    );
     app.get(/^\/(?!api).*/, (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(indexFile);
     });
     console.log(`serving_frontend=true path=${resolvedFrontendDist}`);

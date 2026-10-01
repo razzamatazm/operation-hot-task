@@ -60,6 +60,15 @@ export class ActivityFeedStateStore {
         roles: user.roles
       };
       if (index >= 0) {
+        const current = state.users[index]!;
+        /* Runs on every authenticated request; an unchanged user saves nothing. */
+        if (
+          current.displayName === next.displayName &&
+          current.roles.length === next.roles.length &&
+          current.roles.every((role, i) => role === next.roles[i])
+        ) {
+          return undefined;
+        }
         state.users[index] = next;
       } else {
         state.users.push(next);

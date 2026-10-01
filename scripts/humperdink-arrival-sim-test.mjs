@@ -276,8 +276,9 @@ const REPO = fileURLToPath(new URL("..", import.meta.url));
 const APP_SOURCE = readFileSync(join(REPO, "apps/web/src/App.tsx"), "utf8");
 const FORM_SOURCE = readFileSync(join(REPO, "apps/web/src/task-form.tsx"), "utf8");
 
-/* The Teams init effect: from `teamsApp.initialize()` to its catch. */
-const teamsInit = APP_SOURCE.match(/teamsApp\s*\.initialize\(\)([\s\S]*?)\.catch\(/)?.[1] ?? "";
+/* The Teams init effect: from `teamsApp.initialize()` to its catch, the one
+   that opens a line. A `.catch(` inside the chain is a request's own. */
+const teamsInit = APP_SOURCE.match(/teamsApp\s*\.initialize\(\)([\s\S]*?)\n\s*\.catch\(/)?.[1] ?? "";
 
 test("the Teams init reads one arrival, and only a task arrival reaches focus and claim", () => {
   assert.ok(teamsInit, "found the Teams init");
