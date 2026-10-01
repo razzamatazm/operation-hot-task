@@ -1,9 +1,7 @@
-/* The live stream, opened with a one-time ticket (the server's
-   stream-tickets.ts says why). A spent ticket can't reopen the stream, so the
-   browser's own reconnect is no use: on any error this closes the stream and,
-   after a pause, fetches a new ticket and opens it again. Framework-free, with
-   the EventSource and timers passed in, so it runs under node in
-   scripts/stream-ticket-sim-test.mjs. Returns the function that stops it. */
+/* The live stream, opened with a one-time ticket (see the server's
+   stream-tickets.ts). A spent ticket can't reopen it, so on any error this
+   closes the stream and opens a new one with a fresh ticket, waiting longer
+   after each failure. Returns the function that stops it. */
 
 export interface LiveStreamSource {
   addEventListener(type: string, listener: (event: { data: string }) => void): void;
@@ -14,9 +12,11 @@ export interface LiveStreamSource {
 interface LiveStreamOptions {
   fetchTicket: () => Promise<string>;
   connect: (ticket: string) => LiveStreamSource;
-  eventTypes: string[];
-  onEvent: (type: string, data: string) => void;
+  onTaskChanged: (data: string) => void;
+  /* Changes sent while the stream was down are lost, so the board reloads. */
+  onReconnected: () => void;
   retryMs?: number;
+  maxRetryMs?: number;
   schedule?: (fn: () => void, ms: number) => unknown;
   cancel?: (timer: unknown) => void;
 }
@@ -24,31 +24,38 @@ interface LiveStreamOptions {
 export const openLiveStream = ({
   fetchTicket,
   connect,
-  eventTypes,
-  onEvent,
+  onTaskChanged,
+  onReconnected,
   retryMs = 5000,
+  maxRetryMs = 60000,
   schedule = (fn, ms) => setTimeout(fn, ms),
   cancel = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
 }: LiveStreamOptions): (() => void) => {
   let stopped = false;
   let source: LiveStreamSource | null = null;
-  let retry: unknown;
+  let retryTimer: unknown;
+  let nextRetryMs = retryMs;
+  let everConnected = false;
 
   const retryLater = (): void => {
     if (stopped) return;
-    retry = schedule(start, retryMs);
+    retryTimer = schedule(start, nextRetryMs);
+    nextRetryMs = Math.min(nextRetryMs * 2, maxRetryMs);
   };
 
   function start(): void {
-    retry = undefined;
+    retryTimer = undefined;
     fetchTicket().then(
       (ticket) => {
         if (stopped) return;
         const opened = connect(ticket);
         source = opened;
-        for (const type of eventTypes) {
-          opened.addEventListener(type, (event) => onEvent(type, event.data));
-        }
+        opened.addEventListener("connected", () => {
+          nextRetryMs = retryMs;
+          if (everConnected) onReconnected();
+          everConnected = true;
+        });
+        opened.addEventListener("task.changed", (event) => onTaskChanged(event.data));
         opened.onerror = () => {
           opened.close();
           if (source === opened) source = null;
@@ -63,7 +70,7 @@ export const openLiveStream = ({
 
   return () => {
     stopped = true;
-    cancel(retry);
+    cancel(retryTimer);
     source?.close();
     source = null;
   };

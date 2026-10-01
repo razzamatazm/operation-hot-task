@@ -1,10 +1,8 @@
 import { randomBytes } from "node:crypto";
 
-/* One-time passes for the live stream. A browser EventSource can't send the
-   SSO bearer header, so a signed-in caller trades it for a ticket and opens
-   /stream?ticket=... with that. A ticket is random, works once, and lapses
-   after `ttlMs`, so one that lands in a request log is already spent. Held in
-   memory, which holds while the app runs on a single instance. */
+/* One-time tickets for the live stream, which EventSource can't send a bearer
+   header to. One use, short life, so a ticket in a request log is already
+   spent. In memory: fine while the app runs on a single instance. */
 export class StreamTickets {
   private tickets = new Map<string, number>();
 

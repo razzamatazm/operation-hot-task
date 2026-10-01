@@ -50,7 +50,7 @@ test("tickets nobody used don't pile up", () => {
 
 /* A stand-in for the browser's EventSource and timers, driven by hand. */
 const harness = ({ ticketFails = 0 } = {}) => {
-  const state = { ticketCalls: 0, sources: [], timers: [], events: [] };
+  const state = { ticketCalls: 0, sources: [], timers: [], events: [], reloads: 0 };
   let failuresLeft = ticketFails;
   const fetchTicket = async () => {
     state.ticketCalls += 1;
@@ -95,9 +95,12 @@ const harness = ({ ticketFails = 0 } = {}) => {
   const stop = openLiveStream({
     fetchTicket,
     connect,
-    eventTypes: ["task.changed"],
-    onEvent: (type, data) => state.events.push({ type, data }),
+    onTaskChanged: (data) => state.events.push(data),
+    onReconnected: () => {
+      state.reloads += 1;
+    },
     retryMs: 5000,
+    maxRetryMs: 60000,
     schedule,
     cancel
   });
@@ -112,7 +115,29 @@ test("opens the stream with a fresh ticket and passes events through", async () 
   assert.equal(h.state.sources.length, 1);
   assert.equal(h.state.sources[0].ticket, "ticket-1");
   h.state.sources[0].listeners["task.changed"]({ data: '{"id":"a"}' });
-  assert.deepEqual(h.state.events, [{ type: "task.changed", data: '{"id":"a"}' }]);
+  assert.deepEqual(h.state.events, ['{"id":"a"}']);
+});
+
+test("the first connect loads nothing extra; a reconnect reloads the board once", async () => {
+  const h = harness();
+  await settle();
+  h.state.sources[0].listeners.connected({ data: "{}" });
+  assert.equal(h.state.reloads, 0, "the first list already came from the normal load");
+  h.state.sources[0].onerror?.({});
+  await h.runTimers();
+  assert.equal(h.state.reloads, 0, "opening is not enough; the server has to say connected");
+  h.state.sources[1].listeners.connected({ data: "{}" });
+  assert.equal(h.state.reloads, 1, "changes sent during the gap are fetched");
+});
+
+test("repeated failures wait longer each time, up to a minute, and a connect resets the wait", async () => {
+  const h = harness({ ticketFails: 6 });
+  await settle();
+  for (let i = 0; i < 6; i += 1) await h.runTimers();
+  assert.deepEqual(h.state.timers.map((t) => t.ms), [5000, 10000, 20000, 40000, 60000, 60000]);
+  h.state.sources[0].listeners.connected({ data: "{}" });
+  h.state.sources[0].onerror?.({});
+  assert.equal(h.state.timers.at(-1).ms, 5000);
 });
 
 test("a dropped stream reconnects with a new ticket after a pause", async () => {

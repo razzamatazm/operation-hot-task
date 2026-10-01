@@ -4341,8 +4341,10 @@ export const App = () => {
     return openLiveStream({
       fetchTicket: () => apiRequest<{ ticket: string }>("/stream-ticket", { method: "POST" }, user).then((data) => data.ticket),
       connect: (ticket) => new EventSource(`${API_BASE}/stream?ticket=${encodeURIComponent(ticket)}`),
-      eventTypes: ["task.changed"],
-      onEvent: (_type, data) => {
+      onReconnected: () => {
+        refresh().catch(() => {});
+      },
+      onTaskChanged: (data) => {
         const incoming = JSON.parse(data) as LoanTask;
         setTasks((current) => {
           const idx = current.findIndex((t) => t.id === incoming.id);
