@@ -400,6 +400,7 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
      to be a party to it (ADR-0008 rule 5). */
   router.get("/loans", async (req, res) => {
     try {
+      await getActor(req);
       if (req.query.q !== undefined) {
         const query = typeof req.query.q === "string" ? req.query.q : "";
         const matches = await loanService.search(query);
@@ -427,12 +428,17 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   });
 
   router.get("/loans/:loanId", async (req, res) => {
-    const loan = await loanService.get(req.params.loanId);
-    if (!loan) {
-      res.status(404).json({ error: "Loan not found" });
-      return;
+    try {
+      await getActor(req);
+      const loan = await loanService.get(req.params.loanId);
+      if (!loan) {
+        res.status(404).json({ error: "Loan not found" });
+        return;
+      }
+      res.json({ loan });
+    } catch (error) {
+      sendError(res, error, "Failed to read loan");
     }
-    res.json({ loan });
   });
 
   router.patch("/loans/:loanId", async (req, res) => {
@@ -497,9 +503,13 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
-  router.get("/tasks", async (_req, res) => {
-    const tasks = await service.listTasks();
-    res.json({ tasks });
+  router.get("/tasks", async (req, res) => {
+    try {
+      await getActor(req);
+      res.json({ tasks: await service.listTasks() });
+    } catch (error) {
+      sendError(res, error, "Failed to list tasks");
+    }
   });
 
   router.post("/tasks", async (req, res) => {
@@ -561,24 +571,31 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
   });
 
   router.get("/tasks/:taskId", async (req, res) => {
-    const task = await service.getTask(req.params.taskId);
-    if (!task) {
-      res.status(404).json({ error: "Task not found" });
-      return;
+    try {
+      await getActor(req);
+      const task = await service.getTask(req.params.taskId);
+      if (!task) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+      res.json({ task, allowedTransitions: nextFlowStatuses(task) });
+    } catch (error) {
+      sendError(res, error, "Failed to read task");
     }
-
-    res.json({ task, allowedTransitions: nextFlowStatuses(task) });
   });
 
   router.get("/tasks/:taskId/history", async (req, res) => {
-    const task = await service.getTask(req.params.taskId);
-    if (!task) {
-      res.status(404).json({ error: "Task not found" });
-      return;
+    try {
+      await getActor(req);
+      const task = await service.getTask(req.params.taskId);
+      if (!task) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+      res.json({ history: await service.getHistory(req.params.taskId) });
+    } catch (error) {
+      sendError(res, error, "Failed to read task history");
     }
-
-    const history = await service.getHistory(req.params.taskId);
-    res.json({ history });
   });
 
   router.post("/tasks/:taskId/claim", async (req, res) => {

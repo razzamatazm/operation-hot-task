@@ -231,6 +231,23 @@ test("decode shapes what is read and encode shapes what is saved", async () => {
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { names: ["Dana"] });
 });
 
+test("a file rewritten by someone else just after a save is read as they left it", async () => {
+  const { file, store } = await counterFile();
+  await store.update(() => ({ count: 1 }));
+
+  /* The other writer lands between this save's write and anything the store
+     does next, with a file the same size as the one just saved. */
+  const { writeFile } = fs.promises;
+  fs.promises.writeFile = async (target, data, options) => {
+    fs.promises.writeFile = writeFile;
+    await writeFile.call(fs.promises, target, data, options);
+    await writeFile.call(fs.promises, target, data.replace("2", "9"), options);
+  };
+  await store.update(() => ({ count: 2 }));
+
+  assert.deepEqual(await store.read(), { count: 9 });
+});
+
 // --- 2. Every store, through its own interface ---------------------------
 
 const at = "2026-09-11T12:00:00.000Z";

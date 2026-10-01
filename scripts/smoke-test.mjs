@@ -494,7 +494,7 @@ const run = async () => {
     });
     expectStatus(reclaimByOther.status, 200, "claim by other officer", reclaimByOther.json);
 
-    const details = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}`);
+    const details = await request(server.baseUrl, "GET", `/tasks/${loiTask.id}`, { user: users.creator });
     expectStatus(details.status, 200, "task details", details.json);
     assert.ok(Array.isArray(details.json.allowedTransitions), "allowedTransitions must be returned");
     pushPass("task details returns allowed transitions");
@@ -630,7 +630,7 @@ const run = async () => {
     expectStatus(reopened.status, 200, "creator reopens completed task", reopened.json);
     assert.equal(reopened.json.task.status, "CLAIMED", "reopened task retains assignee as CLAIMED");
     assert.equal(reopened.json.task.reopenedFrom, "COMPLETED", "reopen remembers prior closed status");
-    const reopenedDetails = await request(server.baseUrl, "GET", `/tasks/${restoreId}`);
+    const reopenedDetails = await request(server.baseUrl, "GET", `/tasks/${restoreId}`, { user: users.creator });
     assert.ok(
       reopenedDetails.json.allowedTransitions.includes("COMPLETED"),
       "restore target is offered as an allowed transition"
@@ -1272,8 +1272,8 @@ const run = async () => {
       recipientNote: "",
       ...overrides
     });
-    const tasksBeforeSave = await request(server.baseUrl, "GET", "/tasks");
-    const loansBeforeSave = await request(server.baseUrl, "GET", "/loans");
+    const tasksBeforeSave = await request(server.baseUrl, "GET", "/tasks", { user: users.creator });
+    const loansBeforeSave = await request(server.baseUrl, "GET", "/loans", { user: users.creator });
     const saved = await request(server.baseUrl, "POST", "/saved-for-later", {
       user: users.creator,
       body: { form: savedForm() }
@@ -1306,13 +1306,13 @@ const run = async () => {
     }
     pushPass("another user and an admin cannot list or fetch someone else's Saved for Later tasks");
 
-    const tasksAfterSave = await request(server.baseUrl, "GET", "/tasks");
+    const tasksAfterSave = await request(server.baseUrl, "GET", "/tasks", { user: users.creator });
     assert.equal(tasksAfterSave.json.tasks.length, tasksBeforeSave.json.tasks.length, "saving filed no task");
     assert.ok(
       !tasksAfterSave.json.tasks.some((task) => task.notes === "smoke-saved-for-later" || task.folderName === "Smoke Saved Only"),
       "the task list never shows a Saved for Later task"
     );
-    const loansAfterSave = await request(server.baseUrl, "GET", "/loans");
+    const loansAfterSave = await request(server.baseUrl, "GET", "/loans", { user: users.creator });
     assert.equal(loansAfterSave.json.loans.length, loansBeforeSave.json.loans.length, "saving minted no loan");
     assert.ok(!loansAfterSave.json.loans.some((loan) => loan.name === "Smoke Saved Only"));
     pushPass("saving for later files no task and mints no loan, so the task list and the counts and metrics read from it never see one");
@@ -1548,7 +1548,7 @@ const run = async () => {
     }
     const stillAutosaved = await request(server.baseUrl, "GET", "/autosave", { user: users.creator });
     assert.deepEqual(stillAutosaved.json.item, ownAutosave.json.item, "someone else clearing theirs leaves the creator's alone");
-    const tasksWithAutosave = await request(server.baseUrl, "GET", "/tasks");
+    const tasksWithAutosave = await request(server.baseUrl, "GET", "/tasks", { user: users.creator });
     assert.ok(
       !tasksWithAutosave.json.tasks.some((task) => typeof task.notes === "string" && task.notes.startsWith("smoke-autosave")),
       "the task list never shows an autosave"
@@ -1613,7 +1613,7 @@ const run = async () => {
     expectStatus(gone.status, 404, "the removed Saved for Later task", gone.json);
     const listAfterFiling = await request(server.baseUrl, "GET", "/saved-for-later", { user: users.creator });
     assert.ok(!listAfterFiling.json.items.some((item) => item.id === saved.json.item.id), "and it is off the list");
-    const tasksAfterFiling = await request(server.baseUrl, "GET", "/tasks");
+    const tasksAfterFiling = await request(server.baseUrl, "GET", "/tasks", { user: users.creator });
     assert.ok(tasksAfterFiling.json.tasks.some((task) => task.id === filed.json.task.id), "the task it held is an ordinary task on the board");
     const resaveGone = await request(server.baseUrl, "PUT", `/saved-for-later/${saved.json.item.id}`, {
       user: users.creator,
@@ -1887,6 +1887,13 @@ const run = async () => {
     const directoryOnSso = await request(ssoServer.baseUrl, "GET", "/users/directory");
     expectStatus(directoryOnSso.status, 401, "directory needs a token with SSO configured", directoryOnSso.json);
     pushPass("the dev roster route does not exist once SSO is configured");
+
+    // Task and loan reads used to answer anyone who knew the address.
+    for (const path of ["/tasks", "/tasks/any-id", "/tasks/any-id/history", "/loans", "/loans/any-id"]) {
+      const anonymous = await request(ssoServer.baseUrl, "GET", path);
+      expectStatus(anonymous.status, 401, `${path} needs a token with SSO configured`, anonymous.json);
+    }
+    pushPass("task and loan reads need a token once SSO is configured");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {

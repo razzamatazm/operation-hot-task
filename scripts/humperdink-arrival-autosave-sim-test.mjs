@@ -422,7 +422,8 @@ test("Save for later on a held form keeps the old autosave: it doesn't ask the s
 function arrivalEffect() {
   return APP_SOURCE.match(/useEffect\(\(\) => \{\s*if \(!arrivalPending \|\| !user\.id\) return;([\s\S]*?)\n  \}, \[arrivalPending, user\.id\]\);/)?.[1] ?? "";
 }
-const teamsInit = APP_SOURCE.match(/teamsApp\s*\.initialize\(\)([\s\S]*?)\.catch\(/)?.[1] ?? "";
+/* To the init's own catch, the one that opens a line, not a request's inside it. */
+const teamsInit = APP_SOURCE.match(/teamsApp\s*\.initialize\(\)([\s\S]*?)\n\s*\.catch\(/)?.[1] ?? "";
 
 test("the Teams init only marks the arrival pending, alongside the person, and opens nothing itself", () => {
   const branch = teamsInit.match(/arrival\.kind === "humperdink"\)\s*(\{[\s\S]*?\}|[^\n]*;)/)?.[1];

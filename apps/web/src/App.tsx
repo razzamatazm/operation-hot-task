@@ -37,6 +37,7 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
+import { mergeTaskSnapshot } from "./task-snapshot-merge";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
@@ -3658,6 +3659,9 @@ const readTeamsClipboard = (): Promise<string | null> => readArrivalClipboard(te
 
 export const App = () => {
   const [user, setUser] = useState<UserIdentity>(INITIAL_USER);
+  /* Whose sign-in already brought the task list with it, so the load that
+     follows the person resolving doesn't fetch it a second time. */
+  const tasksPrimedFor = useRef<string | null>(null);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
   /* The loans list has come back at least once (#415). A Humperdink arrival's
@@ -4179,6 +4183,10 @@ export const App = () => {
     teamsApp
       .initialize()
       .then(async () => {
+        /* The SSO token doesn't depend on the context, so both are asked for
+           at once rather than one after the other. */
+        const tokenRequest = authentication.getAuthToken();
+        tokenRequest.catch(() => {});
         const context = (await teamsApp.getContext()) as {
           app?: { theme?: string };
           theme?: string;
@@ -4211,9 +4219,20 @@ export const App = () => {
         }
 
         /* Teams host present → resolve the real identity via SSO. */
-        const token = await authentication.getAuthToken();
+        const token = await tokenRequest;
         tokenCache.seed(token);
-        const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
+        /* The task list goes out beside /me instead of waiting for it: it is
+           the same for everyone, and the token is all it needs. The board then
+           paints one round trip sooner, and the load that follows the person
+           resolving skips the tasks it would only fetch again. */
+        const [me, firstTasks] = await Promise.all([
+          apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER),
+          apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER).catch(() => null)
+        ]);
+        if (firstTasks) {
+          setTasks((current) => mergeTaskSnapshot(current, firstTasks.tasks));
+          tasksPrimedFor.current = me.id;
+        }
 
         /* Humperdink arrival link → a new LOI Check, request field focused. It
            fills itself from the loan Send to Hot Task just put on the
@@ -4275,7 +4294,11 @@ export const App = () => {
     setSavedForLater([]);
     setAutosave(null);
     if (!user.id) return;
-    refresh().catch(() => {});
+    if (tasksPrimedFor.current === user.id) {
+      tasksPrimedFor.current = null;
+    } else {
+      refresh().catch(() => {});
+    }
     loadLoans().catch(() => {});
     /* A Humperdink arrival loads these itself, after it has moved the autosave
        (#413), so no load that went out before the move can land after it and
