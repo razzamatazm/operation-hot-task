@@ -23,6 +23,14 @@ export class SseHub {
     }
   }
 
+  /* Shutdown: a stream never ends on its own, so server.close() would wait on it forever. */
+  closeAll(): void {
+    for (const client of this.clients) {
+      client.destroy();
+    }
+    this.clients.clear();
+  }
+
   count(): number {
     return this.clients.size;
   }

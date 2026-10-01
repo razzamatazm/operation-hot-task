@@ -215,7 +215,8 @@ const createServer = async (preferredPort, extraEnv = {}, { botReferences } = {}
     baseUrl,
     stop,
     logs,
-    savedForLaterFile
+    savedForLaterFile,
+    child
   };
 };
 
@@ -1934,6 +1935,31 @@ const run = async () => {
   } finally {
     if (ssoServer) {
       await ssoServer.stop();
+    }
+  }
+
+  // A restart sends SIGTERM. An open live stream used to keep the process
+  // alive until the platform force-killed it.
+  let shutdownServer;
+  try {
+    shutdownServer = await createServer(BASE_PORT + 6);
+    const ticket = await request(shutdownServer.baseUrl, "POST", "/stream-ticket", { user: users.creator });
+    expectStatus(ticket.status, 200, "stream ticket before shutdown", ticket.json);
+    const stream = await fetch(`${shutdownServer.baseUrl}/api/stream?ticket=${encodeURIComponent(ticket.json.ticket)}`);
+    await stream.body.getReader().read();
+    const exited = new Promise((resolve) => {
+      if (shutdownServer.child.exitCode !== null) resolve(true);
+      shutdownServer.child.once("exit", () => resolve(true));
+      setTimeout(() => resolve(false), 3000);
+    });
+    shutdownServer.child.kill("SIGTERM");
+    assert.equal(await exited, true, "the server exits within 3s of SIGTERM with a live stream open");
+    pushPass("a shutdown closes open live streams instead of waiting on them");
+  } catch (error) {
+    pushFail(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (shutdownServer && shutdownServer.child.exitCode === null && shutdownServer.child.signalCode === null) {
+      shutdownServer.child.kill("SIGKILL");
     }
   }
 
