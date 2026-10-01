@@ -89,6 +89,29 @@ test("an older reload that lands after a newer one is dropped", async () => {
   assert.equal(state.applied[0][0].status, "NEWER");
 });
 
+test("an older reload that lands after a newer one failed is dropped, and the failure stands", async () => {
+  const { reload, pending, state } = reloads();
+  reload.reload();
+  reload.reload();
+  pending[1].reject(new Error("Failed to load tasks"));
+  await settle();
+  pending[0].resolve([task("x", "2026-10-01T10:00:00.000Z")]);
+  await settle();
+  assert.equal(state.applied.length, 0, "its list predates the second gap");
+  assert.deepEqual(state.failures, ["Failed to load tasks"]);
+});
+
+test("an older reload that fails after a newer one applied reports nothing", async () => {
+  const { reload, pending, state } = reloads();
+  reload.reload();
+  reload.reload();
+  pending[1].resolve([task("x", "2026-10-01T10:05:00.000Z")]);
+  await settle();
+  pending[0].reject(new Error("late"));
+  await settle();
+  assert.deepEqual(state.failures, []);
+});
+
 test("an older reload that lands first is applied, then the newer one", async () => {
   const { reload, pending, state } = reloads();
   reload.reload();

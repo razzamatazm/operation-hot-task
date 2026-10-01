@@ -16,7 +16,7 @@ export const mergeTaskSnapshot = <T extends { id: string; updatedAt: string }>(c
 
 /* The reload each stream connect triggers. The board's copies may be stale,
    so only changes streamed while a reload is in flight may override its list,
-   and a reload that lands after a newer one has applied is dropped. */
+   and a reload that lands after a newer one has settled, either way, is dropped. */
 export const createStreamReload = <T extends { id: string; updatedAt: string }>({
   load,
   apply,
@@ -28,7 +28,7 @@ export const createStreamReload = <T extends { id: string; updatedAt: string }>(
 }) => {
   const streamedDuringReloads = new Set<Map<string, T>>();
   let started = 0;
-  let newestApplied = 0;
+  let newestSettled = 0;
   let stopped = false;
   return {
     reload: (): void => {
@@ -38,12 +38,14 @@ export const createStreamReload = <T extends { id: string; updatedAt: string }>(
       load()
         .then(
           (tasks) => {
-            if (stopped || seq < newestApplied) return;
-            newestApplied = seq;
+            if (stopped || seq < newestSettled) return;
+            newestSettled = seq;
             apply(mergeTaskSnapshot([...streamed.values()], tasks));
           },
           (error) => {
-            if (!stopped && seq > newestApplied) fail(error);
+            if (stopped || seq < newestSettled) return;
+            newestSettled = seq;
+            fail(error);
           }
         )
         .finally(() => streamedDuringReloads.delete(streamed));
