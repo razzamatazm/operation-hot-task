@@ -39,6 +39,8 @@ export interface JsonFileOptions<T> {
    file from inside the queue — the one way a queue like this deadlocks. */
 export class JsonFile<T> {
   private chain: Promise<void> = Promise.resolve();
+  /* The file's last known text, and the stat it was read or written under. */
+  private cached: { text: string; mtimeMs: number; size: number } | null = null;
 
   constructor(
     private readonly filePath: string,
@@ -102,8 +104,6 @@ export class JsonFile<T> {
     this.cached = { text, mtimeMs: stat.mtimeMs, size: stat.size };
     return text;
   }
-
-  private cached: { text: string; mtimeMs: number; size: number } | null = null;
 
   private async load(): Promise<T> {
     try {
