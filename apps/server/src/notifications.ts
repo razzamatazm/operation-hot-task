@@ -1,4 +1,4 @@
-import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatBornAssignedHeadline, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, isUnclaimed, taskCardRecipients } from "@loan-tasks/shared";
+import { FRAUD_RELEASE_PHASE, NotificationEvent, TASK_TYPE_LABELS, UserIdentity, URGENCY_TIMEFRAMES, botAdvanceFor, botPrimaryAdvance, firstName, formatBornAssignedHeadline, formatClaimedHeadline, formatLifecycleDmText, formatNewTaskHeadline, formatNewTaskPreview, formatOooHeadline, formatPoops, formatReleasedHeadline, formatTaskNameLine, isReleasedFraudCheck, taskCardRecipients } from "@loan-tasks/shared";
 import { ActivityFeedClient } from "./activity-feed.js";
 import { config } from "./config.js";
 import { TeamsBotClient, channelCardContext, loanCardValues, noteCardDetailsFromTask, recentNoteThread, taskFactLines } from "./bot.js";
@@ -12,11 +12,6 @@ export interface NotificationProvider {
      #41 share) report delivered-vs-not instead of dropping silently. */
   canReachDm(userId: string): Promise<boolean>;
 }
-
-/* A Fraud Check whose checker let it go partway (#516): nobody holds it, but
-   its status is still one of the live fraud phases a release leaves it in. */
-const isReleasedFraudCheck = (task: NotificationEvent["task"]): boolean =>
-  task.taskType === "FRAUD" && isUnclaimed(task) && FRAUD_RELEASE_PHASE[task.status] !== undefined;
 
 const sendWebhook = async (payload: { title: string; text: string }): Promise<void> => {
   if (!config.webhookUrl) {

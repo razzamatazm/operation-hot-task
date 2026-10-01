@@ -297,4 +297,21 @@ await check("a rename leaves an unreleased task's headline as it was", async () 
   assert.equal(headline(cardOf(updated.at(-1))), "Dana needs a Fraud Check");
 });
 
+await check("a claimed Fraud Check keeps its claimed headline through a rename and an owner change", async () => {
+  const { updated, notify } = await setup();
+  await notify("CHANNEL", liveTask("OPEN", { taskType: "FRAUD" }), DANA);
+  await notify("CHANNEL_CLAIMED", liveTask("CLAIMED", { taskType: "FRAUD", assignee: CASEY }), CASEY);
+  await rename(notify, liveTask("CLAIMED", { taskType: "FRAUD", assignee: CASEY, folderName: "Smith-2000" }));
+  assert.equal(headline(cardOf(updated.at(-1))), "Casey grabbed Dana's Fraud Check", "the rename");
+  await notify("CHANNEL_REQUESTER_CHANGED", handedOver("CLAIMED", { taskType: "FRAUD", assignee: CASEY, folderName: "Smith-2000" }), AVERY);
+  assert.equal(headline(cardOf(updated.at(-1))), "Casey grabbed Riley's Fraud Check", "the owner change");
+});
+
+await check("a rename leaves a non-Fraud task's headline as it was", async () => {
+  const { updated, notify } = await setup();
+  await notify("CHANNEL", liveTask("OPEN"), DANA);
+  await rename(notify, liveTask("OPEN", { folderName: "Smith-2000" }));
+  assert.equal(headline(cardOf(updated.at(-1))), "Dana needs an LOI checked");
+});
+
 console.log(`\n${passed} passed`);

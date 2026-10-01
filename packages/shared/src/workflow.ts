@@ -12,7 +12,7 @@ import {
   zonedToUtcIso
 } from "./office-hours.js";
 import { isTaskParty } from "./parties.js";
-import { AppConfig, CLOSED_STATUSES, isSystemActor, LoanTask, requestFieldNoun, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
+import { AppConfig, CLOSED_STATUSES, FRAUD_RELEASE_PHASE, isSystemActor, LoanTask, requestFieldNoun, TASK_TYPE_LABELS, TaskStatus, TaskType, UrgencyLevel, UserIdentity } from "./types.js";
 
 const LOAN_DOCS_FLOW: TaskStatus[] = [
   "OPEN",
@@ -1422,6 +1422,11 @@ export const isPoolNagDue = (task: LoanTask, now: Date, config: AppConfig = DEFA
    stopped meaning anything for a different reason. */
 export const isUnclaimed = (task: Pick<LoanTask, "status" | "assignee">): boolean =>
   !task.assignee && !CLOSED_STATUSES.includes(task.status);
+
+/* A Fraud Check whose checker let it go partway (#516): nobody holds it, but
+   its status is still one of the live fraud phases a release leaves it in. */
+export const isReleasedFraudCheck = (task: Pick<LoanTask, "taskType" | "status" | "assignee">): boolean =>
+  task.taskType === "FRAUD" && isUnclaimed(task) && FRAUD_RELEASE_PHASE[task.status] !== undefined;
 
 /* Whether an unclaimed task has gone unclaimed long enough to be worth
    flagging to its creator — the one person who can fix it by chasing a human.
