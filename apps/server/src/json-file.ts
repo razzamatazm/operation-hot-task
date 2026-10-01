@@ -120,10 +120,11 @@ export class JsonFile<T> {
   private async save(value: T): Promise<void> {
     const encoded = this.options.encode ? this.options.encode(value) : value;
     const text = JSON.stringify(encoded, null, 2);
+    /* Not re-cached from a stat taken after the write: another writer landing
+       in between would pair this text with their file's stat, and the cache
+       would hide their change for good. The next read fetches the text. */
     this.cached = null;
     await fs.writeFile(this.filePath, text, "utf8");
-    const stat = await fs.stat(this.filePath);
-    this.cached = { text, mtimeMs: stat.mtimeMs, size: stat.size };
   }
 
   /* One operation at a time, in call order. The chain is kept settled and

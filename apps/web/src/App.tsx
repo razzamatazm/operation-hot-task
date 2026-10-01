@@ -37,6 +37,7 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
+import { mergeTaskSnapshot } from "./task-snapshot-merge";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
@@ -4229,7 +4230,7 @@ export const App = () => {
           apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER).catch(() => null)
         ]);
         if (firstTasks) {
-          setTasks(firstTasks.tasks);
+          setTasks((current) => mergeTaskSnapshot(current, firstTasks.tasks));
           tasksPrimedFor.current = me.id;
         }
 
