@@ -201,8 +201,8 @@ test("no fetch is gated on the build instead of on an identity", () => {
   assert.ok(!APP_SOURCE.includes("!IS_DEV && !user.id"), "no build-conditional identity gate remains");
   assert.equal(
     (APP_SOURCE.match(/if \(!user\.id\) return;/g) ?? []).length,
-    2,
-    "the task/loan fetch and the directory fetch both hold for an identity"
+    3,
+    "the task/loan fetch, the directory fetch and the live stream's ticket all hold for an identity"
   );
   assert.ok(APP_SOURCE.includes("if (!claimOnArrivalId || !user.id) {"), "claim-on-arrival holds too");
 });

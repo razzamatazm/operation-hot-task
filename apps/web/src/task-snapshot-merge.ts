@@ -13,3 +13,48 @@ export const mergeTaskSnapshot = <T extends { id: string; updatedAt: string }>(c
   });
   return [...streamed.values(), ...merged].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 };
+
+/* The reload each stream connect triggers. The board's copies may be stale,
+   so only changes streamed while a reload is in flight may override its list,
+   and a reload that lands after a newer one has settled, either way, is dropped. */
+export const createStreamReload = <T extends { id: string; updatedAt: string }>({
+  load,
+  apply,
+  fail
+}: {
+  load: () => Promise<T[]>;
+  apply: (tasks: T[]) => void;
+  fail: (error: unknown) => void;
+}) => {
+  const streamedDuringReloads = new Set<Map<string, T>>();
+  let started = 0;
+  let newestSettled = 0;
+  let stopped = false;
+  return {
+    reload: (): void => {
+      const seq = ++started;
+      const streamed = new Map<string, T>();
+      streamedDuringReloads.add(streamed);
+      load()
+        .then(
+          (tasks) => {
+            if (stopped || seq < newestSettled) return;
+            newestSettled = seq;
+            apply(mergeTaskSnapshot([...streamed.values()], tasks));
+          },
+          (error) => {
+            if (stopped || seq < newestSettled) return;
+            newestSettled = seq;
+            fail(error);
+          }
+        )
+        .finally(() => streamedDuringReloads.delete(streamed));
+    },
+    streamed: (task: T): void => {
+      for (const streamed of streamedDuringReloads) streamed.set(task.id, task);
+    },
+    stop: (): void => {
+      stopped = true;
+    }
+  };
+};

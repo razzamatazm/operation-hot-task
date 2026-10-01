@@ -2,6 +2,7 @@ import { Request, Response, Router } from "express";
 import { LOAN_EDIT_NEEDS_TASK, LOAN_EDIT_WRONG_LOAN, UserIdentity, UserRole, loanEditRefusal, nextFlowStatuses } from "@loan-tasks/shared";
 import { AuthError, authenticate, ssoConfigured } from "./auth.js";
 import { resolveUserByEmail } from "./graph-users.js";
+import { StreamTickets } from "./stream-tickets.js";
 import { config } from "./config.js";
 import { SseHub } from "./sse.js";
 import { TaskService } from "./task-service.js";
@@ -78,6 +79,7 @@ const toCreateInput = (body: unknown) => {
 
 export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserStore, botClient: TeamsBotClient, activityFeedClient: ActivityFeedClient, settingsStore: SettingsStore, loanService: LoanService, savedForLater: SavedForLaterStore): Router => {
   const router = Router();
+  const streamTickets = new StreamTickets();
 
   /* Resolve the caller: verify the SSO token (or accept dev headers), then
      upsert into the users table to attach DB-managed roles. Throws AuthError
@@ -958,7 +960,21 @@ export const buildRouter = (service: TaskService, sse: SseHub, userStore: UserSt
     }
   });
 
+  /* The live stream's sign-in. See stream-tickets.ts. */
+  router.post("/stream-ticket", async (req, res) => {
+    try {
+      await getActor(req);
+      res.json({ ticket: streamTickets.issue() });
+    } catch (error) {
+      sendError(res, error, "Failed to open the live stream");
+    }
+  });
+
   router.get("/stream", (req, res) => {
+    if (!streamTickets.redeem(req.query.ticket)) {
+      res.status(401).json({ error: "Stream ticket missing, used or expired" });
+      return;
+    }
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");

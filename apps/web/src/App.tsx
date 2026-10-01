@@ -37,7 +37,8 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
-import { mergeTaskSnapshot } from "./task-snapshot-merge";
+import { createStreamReload, mergeTaskSnapshot } from "./task-snapshot-merge";
+import { openLiveStream } from "./live-stream";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const IS_DEV = import.meta.env.DEV;
@@ -4335,19 +4336,37 @@ export const App = () => {
   }, [user.id]);
 
   useEffect(() => {
-    const source = new EventSource(`${API_BASE}/stream`);
-    source.addEventListener("task.changed", (event) => {
-      const incoming = JSON.parse((event as MessageEvent<string>).data) as LoanTask;
-      setTasks((current) => {
-        const idx = current.findIndex((t) => t.id === incoming.id);
-        if (idx === -1) return [incoming, ...current];
-        const copy = [...current];
-        copy[idx] = incoming;
-        return copy.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      });
+    /* Same gate as the task fetch: the ticket request needs a signed-in person. */
+    if (!user.id) return;
+    const streamReload = createStreamReload<LoanTask>({
+      load: () => apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user).then((data) => data.tasks),
+      apply: (reloaded) => {
+        setTasks(reloaded);
+        setError(null);
+      },
+      fail: (err) => setError(err instanceof Error ? err.message : "Failed to load tasks")
     });
-    return () => source.close();
-  }, []);
+    const stop = openLiveStream({
+      fetchTicket: () => apiRequest<{ ticket: string }>("/stream-ticket", { method: "POST" }, user).then((data) => data.ticket),
+      connect: (ticket) => new EventSource(`${API_BASE}/stream?ticket=${encodeURIComponent(ticket)}`),
+      onConnected: streamReload.reload,
+      onTaskChanged: (data) => {
+        const incoming = JSON.parse(data) as LoanTask;
+        streamReload.streamed(incoming);
+        setTasks((current) => {
+          const idx = current.findIndex((t) => t.id === incoming.id);
+          if (idx === -1) return [incoming, ...current];
+          const copy = [...current];
+          copy[idx] = incoming;
+          return copy.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        });
+      }
+    });
+    return () => {
+      streamReload.stop();
+      stop();
+    };
+  }, [user.id]);
 
   /* Create-form submit seam (issue #72). <TaskForm> owns the form state
      and builds the payload; App keeps the two side-effects — persistence and
