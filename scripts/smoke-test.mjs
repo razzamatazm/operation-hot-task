@@ -77,6 +77,19 @@ const request = async (baseUrl, method, route, { user, body, headers } = {}) => 
   };
 };
 
+/* Open the live stream, read its first chunk if it answers 200, then hang up. */
+const openStream = async (baseUrl, route) => {
+  const controller = new AbortController();
+  const response = await fetch(`${baseUrl}/api${route}`, { signal: controller.signal });
+  let firstChunk = "";
+  if (response.ok) {
+    const { value } = await response.body.getReader().read();
+    firstChunk = new TextDecoder().decode(value);
+  }
+  controller.abort();
+  return { status: response.status, firstChunk };
+};
+
 const expectStatus = (actual, expected, label, payload) => {
   try {
     assert.equal(actual, expected);
@@ -1821,6 +1834,22 @@ const run = async () => {
     assert.equal(statusOk.json.bot.enabled, false, "bot reports disabled without creds");
     assert.ok(typeof statusOk.json.bot.dmCount === "number", "bot status includes counts");
     pushPass("admin status endpoint reports bot connectivity");
+
+    // The live stream takes a one-time ticket, since a browser stream can't send a sign-in header.
+    const noTicket = await openStream(server.baseUrl, "/stream");
+    assert.equal(noTicket.status, 401, "the stream refuses a caller with no ticket");
+    const bogusTicket = await openStream(server.baseUrl, "/stream?ticket=not-a-ticket");
+    assert.equal(bogusTicket.status, 401, "the stream refuses a ticket it never issued");
+    const ticket = await request(server.baseUrl, "POST", "/stream-ticket", { user: users.creator });
+    expectStatus(ticket.status, 200, "signed-in caller gets a stream ticket", ticket.json);
+    assert.equal(typeof ticket.json.ticket, "string");
+    const streamUrl = `/stream?ticket=${encodeURIComponent(ticket.json.ticket)}`;
+    const opened = await openStream(server.baseUrl, streamUrl);
+    assert.equal(opened.status, 200, "the stream opens with a fresh ticket");
+    assert.match(opened.firstChunk, /event: connected/, "and says it is connected");
+    const reused = await openStream(server.baseUrl, streamUrl);
+    assert.equal(reused.status, 401, "a ticket opens the stream once");
+    pushPass("the live stream needs a one-time ticket from a signed-in caller");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {
@@ -1894,6 +1923,12 @@ const run = async () => {
       expectStatus(anonymous.status, 401, `${path} needs a token with SSO configured`, anonymous.json);
     }
     pushPass("task and loan reads need a token once SSO is configured");
+
+    const ticketOnSso = await request(ssoServer.baseUrl, "POST", "/stream-ticket");
+    expectStatus(ticketOnSso.status, 401, "stream ticket needs a token with SSO configured", ticketOnSso.json);
+    const streamOnSso = await openStream(ssoServer.baseUrl, "/stream");
+    assert.equal(streamOnSso.status, 401, "the stream needs a ticket with SSO configured");
+    pushPass("the live stream and its ticket need sign-in once SSO is configured");
   } catch (error) {
     pushFail(error instanceof Error ? error.message : String(error));
   } finally {
