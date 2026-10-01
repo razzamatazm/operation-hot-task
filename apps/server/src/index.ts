@@ -200,12 +200,12 @@ const bootstrap = async (): Promise<void> => {
     console.log(`bot_enabled=${botClient.isEnabled()}`);
   });
 
-  /* close() alone waits on open live streams, which never end on their own,
-     so a restart hung until the platform force-killed the process. */
+  /* close() alone waits on open live streams, so a restart hung until the
+     platform force-killed the process. Requests in flight still finish. */
   const shutdown = (): void => {
     clearInterval(scheduler);
     server.close();
-    server.closeAllConnections();
+    sse.closeAll();
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
