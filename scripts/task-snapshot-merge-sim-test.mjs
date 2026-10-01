@@ -3,6 +3,7 @@
    newer copies of some tasks; the list must not roll those back (#518 review).
    Run: `node --test scripts/task-snapshot-merge-sim-test.mjs`. */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { mergeTaskSnapshot } from "../apps/web/src/task-snapshot-merge.ts";
@@ -20,6 +21,17 @@ test("a task the stream updated after the list was read keeps the streamed copy"
   const merged = mergeTaskSnapshot([streamed], snapshot);
   assert.deepEqual(merged.map((t) => t.id), ["a", "b"]);
   assert.equal(merged[0], streamed);
+});
+
+test("a streamed change that left the timestamp alone, like a loan rename, is kept", () => {
+  const streamed = task("a", "2026-10-01T10:00:00.000Z", { loanName: "New name" });
+  const listed = task("a", "2026-10-01T10:00:00.000Z", { loanName: "Old name" });
+  assert.equal(mergeTaskSnapshot([streamed], [listed])[0], streamed);
+});
+
+test("the board passes the first task list through the merge", () => {
+  const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /setTasks\(\(current\) => mergeTaskSnapshot\(current, firstTasks\.tasks\)\)/);
 });
 
 test("a streamed copy older than the list's gives way to the list", () => {
