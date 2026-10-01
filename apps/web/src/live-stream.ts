@@ -13,8 +13,8 @@ interface LiveStreamOptions {
   fetchTicket: () => Promise<string>;
   connect: (ticket: string) => LiveStreamSource;
   onTaskChanged: (data: string) => void;
-  /* Changes sent while the stream was down are lost, so the board reloads. */
-  onReconnected: () => void;
+  /* Changes sent before the stream opened are lost, so the board reloads. */
+  onConnected: () => void;
   retryMs?: number;
   maxRetryMs?: number;
   schedule?: (fn: () => void, ms: number) => unknown;
@@ -25,7 +25,7 @@ export const openLiveStream = ({
   fetchTicket,
   connect,
   onTaskChanged,
-  onReconnected,
+  onConnected,
   retryMs = 5000,
   maxRetryMs = 60000,
   schedule = (fn, ms) => setTimeout(fn, ms),
@@ -35,7 +35,6 @@ export const openLiveStream = ({
   let source: LiveStreamSource | null = null;
   let retryTimer: unknown;
   let nextRetryMs = retryMs;
-  let everConnected = false;
 
   const retryLater = (): void => {
     if (stopped) return;
@@ -52,8 +51,7 @@ export const openLiveStream = ({
         source = opened;
         opened.addEventListener("connected", () => {
           nextRetryMs = retryMs;
-          if (everConnected) onReconnected();
-          everConnected = true;
+          onConnected();
         });
         opened.addEventListener("task.changed", (event) => onTaskChanged(event.data));
         opened.onerror = () => {

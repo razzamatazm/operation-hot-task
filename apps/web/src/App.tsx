@@ -37,7 +37,7 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
-import { mergeTaskSnapshot } from "./task-snapshot-merge";
+import { createStreamReload, mergeTaskSnapshot } from "./task-snapshot-merge";
 import { openLiveStream } from "./live-stream";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -4338,28 +4338,21 @@ export const App = () => {
   useEffect(() => {
     /* Same gate as the task fetch: the ticket request needs a signed-in person. */
     if (!user.id) return;
-    /* A reconnect reloads the list. The board's copies predate the gap, so only
-       changes streamed while the reload is in flight may override it. */
-    const reloadsInFlight = new Set<Map<string, LoanTask>>();
-    let stopped = false;
+    const streamReload = createStreamReload<LoanTask>({
+      load: () => apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user).then((data) => data.tasks),
+      apply: (reloaded) => {
+        setTasks(reloaded);
+        setError(null);
+      },
+      fail: (err) => setError(err instanceof Error ? err.message : "Failed to load tasks")
+    });
     const stop = openLiveStream({
       fetchTicket: () => apiRequest<{ ticket: string }>("/stream-ticket", { method: "POST" }, user).then((data) => data.ticket),
       connect: (ticket) => new EventSource(`${API_BASE}/stream?ticket=${encodeURIComponent(ticket)}`),
-      onReconnected: () => {
-        const streamedDuringReload = new Map<string, LoanTask>();
-        reloadsInFlight.add(streamedDuringReload);
-        apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user)
-          .then((data) => {
-            if (stopped) return;
-            setTasks(mergeTaskSnapshot([...streamedDuringReload.values()], data.tasks));
-            setError(null);
-          })
-          .catch(() => {})
-          .finally(() => reloadsInFlight.delete(streamedDuringReload));
-      },
+      onConnected: streamReload.reload,
       onTaskChanged: (data) => {
         const incoming = JSON.parse(data) as LoanTask;
-        for (const streamedDuringReload of reloadsInFlight) streamedDuringReload.set(incoming.id, incoming);
+        streamReload.streamed(incoming);
         setTasks((current) => {
           const idx = current.findIndex((t) => t.id === incoming.id);
           if (idx === -1) return [incoming, ...current];
@@ -4370,7 +4363,7 @@ export const App = () => {
       }
     });
     return () => {
-      stopped = true;
+      streamReload.stop();
       stop();
     };
   }, [user.id]);

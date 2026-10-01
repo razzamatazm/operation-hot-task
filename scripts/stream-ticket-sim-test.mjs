@@ -96,7 +96,7 @@ const harness = ({ ticketFails = 0 } = {}) => {
     fetchTicket,
     connect,
     onTaskChanged: (data) => state.events.push(data),
-    onReconnected: () => {
+    onConnected: () => {
       state.reloads += 1;
     },
     retryMs: 5000,
@@ -118,16 +118,17 @@ test("opens the stream with a fresh ticket and passes events through", async () 
   assert.deepEqual(h.state.events, ['{"id":"a"}']);
 });
 
-test("the first connect loads nothing extra; a reconnect reloads the board once", async () => {
+test("every connect reloads the board once, the first one included", async () => {
   const h = harness();
   await settle();
+  assert.equal(h.state.reloads, 0, "opening is not enough; the server has to say connected");
   h.state.sources[0].listeners.connected({ data: "{}" });
-  assert.equal(h.state.reloads, 0, "the first list already came from the normal load");
+  assert.equal(h.state.reloads, 1, "the first list was read before the stream opened, so changes in between are fetched");
   h.state.sources[0].onerror?.({});
   await h.runTimers();
-  assert.equal(h.state.reloads, 0, "opening is not enough; the server has to say connected");
+  assert.equal(h.state.reloads, 1);
   h.state.sources[1].listeners.connected({ data: "{}" });
-  assert.equal(h.state.reloads, 1, "changes sent during the gap are fetched");
+  assert.equal(h.state.reloads, 2, "changes sent during the gap are fetched");
 });
 
 test("repeated failures wait longer each time, up to a minute, and a connect resets the wait", async () => {
