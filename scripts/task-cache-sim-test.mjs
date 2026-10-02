@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { TASK_CACHE_KEY, TASK_CACHE_MAX_AGE_MS, readTaskCache, writeTaskCache } from "../apps/web/src/task-cache.ts";
+import { TASK_CACHE_KEY, TASK_CACHE_MAX_AGE_MS, clearTaskCache, readTaskCache, writeTaskCache } from "../apps/web/src/task-cache.ts";
 
 const memoryStorage = () => {
   const items = new Map();
@@ -57,13 +57,27 @@ test("garbage in storage reads as nothing", () => {
   assert.deepEqual(readTaskCache(storage, "build-1", 0), []);
 });
 
-test("the board reads the saved list only after Teams hands over a sign-in token, so nobody sees tasks signed out", () => {
+test("the board reads the saved list only after /me accepts the viewer, since a deactivated person still holds a Teams token", () => {
   const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
   const reads = [...app.matchAll(/readTaskCache</g)];
   assert.equal(reads.length, 1, "read in one place");
-  const seed = app.indexOf("tokenCache.seed(token);");
-  assert.ok(seed > 0 && seed < reads[0].index, "after the token");
+  const me = app.indexOf(`const me = await apiRequest<UserIdentity>("/me"`);
+  assert.ok(me > 0 && me < reads[0].index, "after /me resolves");
   assert.match(app, /useState<LoanTask\[\]>\(\[\]\)/, "the board starts empty");
+});
+
+test("a refused sign-in wipes the saved list from the device", () => {
+  const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
+  const refused = app.slice(app.indexOf(`setError("Unable to sign in.`));
+  assert.match(refused.slice(0, 300), /clearTaskCache\(browserDraftStorage\(\)\)/);
+});
+
+test("clearing removes the saved list and is quiet without storage", () => {
+  const storage = memoryStorage();
+  writeTaskCache(storage, "build-1", tasks, 1000);
+  clearTaskCache(storage);
+  assert.deepEqual(readTaskCache(storage, "build-1", 2000), []);
+  assert.doesNotThrow(() => clearTaskCache(null));
 });
 
 test("no storage, or storage that throws, is quiet both ways", () => {

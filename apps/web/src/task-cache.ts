@@ -25,3 +25,11 @@ export const writeTaskCache = <T>(storage: DraftStorage | null, build: string, t
     /* storage full or locked: the board just loads without it next time */
   }
 };
+
+export const clearTaskCache = (storage: DraftStorage | null): void => {
+  try {
+    storage?.removeItem(TASK_CACHE_KEY);
+  } catch {
+    /* storage locked: nothing could have been saved there either */
+  }
+};

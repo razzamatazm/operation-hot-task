@@ -37,7 +37,7 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
-import { readTaskCache, writeTaskCache } from "./task-cache";
+import { clearTaskCache, readTaskCache, writeTaskCache } from "./task-cache";
 import { createStreamReload, mergeTaskSnapshot } from "./task-snapshot-merge";
 import { openLiveStream } from "./live-stream";
 
@@ -4240,21 +4240,26 @@ export const App = () => {
         /* Teams host present → resolve the real identity via SSO. */
         const token = await tokenRequest;
         tokenCache.seed(token);
-        /* The saved list waits for the token, so nobody sees tasks without
-           signing in, and covers the wait for /me and the first list. */
-        const saved = readTaskCache<LoanTask>(browserDraftStorage(), __BUILD_ID__, Date.now());
-        if (saved.length > 0) {
-          boardIsSavedCopy.current = true;
-          setTasks(saved);
-        }
         /* The task list goes out beside /me instead of waiting for it: it is
            the same for everyone, and the token is all it needs. The board then
            paints one round trip sooner, and the load that follows the person
            resolving skips the tasks it would only fetch again. */
-        const [me, firstTasks] = await Promise.all([
-          apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER),
-          apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER).catch(() => null)
-        ]);
+        let firstTasksLanded = false;
+        const tasksRequest = apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER)
+          .catch(() => null)
+          .finally(() => {
+            firstTasksLanded = true;
+          });
+        const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
+        /* The saved list waits for /me, which refuses anyone the server would
+           refuse the list itself (a deactivated person still holds a Teams
+           token), and covers whatever is left of the wait for the first list. */
+        const saved = firstTasksLanded ? [] : readTaskCache<LoanTask>(browserDraftStorage(), __BUILD_ID__, Date.now());
+        if (saved.length > 0) {
+          boardIsSavedCopy.current = true;
+          setTasks(saved);
+        }
+        const firstTasks = await tasksRequest;
         if (firstTasks) {
           /* The saved list is a stand-in, never merged: a task deleted or
              purged since it was saved would otherwise survive the swap. */
@@ -4285,9 +4290,8 @@ export const App = () => {
         setHostTheme(window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         if (!IS_DEV) {
           setError("Unable to sign in. Open this app from Microsoft Teams.");
-          /* No list is coming, so the saved one would sit there looking live. */
-          if (boardIsSavedCopy.current) setTasks([]);
-          boardIsSavedCopy.current = false;
+          /* Someone the server refuses keeps no saved list on this device. */
+          clearTaskCache(browserDraftStorage());
         }
       });
   }, []);
