@@ -4050,6 +4050,9 @@ export const App = () => {
   const [pulsingIds, setPulsingIds] = useState<Set<string>>(() => new Set());
   const prevStatusesRef = useRef<Map<string, TaskStatus>>(new Map());
   useEffect(() => {
+    /* The saved list is not this session's view: snapshotting it would replay
+       every change made while the app was away as if it just landed. */
+    if (!tasksLoaded) return;
     /* Collapse cards whose task just closed (#452), off the same snapshot and
        seen-this-session rule as the pulse. */
     const closedIds = newlyClosedIds(prevStatusesRef.current, tasks);
@@ -4080,7 +4083,7 @@ export const App = () => {
       });
     }, 3500);
     return () => clearTimeout(timer);
-  }, [tasks, user.id]);
+  }, [tasks, tasksLoaded, user.id]);
   /* Reset pulse + status snapshot on mock-user switch so a fresh viewer
      doesn't inherit the previous user's pulse state or transitions. */
   useEffect(() => {
