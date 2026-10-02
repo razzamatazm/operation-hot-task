@@ -3664,13 +3664,13 @@ export const App = () => {
   /* Whose sign-in already brought the task list with it, so the load that
      follows the person resolving doesn't fetch it a second time. */
   const tasksPrimedFor = useRef<string | null>(null);
-  /* Starts from the list saved on this device last time, so the board paints
-     at once. The first list from the server replaces it outright. */
-  const [tasks, setTasks] = useState<LoanTask[]>(() => readTaskCache<LoanTask>(browserDraftStorage(), __BUILD_ID__, Date.now()));
+  const [tasks, setTasks] = useState<LoanTask[]>([]);
   /* A task list has come back from the server at least once. Until then the
      board holds the saved list, or says it's loading rather than `No tasks yet.` */
   const [tasksLoaded, setTasksLoaded] = useState(false);
-  const boardIsSavedCopy = useRef(tasks.length > 0);
+  /* The board holds the list saved on this device last time, painted once
+     Teams hands over a sign-in token and replaced outright by the first list. */
+  const boardIsSavedCopy = useRef(false);
   const [loans, setLoans] = useState<Loan[]>([]);
   /* The loans list has come back at least once (#415). A Humperdink arrival's
      clipboard fill waits for it. A failed load leaves it false, and the paste
@@ -4240,6 +4240,13 @@ export const App = () => {
         /* Teams host present → resolve the real identity via SSO. */
         const token = await tokenRequest;
         tokenCache.seed(token);
+        /* The saved list waits for the token, so nobody sees tasks without
+           signing in, and covers the wait for /me and the first list. */
+        const saved = readTaskCache<LoanTask>(browserDraftStorage(), __BUILD_ID__, Date.now());
+        if (saved.length > 0) {
+          boardIsSavedCopy.current = true;
+          setTasks(saved);
+        }
         /* The task list goes out beside /me instead of waiting for it: it is
            the same for everyone, and the token is all it needs. The board then
            paints one round trip sooner, and the load that follows the person

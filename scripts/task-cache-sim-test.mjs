@@ -6,6 +6,7 @@
    to be worth showing, reads as nothing.
    Run: `node --test scripts/task-cache-sim-test.mjs`. */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { TASK_CACHE_KEY, TASK_CACHE_MAX_AGE_MS, readTaskCache, writeTaskCache } from "../apps/web/src/task-cache.ts";
@@ -54,6 +55,15 @@ test("garbage in storage reads as nothing", () => {
   assert.deepEqual(readTaskCache(storage, "build-1", 0), []);
   storage.setItem(TASK_CACHE_KEY, JSON.stringify({ build: "build-1", savedAt: 0, tasks: "nope" }));
   assert.deepEqual(readTaskCache(storage, "build-1", 0), []);
+});
+
+test("the board reads the saved list only after Teams hands over a sign-in token, so nobody sees tasks signed out", () => {
+  const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
+  const reads = [...app.matchAll(/readTaskCache</g)];
+  assert.equal(reads.length, 1, "read in one place");
+  const seed = app.indexOf("tokenCache.seed(token);");
+  assert.ok(seed > 0 && seed < reads[0].index, "after the token");
+  assert.match(app, /useState<LoanTask\[\]>\(\[\]\)/, "the board starts empty");
 });
 
 test("no storage, or storage that throws, is quiet both ways", () => {
