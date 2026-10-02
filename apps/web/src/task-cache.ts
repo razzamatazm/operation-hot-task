@@ -1,13 +1,7 @@
 import type { DraftStorage } from "./create-form-draft";
 
-/* The last task list the board saw, kept on this device so the board can paint
-   it while sign-in and the first fetch run. The server's list then replaces it
-   outright: it is a stand-in, never merged, so a task deleted or purged since
-   can't survive the swap.
-
-   Tied to the build that saved it, since a new build may expect fields an old
-   copy lacks, and to an age limit, since a week-old board is more misleading
-   than a blank one. */
+/* The last task list the board saw, painted while sign-in and the first fetch
+   run. Tied to the build that saved it, whose fields an older copy may lack. */
 export const TASK_CACHE_KEY = "hot-task:board-tasks";
 export const TASK_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -28,6 +22,6 @@ export const writeTaskCache = <T>(storage: DraftStorage | null, build: string, t
   try {
     storage?.setItem(TASK_CACHE_KEY, JSON.stringify({ build, savedAt: now, tasks }));
   } catch {
-    /* storage full or locked — the board just loads without it next time */
+    /* storage full or locked: the board just loads without it next time */
   }
 };

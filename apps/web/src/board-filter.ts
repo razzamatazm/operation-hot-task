@@ -164,7 +164,9 @@ export const visibleBoardTasks = <T extends Pick<LoanTask, "id" | "createdBy" | 
    the task list, which carries its own `No tasks yet.`
 
    Until the first task list arrives an empty board is loading, not empty, so
-   sign-in and the first fetch don't read as `No tasks yet.` */
+   sign-in and the first fetch don't read as `No tasks yet.` My Tasks waits for
+   that list even when the saved one has rows: they paint before the viewer is
+   known, so Mine can't be worked out yet. */
 export type BoardBody = "drafts" | "loading" | "search-empty" | "mine-empty" | "tasks";
 
 export const boardBody = ({
@@ -179,6 +181,7 @@ export const boardBody = ({
   shownCount: number;
 }): BoardBody => {
   if (tab === "drafts") return "drafts";
+  if (!loaded && tab === "mine") return "loading";
   if (shownCount > 0) return "tasks";
   if (!loaded) return "loading";
   if (tab === "mine") return "mine-empty";

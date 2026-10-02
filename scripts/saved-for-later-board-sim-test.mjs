@@ -1097,7 +1097,7 @@ test("opening a card ends the search from any tab, as it always has (the user's 
 
 test("a link to a task opens a task tab, All Tasks when My Tasks would hide it", () => {
   const focus = APP_SOURCE.slice(APP_SOURCE.indexOf("/* Deep-link focus:"));
-  const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks]);"));
+  const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks, tasksLoaded]);"));
   assert.match(body, /setActiveTab\("active"\);/);
   assert.match(
     body,

@@ -3670,7 +3670,7 @@ export const App = () => {
   /* A task list has come back from the server at least once. Until then the
      board holds the saved list, or says it's loading rather than `No tasks yet.` */
   const [tasksLoaded, setTasksLoaded] = useState(false);
-  const tasksAreSaved = useRef(tasks.length > 0);
+  const boardIsSavedCopy = useRef(tasks.length > 0);
   const [loans, setLoans] = useState<Loan[]>([]);
   /* The loans list has come back at least once (#415). A Humperdink arrival's
      clipboard fill waits for it. A failed load leaves it false, and the paste
@@ -3964,9 +3964,11 @@ export const App = () => {
   /* Deep-link focus: once the linked task has loaded, jump to the main list,
      expand it, and scroll it into view. Waits for the task to be present so a
      cold open (tasks fetched after Teams init) still lands correctly. The rAF
-     defers the scroll until the expanded card has rendered. */
+     defers the scroll until the expanded card has rendered. The board's saved
+     list doesn't count: it paints before the viewer is known, and the Mine and
+     unread checks below need the viewer. */
   useEffect(() => {
-    if (!focusTaskId || !tasks.some((t) => t.id === focusTaskId)) {
+    if (!tasksLoaded || !focusTaskId || !tasks.some((t) => t.id === focusTaskId)) {
       return;
     }
     const target = focusTaskId;
@@ -4002,7 +4004,7 @@ export const App = () => {
     setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
     setScrollTaskId(target);
     setFocusTaskId(null);
-  }, [focusTaskId, tasks]);
+  }, [focusTaskId, tasks, tasksLoaded]);
   /* The scroll, once the board it lands on has rendered: this runs on the commit
      after the focus path, when the search is gone and Show has settled, and the
      rAF waits for that layout to paint. The state is cleared inside the frame,
@@ -4249,8 +4251,8 @@ export const App = () => {
         if (firstTasks) {
           /* The saved list is a stand-in, never merged: a task deleted or
              purged since it was saved would otherwise survive the swap. */
-          const fromSaved = tasksAreSaved.current;
-          tasksAreSaved.current = false;
+          const fromSaved = boardIsSavedCopy.current;
+          boardIsSavedCopy.current = false;
           setTasks((current) => (fromSaved ? firstTasks.tasks : mergeTaskSnapshot(current, firstTasks.tasks)));
           setTasksLoaded(true);
           tasksPrimedFor.current = me.id;
@@ -4276,6 +4278,9 @@ export const App = () => {
         setHostTheme(window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         if (!IS_DEV) {
           setError("Unable to sign in. Open this app from Microsoft Teams.");
+          /* No list is coming, so the saved one would sit there looking live. */
+          if (boardIsSavedCopy.current) setTasks([]);
+          boardIsSavedCopy.current = false;
         }
       });
   }, []);

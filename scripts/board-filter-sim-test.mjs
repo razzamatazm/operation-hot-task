@@ -377,7 +377,12 @@ test("before the first task list arrives, an empty board is loading, not empty",
   assert.equal(boardBody({ loaded: false, tab: "mine", searching: false, shownCount: 0 }), "loading");
 });
 
-test("a task that streams in before the first list is shown, and drafts never wait on tasks", () => {
+test("My Tasks stays loading until the first list, since the saved list paints before the viewer is known", () => {
+  assert.equal(boardBody({ loaded: false, tab: "mine", searching: false, shownCount: 3 }), "loading");
+  assert.equal(boardBody({ loaded: true, tab: "mine", searching: false, shownCount: 3 }), "tasks");
+});
+
+test("the saved list shows on All Tasks before the first list, and drafts never wait on tasks", () => {
   assert.equal(boardBody({ loaded: false, tab: "all", searching: false, shownCount: 1 }), "tasks");
   assert.equal(boardBody({ loaded: false, tab: "drafts", searching: false, shownCount: 0 }), "drafts");
 });
