@@ -1030,7 +1030,7 @@ test("both task tabs come from the one narrowing rule, and the open one is the l
 
 test("switching tabs swaps the body: the Task Drafts page lists every draft, never narrowed by Mine or the search", () => {
   const block = boardBlock();
-  assert.match(block, /boardBody\(\{ tab: boardTab, searching: Boolean\(searchLoan\), shownCount: boardTasks\.length \}\)/);
+  assert.match(block, /boardBody\(\{ loaded: [^,]+, tab: boardTab, searching: Boolean\(searchLoan\), shownCount: boardTasks\.length \}\)/);
   const page = block.match(/<TaskDraftsPage([\s\S]*?)\/>/)?.[1];
   assert.ok(page, "the drafts tab renders the Task Drafts page");
   assert.match(page, /items=\{savedForLater\}/, "straight from the list App loaded, which no search or Mine ever touches");

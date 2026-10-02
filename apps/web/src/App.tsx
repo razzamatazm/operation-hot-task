@@ -37,6 +37,7 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
+import { readTaskCache, writeTaskCache } from "./task-cache";
 import { createStreamReload, mergeTaskSnapshot } from "./task-snapshot-merge";
 import { openLiveStream } from "./live-stream";
 
@@ -3663,7 +3664,13 @@ export const App = () => {
   /* Whose sign-in already brought the task list with it, so the load that
      follows the person resolving doesn't fetch it a second time. */
   const tasksPrimedFor = useRef<string | null>(null);
-  const [tasks, setTasks] = useState<LoanTask[]>([]);
+  /* Starts from the list saved on this device last time, so the board paints
+     at once. The first list from the server replaces it outright. */
+  const [tasks, setTasks] = useState<LoanTask[]>(() => readTaskCache<LoanTask>(browserDraftStorage(), __BUILD_ID__, Date.now()));
+  /* A task list has come back from the server at least once. Until then the
+     board holds the saved list, or says it's loading rather than `No tasks yet.` */
+  const [tasksLoaded, setTasksLoaded] = useState(false);
+  const tasksAreSaved = useRef(tasks.length > 0);
   const [loans, setLoans] = useState<Loan[]>([]);
   /* The loans list has come back at least once (#415). A Humperdink arrival's
      clipboard fill waits for it. A failed load leaves it false, and the paste
@@ -4089,10 +4096,19 @@ export const App = () => {
     }
   }, [isAdmin, activeTab]);
 
+  useEffect(() => {
+    /* Saves the board for the next open. Only a list the server sent, and only
+       after a second of quiet, since the stream can change it many times in a row. */
+    if (!tasksLoaded) return;
+    const timer = window.setTimeout(() => writeTaskCache(browserDraftStorage(), __BUILD_ID__, tasks, Date.now()), 1000);
+    return () => window.clearTimeout(timer);
+  }, [tasks, tasksLoaded]);
+
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user);
       setTasks(data.tasks);
+      setTasksLoaded(true);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks");
@@ -4231,7 +4247,12 @@ export const App = () => {
           apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER).catch(() => null)
         ]);
         if (firstTasks) {
-          setTasks((current) => mergeTaskSnapshot(current, firstTasks.tasks));
+          /* The saved list is a stand-in, never merged: a task deleted or
+             purged since it was saved would otherwise survive the swap. */
+          const fromSaved = tasksAreSaved.current;
+          tasksAreSaved.current = false;
+          setTasks((current) => (fromSaved ? firstTasks.tasks : mergeTaskSnapshot(current, firstTasks.tasks)));
+          setTasksLoaded(true);
           tasksPrimedFor.current = me.id;
         }
 
@@ -4342,6 +4363,7 @@ export const App = () => {
       load: () => apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user).then((data) => data.tasks),
       apply: (reloaded) => {
         setTasks(reloaded);
+        setTasksLoaded(true);
         setError(null);
       },
       fail: (err) => setError(err instanceof Error ? err.message : "Failed to load tasks")
@@ -5225,7 +5247,9 @@ export const App = () => {
            carries the loan's name and `Clear search` sits beside the tabs while
            that tab is open. A draft is not a task, and the drafts page lists
            every one the viewer has. */
-        const body = boardBody({ tab: boardTab, searching: Boolean(searchLoan), shownCount: boardTasks.length });
+        /* A failed sign-in or load has its own error banner, so the board stops
+           saying it's loading. */
+        const body = boardBody({ loaded: tasksLoaded || error !== null, tab: boardTab, searching: Boolean(searchLoan), shownCount: boardTasks.length });
         return (
           <>
             <div className="section-head task-grid-head">
@@ -5257,6 +5281,8 @@ export const App = () => {
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)} tabIndex={-1}>
               {body === "drafts" ? (
                 <TaskDraftsPage items={savedForLater} autosave={autosave} now={now} onOpen={newTask.reopen} onDelete={newTask.deleteDraft} onOpenAutosave={newTask.open} onDeleteAutosave={newTask.deleteAutosave} />
+              ) : body === "loading" ? (
+                <div className="empty-card" role="status">Loading tasks…</div>
               ) : body === "search-empty" && searchLoan ? (
                 <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
               ) : body === "mine-empty" ? (
