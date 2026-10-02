@@ -116,11 +116,11 @@ Non-OOO tasks carry one of four urgency levels. The deadline is computed from th
 
 ### Poops (difficulty rating)
 
-A whole number from 0 to 5 (default 0) set by the person filing the task, shown as poop icons so teammates can judge how heavy a task is before claiming it. The creator can change it until the task closes. It is a rating only: nothing awards it to the assignee, and the Metrics leaderboard counts claims, not poops.
+A whole number from 1 to 5 set by the person filing the task, shown as poop icons so teammates can judge how heavy a task is before claiming it. The creator can change it until the task closes. The forms and API accept 0 to 5 with a default of 0, but the task store saves any value outside 1–5, including 0, as 1, so every stored task has a rating of 1 to 5 and the effective default is 1. It is a rating only: nothing awards it to the assignee, and the Metrics leaderboard counts claims, not poops.
 
 ### Fields on a task
 
-Core: `id`, `taskType`, `status`, `urgency`, `dueAt`, `loanId`, `folderName` (cached loan name), `notes` (the Instructions), `points`, `createdBy`, `assignee`, `reviewNotes[]` (the conversation; see §9.2).
+Core: `id`, `taskType`, `status`, `urgency`, `dueAt`, `loanId`, `folderName` and `humperdinkLink` (cached copies of the loan's name and link, kept in sync when the loan changes, so Humperdink links are stored in both `loans.json` and `tasks.json`), `notes` (the Instructions), `points`, `createdBy`, `assignee`, `reviewNotes[]` (the conversation; see §9.2).
 
 Type-specific: `startDate` and `returnDate` (OOO); `checklist`, `checklistPass` and `awaitingItemsSince` (Fraud); `awaitingConfirmationFrom` (marks an LOI sent back for a confirming look).
 
@@ -224,7 +224,7 @@ Bot Framework authentication (`BOT_APP_ID`, `BOT_APP_PASSWORD`, `BOT_TENANT_ID`)
 
 ### In local development
 
-When SSO is not configured (or `DEV_BYPASS_AUTH=true`), the server instead reads three mock headers (`x-user-id`, `x-user-name`, `x-user-roles`), defaulting to the `LOAN_OFFICER` role; roles in `users.json` take precedence over the header. Once SSO is configured, a request without a bearer token is refused with 401, and the dev-only routes are not registered. Implemented in `apps/server/src/auth.ts`.
+When SSO is not configured (or `DEV_BYPASS_AUTH=true`), the server instead reads three mock headers (`x-user-id`, `x-user-name`, `x-user-roles`), defaulting to the `LOAN_OFFICER` role; roles in `users.json` take precedence over the header. Once SSO is configured, the dev-only routes are not registered and, unless `DEV_BYPASS_AUTH=true`, a request without a bearer token is refused with 401. With `DEV_BYPASS_AUTH=true` the server skips token verification entirely and accepts the mock headers even when SSO is configured. Implemented in `apps/server/src/auth.ts`.
 
 ### Integration key
 
@@ -269,7 +269,7 @@ Every task has history events stored in a separate top-level array in `tasks.jso
 | `TASK_NOTES_AMENDED`         | The Instructions change                                           |
 | `TASK_URGENCY_AMENDED`       | The urgency changes                                               |
 | `TASK_DATES_AMENDED`         | OOO dates change                                                  |
-| `TASK_FOLDER_NAME_AMENDED`   | The task's loan name changes                                      |
+| `TASK_FOLDER_NAME_AMENDED`   | An OOO task's description changes (OOO tasks have no loan)        |
 | `TASK_LOAN_NAME_AMENDED`, `TASK_LOAN_LINK_AMENDED` | A loan record is renamed or relinked (written on every task on that loan) |
 | `REQUESTER_HANDED_OVER`      | Change Task Owner                                                 |
 | `REVIEW_NOTE_ADDED`          | A message is added to the conversation                            |
