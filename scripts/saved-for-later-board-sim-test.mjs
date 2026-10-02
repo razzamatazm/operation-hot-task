@@ -1030,7 +1030,7 @@ test("both task tabs come from the one narrowing rule, and the open one is the l
 
 test("switching tabs swaps the body: the Task Drafts page lists every draft, never narrowed by Mine or the search", () => {
   const block = boardBlock();
-  assert.match(block, /boardBody\(\{ tab: boardTab, searching: Boolean\(searchLoan\), shownCount: boardTasks\.length \}\)/);
+  assert.match(block, /boardBody\(\{ loaded: [^,]+, tab: boardTab, searching: Boolean\(searchLoan\), shownCount: boardTasks\.length \}\)/);
   const page = block.match(/<TaskDraftsPage([\s\S]*?)\/>/)?.[1];
   assert.ok(page, "the drafts tab renders the Task Drafts page");
   assert.match(page, /items=\{savedForLater\}/, "straight from the list App loaded, which no search or Mine ever touches");
@@ -1097,7 +1097,7 @@ test("opening a card ends the search from any tab, as it always has (the user's 
 
 test("a link to a task opens a task tab, All Tasks when My Tasks would hide it", () => {
   const focus = APP_SOURCE.slice(APP_SOURCE.indexOf("/* Deep-link focus:"));
-  const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks]);"));
+  const body = focus.slice(0, focus.indexOf("}, [focusTaskId, tasks, tasksLoaded]);"));
   assert.match(body, /setActiveTab\("active"\);/);
   assert.match(
     body,

@@ -192,7 +192,8 @@ test("only the task that closed collapses", () => {
 test("the board collapses closes from the pulse snapshot", () => {
   const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
   const start = app.indexOf("const prevStatusesRef");
-  const effect = app.slice(start, app.indexOf("}, [tasks, user.id]);", start));
+  const effect = app.slice(start, app.indexOf("}, [tasks, tasksLoaded, user.id]);", start));
+  assert.match(effect, /if \(!tasksLoaded\) return;[\s\S]*newlyClosedIds\(prevStatusesRef\.current, tasks\)/, "the saved list never seeds the snapshot");
   assert.match(effect, /newlyClosedIds\(prevStatusesRef\.current, tasks\)/);
   assert.match(effect, /setExpandOverrides\(\(prev\) => collapseNewlyClosed\(prev, closedIds\)\)/);
   assert.match(app, /useEffect\(\(\) => \{\s*prevStatusesRef\.current = new Map\(\);/, "a user switch clears the snapshot");

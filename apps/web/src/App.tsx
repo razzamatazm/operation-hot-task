@@ -37,6 +37,7 @@ import { CardMenuScopeProvider, InstructionsSection, THREAD_HEAD_LABEL, ThreadMe
 import { Timeline, currentStepName } from "./timeline";
 import { useToast } from "./toast";
 import { MovePlace, focusBoardTarget, focusTargetAfterMove, placeOf, readBoardLayout } from "./move-focus";
+import { clearTaskCache, readTaskCache, writeTaskCache } from "./task-cache";
 import { createStreamReload, mergeTaskSnapshot } from "./task-snapshot-merge";
 import { openLiveStream } from "./live-stream";
 
@@ -3664,6 +3665,12 @@ export const App = () => {
      follows the person resolving doesn't fetch it a second time. */
   const tasksPrimedFor = useRef<string | null>(null);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
+  /* A task list has come back from the server at least once. Until then the
+     board holds the saved list, or says it's loading rather than `No tasks yet.` */
+  const [tasksLoaded, setTasksLoaded] = useState(false);
+  /* The board holds the list saved on this device last time, painted once
+     Teams hands over a sign-in token and replaced outright by the first list. */
+  const boardIsSavedCopy = useRef(false);
   const [loans, setLoans] = useState<Loan[]>([]);
   /* The loans list has come back at least once (#415). A Humperdink arrival's
      clipboard fill waits for it. A failed load leaves it false, and the paste
@@ -3957,9 +3964,11 @@ export const App = () => {
   /* Deep-link focus: once the linked task has loaded, jump to the main list,
      expand it, and scroll it into view. Waits for the task to be present so a
      cold open (tasks fetched after Teams init) still lands correctly. The rAF
-     defers the scroll until the expanded card has rendered. */
+     defers the scroll until the expanded card has rendered. The board's saved
+     list doesn't count: it paints before the viewer is known, and the Mine and
+     unread checks below need the viewer. */
   useEffect(() => {
-    if (!focusTaskId || !tasks.some((t) => t.id === focusTaskId)) {
+    if (!tasksLoaded || !focusTaskId || !tasks.some((t) => t.id === focusTaskId)) {
       return;
     }
     const target = focusTaskId;
@@ -3995,7 +4004,7 @@ export const App = () => {
     setExpandOverride(target, true, linked ? hasUnreadNoteForViewer(linked, user, seenNotesAt[target]) : false);
     setScrollTaskId(target);
     setFocusTaskId(null);
-  }, [focusTaskId, tasks]);
+  }, [focusTaskId, tasks, tasksLoaded]);
   /* The scroll, once the board it lands on has rendered: this runs on the commit
      after the focus path, when the search is gone and Show has settled, and the
      rAF waits for that layout to paint. The state is cleared inside the frame,
@@ -4041,6 +4050,9 @@ export const App = () => {
   const [pulsingIds, setPulsingIds] = useState<Set<string>>(() => new Set());
   const prevStatusesRef = useRef<Map<string, TaskStatus>>(new Map());
   useEffect(() => {
+    /* The saved list is not this session's view: snapshotting it would replay
+       every change made while the app was away as if it just landed. */
+    if (!tasksLoaded) return;
     /* Collapse cards whose task just closed (#452), off the same snapshot and
        seen-this-session rule as the pulse. */
     const closedIds = newlyClosedIds(prevStatusesRef.current, tasks);
@@ -4071,7 +4083,7 @@ export const App = () => {
       });
     }, 3500);
     return () => clearTimeout(timer);
-  }, [tasks, user.id]);
+  }, [tasks, tasksLoaded, user.id]);
   /* Reset pulse + status snapshot on mock-user switch so a fresh viewer
      doesn't inherit the previous user's pulse state or transitions. */
   useEffect(() => {
@@ -4089,10 +4101,19 @@ export const App = () => {
     }
   }, [isAdmin, activeTab]);
 
+  useEffect(() => {
+    /* Saves the board for the next open. Only a list the server sent, and only
+       after a second of quiet, since the stream can change it many times in a row. */
+    if (!tasksLoaded) return;
+    const timer = window.setTimeout(() => writeTaskCache(browserDraftStorage(), __BUILD_ID__, tasks, Date.now()), 1000);
+    return () => window.clearTimeout(timer);
+  }, [tasks, tasksLoaded]);
+
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const data = await apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user);
       setTasks(data.tasks);
+      setTasksLoaded(true);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks");
@@ -4226,12 +4247,29 @@ export const App = () => {
            the same for everyone, and the token is all it needs. The board then
            paints one round trip sooner, and the load that follows the person
            resolving skips the tasks it would only fetch again. */
-        const [me, firstTasks] = await Promise.all([
-          apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER),
-          apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER).catch(() => null)
-        ]);
+        let firstTasksLanded = false;
+        const tasksRequest = apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, INITIAL_USER)
+          .catch(() => null)
+          .finally(() => {
+            firstTasksLanded = true;
+          });
+        const me = await apiRequest<UserIdentity>("/me", { method: "GET" }, INITIAL_USER);
+        /* The saved list waits for /me, which refuses anyone the server would
+           refuse the list itself (a deactivated person still holds a Teams
+           token), and covers whatever is left of the wait for the first list. */
+        const saved = firstTasksLanded ? [] : readTaskCache<LoanTask>(browserDraftStorage(), __BUILD_ID__, Date.now());
+        if (saved.length > 0) {
+          boardIsSavedCopy.current = true;
+          setTasks(saved);
+        }
+        const firstTasks = await tasksRequest;
         if (firstTasks) {
-          setTasks((current) => mergeTaskSnapshot(current, firstTasks.tasks));
+          /* The saved list is a stand-in, never merged: a task deleted or
+             purged since it was saved would otherwise survive the swap. */
+          const fromSaved = boardIsSavedCopy.current;
+          boardIsSavedCopy.current = false;
+          setTasks((current) => (fromSaved ? firstTasks.tasks : mergeTaskSnapshot(current, firstTasks.tasks)));
+          setTasksLoaded(true);
           tasksPrimedFor.current = me.id;
         }
 
@@ -4255,6 +4293,8 @@ export const App = () => {
         setHostTheme(window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         if (!IS_DEV) {
           setError("Unable to sign in. Open this app from Microsoft Teams.");
+          /* Someone the server refuses keeps no saved list on this device. */
+          clearTaskCache(browserDraftStorage());
         }
       });
   }, []);
@@ -4342,6 +4382,7 @@ export const App = () => {
       load: () => apiRequest<{ tasks: LoanTask[] }>("/tasks", { method: "GET" }, user).then((data) => data.tasks),
       apply: (reloaded) => {
         setTasks(reloaded);
+        setTasksLoaded(true);
         setError(null);
       },
       fail: (err) => setError(err instanceof Error ? err.message : "Failed to load tasks")
@@ -5225,7 +5266,9 @@ export const App = () => {
            carries the loan's name and `Clear search` sits beside the tabs while
            that tab is open. A draft is not a task, and the drafts page lists
            every one the viewer has. */
-        const body = boardBody({ tab: boardTab, searching: Boolean(searchLoan), shownCount: boardTasks.length });
+        /* A failed sign-in or load has its own error banner, so the board stops
+           saying it's loading. */
+        const body = boardBody({ loaded: tasksLoaded || error !== null, tab: boardTab, searching: Boolean(searchLoan), shownCount: boardTasks.length });
         return (
           <>
             <div className="section-head task-grid-head">
@@ -5257,6 +5300,8 @@ export const App = () => {
             <div role="tabpanel" id={BOARD_PANEL_ID} aria-labelledby={boardTabId(boardTab)} tabIndex={-1}>
               {body === "drafts" ? (
                 <TaskDraftsPage items={savedForLater} autosave={autosave} now={now} onOpen={newTask.reopen} onDelete={newTask.deleteDraft} onOpenAutosave={newTask.open} onDeleteAutosave={newTask.deleteAutosave} />
+              ) : body === "loading" ? (
+                <div className="empty-card" role="status">Loading tasks…</div>
               ) : body === "search-empty" && searchLoan ? (
                 <LoanSearchEmpty loan={searchLoan} onClear={clearSearch} />
               ) : body === "mine-empty" ? (

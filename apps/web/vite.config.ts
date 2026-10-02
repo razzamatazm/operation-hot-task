@@ -3,6 +3,11 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  /* Stamps each build, so the board's saved task list from an older build is
+     ignored rather than painted with fields this one doesn't expect. */
+  define: {
+    __BUILD_ID__: JSON.stringify(Date.now().toString(36))
+  },
   /* Ports come from the environment, defaulting to the pair everything else in
      the repo assumes. Hardcoded, a second instance cannot exist: the proxy
      still points at the first instance's API, so a worktree checkout on a free

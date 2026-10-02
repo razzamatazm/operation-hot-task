@@ -161,20 +161,29 @@ export const visibleBoardTasks = <T extends Pick<LoanTask, "id" | "createdBy" | 
    The search narrows All Tasks and nothing else, and a draft is not a task
    (ADR-0011), so on Task Drafts nothing is asked. An empty search is said on All
    Tasks, an empty Mine on My Tasks. An empty All Tasks with no search is still
-   the task list, which carries its own `No tasks yet.` */
-export type BoardBody = "drafts" | "search-empty" | "mine-empty" | "tasks";
+   the task list, which carries its own `No tasks yet.`
+
+   Until the first task list arrives an empty board is loading, not empty, so
+   sign-in and the first fetch don't read as `No tasks yet.` My Tasks waits for
+   that list even when the saved one has rows: they paint before the viewer is
+   known, so Mine can't be worked out yet. */
+export type BoardBody = "drafts" | "loading" | "search-empty" | "mine-empty" | "tasks";
 
 export const boardBody = ({
+  loaded,
   tab,
   searching,
   shownCount
 }: {
+  loaded: boolean;
   tab: BoardTab;
   searching: boolean;
   shownCount: number;
 }): BoardBody => {
   if (tab === "drafts") return "drafts";
+  if (!loaded && tab === "mine") return "loading";
   if (shownCount > 0) return "tasks";
+  if (!loaded) return "loading";
   if (tab === "mine") return "mine-empty";
   return searching ? "search-empty" : "tasks";
 };

@@ -346,27 +346,43 @@ test("isWithinHistory answers for one task", () => {
 test("the Task Drafts tab shows the drafts, whatever the search says", () => {
   for (const searching of [false, true]) {
     for (const shownCount of [0, 3]) {
-      assert.equal(boardBody({ tab: "drafts", searching, shownCount }), "drafts", JSON.stringify({ searching, shownCount }));
+      assert.equal(boardBody({ loaded: true, tab: "drafts", searching, shownCount }), "drafts", JSON.stringify({ searching, shownCount }));
     }
   }
 });
 
 test("All Tasks and My Tasks show the task list when there is something on it", () => {
-  assert.equal(boardBody({ tab: "all", searching: false, shownCount: 4 }), "tasks");
-  assert.equal(boardBody({ tab: "all", searching: true, shownCount: 1 }), "tasks");
-  assert.equal(boardBody({ tab: "mine", searching: false, shownCount: 4 }), "tasks");
-  assert.equal(boardBody({ tab: "mine", searching: true, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ loaded: true, tab: "all", searching: false, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ loaded: true, tab: "all", searching: true, shownCount: 1 }), "tasks");
+  assert.equal(boardBody({ loaded: true, tab: "mine", searching: false, shownCount: 4 }), "tasks");
+  assert.equal(boardBody({ loaded: true, tab: "mine", searching: true, shownCount: 4 }), "tasks");
 });
 
 test("an empty All Tasks with nothing narrowing it is still the task list, which says No tasks yet itself", () => {
-  assert.equal(boardBody({ tab: "all", searching: false, shownCount: 0 }), "tasks");
+  assert.equal(boardBody({ loaded: true, tab: "all", searching: false, shownCount: 0 }), "tasks");
 });
 
 test("on All Tasks an empty search says so", () => {
-  assert.equal(boardBody({ tab: "all", searching: true, shownCount: 0 }), "search-empty");
+  assert.equal(boardBody({ loaded: true, tab: "all", searching: true, shownCount: 0 }), "search-empty");
 });
 
 test("an empty My Tasks says so, and a search never stands in for it, since the search narrows All Tasks only", () => {
-  assert.equal(boardBody({ tab: "mine", searching: false, shownCount: 0 }), "mine-empty");
-  assert.equal(boardBody({ tab: "mine", searching: true, shownCount: 0 }), "mine-empty");
+  assert.equal(boardBody({ loaded: true, tab: "mine", searching: false, shownCount: 0 }), "mine-empty");
+  assert.equal(boardBody({ loaded: true, tab: "mine", searching: true, shownCount: 0 }), "mine-empty");
+});
+
+test("before the first task list arrives, an empty board is loading, not empty", () => {
+  assert.equal(boardBody({ loaded: false, tab: "all", searching: false, shownCount: 0 }), "loading");
+  assert.equal(boardBody({ loaded: false, tab: "all", searching: true, shownCount: 0 }), "loading");
+  assert.equal(boardBody({ loaded: false, tab: "mine", searching: false, shownCount: 0 }), "loading");
+});
+
+test("My Tasks stays loading until the first list, since the saved list paints before the viewer is known", () => {
+  assert.equal(boardBody({ loaded: false, tab: "mine", searching: false, shownCount: 3 }), "loading");
+  assert.equal(boardBody({ loaded: true, tab: "mine", searching: false, shownCount: 3 }), "tasks");
+});
+
+test("the saved list shows on All Tasks before the first list, and drafts never wait on tasks", () => {
+  assert.equal(boardBody({ loaded: false, tab: "all", searching: false, shownCount: 1 }), "tasks");
+  assert.equal(boardBody({ loaded: false, tab: "drafts", searching: false, shownCount: 0 }), "drafts");
 });

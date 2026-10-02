@@ -29,9 +29,9 @@ test("a streamed change that left the timestamp alone, like a loan rename, is ke
   assert.equal(mergeTaskSnapshot([streamed], [listed])[0], streamed);
 });
 
-test("the board passes the first task list through the merge", () => {
+test("the board passes the first task list through the merge, unless the board holds the saved list, which it replaces", () => {
   const app = readFileSync(new URL("../apps/web/src/App.tsx", import.meta.url), "utf8");
-  assert.match(app, /setTasks\(\(current\) => mergeTaskSnapshot\(current, firstTasks\.tasks\)\)/);
+  assert.match(app, /setTasks\(\(current\) => \(fromSaved \? firstTasks\.tasks : mergeTaskSnapshot\(current, firstTasks\.tasks\)\)\)/);
 });
 
 test("a streamed copy older than the list's gives way to the list", () => {
